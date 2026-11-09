@@ -22,6 +22,7 @@ Reads the same store `hermes sessions list` reads: `$HERMES_HOME/state.db` (`ses
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import secrets
 import sqlite3
@@ -34,6 +35,39 @@ from pathlib import Path
 
 #: The marker every passing run must carry, in the tool result and in the final answer.
 MARKER = "smoke-ok"
+
+
+def envelope_kind(body: str | None) -> str:
+    """Classify one tool-result envelope: what a lane can actually trust about it (issue #2269).
+
+    The terminal tool returns a JSON envelope of the command's output. A lane cannot tell "the
+    command produced nothing" from "the output channel dropped the result", so the tool layer
+    must name the difference instead of surfacing both as an empty success:
+
+    - ``"lost"``      — the body never arrived at all (``None`` / blank): a transport failure, the
+                       worst case, because the write may have landed without being readable.
+    - ``"truncated"`` — a body arrived but is not a complete, parseable output envelope (cut off
+                       mid-JSON): the channel delivered partial output as if it were complete.
+    - ``"empty"``     — a well-formed envelope whose output is genuinely empty (e.g. ``true``):
+                       a real empty result, NOT a lost one (the negative control).
+    - ``"ok"``        — a well-formed envelope carrying output.
+
+    Returns one of those four strings. Parse failures and non-dict envelopes are ``"truncated"``
+    (a partial result the channel cut), never a silent empty.
+    """
+    if body is None or not body.strip():
+        return "lost"
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return "truncated"
+    if not isinstance(data, dict) or "output" not in data:
+        return "truncated"
+    output = str(data.get("output") or "")
+    if not output.strip():
+        return "empty"
+    return "ok"
+
 
 #: The one command the agent is told to run. `printf` (the shape issue #407 names) prints the nonce
 #: from the file, so the output can only exist if a shell actually ran.
@@ -119,18 +153,44 @@ def evaluate(conn: sqlite3.Connection, session_id: str, expected: str) -> list[s
 
     problems: list[str] = []
     tool_names = [name for role, name, _ in rows if role == "tool" and name]
-    terminal_hits = [body or "" for role, name, body in rows
-                     if role == "tool" and name == "terminal" and expected in (body or "")]
+    terminal_rows = [(body, envelope_kind(body)) for role, name, body in rows
+                     if role == "tool" and name == "terminal"]
+    terminal_hits = [body or "" for body, _ in terminal_rows if expected in (body or "")]
     if not tool_names:
         problems.append(
             "the model answered without calling a tool at all - a text-only model passes a sentence "
             "assertion, which is exactly the failure this smoke exists to catch"
         )
     elif not terminal_hits:
-        problems.append(
-            "no terminal tool result carried `%s` (tool calls seen: %s) - the legs need the terminal "
-            "tool, so another tool does not count" % (expected, ", ".join(sorted(set(tool_names))))
-        )
+        # Distinguish an empty-but-successful read from a genuinely empty one (issue #2269): a
+        # lost or truncated result envelope is a suppression the lane must be told about, never an
+        # un-named empty; a well-formed envelope with genuinely empty output (exit 0) is a real
+        # empty command and is not reported as suppression.
+        lost = [body for body, kind in terminal_rows if kind == "lost"]
+        truncated = [body for body, kind in terminal_rows if kind == "truncated"]
+        if lost:
+            problems.append(
+                "`terminal` result envelope LOST: the tool returned exit 0 with no result body at "
+                "all, so the output channel may have dropped the command's output - a lane cannot "
+                "trust an empty read here (issue #2269)"
+            )
+        elif truncated:
+            problems.append(
+                "`terminal` result envelope TRUNCATED: a body arrived but is not a complete parseable "
+                "output envelope, so the channel cut the result short - never read as a clean empty "
+                "(issue #2269)"
+            )
+        elif any(kind == "empty" for _, kind in terminal_rows):
+            problems.append(
+                "`terminal` returned exit 0 with empty output - a genuinely empty command (like "
+                "`true`), which a lane reads as success; it did not carry `%s` (issue #2269)"
+                % expected
+            )
+        else:
+            problems.append(
+                "no terminal tool result carried `%s` (tool calls seen: %s) - the legs need the terminal "
+                "tool, so another tool does not count" % (expected, ", ".join(sorted(set(tool_names))))
+            )
 
     answers = [body or "" for role, _, body in rows if role == "assistant" and (body or "").strip()]
     if not answers:

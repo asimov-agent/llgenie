@@ -153,6 +153,101 @@ def test_a_missing_transcript_is_a_named_failure(tmp_path):
     assert "no readable sessions store" in proc.stderr, proc.stderr
 
 
+def test_a_lost_terminal_envelope_is_named_not_an_empty_success(tmp_path):
+    """Issue #2269: a terminal result whose result envelope never arrived (transport error,
+    missing body) must be a distinct, non-empty, channel-naming error -- NOT the generic
+    'no terminal result' message, and never an empty success a lane could mistake for a
+    genuinely empty command."""
+
+    # Given a transcript whose tool message is a terminal call whose result body is EMPTY (lost)
+    expected = smoke.expected_value(NONCE)
+    db = _store(tmp_path / "state.db", [
+        ("user", None, "run the command"),
+        ("assistant", None, None),
+        ("tool", "terminal", ""),   # the result envelope never arrived
+        ("assistant", None, expected),
+    ])
+
+    # When  the smoke evaluates it
+    problems = _evaluate(db, expected)
+
+    # Then  it fails naming the channel and the lost envelope, not as an empty success
+    assert problems, "a lost envelope must not pass"
+    blob = " ".join(problems)
+    assert "terminal" in blob, problems
+    assert any(w in blob for w in ("lost", "LOST", "dropped", "never arrived")), problems
+
+
+def test_a_truncated_terminal_envelope_is_named_not_an_empty_success(tmp_path):
+    """Issue #2269: a terminal result whose envelope is cut off (truncated) must be a distinct
+    error naming the channel and the truncation, not a generic empty-success read."""
+
+    # Given a transcript whose terminal result body is a truncated/incomplete envelope
+    expected = smoke.expected_value(NONCE)
+    db = _store(tmp_path / "state.db", [
+        ("user", None, "run the command"),
+        ("assistant", None, None),
+        ("tool", "terminal", '{"output": "smoke-ok:ab'),   # cut off mid-JSON
+        ("assistant", None, expected),
+    ])
+
+    # When  the smoke evaluates it
+    problems = _evaluate(db, expected)
+
+    # Then  it fails naming the channel and the truncation
+    assert problems, "a truncated envelope must not pass"
+    blob = " ".join(problems)
+    assert "terminal" in blob, problems
+    assert any(w in blob for w in ("truncat", "TRUNCAT", "cut off", "incomplete", "not parse")), problems
+
+
+def test_a_genuinely_empty_result_is_not_reported_as_suppression(tmp_path):
+    """Negative control (issue #2269): a well-formed envelope with genuinely empty output
+    (e.g. a real `true`) is an empty SUCCESS, never a lost/suppressed result."""
+
+    # When a well-formed envelope with genuinely empty output is classified
+    kind = smoke.envelope_kind('{"output": "", "exit_code": 0}')
+
+    # Then  it is a real empty, NOT a lost or truncated envelope
+    assert kind == "empty", kind
+    assert kind not in ("lost", "truncated"), kind
+
+    # And a genuinely empty command result in a transcript does not read as suppression
+    expected = smoke.expected_value(NONCE)
+    db = _store(tmp_path / "state.db", [
+        ("user", None, "run the command"),
+        ("assistant", None, None),
+        ("tool", "terminal", '{"output": "", "exit_code": 0}'),
+        ("assistant", None, None),
+    ])
+    problems = _evaluate(db, expected)
+    for problem in problems:
+        assert not any(w in problem for w in ("lost", "dropped", "suppressed", "never arrived")), problem
+
+
+def test_forcing_a_real_command_output_to_empty_success_is_detected(tmp_path):
+    """Issue #2269: a real command that printed output, replayed as an empty success, must not
+    read as a clean pass -- the empty-suppression is detectable, not an untracked empty."""
+
+    # Given a transcript that WOULD be a proof with real output, but the output is an empty
+    # success (the channel dropped the bytes)
+    expected = smoke.expected_value(NONCE)
+    db = _store(tmp_path / "state.db", [
+        ("user", None, "run the command"),
+        ("assistant", None, None),
+        ("tool", "terminal", '{"output": "", "exit_code": 0}'),
+        ("assistant", None, expected),
+    ])
+
+    # When  the smoke evaluates it
+    problems = _evaluate(db, expected)
+
+    # Then  it does not pass as a proven tool call (the marker never reached the answer)
+    assert problems, "an empty success replacing real output must not pass"
+    blob = " ".join(problems)
+    assert "terminal" in blob, problems
+
+
 def _hermes_stub(tmp_path: Path, *, writes_store: bool) -> Path:
     """A real `hermes` executable: it writes the session a passing smoke needs, or nothing at all.
 
