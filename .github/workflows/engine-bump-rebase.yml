@@ -97,6 +97,11 @@ jobs:
   rebase:
     needs: [guard]
     runs-on: ubuntu-latest
+    # A bounded ceiling: a healthy rebase is ~15s (run 42478956638,
+    # 12:10:12Z->12:10:27Z); the bound keeps a stalled forward-merge from
+    # inheriting GitHub's 360-minute default and holding the engine-bump-rebase
+    # queue on a zombie (issue #2317).
+    timeout-minutes: 20
     permissions:
       contents: write
       pull-requests: write

@@ -101,6 +101,11 @@ jobs:
   plan:
     needs: [guard]
     runs-on: ubuntu-latest
+    # A bounded ceiling: a healthy plan is ~12-30s (measured 2026-11-08, runs
+    # 42495434034 / 41483337124 / 41455039526); the bound turns a hung git
+    # ls-remote / plan step into a surfaced timeout instead of GitHub's
+    # 360-minute default (issue #2317).
+    timeout-minutes: 20
     outputs:
       matrix: ${{ steps.p.outputs.matrix }}
     steps:
@@ -132,6 +137,11 @@ jobs:
       pull-requests: write
       issues: write
       packages: read
+    # A bounded ceiling: the longest bump (tensorfold, with the live archive
+    # proof) is ~5m (run 42495434034, 15:34:09Z->15:39:10Z); the bound keeps a
+    # hung hub/download/apply from inheriting GitHub's 360-minute default and
+    # blocking the whole engine-bump concurrency group on a zombie (issue #2317).
+    timeout-minutes: 30
     # engine-bump derives from the upstream tree and the TensorFold live archive test runs in
     # the test container, which forwards these tokens by name (Makefile TEST_OPTS, issue
     # #199/#1594: job-scoped, not workflow-wide).
