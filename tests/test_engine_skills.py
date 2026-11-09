@@ -1746,25 +1746,30 @@ def test_mlx_cpu_image_smoke_uses_an_unquantized_model():
 
 
 def test_every_published_image_is_started_and_answers_hi():
-    """After publishing, each image (GPU ones too, without GPU devices on the
-    GPU-less runner) is pulled, its binary version checked, and the running
-    container must answer "hi" on the OpenAI chat endpoint."""
+    """After publishing, each image's BINARY is pulled and checked against -h/--version only (issue #2319);
+    CI never starts a server for an inference test. The serve conformance test is host-only — run manually
+    by the llgenie-engine-improver via make test-engine-host (the smallest model that fits) or the explicit
+    --serve tier make test-engine-serve."""
     mk = (REPO / "Makefile").read_text()
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
     assert "pull-published" in recipe
-    assert "$(MAKE) test-engine-image" in recipe
-    assert "engine_smoke.py" in recipe and "--image" in recipe
-    assert "$(if $(filter cpu,$(ARCH)),,--no-gpu)" in recipe
-    assert 'ei.chat_testable("$(ENGINE)", "$(ARCH)")' in recipe
+    assert "$(MAKE) test-engine-image" in recipe  # test-engine-image runs the -h/--version binary probe
+    # the binary gate is exactly -h/--version; the CI recipe never INVOKES --serve (prose may name the
+    # host-only make test-engine-serve, but there is no engine_smoke --serve command line)
+    assert "--serve;" not in recipe and "--serve " not in recipe.splitlines()[-2]
+    assert "$(if $(filter cpu,$(ARCH)),,--no-gpu)" not in recipe
+    assert 'ei.chat_testable("$(ENGINE)", "$(ARCH)")' not in recipe
     smoke = (REPO / "scripts" / "engine_smoke.py").read_text()
-    assert 'spec = {**spec, "run_args": list(es.SHM)}' in smoke
+    assert 'flags = ["-h", "--version"]' in smoke
+    assert '["--version", "--help"]' not in smoke.replace('["-h", "--version"]', "")
     eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
-    # the producer verifies every image it published: the cpu binary smoke answers the flags it
-    # documents (issue #1717, the DEFAULT gate — never a serving-readiness wait); the OpenAI-serving
-    # conformance tier is the explicit --serve opt-in on the push serve-leg (no GPU image skips it)
+    # the producer verifies every image it published: the binary smoke answers -h/--version (issue #2319,
+    # the DEFAULT gate — never a serving-readiness wait); serving is NOT exercised in CI
     assert "run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in eb
-    assert "serve: the engine binary smoke" in eb
-    assert "the OpenAI-serving conformance tier is the explicit --serve opt-in" in eb
+    assert "published-binary-leg" in eb and "-h/--version" in eb
+    assert "host-verify MATRIX" not in eb
+    assert "run: make test-engine-host" not in eb
+    assert "--serve opt-in on the push serve-leg" not in eb
 
 
 def test_llama_server_shim_uses_the_images_real_binary_path():

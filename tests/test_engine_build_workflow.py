@@ -173,30 +173,27 @@ def test_every_published_row_install_tests_the_image_it_just_published():
         "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
-def test_the_published_rows_last_matrix_step_runs_the_parameterized_host_command():
-    """Issue #1322 (owner refinement): the engine-build workflow's LAST step is the parameterized
-    host-verify command as a PARALLEL matrix over the supported (engine x arch) cells — one matrix
-    element per cell, keyed off the RUNNER's arch types at runtime. It passes ENGINE/ARCH (and MODEL
-    when the dispatch sets one); a GPU-less runner skips the GPU legs and never reddens (#1240)."""
-
-    # Given the workflow text and the committed Makefile
+def test_the_workflow_verifies_the_published_binary_and_never_serves_in_ci():
+    """Issue #1322 (owner refinement) / issue #2319: after publishing, CI pulls the JUST-published
+    image and verifies the engine BINARY answers -h/--version only. The serve conformance test is
+    NOT a CI step — host-verify was removed from the workflow; the host-only `make test-engine-host`
+    (smallest model that fits) is run manually by the llgenie-engine-improver."""
     text = workflow()
 
-    # When  the publish -> install-leg -> host-verify MATRIX last step order is read
-    # Then  the parameterized command is the LAST step and runs after the install-leg
-    assert "run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
-    assert text.index("run: make test-engine-install") < text.index("run: make test-engine-host")
-    after = text.split("run: make test-engine-host", 1)[1]
-    assert "run: make " not in after, f"host-verify must be the last step, found: {after}"
-    # The matrix is parallel over the row cells and keyed off the runner's arch at runtime
-    assert "max-parallel" in text
-    assert "host-verify MATRIX" in text
+    # The published-binary leg runs after push-engine and before install-leg
+    assert "published-binary-leg" in text
+    assert "run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert text.index("run: make test-published-engine") < text.index("run: make test-engine-install")
+    # No serve leg and no host-verify matrix run in CI — serving is host-only (issue #2319)
+    assert "host-verify MATRIX" not in text
+    assert "run: make test-engine-host" not in text
+    assert "--serve" not in text
 
-    # The make target accepts ENGINE, ARCH and MODEL (the owner-refined parameterization)
+    # The host make target is preserved and passes ENGINE, ARCH and MODEL (the owner-refined parameterization)
     host_tail = MAKEFILE.split("\ntest-engine-host:", 1)[1].split("\n\n", 1)[0]
     for arg in ("--engine", "--arch", "--model"):
         assert arg in host_tail, f"test-engine-host must pass ${arg.upper()=}"
-    # The command never builds: it is wired to pull the AS-PUBLISHED image
+    # The command never builds: it is wired to pull the AS-PUBLISHED image and serve it
     assert "engine_host_test.py" in host_tail
 
 
