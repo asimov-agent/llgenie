@@ -98,3 +98,5 @@ jobs:
         run: make search-smoke
       - name: The URLs a bot run depends on must resolve (issue #380) — no model call, no key
         run: make web-coverage
+
+# probe-839 workflows class
