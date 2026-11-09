@@ -81,6 +81,13 @@ concurrency:
   # full sweep 40199122842 (#621).
   group: engine-build-${{ inputs.push == 'true' && 'push' || format('build-{0}-{1}', inputs.engine, inputs.arch) }}
   cancel-in-progress: false
+  # queue: max — a pending push run is never superseded by the next dispatch. GitHub's default
+  # `queue: single` cancels-and-replaces a PENDING run in the group on every newer run, so a bump's
+  # producer (queued behind a live build) was killed the instant a sibling re-dispatched — six engine
+  # bumps red with "producer cancelled — nothing to wait for" (#2294). `cancel-in-progress: false`
+  # protects only the RUNNING run, so the queue key is the load-bearing one for pending producers.
+  # With `max` the group holds up to 100 pending runs FIFO and each reaches a real conclusion.
+  queue: max
 
 jobs:
   guard:

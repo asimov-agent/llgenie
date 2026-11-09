@@ -545,3 +545,85 @@ def test_every_committed_workflow_has_a_runnable_shape():
     """The tree itself: every workflow parses into at least one job, and no `uses:` job carries a key
     GitHub rejects at load time (the defect that made #882 unapprovable and invisible)."""
     assert cw.check_uses_job_keys(REPO) == []
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #2317: a job of a schedule-triggered workflow must declare `timeout-minutes`, or a hang
+# inherits GitHub's 360-minute default.
+def test_a_scheduled_job_with_no_timeout_is_reported(tmp_path):
+    """The exact defect: a `schedule` workflow whose job declares no ceiling."""
+    root = _wf(tmp_path, "jobrunner.yml", """
+name: jobrunner
+on:
+  schedule:
+    - cron: "17 3 * * *"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+""")
+
+    items = cw.check_scheduled_job_timeouts(root)
+
+    assert [i["key"].split("/")[0] for i in items] == ["workflow-scheduled-timeout"], items
+    assert "engine-bump" not in " ".join(i["evidence"] for i in items), items[0]["evidence"]
+
+
+def test_a_scheduled_job_with_a_timeout_is_accepted(tmp_path):
+    """The fixed shape: a `schedule` job with a `timeout-minutes` ceiling passes."""
+    root = _wf(tmp_path, "jobrunner.yml", """
+name: jobrunner
+on:
+  schedule:
+    - cron: "17 3 * * *"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: echo hi
+""")
+
+    assert cw.check_scheduled_job_timeouts(root) == []
+
+
+def test_a_non_scheduled_workflow_is_out_of_scope(tmp_path):
+    """Only `schedule`-triggered workflows are netted; a dispatch-only workflow with an unbounded
+    bare job is the pipeline/timeout suite's concern, not this rule's (#2317)."""
+    root = _wf(tmp_path, "manual.yml", """
+name: manual
+on:
+  workflow_dispatch:
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+""")
+
+    assert cw.check_scheduled_job_timeouts(root) == []
+
+
+def test_a_scheduled_uses_job_is_skipped(tmp_path):
+    """A `uses:` caller cannot carry a `timeout-minutes` (GitHub rejects the file, #882), so a
+    scheduled workflow that delegates to a reusable one must not be flagged for a ceiling it cannot
+    hold — the ceiling belongs inside the called workflow."""
+    root = _wf(tmp_path, "caller.yml", """
+name: caller
+on:
+  schedule:
+    - cron: "17 3 * * *"
+jobs:
+  delegate:
+    uses: ./.github/workflows/pipeline.yml
+""")
+
+    assert cw.check_scheduled_job_timeouts(root) == []
+
+
+def test_every_scheduled_job_in_this_repository_declares_a_ceiling():
+    """The tree itself: after #2317 every job of a schedule-triggered workflow carries a
+    `timeout-minutes`, so a future edit that drops one (or adds a new unbounded scheduled job) reds
+    `make check-workflows`."""
+    assert cw.check_scheduled_job_timeouts(REPO) == [], cw.render(cw.findings(REPO))
