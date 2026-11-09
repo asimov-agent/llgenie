@@ -1179,7 +1179,7 @@ def test_validator_requires_documented_binary_flags(skills):
 
 def test_probe_policy_honours_the_version_only_per_backend_branch():
     """`binary_probe: {cuda: version}` returns 'version' for cuda and the default 'flags'
-    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.1 pin,
+    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.4 pin,
     issue #1888) — and the committed tensorfold manifest carries it."""
 
     import scripts.engine_skills as es

@@ -148,8 +148,8 @@ def test_the_gate_is_wired_into_ci_unit_and_phony():
 # --- committed-set pin-validity guard (issue #2190) --------------------------
 # The repin diff (above) catches an engine a PR moves. The committed-set sweep
 # catches the recurring publish-gap where a bumped pin's image was NEVER rebuilt:
-# tensorfold/cuda at ef27f74f sat committed on main with no PR re-pinning it, so
-# the repin-only gate never fired while `ghcr.io/.../tensorfold:ef27f74f-*` 404'd.
+# tensorfold/cuda at a6720bed sat committed on main with no PR re-pinning it, so
+# the repin-only gate never fired while `ghcr.io/.../tensorfold:a6720bed-*` 404'd.
 # check_committed sweeps the FULL params matrix (every enabled cell, all backends).
 
 COMPANY_REGISTRY = "ghcr.io/example/llgenie"
