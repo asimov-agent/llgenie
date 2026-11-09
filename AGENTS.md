@@ -869,6 +869,16 @@ Mechanics of the guarantee:
   meaningful behavior that CAN run (e.g. the error message / CLI contract), never
   `pytest.skip("needs X")`.
 
+**`xfail` is a skip in this repository.** A test that takes an `@pytest.mark.xfail`
+marker is still a skipped test — pytest reports its failed body as `skipped` with
+`wasxfail` set, and the conftest's `pytest_report_teststatus`/`pytest_runtest_logreport`
+hooks both ask the single `_skip_violation()` predicate, so an `xfail` is caught exactly
+like any other skip and a recorded violation makes the run exit red. There is no "known
+failure" bucket in the gate: a green run must mean every test ran and passed. The
+replacement for a known defect is a test that **asserts the defect's current behaviour**,
+so the fix reds the test and its deletion is forced mechanically instead of remembered.
+See `docs/TESTING.md` (linked from `README.md`) for the long form of the contract.
+
 ### Business logic is never mocked (mandatory, durable)
 
 A test that claims to lock business logic runs that logic. It MUST NOT replace

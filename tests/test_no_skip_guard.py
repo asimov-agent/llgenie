@@ -174,16 +174,26 @@ def test_sessionfinish_leaves_a_clean_run_green():
 def test_the_testing_doc_states_the_xfail_position_and_the_replacement():
     """The rule a lane reads is written in the docs, not only in my head."""
 
-    # Given the testing page a lane is pointed at
-    doc = Path(__file__).resolve().parent.parent / "docs" / "TESTING.md"
+    # Given the testing page a lane is pointed at, and the authoritative AGENTS.md
+    root = Path(__file__).resolve().parent.parent
+    doc = root / "docs" / "TESTING.md"
+    agents = root / "AGENTS.md"
 
-    # When  it is read
+    # When  they are read
     text = doc.read_text(encoding="utf-8")
+    agents_text = agents.read_text(encoding="utf-8")
+    agents_section = agents_text.split("### NO SKIPPED TESTS", 1)[1] if "### NO SKIPPED TESTS" in agents_text else ""
 
-    # Then  it says xfail is a skip, and names the pattern whose removal is forced
+    # Then  the testing page says xfail is a skip, and names the pattern whose removal is forced
     assert "`xfail` is a **skip**" in text
     assert "forced mechanically" in text
     assert "asserts the defect's **current** behaviour" in text
+
+    # ... and AGENTS.md's "NO SKIPPED TESTS" section carries the same position, so the
+    # file the fleet is told to follow over memory says it too (issue #1143).
+    assert "`xfail` is a skip in this repository" in agents_section
+    assert "asserts the defect's current behaviour" in agents_section
+    assert "docs/TESTING.md" in agents_section
 
 
 def _write_run(tmp_path, files: dict[str, str]):
