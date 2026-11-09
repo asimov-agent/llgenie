@@ -1817,6 +1817,29 @@ def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
     assert torch_i < cpu_txt_i
 
 
+def test_vllm_cuda_installs_the_wheel_not_a_source_step():
+    """Issue #2386: the cuda cell installs vLLM's official prebuilt CUDA wheel
+    (curl + sha256 hash-check + uv pip install of cu130 torch family then the wheel)
+    instead of source-compiling the pin. Any regression back to a source step
+    (git clone / build_rust.sh / -r …/build/cuda.txt / -e .) must red the gate."""
+    p = json.loads((REPO / "containers/engines/params/vllm.json").read_text())["variants"]
+    cuda = p["cuda"]
+    joined = "\n".join(cuda["install"])
+    # the wheel flow: curl the pinned wheel, hash-check it, install cu130 torch then the wheel
+    assert "https://files.pythonhosted.org/packages/8b/a8" in joined
+    assert ".whl" in joined and "curl" in joined and "sha256sum -c" in joined
+    assert "--index-url https://download.pytorch.org/whl/cu130" in joined
+    assert any("torch==2.14.0" in i for i in cuda["install"])
+    # NO source-compile step on the cuda cell
+    for bad in ("git clone", "build_rust.sh", "requirements/build/cuda.txt", "-e .",
+                "VLLM_TARGET_DEVICE=cuda uv pip install --no-build-isolation"):
+        assert bad not in joined, f"cuda install must not source-compile: {bad!r} present"
+    # rocm and cpu still source-compile the pinned sha (unchanged)
+    for b in ("rocm", "cpu"):
+        other = "\n".join(p[b]["install"])
+        assert "git clone" in other and "-e ." in other, f"{b} must stay a source build"
+
+
 def test_rocm_source_builds_pin_a_base_their_build_accepts():
     """CI #98: exllamav3 needs ROCm >= 7.2.4 (the shared 7.0 base fails), sglang's
     setup_rocm.py hard-codes c++17 (rocm/pytorch:latest needs c++20 headers),

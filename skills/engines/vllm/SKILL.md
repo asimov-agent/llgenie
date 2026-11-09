@@ -30,22 +30,17 @@ hw_flags:
     gpu_targets: "'{gpu_targets}'"
 install:
   cuda:
-    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # --no-build-isolation builds against a preinstalled torch: bump >= the sha's own
-    # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
-    # torchcodec (the vLLM video-decoding backend, `>= 0.14` in requirements/*.txt) is
-    # preinstalled from the SAME index: the default-PyPI wheel is built against the stable
-    # torch C++ ABI and `torch.ops.load_library(libtorchcodec_image.so)` dies with a generic
-    # "Could not load this library" against the preinstalled torch (issue #1365 run
-    # 41355299891 cpu/cuda).
-    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
-    - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
-    # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
-    # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
-    # shared devel base (no Rust toolchain) fails. build_rust.sh bootstraps rustup + the pinned
-    # toolchain and precompiles the artifacts into the source tree, letting -e . skip cargo (issue #1365).
-    - "cd {src} && bash tools/build_rust.sh"
-    - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # v0.33.0 cuda cell installs the official prebuilt CUDA wheel (cu13, cp38-abi3)
+    # instead of source-compiling the pin — supersedes #937/#615 for the cuda cell
+    # (issue #2386). curl + sha256 hash-check (version AND sha both pinned; the build
+    # fails on any mismatch — never install an unpinned wheel), then uv pip install.
+    - "curl -fSL --retry 3 -o /opt/llgenie/engines/vllm/vllm.whl https://files.pythonhosted.org/packages/8b/a8/92e278093df40fde4c4bfd6572704bb8f398d6a2280d8c82cb5efaf12047/vllm-0.33.0-cp38-abi3-manylinux_2_28_x86_64.whl"
+    - "echo '4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa  /opt/llgenie/engines/vllm/vllm.whl' | sha256sum -c -"
+    # torch cu130 family first from the SAME cu130 index the source build used, so the
+    # wheel's own `torch==2.14.0` pin and the [cu13] extras (nvidia-cutlass-dsl, humming-
+    # kernels, flashinfer-python, xgrammar) resolve against the matching ABI.
+    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision==0.29.0 torchaudio==2.11.0 torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
+    - "uv pip install --system --break-system-packages /opt/llgenie/engines/vllm/vllm.whl && rm -f /opt/llgenie/engines/vllm/vllm.whl"
   rocm:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # the rocm build file names the amd index and the torch it needs, but pins a BARE
@@ -106,9 +101,9 @@ env:
 health: "GET /health"
 alias_mode: flag
 container:
-  # every cell compiles the pinned sha on the shared devel base for that backend
-  # (cuda: nvidia/cuda:13.0.2-devel, rocm: rocm/dev-ubuntu-24.04:7.0-complete,
-  #  cpu: ubuntu:24.04) — no upstream vLLM wheel is installed (issue #937)
+  # cuda installs the pinned prebuilt CUDA wheel (v0.33.0, sha
+  # 4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa) + cu130 torch family;
+  # rocm/cpu compile the pinned sha (issue #2386 supersedes #937/#615 for cuda only).
   cuda:
     apt: [python3-dev]
   rocm:

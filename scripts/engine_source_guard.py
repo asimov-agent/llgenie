@@ -64,6 +64,12 @@ KNOWN_NOT_SOURCE = {
                           "into surogate.libs, per upstream Dockerfile.cu130), so there is no source build "
                           "step — installing the wheel IS shipping the engine. Revisit if upstream ships a "
                           "source sdist build.",
+    ("vllm", "cuda"): "#2386 the cuda cell installs vLLM's official prebuilt CUDA wheel "
+                      "(`vllm-0.33.0-cp38-abi3-manylinux_2_28_x86_64.whl`, sha "
+                      "4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa, cu13) "
+                      "fetched by curl + sha256 hash-checked + `uv pip install`, preceded by the cu130 "
+                      "torch family from the same index the source build used — no source compile step, "
+                      "which supersedes #937/#615 for the cuda cell. rocm/cpu still source-compile.",
 }
 
 
