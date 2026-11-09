@@ -140,17 +140,16 @@ jobs:
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "agent image: $image"
 
-      - name: Prove the JEV engine is active
+      # The ordered agent-leg preflight (JEV #238, shell-keys #358, routing-smoke #407) — the
+      # review does not start without it, and only a `review` decision spends the key.
+      # One call, one place (issue #798).
+      - name: Run the reusable agent-leg preflight (issue #798)
         if: steps.brief.outputs.action == 'review'
-        run: make agent-jev-preflight NERVE_REQUIRE=1
-
-      - name: Prove the agent's shell can see this job's credentials
-        if: steps.brief.outputs.action == 'review'
-        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY GH_TOKEN"
-
-      - name: Hermes routing smoke
-        if: steps.brief.outputs.action == 'review'
-        run: make hermes-smoke
+        uses: ./.github/actions/agent-leg
+        with:
+          phase: preflight
+          shell_keys: "NOUS_API_KEY GH_TOKEN"
+          routing_smoke: "true"
 
       - name: Review the green store with Hermes inside the agent image
         if: steps.brief.outputs.action == 'review'
@@ -158,13 +157,13 @@ jobs:
           AGENT_IMAGE: ${{ steps.agent.outputs.image }}
         run: make registry-sync-review AGENT_IMAGE="$AGENT_IMAGE"
 
-      - name: Upload the REDACTED agent transcript
+      # The whole point of the redaction seam (issue #359): the reusable leg publishes the
+      # REDACTED transcript, never the raw capture.
+      - name: Upload the REDACTED agent transcript (issue #359)
         if: always() && steps.brief.outputs.action == 'review'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/agent-leg
         with:
-          name: agent-transcript-redacted
-          path: hermes-run.scrubbed.log
-          if-no-files-found: ignore
+          phase: upload
 
       # The only writer of GitHub state: ONE issue, labelled `agent:implement`, keyed by the store.
       - name: Publish ONE issue from the review (never merges, never pushes)
