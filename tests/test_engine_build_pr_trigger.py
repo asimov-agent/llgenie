@@ -15,8 +15,10 @@ away from the YAML it claims to describe):
 - the `concurrency.group` carries BOTH the PR number and the PR head SHA
 - `cancel-in-progress` stays `false`, so a stale-head trigger never cancels a producer
   run that is mid-build (#1102, #917)
-- the trigger stays on `pull_request` only (never `push` to main, #614), so a merge
-  publishes on its own schedule rather than double-dispatching a full sweep
+- the trigger stays off `push` to main (#614), so a merge publishes on its own schedule
+  rather than double-dispatching a full sweep. Issue #2381 adds `workflow_dispatch` (a
+  manual re-drive with REQUIRED `base_ref` + `branch` inputs) beside `pull_request`,
+  so the trigger surface is exactly `{pull_request, workflow_dispatch}`.
 
 Unticked AC1/AC2 on #1831 are provable here, pre-merge, by this test — the head-SHA scope
 is static text in the workflow, so whether a real rebase's run reports a guard job
@@ -72,13 +74,21 @@ def test_trigger_separate_group_per_head_not_shared_by_number():
     assert g1 != g2
 
 
-def test_trigger_not_cancelled_and_pull_request_only():
-    """cancel-in-progress stays false (never cancel a live producer run, #917/#1102) and
-    the trigger fires only on pull_request (never push to main, #614)."""
+def test_trigger_not_cancelled_and_trigger_surface():
+    """cancel-in-progress stays false (never cancel a live producer run, #917/#1102); the
+    trigger surface is `pull_request` + `workflow_dispatch` (issue #2381) and never `push`
+    to main (#614); and a manual dispatch is always scoped by its REQUIRED inputs."""
     wf = _load()
     assert wf["concurrency"]["cancel-in-progress"] is False
     on = _on(wf)
-    assert set(on.keys()) == {"pull_request"}
+    assert set(on.keys()) == {"pull_request", "workflow_dispatch"}
+    # the dispatch is scoped: both inputs are required so a re-drive always names its refs
+    dispatch = on["workflow_dispatch"]
+    if isinstance(dispatch, dict):
+        inputs = (dispatch.get("inputs") or {})
+        for key in ("base_ref", "branch"):
+            assert key in inputs, f"dispatch input {key} missing"
+            assert (inputs[key].get("required") is True), f"dispatch input {key} must be required"
     # and must react to a synchronize push (a rebase), which is the #1831 vehicle
     pr = on["pull_request"]
     if isinstance(pr, dict):
