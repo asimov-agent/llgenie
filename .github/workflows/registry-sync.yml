@@ -95,6 +95,9 @@ jobs:
   sync:
     needs: [guard]
     runs-on: ubuntu-latest
+    # #2291: this 11-step job runs sync + render + make test-unit; a hang would otherwise inherit
+    # GitHub's 360-minute default and block the weekly slot. 120m is a wide hang-detector, not a budget.
+    timeout-minutes: 120
     # The sync make targets and the test image forward these tokens by name
     # (job-scoped, not workflow-wide — issue #1594).
     env:

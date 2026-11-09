@@ -101,6 +101,10 @@ jobs:
   plan:
     needs: [guard]
     runs-on: ubuntu-latest
+    # #2291: a hang here (a stuck `git ls-remote`, a Hub that stops answering) would otherwise
+    # inherit GitHub's 360-minute default. 30m is a wide hang-detector, not a budget — the healthy
+    # job is a sub-minute make engine-bump-plan + ls-remote sweep.
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.p.outputs.matrix }}
     steps:
@@ -139,6 +143,10 @@ jobs:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     name: bump-${{ matrix.id }}
+    # #2291: the highest-latency step in the workflow (the live TensorFold archive proof, issue #995)
+    # is its ONLY unbounded one. 120m is a wide hang-detector, not a budget — a legitimately long row
+    # finishes, a stuck one surfaces as a timeout instead of stalling the weekly slot.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

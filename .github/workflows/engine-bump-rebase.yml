@@ -97,6 +97,9 @@ jobs:
   rebase:
     needs: [guard]
     runs-on: ubuntu-latest
+    # #2291: a hang (a stuck git fetch/main merge) would otherwise inherit GitHub's 360-minute
+    # default and stall the daily slot behind the concurrency group. 30m is a wide hang-detector.
+    timeout-minutes: 30
     permissions:
       contents: write
       pull-requests: write
