@@ -290,10 +290,11 @@ def test_the_refiner_gates_the_run_on_jev():
     no JEV env at all before this, so its agent ran unsupervised."""
     repo = Path(__file__).resolve().parent.parent
     text = (repo / ".github/workflows/issue-refiner.yml").read_text()
-    gate = text.index("JEV engine is active")
+    leg = (repo / ".github/actions/agent-leg/action.yml").read_text()
+    assert "make agent-jev-preflight NERVE_REQUIRE=1" in leg, "the leg must ARM the JEV gate"
+    preflight = text.index(".github/actions/agent-leg")   # the preflight uses-step, before the review
     review = text.index("Review the issue (Hermes reads refine-in.md")
-    assert gate < review, "the gate must run before the agent"
-    assert "NERVE_REQUIRE=1" in text, "the gate must be ARMED"
+    assert preflight < review, "the gate must run before the agent"
     mk = (repo / "Makefile").read_text()
     recipe = mk[mk.index("issue-refiner:"):mk.index("_issue-refiner:")]
     assert "TYPESAFE_API_KEY" in recipe, "the key must reach the container at run time"

@@ -329,7 +329,10 @@ def test_the_implementer_runs_inside_the_agent_image():
         assert rule in skill, f"the hard rules live in the implementer's skill ({rule})"
 
     workflow = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
-    assert "make implement-issue" in workflow and "make hermes-smoke" in workflow
+    leg = (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    assert "make implement-issue" in workflow
+    assert "make hermes-smoke" in leg, "the routing smoke lives in the reusable leg (issue #798)"
+    assert 'routing_smoke: "true"' in workflow, "issue-bot opts into the routing smoke"
     assert "install_hermes_ci.sh" not in workflow and "uv tool install" not in workflow, (
         "the workflow must not install the agent on the runner: the image carries it"
     )
