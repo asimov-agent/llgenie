@@ -112,6 +112,17 @@ CITE = re.compile(r"#(\d+)")
 
 #: The inline `(proven: …)` evidence a TICKED criterion carries (acceptance_writeback #1644).
 PROVEN_MARKER = re.compile(r"\(proven:\s*(.*?)\)\s*$", re.S)
+#: A criterion worded as a LOCAL build — which no engine cell can be proved by (issue #2109): a
+#: host build is forbidden (AGENTS.md "Inference servers run ONLY in their container images"). When
+#: an unticked criterion says this, the finding points at the provable DISPATCH form instead of the
+#: local build.
+LOCAL_BUILD = re.compile(r"locally on this host|green (?:in a )?local|local build", re.IGNORECASE)
+#: The dispatch form a locally-worded criterion is re-stated to (issue #2109): the failing cell is
+#: green in a real run, with its own log recorded — the single-cell `engine-build` dispatch CI owns.
+DISPATCH_FORM = (
+    "the failing cell is green in a real run of the failing cell (the single-cell `engine-build` "
+    "dispatch), with its own log recorded"
+)
 #: A named CI workflow run — `run=42191377162` — the strongest provable evidence (issue #1858).
 RUN_ID = re.compile(r"\brun\s*=\s*\d+\b")
 #: The reproducible fold/sync form: a command + its exit code + the measured tree sha, e.g.
@@ -275,6 +286,14 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
     for pos, _t, text in unticked:
         if _declared_out_of_scope(pr_body, text):
             continue
+        # A locally-worded engine criterion cannot be proved by a host build (issue #2109) — point at
+        # the DISPATCH form: the failing cell green in a real run, with its own log recorded.
+        local_build_hint = (
+            " The criterion names a LOCAL build, which this repo forbids for engine cells "
+            "(AGENTS.md \u201cInference servers run ONLY in their container images\u201d). "
+            f"Re-state it as: {DISPATCH_FORM}."
+            if LOCAL_BUILD.search(str(text or "")) else ""
+        )
         if verdict:
             out.append({
                 "key": "acceptance-proven-awaiting-writer",
@@ -288,6 +307,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                     f"and has no CI trigger (#1644/#1808), so this is `proven-awaiting-writer`, not "
                     f"`unproven` — the author cannot clear it; the verdict-writer's `acceptance_"
                     f"writeback` does. Do not re-prove; land the write-back or the verdict."
+                    + local_build_hint
                 ),
                 "where": f"#{issue}",
             })
@@ -303,6 +323,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                 f"only write-back is verdict-gated (#1644), so an un-reviewed merge stays honest. "
                 f"Prove the criterion (tick it via `acceptance_writeback`) or name it out of scope "
                 f"under `## Not covered` with a linked work item."
+                + local_build_hint
             ),
             "where": f"#{issue}",
         })

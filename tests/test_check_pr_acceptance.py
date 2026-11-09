@@ -51,6 +51,22 @@ def test_closed_issue_with_unticked_criterion_is_RED():
     assert any(f["key"] == "acceptance-unchecked" for f in findings), [f["key"] for f in findings]
 
 
+def test_unticked_local_build_criterion_points_at_the_dispatch_form():
+    # A criterion worded as a LOCAL engine build cannot be proved by a host build (issue #2109) — the
+    # finding must name the DISPATCH form as the remedy instead of leaving "locally on this host".
+    body = ("## Problem\n\nmeasured\n\n## Acceptance criteria\n"
+            "- [ ] the failing make target is green locally on this host, with its real output recorded\n"
+            "## Technical\n\n- t\n")
+    findings = g.acceptance_verdict(body, _pr("closes #1000"), 1000)
+    unchecked = [f for f in findings if f["key"] == "acceptance-unchecked"]
+    assert unchecked, [f["key"] for f in findings]
+    evidence = unchecked[0]["evidence"]
+    assert "LOCAL build" in evidence
+    assert "Inference servers run ONLY in their container images" in evidence
+    assert "in a real run of the failing cell" in evidence
+    assert "single-cell `engine-build`" in evidence
+
+
 def test_closed_issue_with_all_criteria_ticked_is_GREEN():
     assert g.acceptance_verdict(_issue(ticked=[1, 2, 3], total=3), _pr("closes #1000"), 1000) == []
 
