@@ -13,7 +13,8 @@ downgrade the lane.
 ## What Changes
 
 - `skills/llgenie-business-analyst/SKILL.md` folded live→tree byte-identically (7,604 → 14,136 b,
-  full restore, not patched around the truncation).
+  full restore, not patched around the truncation; host-bot-tools marker then re-stamped to the fixture
+  render — final 13,989 b both sides after the tree→live sync).
 - `SOUL.md` kept as the committed tree (12,283 b; live 9,156 b is behind — tree newer, sync grows
   live, allowed, #791 step 4 opposite case). `references/issue-body-shape.md` identical (1,931 b).
 - #1123 change-note trio + this openspec change (`skip_specs: true`, content-sync fold) so the #1807

@@ -24,7 +24,11 @@ runs today (the #2165 provisioning path), silently downgrading the lane — the 
 ## What this PR folds
 
 - `skills/llgenie-business-analyst/SKILL.md` copied **live→tree byte-identically** (7,604 → 14,136 b),
-  restoring the full live file — not patched around the truncation.
+  restoring the full live file — not patched around the truncation. One refinement: the live copy's
+  host-bot-tools marker block was STALE (predates #1572, which added this lane to
+  `tests/fixtures/host-bot-capabilities.json`), so it was re-stamped to the fixture render — otherwise
+  `test_host_bot_capabilities.py` reds at the committed head. Final file is 13,989 b both sides; the
+  tree→live sync carries the corrected marker into the live profile.
 - `SOUL.md`: **tree kept** (12,283 b). The live copy (9,156 b) is behind; the tree is newer. The
   fix syncs tree→live (grows live, allowed, #791 step 4 opposite-direction case) — it is NOT copied
   live→tree.
