@@ -14,6 +14,12 @@ install line (`torch 2.13→2.14`) at an UNCHANGED `pinned` retaged every backen
 push run aborted on the first (cpu) cell failure so cuda/rocm were never rebuilt at the new hash, and
 the follow-up republished cpu only. The gate named the gap; nothing closed it.
 
+> **Note (superseded pins).** The two tags above are *generated* pins — not literals. PR #2274 changes
+> the rocm cell to `prebuilt: true` over AMD's base, so the regenerated rocm pin is the published
+> `3a4d82f5-16c7ff10-rocm` (HTTP 200 in ghcr); the historical `…-5772a26a-rocm` that 404''d for five
+> days is superseded and no longer generated. They are recorded here as the measured 404, not as
+> current pins.
+
 ## What Changes
 
 - **`.github/workflows/registry-liveness.yml`** — after the `ALL=1` hard-fail (kept verbatim — no gate

@@ -5,6 +5,9 @@ A params edit that changes an install line (but not the `pinned` field) retags e
 an engine. If the producer aborts on the first cell failure, the later cells keep their NEW hash with
 NO image built — a committed tag that 404s on GHCR while cpu carries the new tag (measured: vllm cpu
 `3a4d82f5-13c5a9c8` published, cuda `…-9be509b4` / rocm `…-5772a26a` absent for five days, #1682/#1684).
+The rocm tag is a *generated* pin: PR #2274 (rocm cell → `prebuilt: true` over AMD's base) regenerates
+it to the published `…-16c7ff10-rocm`, so the historical `…-5772a26a` is superseded and no longer
+generated.)
 
 `engine_image.collect()` is the build-and-collect form: every cell is attempted, a success is built,
 a failure is NAMED and does not stop the next cell, and the exit is 0 only when every cell succeeded.
