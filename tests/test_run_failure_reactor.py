@@ -295,6 +295,30 @@ def test_the_issue_body_carries_the_failing_job_and_log_tail(tmp_path):
     assert "job id `7`" in acc, "the negative control names the failing job id"
 
 
+def test_the_run_field_and_reproduction_command_carry_the_same_run_id(tmp_path):
+    # Given a failed run whose run dict carries a displayTitle but no numeric id (the shape
+    # `run_detail()` returns — issue #2072): the threaded `--run-id` must supply it
+    run = failed_run(job="publish", job_id=7)
+    run["displayTitle"] = "ci-verdict — holds a finished CI run to its published scope decision"
+    run.pop("id", None)  # mimic run_detail(): no numeric id on the dict — the --run-id thread supplies it
+    log = gh_stub(tmp_path, run, [])
+    # When the reactor files the issue
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    body = _body_of(creates[0])
+    # Then the **run:** field is the numeric id (not the displayTitle) ...
+    assert "**run:** `123`" in body, body
+    assert "ci-verdict — holds a finished CI run to its published scope decision" not in (
+        body.split("**run:**")[1].split("\n")[0]
+    )  # the displayTitle is no longer what **run:** carries
+    # ... the commit title lives in its own field ...
+    assert "**commit title:** `ci-verdict — holds a finished CI run to its published scope decision`" in body
+    # ... and the reproduction command uses the SAME id as **run:**
+    assert "gh run view 123 --log-failed" in body
+    assert body.count("gh run view 123 --log-failed") == 1
+
+
 def test_the_acceptance_tracks_the_guard_firing_on_the_job_id(tmp_path):
     # Given a failed run whose failing job carries a reactor-known id
     log = gh_stub(tmp_path, failed_run(job="publish", job_id=42), [])
