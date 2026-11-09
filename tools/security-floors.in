@@ -4,3 +4,5 @@
 # Every line is the MINIMUM version the scanner says clears the advisories named beside it. The
 # `-c security-floors.in` line in requirements*.in makes pip-compile honour it, so the compiled
 # requirements.txt is still regenerated, never edited.
+
+# probe: security class
