@@ -52,27 +52,66 @@ class TestOpenEngineBumpPrs:
 
 
 class TestPrIsBehind:
-    def test_behind_is_true(self, monkeypatch):
+    @staticmethod
+    def _rg(main_head="m" * 40, bad_rev_parse=False):
+        """A fake `run_git` serving `remote -v` (finds the asimov-agent remote) and `rev-parse`."""
+        def _rg_impl(*args, **kwargs):
+            if args[:2] == ("remote", "-v"):
+                return subprocess.CompletedProcess(args, 0,
+                    stdout="origin\thttps://github.com/asimov-agent/llgenie.git (fetch)\n"
+                           "origin\thttps://github.com/asimov-agent/llgenie.git (push)\n",
+                    stderr="")
+            if args and args[0] == "rev-parse":
+                if bad_rev_parse:
+                    return subprocess.CompletedProcess(args, 1, stdout="", stderr="fatal: unknown revision")
+                return subprocess.CompletedProcess(args, 0, stdout=f"{main_head}\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return _rg_impl
+
+    def test_stale_recorded_base_but_head_behind_live_main_is_behind(self, monkeypatch):
+        """Issue #2383: the compare base is the LIVE main head, not GitHub's stale recorded base.sha.
+
+        The #2266 shape: recorded base.sha (b*40) is an ancestor of the head (h*40), which is what
+        pushed the old code to report `ahead` and skip. Live main head m*40 is the true target; the
+        PR head does not contain it -> behind -> rebase.
+        """
+        paths = []
+        def _api(path):
+            paths.append(path)
+            return {"status": "diverged"}  # head lacks the live main head
+        monkeypatch.setattr(ebr, "api", _api)
+        # _pr's recorded base.sha = "b"*40, head.sha = "h"*40
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg(main_head="m" * 40)) is True
+        # the compare ran against the LIVE main head, never the stale recorded base
+        assert f"/compare/{'m' * 40}...{'h' * 40}" in paths, paths
+        assert not any('b' * 40 in p for p in paths), paths
+
+    def test_behind_live_main_is_true(self, monkeypatch):
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "behind"})
-        assert ebr.pr_is_behind(_pr(1)) is True
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg()) is True
 
-    def test_ahead_is_false(self, monkeypatch):
+    def test_ahead_of_live_main_is_false(self, monkeypatch):
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "ahead"})
-        assert ebr.pr_is_behind(_pr(1)) is False
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg()) is False
 
-    def test_identical_is_false(self, monkeypatch):
+    def test_identical_to_live_main_is_false(self, monkeypatch):
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "identical"})
-        assert ebr.pr_is_behind(_pr(1)) is False
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg()) is False
 
     def test_api_error_is_behind(self, monkeypatch):
         monkeypatch.setattr(ebr, "api", lambda path: None)
-        assert ebr.pr_is_behind(_pr(1)) is True
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg()) is True
+
+    def test_unresolvable_live_main_is_fail_closed_behind(self):
+        """Issue #2383: if the live main head cannot be resolved, behave BEHIND (never skip)."""
+        assert ebr.pr_is_behind(_pr(1), "/repo", self._rg(bad_rev_parse=True)) is True
 
 
 class TestMain:
     def _patch(self, monkeypatch, prs, sync_result=True, comments=None, post_ok=True, dead=False):
         monkeypatch.setattr(ebr, "open_engine_bump_prs", lambda: prs)
-        monkeypatch.setattr(ebr, "pr_is_behind", lambda pr: pr.get("_behind", True))
+        monkeypatch.setattr(ebr, "pr_is_behind",
+                            lambda pr, repo, run_git=None: pr.get("_behind", True))
         synced = []
         monkeypatch.setattr(ebr, "sync_pr_with_main",
                             lambda pr, repo, run_git, log: synced.append(pr["number"]) or sync_result)
