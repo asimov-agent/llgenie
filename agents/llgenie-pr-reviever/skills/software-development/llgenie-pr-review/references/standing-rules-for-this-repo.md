@@ -88,11 +88,49 @@
   gh api repos/$R/rulesets | jq '.[]|{id,name,enforcement}'
   gh api repos/$R/rulesets/<id> --jq '[.rules[].type]'   # look for required_status_checks
   ```
+  **The trusted guarded merger is not the only merger.** #1460 was merged at `2ae46fb` (21:13:22Z) with
+  its head `2c7cbac` red on BOTH gates (`linux / unit` 1 failed; ci-scope `[check-docs] ERROR: change->note`
+  #1123), and it landed through GitHub **native** auto-merge (owner set `autoMergeRequest` at 21:10:49Z),
+  not through the guarded `auto-merge.yml` workflow — there is NO `auto-merge` run at `2c7cbac`, because
+  the workflow's `if: workflow_run.conclusion == 'success'` never fires for a red completion. Native
+  auto-merge observes only the branch's required checks (none configured here), so it merges on the
+  owner arm with NO gate. The class-name is therefore not just "no required checks" but *two mergers,
+  one guarded and one not*: proving the guarded workflow is green does not prove the head cannot land,
+  because the unguarded native path is owner-armed and not the workflow's. When a red head merges, the
+  first question is which merger did it — check `gh pr view <n> --json mergedBy,autoMergeRequest` and
+  whether any `auto-merge` workflow run exists at the head sha — and say "native auto-merge, owner arm",
+  never silently "auto-merge merged it".
   When a PR is merged ahead of a conclusion, post a **post-merge record** on it rather than a
   complaint: merged time, head sha, and the check-run census at that sha
   (`gh api repos/$R/commits/<sha>/check-runs --jq '{total:.total_count,by:[.check_runs[]|"\(.status)/\(.conclusion//"-")"]}'`),
   because a merged sha whose required legs never concluded is later indistinguishable from one that
   passed. Report it as a fact about the repository; the authority to merge early is the owner's.
+- **A self-stamped APPROVED review is not independent evidence — read who wrote the review body before
+  treating reviewDecision=APPROVED as a pass.** On this repo every merged PR's sole-approved review is
+  stamped by the `auto-merge` job identity `asimov-agent` (24/24 across the last seven days), and its
+  body admits why: *"Approved by the repo's auto-merge job (#491): the run is green and the only thing
+  missing was a required review."* But `rulesets/main` (24862727) carries only `deletion` +
+  `non_fast_forward` — **no `pull_request` rule, no required review, no required status checks** — so the
+  job stamps an approval against a rule that does not exist on the branch. The stale-sha variant is
+  NOT the gap (it re-stamps `commit_id` on each head, so `commit_id == merged head` on every measured
+  approval); the architectural gap is single-identity: `#1088` — the merger self-approves and no second
+  identity is in the loop. So `reviewDecision=APPROVED` means *the auto-merge gate ran*, never *a human
+  or a lane independent of the merge reviewed it*. Do not read a board approval as independent review;
+  check the review author + body (`gh api repos/$R/pulls/<n>/reviews --jq '.[]|.user.login+"/"+.state'`)
+  and name the second identity if one exists, or cite #1088.
+- **A green merged default branch can still carry a changes-index defect the gate is built to catch.**
+  `tests/test_changes_index.py:79` (`test_the_real_index_accepts_a_committed_changes_md_that_lags_the_fragments`)
+  asserts committed `CHANGES.md` rows are a SUBSET of what `make changes-index` renders (issues #934/#1100):
+  a lag is legal, but a row "the renderer would never write" is red. When a fix lands that corrects a
+  fragment (`docs/changes.d/<stem>.md`), the index is stale until `make changes-index` re-runs — the
+  measured instance: #1454 strengthened the actions-job-log md5, #1462 corrected the fragment, and the
+  committed row for `2026-11-01-agents-planner-fold-actions-job-log-1452.md` still read the
+  pre-strengthen `md5 56788e9d…` while the fragment rendered `fe251592…`, red at `23f90235` on
+  `linux/unit` (run `41354420516`, job `124992073738`). Diagnose such a red by rendering the two
+  populations: materialize the head tree (`git archive HEAD | tar -x -C <scratch>`), run the real CLI
+  (`python3 scripts/changes_index.py check --root <scratch>`), and diff committed-only
+  (`| 20…` rows) against rendered — name the exact disagreeing stem. The fix is the docs lane's
+  (`make changes-resolve`/`make changes-index`, issue #1103); never edit another lane's index.
 - **Before declaring a behaviour "unpinned", grep every test module — not the one whose name matches
   the topic.** `tests/test_ci_scope_trigger.py` holds repository-wide `paths`/`paths-ignore`
   invariants and greps 0 for `merge_group`/`workflow_dispatch`/`base_ref`, while the pin for exactly
@@ -180,6 +218,15 @@
   one set of files is how a green gets discarded twice. A DM can also fail to arrive at all
   (`queue_full`, "do not resend") — that is never a reason to retry it or to hold the finding in chat:
   put the actionable half on the PR/issue first, then treat the DM as the courtesy copy it already is.
+  **A planner reply that arrives after you already acted on the same ask is a crossed-in repeat — do
+  not re-perform it and do not re-acknowledge it.** Bot-DM delivery is async, so the planner's routing
+  (`item-NNN DM …, "post X and report the id"`) can land *after* the work it asks for is already done;
+  its `settled` background notice then re-states an ask you have completed. The one-settlement rule:
+  verify the artifact exists once (the comment id via `gh api repos/$R/issues/comments/<id>`), answer
+  the ask once with that id, and treat later identical asks as stale snapshots — re-posting creates a
+  duplicate on the board (a second evidence comment is as bad as a second issue) and re-acknowledging
+  starts a ping-pong the planner itself flags. Correct the stale half in one line ("already posted at
+  <id>, not re-posting") and stop.
 - **Never hold a PR without a remedy** (rule 13, #873/#948, owner instruction). `do-not-merge` means
   "there is a concrete defect with a tracked fix", never "this lane would rather not": never place it
   unless the PR is **totally wrong or conflicting**, and if you do, **file the issue that makes the tag
@@ -379,6 +426,14 @@
   tree") while staying green through the squash. Accept it over a literal sha-equality check, citing
   the self-heading argument, and prove all three controls at the fixed head: positive green, dangling
   red, count-drift red.**
+  **Before filing a finding, search the open issues for its root cause — an existing ticket owns it and a
+  duplicate creates a second vehicle (one-vehicle-per-finding).** An audit that measures a new instance
+  of an already-open class (e.g. a red head merged because main requires no status checks = #1400) posts
+  its measured instance as a **comments-trail evidence item on that root-cause issue**, framed "<PR>: the
+  <root-cause> gap demonstrated on a real merged red head" with the runs/shas/merge path, and reports the
+  comment id back to the dispatcher — never a new issue. Name the candidates you searched and why each is
+  the same class, so the dedup is a measurement, not an assumption; the sibling consequence ticket (the
+  note owed, #1463) is cross-linked, not re-filed either.
   **When the finding is "the PR works but a half of its stated acceptance is unwired", that half is a
   tracked remedy, not a silent note: file the issue with its acceptance criteria, link it into the
   PR verdict comment (rule 13 — a finding that is not grouped as satisfied names the issue that
@@ -497,6 +552,17 @@
   log line, do the real work, do not touch the unrelated path. Deliver the actual artifact first (verdict comment with head
   sha + run ids; a filed issue with evidence; a gate-green record on your own ref) — the guard is a
   supervisory heuristic, not the definition of done for a review lane.
+  **The one honest way to CLEAR it (when the reason is "the requested verification/test has not passed"
+  and `requested_paths` is `[]`, not the regex-scrape signature) is to actually run an executed test of
+  the delivered artifact, not to add repo churn.** Write one self-contained script that re-derives the
+  finding's OWN claims from live data and exits non-zero on ANY mismatch, then run it and quote the
+  exit code. Each claim is one assertion against a fresh read — the ruleset has no required checks; every
+  measured merged PR's sole approval is the auto-merge job; the approval `commit_id` equals the merged
+  head; the evidence comment exists at its id; the derived skill rule is on the live path. `RESULT: ALL
+  VERIFIED` / `EXIT=0` is the artifact the guard's advisory was scanning for, and it is real evidence a
+  reader can re-run — not a mutation performed to appease a heuristic. This is distinct from the
+  scrape-mismatch case above, where no legitimate mutation can ever match and the correct move is to
+  report and stop: a `[]` `requested_paths` with a passing verification script moves the state honestly.
   **Grep BOTH call forms before reporting a fix absent** — a keyword-form fix (`fits(m, gb, ram, arch=x)`)
   does not match a positional grep, and an empty result is evidence the grep was wrong. More evidence
   discipline (both forms, verdict expiry, stacked-branch bases, cited-row verification, the doc as
@@ -532,6 +598,15 @@
   `CHANGES.md` untouched — verified — so there is no gate reason to write it. If you already wrote
   it, **rewrite the branch** (drop the hunk) rather than adding a revert commit: a revert still
   leaves `CHANGES.md` in the cumulative diff. Issue #1063 gates this.
+  **Never "heal" the index by hand or by a branch-local re-render — a lagging `CHANGES.md` is the
+  tolerated state, not a defect.** `make changes-index` renders EVERY fragment in the tree, including
+  rows belonging to other lanes' still-open PRs, so re-rendering on your branch grows the diff with
+  rows that are not yours and re-creates the very collision this rule forbids; hand-inserting just
+  your own rendered row is the same append in a smaller package. `tests/test_changes_index.py` asserts
+  committed rows are a SUBSET of rendered (a stale index may lag, it may never invent), so "main is
+  missing another lane's row" and "my fragment has no row yet" are both legal states with no gate
+  asking you to fix them. The change PR ships the fragment; the index catches up through the docs
+  lane's `make changes-resolve`/`make changes-index`.
   **Quote the pushed ref in the SAME command as the push.** `git push` can print `Everything
   up-to-date` and exit 0 while moving nothing (the commit was on a scratch branch and the real ref
   still held the old sha). Always: move the ref (`git branch -f <ref> <sha>`), push with
@@ -633,6 +708,108 @@
 - **Wrong or failing ⇒ make it unmergeable**: `do-not-merge` + a review/comment with the
   evidence. Clear the hold when the finding is fixed AND the owner is ready — the reviewer
   verifies, the owner merges.
+- **A change that empties an invariant is a red, not a shared-base skip.** A dedup /
+  normalization / removal PR can trip a unit test that asserts "at least one <thing> must be
+  reported" *even when main is green* — e.g. #1525 removing the planner SOUL's last duplicate
+  canonical "never push" rule reds `tests/test_agent_profiles.py` tests that assert `names`
+  non-empty and the check output naming one. When the deciding `linux/unit` leg reds, read the
+  log (`gh run view <id> --log-failed`), find the exact `assert`/`AssertionError`, confirm it is
+  the PR's own diff (run the same test at main: green → own-diff), and name the in-tree test
+  update as the remedy in the SAME change set. Verify main is green at the live head before
+  attributing — a green comparing main falsifies "shared base".
+- **A self-approval stamped onto a RED head is a board contradiction to flag.** When
+  `reviewDecision=APPROVED` but `mergeStateStatus=UNSTABLE` and the approving review's
+  `commit_id` == a head whose deciding unit leg has since failed, the approval is stale/wrong —
+  the same #1088 self-stamped-approval pattern live on a PR. Flag it with the approving
+  identity, its `submitted_at`, and the red run id; do not treat `APPROVED` as load-bearing
+  green. Correcting (dismiss/reground) is the owner's/planner's call unless a hold is in place.
+- **`gh()` raises `SystemExit`, not `Exception` — a bare `except Exception` will not catch a
+  dead lane.** `subprocess.run(["gh", ...])` with a non-zero `returncode` calls
+  `raise SystemExit(1)`, and `SystemExit` is a `BaseException`, invisible to
+  `except Exception:`. A monitor/tool that guards its own API calls must catch
+  `(Exception, SystemExit)` (or `BaseException` where the lane must never die) or a single
+  bad `gh` run — an empty jq row printing the word `null`, a 404, a stale ref inside a URL —
+  aborts the whole tick silently instead of printing one degraded line. This failed
+  `pr_watch` seven consecutive 30-minute ticks (`actions/runs/null/jobs`, issue #1037): the
+  jq turned a missing run id into the literal `"null"`, it became a URL path, `gh` aborted,
+  and `except Exception` did not catch it. Guard data before it becomes a path: a run id is
+  usable only when `all digits` (`usable_run_id`), and make jq emit nothing for a null
+  (`select(.id != null)`), then route the not-usable case to a stable "no run" line.
+- **`check-pr-closing` reds on a body-vs-commit close mismatch — the author's own diff, one
+  fix.** A `closes #N` in the PR body with commit messages carrying only a `(#N)` suffix (a
+  *claim*, not a close) names two different close sets and the gate (issue #1329) fails
+  guard/scope/ci-verdict together. Seen on #1556, #1563, #1568, #1573, #1575. Three tells in
+  one log: (1) `the squash commit text does not adjacently close a claimed issue`, (2) `the
+  commit set and the PR body close different issues`, (3) `[check-pr-closing] N violation(s)`.
+  It is NOT shared base and NOT a rebase problem — the surviving branch must carry an adjacent
+  `closes|fixes|resolves #N` in the commit set so the squash text matches the body. Route to
+  the author to amend the HEAD commit (one push), re-run, re-anchor. Do not conflate with
+  #1088 self-approval, #169 publish-lag, or unticked `openspec-tasks` — name the gate.
+- **A `check-pr-closing` red on a post-run body edit is an event-snapshot staleness, not a
+  re-open — verify the live body, don't re-push.** The two gate steps read
+  `github.event.pull_request.body` (ci.yml / scope.yml, `PR_BODY:` env), which is frozen at
+  `pull_request` event-fire; `gh run rerun` reuses the stored payload, so re-running a run that
+  fired *before* the body edit re-reads the stale body forever and cannot clear. Diagnose: the
+  current PR body (via `gh pr view --json body`) is already correct and `check_pr_closing.py`
+  against that live body returns rc=0 at the head, but every run id at that head fired earlier
+  than `updatedAt`. That is not a gate defect and not a tree red — the clear requires a *fresh*
+  `pull_request` event (close/reopen by the owner, or a no-op commit), not another rerun and not
+  an amend (the squash text may already carry the close). Seen on #1581 (runs 41451812717 /
+  41451812395 fired 13:18:15Z vs body edit 13:18:42Z), fixed as the body's source via a live
+  `gh api …/pulls/$PR_NUMBER --jq '.body // ""'` read on #1611/#1589. Do not push to a stale-head
+  branch over a gate that is already green against the live body.
+  *Durable resolution*: the event-snapshot source is itself gone — #1611 (accepted GREEN, fixes
+  #1589) rewrote both check-pr-closing steps to read the body LIVE via
+  `gh api repos/$PR_REPO/pulls/$PR_NUMBER --jq '.body // ""'` (ci.yml:157, scope.yml:136;
+  `PR_BODY: ${{ github.event.pull_request.body }}` removed, scope gains `pull-requests: read`,
+  `check_pr_closing.py` + Makefile byte-identical, do-not-weaken kept). A stale-body red like
+  #1581's is now incorrectly fixable at its source, so re-verify a red against the live body before
+  treating it as a fire; the per-PR "fresh event" workaround is obsolete.
+- **`check-proc-gate` covers ONLY repo-level `scripts/`, not `agents/*/scripts/`.** `check_proc_gate.py` enumerates `(root / "scripts").glob("*.py")` — a lane tool vendored under `agents/<lane>/scripts/` (e.g. `pr_watch.py`'s bare `subprocess.run([...])` gh/git wrappers at lines 33/329) is **outside** the policy seam's surface and will not red the gate. Verify the scope in the checker (`SCRIPTS = "scripts"`, path enumeration is `root/{SCRIPTS}`) before assuming a vendored monitor needs `# proc-allow:` or a migration into `scripts/proc.py`: on #1578 the repo-copy `pr_watch.py` kept its direct subprocess calls and `check-proc-gate` stayed `OK`. The gate's `report` census is a `scripts/`-only inventory, so it will not list the vendored agents/ call sites (they are the lane's own tool, not the repo's policy seam).
+- **A trailing newline is required on EVERY added text file — not just byte-copies from live.** A
+  `write_file`/heredoc-authored note can also land without one: `lint_linefeeds` (the markdown gate)
+  reds `scope` AND the `lint` step inside `ci-unit` on it ("LINT FAIL — files missing a trailing
+  newline:", then the bulleted paths). On #1578 both new change-note files opened that way and the unit
+  log read "2911 passed" while the job was red on the shared lint step — one missing newline, two red
+  check names. Before first push run `make lint` (the exact docker `lint_linefeeds` step CI's `scope`
+  and `ci-unit` run — not the bare script) over the branch and confirm
+  `LINT OK`; repair is appending `\n` to each named file (never editing the gate), re-stage, re-push.
+  Verify any new file with `tail -c1 <f> | od -An -c` (last byte must be `\n`).
+- **`check-pr-base` reds when `main` merges past the base you cut from — that is a real rebase owed,
+  not a range artifact.** The gate (issue #845) fails a head whose merge-base with `origin/main` is
+  NOT `origin/main` itself: after a merge lands on main while your branch was cut from an older sha,
+  `[check-pr-base] FAILED: <head> is NOT cut from origin/main — its merge-base with origin/main is
+  <old-sha>, not origin/main itself`. Discriminate from the check-pr-authors range-red (which is NOT a
+  rebase): here the fix IS `git rebase --onto refs/remotes/live/main <old-merge-base>` onto the fresh
+  tip (fetch `refs/heads/main:refs/remotes/live/main` + API-confirm first), then verify the new
+  merge-base equals the live tip (`git merge-base live/main HEAD` == `live/main`), re-run the local
+  gates (`python3 scripts/check_docs.py check`, `python3 scripts/check_pr_base.py check --base
+  origin/main --rev HEAD`, `make lint` — the docker `lint_linefeeds` step CI actually runs, not the bare
+  script), and force-push with `git push
+  --force-with-lease=<branch>:<old-sha>` (echo `git ls-remote <remote> refs/heads/<branch>` in the same
+  call — a PR-object head lags a fresh force; the ref is the fact). On #1578 the dispatch
+  base `9f4c1f18` had #1575 merge past it mid-work; the rebase was clean and the gate went from red to
+  `[check-pr-base] OK: HEAD is cut from origin/main (merge-base == base) — no foreign commits carried`.
+- **The `ci-verdict` check-run can be RED on a PR whose own module the red is about is GREEN — that red is a
+  derived echo of the CI run's `linux/unit` row, not a verdict on the PR's changed code, and it clears on the
+  same rebase.** `ci-verdict.yml` holds the finished `CI` run to its scope decision and posts ONE check-run on
+  the head summing the run's jobs, so a PR that reds only `check-pr-base` shows `linux / unit` FAIL (the
+  base-stale step runs inside it) and `ci-verdict` FAIL even though the diff's own acceptance (its module +
+  tests) is green. Discriminate by reading the check-run's OUTPUT (`gh api
+  repos/<o>/<r>/check-runs/<id> --jq '.output.summary'`): if it says `run <ci-id> CI head=<sha>
+  conclusion=failure … linux/unit FAILED`, it is an echo of the base-stale run, NOT a finding that the PR
+  breakage; the one line that decides the PR's own gate is the module's test count at the head
+  (`pytest --noconftest -q tests/test_<module>.py` → `N passed`). On #1610 (fixes #1582, `ci_verdict.py`
+  truncation guard) the guard's own tests ran **22 passed** at the head while `ci-verdict` was RED exactly
+  as the `linux/unit`/`check-pr-base` echo — verdict: acceptance PASS, remedy = rebase, no hold, and never
+  cite the derived red as "the changed module failed".
+- **Place review worktrees on the real disk (`$HOME/repository/git/llgenie-wt/`), not the
+  `/tmp` tmpfs** — a full tmpfs aborts a `git worktree add` with `fatal: cannot create directory at
+  'openspec/changes/…/specs': No space left on device` even when the checkout would fit elsewhere. On
+  #1579 the first `add /tmp/op1579` died exactly that way (32G tmpfs at 71%, a 15G `/tmp/trtllm-probe`
+  occupying it). Never prune/remove another lane's worktree to make room (deletion is the owner's
+  call) — move your own checkout to the repo sibling dir instead, verify `HEAD` matches the frozen PR
+  head, and report the `/tmp` pressure to the planner as a fleet risk.
 - Every claim about CI, mergeability or diff content is a fresh `gh` read. A run's status is
   not its jobs' status.
 

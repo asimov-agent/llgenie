@@ -199,5 +199,67 @@ git -C "$w" rev-parse HEAD                # then merge-base --is-ancestor agains
   over-report in that direction destroys unrecoverable work while an under-report merely wastes space.
   Say which direction a disagreement resolves in before deciding it is cosmetic.
 
+## 9. A green-before-merge gate can have TWO mergers, and the guarded one is not the one that lands the red
+
+A repo can declare "merge only when green" in two places that are separate code paths with different
+strengths: a **workflow** that auto-merges only on a successful triggering run
+(`if: workflow_run.conclusion == 'success'`), and GitHub **native** auto-merge armed on the PR
+(`autoMergeRequest`). A red or dirty head can land through the native path while the guarded
+workflow never runs at all — so **"there is no auto-merge workflow run at this head" is fully
+consistent with the PR having merged**, and proving the guarded workflow green proves nothing about
+whether a red head can land.
+
+The mechanism: the workflow's `if:` never fires on a red completion, so it leaves no run; native
+auto-merge observes only the branch's **required status checks**, so a repo with none configured
+(`branches/main/protection` → 404, `rulesets/<id>` rules without `required_status_checks`) has native
+auto-merge owner-armed and gating on nothing.
+
+When a red/dirty head has merged, ask *which merger did it* before writing the record:
+
+```bash
+gh pr view <n> --json mergedBy,autoMergeRequest,mergeCommit      # armed? by whom?
+gh api "repos/$R/actions/runs?head_sha=<head>&per_page=100" \
+  --jq '[.workflow_runs[]|select(.name|test("auto-merge"))]|length'   # 0 ⇒ no guarded run ⇒ native landed it
+gh api repos/$R/rulesets/<id> --jq '[.rules[].type]'                    # no required_status_checks ⇒ native has no gate
+```
+
+Report "native auto-merge, owner arm" — never an ambiguous "auto-merge merged it". The two paths have
+opposite remedies: closing the native path means configuring required checks on the default branch;
+closing the guarded path means fixing the workflow's `if:`/guard. Naming only the guarded workflow
+sends the fix to the wrong file and leaves the path that actually landed the red open.
+
+## 10. A diff that turns a red into a skip is a permission-relaxation — verify the narrowness in BOTH directions
+
+When a change makes a previously-failing path exit 0 (a loud `::warning … SKIP`), the diff has relaxed a
+gate, and the review's job is to prove the relaxation is exactly as wide as the unavoidable external
+condition and no wider. The canonical shape is a fork-PR publish: a `pull_request` run's token is
+read-only against the base repo's packages, so a write denial there is a permission GitHub will never
+grant, not a defect in the change. The correct behaviour is to skip loudly and let the run that lands
+the change publish; the wrong behaviour is to fail the fork PR for a write it was never eligible for.
+
+Four things must hold at the head, and each is a diff read plus one test:
+
+1. **The skip condition is the event AND the denial text, never the event alone.** The guard must be
+   `event == pull_request` **and** the output matches the registry's own permission wording; a bare
+   `if event == pull_request: return 0` skips real failures on every fork PR.
+2. **The same failure on a push run still fails.** A push run's token CAN write this repo's packages,
+   so a denial there is a genuine failure and must stay one. The guard's first clause (`event != push`)
+   is what preserves it; a test that only drives the fork case cannot see it gone.
+3. **A non-permission failure on a `pull_request` run still fails.** A network error, a bad tag, an
+   auth-required error are NOT the write-permission denial and must not be swallowed. The marker list
+   must be the registry's permission strings, tested against a lookalike that must still red.
+4. **The tests drive the literal denial string, one case per direction.** The regression set is a
+   permission-relaxation's only guard: it must drive skip-on-`pull_request` (rc 0, the `::warning`
+   present), fail-on-push (rc 1, no skip), and fail-on-non-permission (rc 1, no skip). A single
+   happy-path test proves nothing about the two failure directions the relaxation could have weakened.
+
+**The downstream gate on the same path must use pull-or-build, not a hard pull.** A permission skip
+in the build step is worthless if the docs/doc-gate step that consumes the image still does a hard
+`pull`: a fork PR that cannot publish a new hash will still red there for a write that is unavailable.
+Check the consuming workflow step calls the *ensure*/pull-or-build target (pull the published hash
+else build the change's own Dockerfile), not the fail-if-unpublished `*-pull` target, and that the
+changed target is `.PHONY`. A diff that fixes the producer but leaves the consumer hard-pulling has
+moved the red, not removed it.
+
 Gate hygiene is never a `do-not-merge` reason: file the issue, link it into any verdict it touches, and
 let the PR under review proceed.

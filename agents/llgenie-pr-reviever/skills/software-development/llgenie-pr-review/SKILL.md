@@ -1,7 +1,7 @@
 ---
 name: llgenie-pr-review
 description: "Use when reviewing llgenie PRs: evidence, gates, verdicts."
-version: 1.26.0
+version: 1.28.0
 author: LLGenie PR Reviewer
 license: MIT
 platforms: [linux, macos]
@@ -16,9 +16,17 @@ metadata:
 
 ## Live profile is authoritative; never sync tree over live (owner, 2026-11-01)
 
-The Hermes live SOUL/skills are the LATEST and authoritative — the tree's `agents/<lane>/` catches up to live via #791/#1062 versioning, never the reverse. Do NOT sync tree-content over the live profile (silently truncates accumulated live lessons). If live carries lessons the tree lacks, file+dispatch the versioning; do not self-edit to force green, do not trim live. A tree→live sync is legitimate ONLY for a versioned landing already merged on main (e.g. the #1193 SOUL wording, my own merged PR #1197).
+The Hermes live SOUL/skills are the LATEST and authoritative — the tree's `agents/<lane>/` catches up to live via #791/#1062 versioning, never the reverse. Do NOT sync tree-content over the live profile (silently truncates accumulated live lessons). If live carries lessons the tree lacks, file+dispatch the versioning; do not self-edit to force green, do not trim live. A tree→live sync is legitimate ONLY for a versioned landing already merged on main.
+
+## Bot-PR body gate (`AGENTS:`/`BASE:`)
+
+See `references/body-gate-agents-base.md`; SOUL change: `references/authoring-versioned-soul-change.md`; polling: `references/ci-check-state-polling.md`. Write `$HOME`, never `/home/<user>`, in anything this profile authors: `references/write-home-not-absolute.md` (#2145). Acceptance write-back evidence (run at head OR `command rc=<n> <sha>`; never tick pending): `references/acceptance-writeback-evidence.md`.
 
 <!-- host-bot-tools:begin -->
+
+## Verdict tooling pitfall: self-approval is refused on the author's own PR
+
+When the reviewer CLI is authenticated as the same account that authored the PR (here the whole fleet runs as `andyholst`), `gh pr review -a`/`-r` fails with GraphQL "Can not approve your own pull request". The `-a`/`-r` merge-state cannot be set from that token — it is not a retry-able failure. Still document the verdict AT the head via `gh pr comment` (quote sha, run id, each acceptance criterion, the -a refusal and why), name which thread must carry a reviewer-scoped token, and report the finding to the inbox. Never claim APPROVE state you could not set; say exactly why it was refused.
 
 ## Tools
 
@@ -34,11 +42,11 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 The artifact is the review comment: file, line, verdict, sha, and run id. Do not write the fix. `message_agent` to `llgenie-planner` with the PR number, the sha, the run id, and the verdict.
 
 ## Local verification depth
-`references/rebase-at-worktree-start.md` — the first-edit pre-flight (fleet rule #1891): fetch canonical upstream `main` and rebase the worktree onto the just-fetched tip before reviewing an updated PR
+
 `references/local-verification.md` — the repo's own test venv and the `-s`/`-x` trap, golden/fixture
-`references/ci-verdict-rejudge-and-expiry.md` — a red verdict whose judged jobs are otherwise green is re-judged via `workflow_dispatch`, never re-run; an expired run (shredded `total_count`) is trapped and needs a fresh run at the head
 freshness (a golden can be in the PR diff *and* stale), measuring on the data path the test actually
-uses, the control shape, the clean-HOME split for profile gates, and — for a baseline — the rule that
+uses, the control shape, **proving a new guard test discriminates by running it against a pre-fix
+module with the head's test file bolted on (both-directions acceptance)**, the clean-HOME split for profile gates, and — for a baseline — the rule that
 `git stash` is a no-op on committed work so the base needs a detached worktree. Read it before
 publishing a local red **or** a local green as evidence.
 
@@ -58,12 +66,62 @@ new turn gave me calls again"*, not *"when the budget allows"* — in this setti
 money or resource, and the user has to ask what it means. Name the actual constraint (a turn's call
 count) and the actual trigger (a fresh turn), never a metaphor.
 
+**A delegated PR number can be wrong — resolve it by head sha / branch, never conclude the PR does
+not exist.** A lane's delegation or hand-off can cite a number that 404s (`gh pr view <n>` →
+`Could not resolve to a PullRequest`) while the PR is live under a different number: the head sha,
+branch and title in the same message identify it. When the number fails to resolve, match it instead
+of refusing — `gh pr list --state open --json number,title,headRefName,headRefOid` and pick the row
+whose head/branch equals the delegated one, then review under the real number and say the correction
+back to the delegating lane once. A wrong number is a typo in the hand-off, not a missing PR.
+
+**A dispatch's "own gates green, only the review missing" is itself a claim — read the full rollup
+before you start, or you will review a red diff.** A dispatcher can verify head/branch/`mergeable`
+and still hand you a PR whose own-gate checks are red: measured on #1610, the dispatch said "all green
+except review" while the head carried `linux/unit` FAILURE (`check-pr-base` — a stale base) and
+`ci-verdict` FAILURE (its echo) plus the cross-PR `holds`; the planner retracted with "I verified
+head/base/mergeable but not the full rollup". One read before accepting settles it:
+`gh pr view <n> --json statusCheckRollup` (or `gh pr checks <n>`). If an **own-gate** check is red at
+the head, that is not a reviewable PR — acceptance can't be measured against failed legs — so route it
+back ("premise refuted: `<job>` red at `<sha>`, run `<id>`; own-gate red, not a review target") and
+stand down, rather than posting an acceptance verdict on a red head. Do not delete a verdict you
+already posted honestly (one that names the reds and says "rebase owed, not mergeable as-is") just
+because the dispatch was retracted: that comment is correct board state, and it is the handoff the
+owner lane inherits.
+
 A dispatch must name the PR **and the head sha to judge** (branches move under you), and the rule
 is that a verdict cites the run id at that head. Verdicts are **comment-only by default**; a
 `do-not-merge` is allowed only with a one-line reason *and* a one-line unblock condition in the same
 comment, and lifting it is the planner's call. If the run at the head has no conclusion yet, say
 "no verdict exists yet — run `<id>` is queued" and stop; never manufacture a verdict and never move
 a head to produce a fresh run.
+
+### The verdict is an artifact SET, and the completion turn ends on a write
+
+A verdict is not one object. Post all three, in this order, then verify each by id before you
+report:
+
+1. **The verdict state** — `gh pr review <n> -a` / `-r` (never a body-only comment). This is the
+   row the board and the gates read.
+2. **A durable record comment on the PR thread** — `gh api -X POST repos/asimov-agent/llgenie/issues/<n>/comments -F body=@file`
+   carrying the same verdict text, the judged sha, the run id, and the one-line fix for each
+   finding. A review body is the fragile artifact (a `-f`/path slip stores a literal filename and
+   the state lands with no readable text); the record comment is what a later reader quotes.
+3. **The source-issue record + acceptance write-back** — tick only the criteria this PR delivers
+   (`acceptance_writeback … --proven <subset> --dry` then live), then post the record comment on
+   the issue that owns those criteria. A dispatch threaded on the PR still needs the issue-side
+   record: the AC row and the proof must live where the criteria live.
+
+Verify on-wire per artifact: `gh api …/issues/comments/<id> --jq '{id,created_at,user:.user.login}'`
+and a single-copy check (`select(.body|contains("<record title>"))` returns exactly the one id) —
+batched retries have re-posted duplicate verdicts before, so a duplicate is deleted, keeping the id
+your `(proven: … comment=<id> …)` marker pins.
+
+**Finish the completion turn on the mutation, not on the read.** A turn whose last call is a
+read-back is indistinguishable from a turn where nothing happened: end with the post/tick that
+changed board state, and put the verification of *that* write in the same turn ahead of it. A
+"task-relevant mutation" for this lane means a review, a tick, or a comment that a stranger can
+find — a skill edit or a scratch file is bookkeeping, not the deliverable.
+
 
 **One settlement, one acknowledgement — a re-acknowledgment reopens a closed loop.** Once a
 correction or finding is conceded on-record by both lanes (the peer's message states `status: settled`
@@ -74,6 +132,29 @@ the facts, the sha, the on-record comment id — then stop. If a second delivery
 re-states your own already-acknowledged point, it needs no reply at all; noting it as delivery-only in
 the status line is the whole action. The same applies to a settlement the peer already conceded: do not
 re-post it to "close the loop harder".
+
+**Never re-send a DM or re-issue a post because a batched tool read looked like a
+"transient failure".** `bot_mode_dm` queues durably and redelivers; a delivery that returns
+`status: queued|claimed` (or a batch whose read results arrive late) is *pending*, not lost. A retry
+of the same message lands as a duplicate the peer must answer again — measured this session: a batch
+of mis-fires was redelivered three-plus times and each copy drew its own planner settlement. Read the
+delivery status (`queued`/`claimed` = retained, do not resend), send each DM once, and treat a
+replayed redelivery of your own already-settled point as delivery-only in the status line, never a
+reason to send again.
+
+**An auto-merge APPROVED is seconds away from a merge — re-read `state`/`mergedAt` BEFORE posting your verdict, or you post a ghost-frame on a merged PR.** The #491/#1088 approve-then-merge class stamps APPROVED and merges ~5 s later (measured #1655: APPROVED 06:55:01Z → MERGED 06:55:07Z; #1681: APPROVED 07:19:18Z → MERGED 07:19:23Z; #1674 likewise). If you discover the auto-merge APPROVED and your verdict would post after `mergedAt`, no verdict is owed at all: a closed/merged PR is not a head to grade ("freeze or say nothing"), the content you judged is already on main, and posting late reads as a ghost-loop the planner must correct. What survives on a merged PR is only the evidence fold: report the APPROVED id + `submitted_at` + merge delta to the planner for the #1088 set, never a re-grade. One read settles it before you post: `gh pr view <n> --json state,mergedAt,mergedBy`.
+
+**A correction that arrives mid-flight can be crossing a MERGE — read `state` before acting on it.**
+A planner DM saying "STOP, your verdict reviews a superseded head / a rebase is owed" may have been
+composed before the owner merged the PR; acting on it then re-opens a closed loop. Before conceding or
+re-dispatching, one read: `gh pr view <n> --json state,closed,mergedAt,mergedBy,mergeCommit`
+(`state=MERGED`, non-null `mergedAt`). If the PR is already merged, the correction is moot — report
+"merged <time> by <login> (merge commit <sha>), the correction is against pre-merge state" and stop; do
+not "retire" a verdict line on an already-merged PR, and do not re-post the verdict. The same read
+also settles the `merged`-vs-`closed` field trap above: there is no `merged` boolean, `state=MERGED` +
+`mergedAt` is the fact. When the newest comment on the PR is `<!-- auto-merge: merged <sha> -->`,
+the arms-lane already operated — re-read `state` before assuming a comment you posted is still the tip
+of an open review.
 
 ## A versioning PR is a checkpoint, not a state
 
@@ -105,6 +186,16 @@ done
 Report it as *"N of M differ at `<sha>`, measured `<hh:mm>Z`"* — never as "the tree matches live",
 because that sentence has no expiry and will be false within the hour.
 
+**A vendored tool's honesty is byte-identity *and* execution, re-proved at the merged tip.** A digest
+comparison proves the merged copy equals the live one; it does not prove the copy runs. When a
+vendoring PR merges a lane tool (script + its test), add one execution step at the merged sha in a
+detached worktree: run the entrypoint so it reads the live board clean (`--help` or a full tick, rc=0)
+and run its test module (`pytest --noconftest -q <test>` → quote `N passed`). A byte-identical copy that
+aborts on import is an honest-looking artifact that lies; the pair (equal digests **plus** a green run)
+is the acceptance, and the worktree is removed after. This closes the continuous-improvement loop when
+the reactive queue is empty: re-audit at the merged sha, record "re-audited at `<sha>`, no findings" with
+the digest pair and the test count.
+
 **The other direction — a reload directive — syncs the LIVE profile FROM main; see
 `references/live-profile-reload.md`.** The versioning-PR comparison above fixes *live grew, tree behind*;
 a "reload SOUL and skills from main" directive is the opposite — `main` landed a change and the live copy
@@ -124,9 +215,21 @@ Measured on this skill: **100,688 b** and every save refused; after moving the 6
 `references/standing-rules-for-this-repo.md` (pointer left at its heading), **41,498 b** and the save
 succeeds. **A lesson recorded in the same edit that clears the cap is the only evidence the cap moved.**
 
-So: when a lesson will not save, `wc -c SKILL.md` first. If it is near the ceiling, move the largest
-self-contained section **verbatim** into `references/`, leave a one-line pointer, then verify with a
-line-by-line `missing: 0` check — never eyeball a split, and never split by concatenation.
+So: when a lesson will not save, measure the file's **character** count first — the ceiling is a
+character cap, and `wc -c` reports **bytes**, which overstates a UTF-8 file (`SKILL.md` measured at
+100,417 bytes is only 99,828 chars, i.e. under the cap). Read the character count, not the byte
+count, before concluding a file is over the line:
+
+```bash
+python3 -c "print(len(open('SKILL.md').read()))"     # characters — the number the cap counts
+wc -c SKILL.md                                        # bytes — NOT the cap (multibyte inflates it)
+```
+
+A delegation that says a file is "over the 100,000-char cap" when `wc -c` reads 100,417 is the
+bytes-vs-chars artifact, not a violation — verify with the `len()` read before trusting the alarm.
+If the character count really is near the ceiling, move the largest self-contained section
+**verbatim** into `references/`, leave a one-line pointer, then verify with a line-by-line
+`missing: 0` check — never eyeball a split, and never split by concatenation.
 
 **Verify a split by grepping for the rules that must STAY, not by reading the pointer you wrote.**
 A split moves whatever you selected, and the section boundaries do not know which sentences were
@@ -155,24 +258,21 @@ review cannot start without.
 
 **The review verdict is load-bearing state (issue #1193):** `gh pr review -r` when the head fails an
 acceptance criterion — naming the criterion, the head sha and the run id — and `gh pr review -a` when
-every criterion is met, with the same evidence anchor. Whatever the review-state seat can or cannot
-post, every verdict ALSO writes the bot-verdict marker via `make bot-verdict` — `head=<full sha>`,
-`run=<run id>`, `verdict=approve|changes`, `reviewer=<login>` (issue #852, run slot #1551) — the
-machine-readable record `auto_merge.decide()` reads, so the run that measured the head is written INTO
-the verdict. `gh pr review -a` means the code met the issue's
+every criterion is met, with the same evidence anchor. `gh pr review -a` means the code met the issue's
 acceptance criteria at the measured head and sha; it is a verdict the owner and the gates read, never a
 merge authorization. This lane never merges what it approves, and never approve-merges bypassing rule 16.
-A neutral body-only comment with no `-a` / `-r` and no marker is not a conclusion; re-post it as a
-review with the verdict state the board can see. A green PR is handed off in one line to the lane that
-owns it.
+A neutral body-only comment with no `-a` / `-r` is not a conclusion; re-post it as a review with the
+verdict state the board can see. A green PR is handed off in one line to the lane that owns it.
 
 The rest of the standing rules live in
-**`references/standing-rules-for-this-repo.md`** — 628 lines covering the author gate, hold discipline,
+**`references/standing-rules-for-this-repo.md`** — the author gate, hold discipline,
 push and rebase behaviour, and the CI-read rules. Load it before acting on any of those; the always-on
 summary a review needs without a second lookup is below in `## What actually blocks a PR`,
 `## Verdicts` and the evidence block.
 
 ## Fleet rules 13–16, verbatim (from #873's body at commit time — do not paraphrase when citing)
+
+**Reviewer annotation on rule 13 (not part of the verbatim quote).** A hold is NOT lapsed merely because its target issue CLOSED — read the closing commit's DIFF against the issue's tracked acceptance criterion before lifting. A commit's title or message can name the issue without touching the remedy (a cache-warm change titled for a timeout issue is a mitigation, not the timeout-cap raise). If the actual remedy lives in a separate OPEN issue, the tag stays and that issue's landing is the lift condition — name its number. "Closed" is a state of the issue; "remedy landed" is a fact about a diff, and only the second lifts a hold.
 
 **13. Never hold a PR without a remedy.** `do-not-merge` means "there is a concrete defect with a tracked
 fix", never "this lane would rather not". Never place it unless the PR is **totally wrong or conflicting
@@ -268,9 +368,9 @@ the peer maintainers do it), and a verified head sha is the only thing your verd
 to. Verify **at the PR head in a worktree**, never from the description:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie fetch origin pull/<n>/head
-git -C /home/asimov/repository/git/llgenie-wt/<name> status -sb   # reuse an existing tree if present
-# else: git -C /home/asimov/repository/git/llgenie worktree add --detach ../llgenie-wt/pr<n> <sha>
+git -C "$HOME/repository/git/llgenie" fetch origin pull/<n>/head
+git -C "$HOME/repository/git/llgenie-wt/<name>" status -sb   # reuse an existing tree if present
+# else: git -C "$HOME/repository/git/llgenie" worktree add --detach ../llgenie-wt/pr<n> <sha>
 ```
 
 `origin` in this clone is the UPSTREAM (`asimov-agent/llgenie`); the fork is `fork`
@@ -286,6 +386,7 @@ git -C /home/asimov/repository/git/llgenie-wt/<name> status -sb   # reuse an exi
 | `macos / unit` **pending** | a scarce macOS runner still holding the run; the PR sits `BLOCKED` while everything else is green. Say that, never "failing". |
 | check conclusion `SKIPPED` / `ACTION_REQUIRED` | a form-driven placeholder (`test-published-${{ matrix… }}` is normal) or a human gate — not a test failure. |
 | check conclusion `CANCELLED` | **not a failure and not a verdict**: a cancelled/superseded run cancels every sibling job, so a green PR shows a page of `cancel` rows. Report it as "needs a fresh run" (`gh run rerun <id>` at the same head), never as red — and never push an empty commit to fake a fresh run. `pr_watch.py` therefore counts `cancel=` separately from `fail=`. |
+| `holds` check **fail** on a PR that is otherwise all-green | the repo's cross-PR hold gate — it is commonly ANOTHER PR's `do-not-merge` that this branch rides on, not this PR's defect. Confirm the held PR is proof-green at its own head (`gh pr view <held> --json state,headRefOid`) and exclude the `holds` row from the verdict, naming it as excluded. Folding it into "not green" accuses an innocent branch. |
 
 ## Repo gates that a change must satisfy (pick per diff)
 
@@ -294,25 +395,52 @@ git -C /home/asimov/repository/git/llgenie-wt/<name> status -sb   # reuse an exi
 `check-secret-output` → `check-docs` → … plus `openspec` (Linux **and** macOS) and
 `check-pr-authors`/`check-pr-hygiene`. A new user-facing make target needs, in order:
 `.PHONY`, a `DEFERRED` entry in `scripts/issue_bot_gates.py` (never `FAST_GATES` — its
-membership is a contract asserted by a test), a mention in `README.md` or a linked
+membership is a contract asserted by a test; the enforcing test is
+`tests/test_issue_bot_gates.py::test_the_real_tree_is_wired`, and an unclassified ci-unit
+target reds it with an `AssertionError` that names the target and prescribes "add it to
+FAST_GATES … or to DEFERRED with the reason it is not re-checked") — the loudest miss because
+`.PHONY`/`check-docs`/`check-wiring` can all pass while this one line is absent — a mention in `README.md` or a linked
 `docs/` page (`check-docs`), and a truthful "CI" help line (`check-wiring`). Every
 `openspec/changes/<name>/tasks.md` box must be ticked in the code commit.
 See `containerized-repo-verification/references/llgenie-engine-pipeline.md` for the
 engine → image chain and `worktree-branch-hygiene/references/llgenie-repo-notes.md` for
-the gate order and flakes that are not the author's. For keeping a verdict tied to a real base —
-rebasing off a squash-merged ancestor, and re-verifying your findings on the merged sha — see
-`references/base-and-merge-integrity.md`.
+the gate order and flakes that are not the author's. A diff under `agents/<lane>/` — including a
+vendored lane tool in `agents/<lane>/scripts/` — is judged by the byte-identity gate, not by reading
+the file list: `references/agent-profile-tree-review.md` carries the gate commands, the one-directional
+blind spot (a live-only file is invisible to it), and the four-step byte-copy procedure for vendoring
+a live-only tool (copy script *and* test, prove identity by digest + empty diff, name the path in
+SKILL, and read each gate's own scope before reshaping the copy). For keeping a verdict tied to a real base —
+rebasing off a squash-merged ancestor, re-verifying your findings on the merged sha, the stale-base→
+`check-pr-base` short-circuit that CANCELS the walking legs (no unit verdict at that head), the
+`git fetch … --force` trap that leaves you measuring a stale `live/main`, and a cited WITNESS head
+that went stale because the PR's branch advanced (a fresh-all-green AC witness must be re-anchored
+to the branch's live head at measure time) — see
+`references/base-and-merge-integrity.md`. For a POST-MERGE / chain-gate main-green run whose only
+red is `check-pr-base` with `foreign commits (0)` (= phantom base-staleness from a sibling fleet
+merge advancing main mid-run), re-anchor to the fleet-complete tip and never fabricate a green —
+`references/phantom-check-pr-base-fleet-merge.md`. When an engine-build/workflow run sits `pending`
+for hours, do NOT call it a producer stall from status alone: read `updated_at` — pinned-amended
+`updated_at ≈ created_at` = concurrency-gated (never started), and a re-dispatch only queues behind
+`references/concurrency-gated-pending-vs-stall.md`. Before you accept ANY dispatch red-attribution
+("these N reds are the tracked <issue> cascade, do not weight them"), read the failing legs' own
+logs and match the GATE to the log — a cascade tag can launder a real unrelated gate red (measured:
+a scope red that the dispatch called #1862-class noise was actually a genuine `check-docs` #1123
+error the PR's diff caused); reproduce locally when the log is ambiguous, and post the finding with
+the exact gate message + owning lane (`references/dispatch-red-attribution-vs-leg-log.md`). When a
+gate-corrective record says "rebase owed" and the PR later merges, the old claim is a false
+instruction until retracted — retract on the same thread quoting both shas and close the row
+explicitly (same reference, "superseded by a merge"). A described-but-never-posted corrective is a
+pre-merge reversal: verify what is actually on the wire, withdraw before posting, and acknowledge
+the reconciliation on the same thread (same reference, "described-but-never-posted").
 
-## Read the failing job's log first (#1791-AC3 pointer)
+### Reviewing a PR of a specific shape (workflow-add, reviewer-pass, hardening, data-sync, skill-admission)
 
-On a red bot-gate, read the failing job's OWN log before any dispatch/green/red/mergeable claim.
-The canonical procedure (name run + head, find failing job, read that job's log verbatim, quote
-the failing step, attribute to THAT gate via its gate→defect map, report green only off a
-completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancelled) is
-**`references/read-the-failing-job-log-pointer.md`**, pointing to the implementer-lane canonical
-`agents/llgenie-issse-implementer/skills/containerized-repo-verification/references/red-bot-gate-read-the-failing-job-log.md`
-(merged via #1840). Load it before a verdict, write-back, hold, or routing decision.
-
+Per-shape recipes live in `references/review-recipes-by-pr-type.md` — load the matching subsection for a PR
+that adds a workflow file (odd-cron / dispatch-forms / guard byte-identity / import-root ratchet, and the
+gate-relaxation checks), reviews named diffs, closes a scanner finding, vendors a data file, or admits a host
+skill. The through-line they share: the PR's own test file is not the acceptance — the repo-wide convention
+gates on `linux/unit` are, and the verdict names each failing gate + its one-line fix rather than calling the
+whole PR wrong.
 
 ## Traps that cost real time
 
@@ -335,7 +463,11 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   qualifiers in the same sentence (`skills/engines/` subdirectory count plus its `README.md`,
   `openspec/changes/` directory count, the `N tests/test_*.py` figures — which appear in two places)
   are claims too, and each is one `git ls-tree` away. Finish with `make check-docs` (exit 0, and quote
-  its `[check-docs] ok: …` line) because that is the gate the change must pass. Say plainly which
+  its `[check-docs] ok: …` line) because that is the gate the change must pass. Run it directly as
+  `python3 scripts/check_docs.py check` — it takes only `--root`/`--base`, **not** `--rev` (`unrecognized
+  arguments: --rev` is a CLI-shape error, not a docs failure), and with no `--base` it lints the whole
+  tree at the checked-out head; its `ok:` line counts every user-facing make target, every
+  `agent-wiki/` entry's index row, and the `CHANGES.md` link set. Say plainly which
   number you could **not** re-derive from the tree (e.g. an engine-count line that reads the registry)
   instead of letting silence imply verification.
   Fixing a census is legitimate review remediation: edit only the numbers, keep every
@@ -350,11 +482,20 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   `python -m pytest --noconftest -q -p no:cacheprovider tests/test_<name>.py`; for the whole suite use
   the container path (`make test-unit`, ~12–13 min). Do not conclude "the tests do not run here" from
   one empty log — retry with the module installed and quote the real `N failed, M passed` line.
+  **A module that imports a sibling under `scripts/` (e.g. `from scripts import check_pr_closing` which
+  then imports `base_ref`) needs `scripts/` AND the repo root on `PYTHONPATH`, or it dies at collection
+  with the same exit-2 / bare `ImportError` and reads like the empty-log conftest artifact — a clean
+  env is not a broken test.** Prefix the exact same command with it and the collection error becomes a
+  real green: `PYTHONPATH="$PWD/scripts:$PWD" python -m pytest --noconftest -q -p no:cacheprovider
+  tests/test_<name>.py`. Measure the module at the PR head in a worktree and quote the full count
+  (`27 passed`) — that count is the acceptance evidence the earlier bare-venv run failed to produce, so
+  a "could not collect" in your own prior note is a reason to re-run with the path set, never a
+  finding.
 - **Prove where a red comes from before you attribute it to the PR: reproduce it on `origin/main`.**
   A board can show five red PRs that share one broken default branch, and holding each of them parks
   work for a defect it does not carry. Check `main`'s last run first, then reproduce:
   ```bash
-  git -C /home/asimov/repository/git/llgenie worktree add --force --detach ../llgenie-wt/vmain origin/main
+  git -C "$HOME/repository/git/llgenie" worktree add --force --detach ../llgenie-wt/vmain origin/main
   cd ../llgenie-wt/vmain && python -m pytest --noconftest -q <the modules named in the failing job>
   ```
   Same FAILED set ⇒ the red is **not in the diff**: write "not green, for a reason outside the diff",
@@ -396,6 +537,28 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   worthy error in the direction that accuses an innocent PR, so run the count *before* writing the
   verdict — and when you have already written it, retract on the PR with the two numbers, saying which
   of your own inferences was wrong, rather than quietly appending a correction.
+- **Measure a per-PR delta against the PR's OWN base (or the API's `files` patch), never against a
+  moved `live/main` tip — a stale base shows the inverse of everything that landed after the branch
+  point, and reads as the PR carrying foreign files.** Diffing `live/main-tip..head` on a branch cut
+  before several merges reports every file those merges added as *removals* in "your" diff (measured
+  10 files / 294 deletions where the true PR was 4 files / 49 insertions). The authoritative per-PR
+  content is GitHub's own patch:
+  ```bash
+  gh api "repos/<o>/<r>/pulls/<n>/files" --paginate --jq '.[]|select(.filename=="CHANGES.md")|.patch'
+  git diff "$(git merge-base <live-main> <head>)" <head> --stat   # per-PR, not tip..head
+  ```
+  A **foreign-looking row** in that patch (a `docs/changes.d`/`CHANGES.md` row for a different issue
+  that belongs to an already-merged PR) is usually **base-carry, not a duplicate**: the branch snapshot
+  predates the row landing on main, so the row rides in byte-identically and the merge is a no-op there.
+  Discriminate with the row's bytes, not a read — identical md5 on head and on live main ⇒ carry
+  (no-op merge, note-only, **no red, no hold**); different md5 ⇒ a real duplicate the PR introduces.
+  ```bash
+  git show <head>:CHANGES.md | grep '<slug>' | md5sum
+  git show <live-main>:CHANGES.md | grep '<slug>' | md5sum   # equal ⇒ base-carry
+  ```
+  When a *local* ref disagrees with the API (`git merge-base --is-ancestor` says a sha is an ancestor
+  yet `git show <that-sha>:<file>` lacks content the API shows both places), the local object is stale —
+  trust the API's tree over the local object and say so; do not build a finding on the stale copy.
 - **A fix that greens previously-red tests must CORRECT the assertion, not delete it — read the test
   diff before you say "fixed".** Deleting or loosening the failing assertions turns the board green
   and the change wrong: those assertions are usually the correct alarm for an incomplete code change
@@ -407,11 +570,34 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   calling that, never editing the rule's own test to permit it. In the verdict say which it was —
   "the six went green because each assertion was updated to the new contract and still reds if the old
   shape returns" — because "tests pass" is exactly what a deleted test also reports.
+- **A dedup/normalization change that EMPTIES an invariant reds tests while `main` stays green — that is
+  the diff's red, not a shared base.** Removing the last member of a class (the last duplicate canonical
+  rule, the last of a roster, the last shard) trips assertions of the form `assert names` ("report must
+  name at least one …") that were written when the class was non-empty. The docstring may even say the
+  removal is the owner's call — that does not update the test. Discriminate exactly: read the job log for
+  the `AssertionError` line, then run the same module at `main` (green there ⇒ own-diff, because a green
+  `main` is what proves the red came from the branch). The remedy goes in the SAME change set — assert the
+  clean invariant, or inject a synthetic fixture so "name it when present" survives without real-tree
+  dependence — never dismiss it as shared base just because `main` is green.
 - **Check that a fix issue's acceptance command is the command CI actually runs.** An issue scoped to
   one module (`pytest tests/test_x.py -q`) can be satisfied while `make ci-unit` stays red — so every
   PR remains unmergeable and the lane has spent a push for nothing. Add the widening as a comment on
   the issue (all failing modules, then `make ci-unit` exit 0, then a completed `linux / unit` run quoted
   with its id) rather than silently reviewing against a criterion that cannot close the gate.
+- **`gh api …/actions/jobs/<id>/logs` reads EMPTY through `--jq .` and errors on escape sequences
+  without the flag — redirect it raw, never pipe it.** The log body is not JSON, so `--jq` returns 0
+  bytes and the empty file reads like "no log"; without `--allow-escape-sequences` the call fails
+  `the response contains terminal escape sequences`. The working read is
+  `gh api repos/<o>/<r>/actions/jobs/<id>/logs --allow-escape-sequences > /tmp/job.log`, then grep the
+  file. Enumerate the failing step first
+  (`gh api …/jobs/<id> --jq '.steps[]|select(.conclusion=="failure")|.name'`) so you read the right
+  step, and grep the saved log for `AssertionError|FAILED` lines rather than paging 60 KB.
+- **Removing a worktree the terminal is cwd'd into breaks every later call — the persisted shell cwd
+  points at a deleted dir, so commands fail with a misleading
+  `cd: … No such file or directory` (reported as exit 126 / "not executable").** `git worktree remove`
+  does not move the shell out of the tree. `cd` back to the main clone, or pass
+  `workdir=$HOME/repository/git/llgenie` explicitly on the removing call and on every call
+  after it.
 - **Build a comment body in a file, and read the published body back — not the post's exit code.** A
   `gh api … --jq "…\"$var\"…"` nested inside a double-quoted shell string collapses silently: the
   comment publishes with an empty field where the evidence should be, and `gh pr comment` still exits 0.
@@ -426,10 +612,34 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   is worse than no comment: it reads later as "nothing to report". When one does slip out, post a
   correction at the same sha naming the error and the real value rather than leaving the blank field
   standing.
+  **Post the comment as its OWN tool call and confirm its id landed — a post batched with read-only calls
+  can be vetoed and never execute.** A per-turn guard that demands a task-relevant mutation can drop a
+  whole batch that mixes reads with the post, and no error surfaces on the post itself; the next
+  `gh api …/issues/<n>/comments --jq '[.[-3:][]|.id]'` still ends at the previous comment. Issue
+  `gh pr comment <n> --body-file <f>` alone, then read the id list back and confirm the new id is present
+  before reporting the verdict as posted — a status line claiming "posted" without the id in that list
+  is a claim about intent, not a mutation.
 - **`gh run list --commit <sha>` lags a fresh push; the API does not.** Minutes after a push it can
   report no runs for a sha that already has three, which reads as "CI never triggered" and invites a
   bogus empty commit. Ask the API instead:
   `gh api "repos/<o>/<r>/actions/runs?head_sha=<sha>&per_page=10" --jq '.total_count, [.workflow_runs[]|"\(.id) \(.name) \(.status)/\(.conclusion)"]'`.
+- **`gh issue view --json` has no `timelineItems` (nor `merged`) — enumerating a wrong field prints the whole available-fields list, which reads like a broken command.** For a close-event timestamp use `--json closedAt,closedByPullRequestsReferences`; for `## Acceptance criteria` state read `.body` and grep the checkboxes. **`gh api … --jq .body` emits raw text, not JSON**, so it never round-trips through `json.loads` — treat every such read as a string.
+- **`gh pr view --json` field names are not `merged` — there is no `merged` boolean; ask for `state`, and `mergedAt`/`mergedBy`/`mergeCommit` are the merge facts.** `gh pr view <n> --json merged` errors `Unknown JSON field: "merged"` and prints the whole available-fields list, which reads like a broken command rather than a wrong field. A merged PR answers `state=MERGED` plus non-null `mergedAt`; read those two together (`--json state,mergedAt,mergedBy,mergeCommit`) instead of a boolean that does not exist.
+- **`gh api` speaks REST field names; `gh run list --json` speaks CLI field names — mixing them returns `null`, not an error.** A REST run object carries `id` and `head_sha`; the CLI's `--json` shape carries `databaseId` and `headSha`. So `gh api repos/<o>/<r>/actions/runs/<id> --jq '{databaseId,conclusion}'` prints `{"databaseId":null,…}` while the run is perfectly live — the null reads as "no such run" and invites a bogus re-dispatch. Read the run you queried with `id`/`head_sha`; use `databaseId`/`headSha` only on `gh run list --json` output. Likewise `commits/<sha>/check-runs` returns an OBJECT holding a `check_runs` array, so iterate `.check_runs[]`, never `.[]` (which errors `cannot iterate over: number` and hides the real job states).
+
+  One API call, both facts, for a fresh head:
+  ```bash
+  gh api "repos/<o>/<r>/actions/runs?branch=<ref>&per_page=10" \
+    --jq '.workflow_runs[] | select(.head_sha=="<sha>") | "\(.id) \(.status)/\(.conclusion) | \(.name)"'
+  ```
+  A superseded head shows its old runs as `completed/cancelled` after a force-push — those are `no verdict` at the OLD sha, so filter on the NEW `head_sha` before saying anything about the branch.
+
+- **A fork PR head is not a commit in the base repo's object DB — `commits/<sha>/check-runs` answers `422 No commit found for SHA` and `actions/runs?head_sha=<sha>` answers `total_count: 0`, and both read as "no runs" when the PR is fully covered.** This repo's PRs push from `fork` (`andyholst/llgenie`), so the head sha lives on the fork and a base-repo commits/runs lookup cannot resolve it; the 422/zero is a resolver gap, never a verdict. The one call that resolves check-runs for a PR head regardless of where the object lives is `gh pr checks <n> --repo <base>` — make it the primary read, and reach for the raw `commits/<sha>`/`actions/runs` APIs only with a sha you know is on the base (`origin`/`main`). When you need the object itself for `git show`/`git cat-file`, fetch it explicitly: `git fetch origin refs/pull/<n>/head:refs/remotes/pr/<n>` (the explicit refspec works where a bare fork-sha fetch errors `upload-pack: not our ref`). Judge only the rows `gh pr checks` returns for the head `gh pr view` names: a prior head's `CANCELLED` unit leg describes the old sha, not the live one. And a peer's earlier "all checks green, CLEAN" is a snapshot — re-read `gh pr checks` at the live `headRefOid` before agreeing: a still-`pending` leg is no verdict and `mergeStateStatus` reads `UNSTABLE`, not `CLEAN`.
+
+- **A newly added text/markdown file must end with a trailing newline, or `lint_linefeeds` reds the docs gate.** A byte-copy taken from a live profile file can lack one, and the scope job fails with `lint_linefeeds` naming YOUR new file — so the red is the diff's, not the shared base's. Check a file's last byte with `tail -c1 <file> | od -An -c` (`xxd` is not always installed; `od` is); a last byte that is not `\n` (a `.`, `|`, any glyph) is the violation. Fix is appending the newline to the display copy, not editing the lint. Run the local `make lint`/`check-docs` over the exact branch before pushing any docs+skills change so this never reaches CI.
+
+  **A peer's "my local lint comes back clean on the same tree" does not contradict a CI red — the local tree is usually at the base, where the diff's new files do not exist.** The gate runs against the branch head/merge ref (patch applied), sees the new `agent-wiki/*.md` and `docs/changes.d/*.md`, and reds on them; the local `lint_linefeeds.py` over an un-patched working tree never loads them. To answer "name the exact file", read the job log, not the tree: the `scope` job prints `LINT FAIL — files missing a trailing newline:` then a bulleted list of paths, which IS the answer. Get the log via the **correct job id** — `gh run view <run> --log-failed` picks the first failing job in the run and can return `log not found: <a different job id>` when `scope` carries the finding but another job (`ci-verdict`) failed first; enumerate with `gh api repos/<o>/<r>/actions/runs/<run>/jobs --jq '.jobs[]|{id,name,conclusion}'`, take the `scope` job's id, then `gh api repos/<o>/<r>/actions/jobs/<jobid>/logs --allow-escape-sequences`. Confirm each named file at the head with `git show <head>:<path> | tail -c1 | od -An -c`.
+
 - **`check-pr-authors` has no check name of its own — it runs inside `linux / unit`.** So
   "every listed check is green, the rest are pending" says nothing about attribution. Run it
   yourself on every PR, over the PR's own range:
@@ -470,7 +680,11 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   exist`. Always run `make check-docs` (or `make changes-index`) over the exact branch before committing
   the pair — a fragment with a dangling note reference is a red gate, not a record. When the note lives
   on another branch, either add the note here too or do not create the fragment; never leave a
-  note-less fragment behind.
+  note-less fragment behind. The link target must be `agent-wiki/<name>.md` or `./agent-wiki/<name>.md`
+  — the gate's regex anchors on that prefix, so `../agent-wiki/<name>.md` (the natural path when the
+  fragment sits in `docs/changes.d/`) fails the link check even though the file exists on the branch.
+  Write the path relative to the **repo root**, not to the fragment, and re-run `make check-docs` after
+  fixing a `../` link.
 - **When your local branch has diverged from the fork ref you mean to update, push to a DISTINCT branch
   — never force over a shared/foreign branch lineage.** A reviewer's record commits often build on
   `main`'s history while the fork branch (`fix/…`, `reports/…`) still carries the earlier review-record
@@ -479,6 +693,7 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   ref that carries your commit without rewriting anyone else's — then verify with
   `git ls-remote fork refs/heads/<new-name>`. Confirm ancestry first (`git merge-base --is-ancestor
   <remote-sha> HEAD`); if it is NOT an ancestor, they diverged and a force is the wrong tool.
+- **A `pull_request`-triggered gate reads the PR body snapshotted at event-fire — re-running the same run id can NEVER clear a stale-body red; only a fresh `pull_request` event does.** `ci.yml` passes `PR_BODY: ${{ github.event.pull_request.body }}`, which is frozen into the stored event payload when the run is created. Editing the body afterwards and re-running (`gh run rerun`) re-reads the OLD body forever, so the gate reds identically and reads as "the fix did not work". Discriminate before blaming anyone: compare the run's `created_at` (from `gh api …/actions/runs?head_sha=<sha> --jq '.workflow_runs[]|.created_at'`) against the body's `updatedAt`. If every run at the head fired BEFORE the edit and the gate passes locally against the current body (`check_pr_closing.py check --body-file <current> --rev HEAD` → rc=0), the red is a snapshot artifact, not a tree defect. The only remedy is a **fresh `pull_request` event at the same head** — close+reopen by the owner, or a no-op commit — never another re-run and never an amend the squash text does not need. Same class as the CANCELLED rule (a cancelled/superseded run is no verdict, needs a fresh run at a frozen head), but here even a fresh run of the SAME event is insufficient: the event payload itself must be re-fired.
 - **`check-quant-catalog` reds every PR when the live Hub search changes** (issue #769).
   Do not let an author fold that data regeneration into a feature/docs PR; it is its own
   change.
@@ -518,37 +733,74 @@ rebase for the first, the code question for the second.
 
 ## Verdicts
 
-A verdict is the marker, posted via `make bot-verdict`:
-`VERDICT=approve|changes HEAD=<full sha> RUN=<run id> REPO=asimov-agent/llgenie PR=<n>
-[REVIEWER=<login>] [NOTE="<evidence anchor>"]`. The marker carries `head=`, `run=`, `verdict=` and
-`reviewer=`; `RUN=` is the Actions run id that measured the head — a verdict is only valid at the head
-the run concluded (`auto_merge` accepts a marker only at the PR's current `headRefOid`, and merge-on-
-verdict now requires a concluded green run at that head, issue #1551). On top of the marker, post the
-review state (`gh pr review -r` / `-a`) when the seat allows.
-
-- **Request changes — `VERDICT=changes`** — a factual claim in the diff or body is false (stale census,
+- **Request changes — `gh pr review -r`** — a factual claim in the diff or body is false (stale census,
   a gate that does not do what it says), a gate is red for a reason the diff caused, the diff is out of
-  scope, or secrets/permissions weaken. Post `make bot-verdict VERDICT=changes` (and, when the seat is
-  not identity-blocked, `gh pr review -r`) naming the failing acceptance
+  scope, or secrets/permissions weaken. Post as a REQUEST_CHANGES review naming the failing acceptance
   criterion, the head sha and the run id (issue #1193) — a verdict the merge gate and the owner can read
   at a glance, not a body-only comment.
-- **Approve — `VERDICT=approve`** — every acceptance criterion is verified green with only non-blocking
-  notes (doc omissions, nits, merge-order advice). Post `make bot-verdict VERDICT=approve` (and, when the
-  seat is not identity-blocked, `gh pr review -a`) with the same evidence
+
+**When the head's author IS this lane's own login, GitHub refuses the verdict state** — `gh pr review -r`
+(and `-a`) error with `Can not request changes on your own pull request` / `Can not approve your own pull
+request`. In this clone the reviewer token and the PR author are the same identity, so a load-bearing
+`-r`/`-a` is simply unavailable from this seat. Do **not** fabricate an approval or narrate a comment as
+if a review state were posted.
+
+**The one formal-review state that IS available is `--comment`.** `gh pr review <n> --comment --body …`
+succeeds even on your own PR and records a real review object under `reviews/` (state `COMMENTED`, your
+login, the head `commit_id`) — distinct from a body-only `gh pr comment`, which never appears in
+`reviews/`. Prefer `--comment` over `gh pr comment` for the fallback: it puts the verdict into the formal
+review list a merger scans, and costs nothing the `-a`/`-r` would have. **But a COMMENTED review does not
+flip `reviewDecision`** — the gate stays `REVIEW_REQUIRED` until a *distinct* identity posts an APPROVE.
+Verify with `gh api repos/<o>/<r>/pulls/<n>/reviews --jq '.[]|{state,user:.user.login,commit_id}'` and
+`gh pr view <n> --json reviewDecision`: a COMMENTED-only history with `reviewDecision=REVIEW_REQUIRED` is
+the honest state, not a failure of your post. The formal APPROVED that clears the gate is another
+identity's to grant (a fleet bot login, or the owner's) — route it to the planner with the try-it-live
+evidence below rather than claiming the gate is yours to close.
+
+**Prove the identity block live before answering "formal review or out of remit" — do not answer from
+memory.** One call settles which states this seat can and cannot post at the current head:
+
+```bash
+gh pr review <n> --repo <r> --approve --body "probe" 2>&1 | head -1   # expect: Can not approve your own pull request
+gh pr view <n> --json author --jq .author.login                          # expect: your own token's login
+gh api user --jq .login                                                 # equal ⇒ the block is real, cite it
+```
+
+That pair (`author == my login`) is the mechanism: GitHub forbids an author approving their own PR, so no
+verdict state above COMMENTED is available here. Report it as *"`-a` mechanically blocked, `--comment`
+posted, formal APPROVED is the distinct identity's"* with the exact error string — that is a measurement,
+not a refusal.
+
+**An `APPROVED` review sitting on a head whose deciding leg has since failed is board state to flag, not a
+green.** `reviewDecision=APPROVED` while `mergeStateStatus=UNSTABLE`, where the approving review's
+`commit_id` equals a head whose `linux / unit` (or other deciding) run has failed, is the
+self-stamped-approval-on-red pattern. Report the approving login, its `submitted_at`, and the red run id,
+and treat the approval as **no verdict** — never cite `APPROVED` as evidence the criteria were met at that
+head. Correcting or dismissing it is the owner's/planner's call unless a hold is already in place.
+
+**A distinct-identity `APPROVED` (the auto-merge bot login) sitting on a GREEN head you are about to review
+is not your verdict and must never be adopted as one — flag it and keep your own state honest.** When the
+review list shows `{"state":"APPROVED","user":"<automation-login>"}` at the head *before* your `COMMENTED`,
+that is the self-approval class (#491/#1088) whether or not the deciding leg is green: your review posts
+`--comment` (author==your login blocks `-a`/`-r`), and you report the stray APPROVED — its id, login,
+`submitted_at`, head sha — to the planner to fold into the #1088 evidence set, exactly as for a red-head
+stamp. Do not delete it, do not cite it as evidence the criteria met, do not narrate it as your own.
+- **Approve — `gh pr review -a`** — every acceptance criterion is verified green with only non-blocking
+  notes (doc omissions, nits, merge-order advice). Post as an APPROVE review with the same evidence
   anchor (head sha + run id or exact test command). This is the load-bearing good verdict (#1193); the
-  marker's `verdict=approve` (and the `-a` when it can be posted) is a statement the criteria met at that
-  head, never a merge this lane performs.
+  `-a` is a statement the criteria met at that head, never a merge this lane performs.
 - **Nothing** — a PR whose head sha, checks and review state you already reported and that has not
   changed.
 
-**When the head's author IS this lane's own login, GitHub refuses the review state** — `gh pr review -r`
-(and `-a`) error with `Can not request changes on your own pull request`. That blocks the `-r`/`-a` seat
-only, never the verdict: `make bot-verdict` still posts the marker, which is the load-bearing record
-`auto_merge.decide()` reads — the identity-blocked fallback is the marker itself, not a plain comment
-without it. Do **not** fabricate an approval or narrate a comment as if a review state were posted. The
-marker comment carries the same evidence anchor (failing criterion, head sha, run id) and states in
-`NOTE=` that the review-state seat is identity-blocked; route the finding to the planner — an independent
-verdict needs a second identity, which is not this lane's to mint.
+**Current-head green gate (owner escalation 2026-11-04, filed in `agents/standing-rules.md`).** A PR is not "handed to CI" — the lane that opens it owns its pipeline until every required gate is green at the CURRENT head sha. A mid-green PR (one gate red, some still running) is a parked lane, not a done lane (#1705 pattern). For the reviewer: when you review a PR that is NOT fully green at the head, say so explicitly in the review — which gates red, at which sha — and do not approve/co-sign until a fresh run at the CURRENT head confirms green, not the stale head a fix-then-body-edit left behind. **A body edit does not re-trigger CI: the check still evaluates the pre-fix body.** Quote the current head sha with your green, never a stale one.
+
+**Post the verdict at the PR's LIVE tip, not the sha you started polling — the head moves under you while the suite runs.** A ~12-minute `linux/unit` leg is long enough for the owning lane to push the fix you just asked for: you poll the run at `X`, it concludes FAILURE, and a NOT-GREEN posted at `X` grades a *parent* the tip already passed, which will never turn green and which the planner must spend a turn correcting. One read immediately before posting settles it, and it must be in the same breath as the post:
+
+```bash
+gh pr view <n> --repo <r> --json headRefOid --jq .headRefOid   # must EQUAL the sha you judged
+```
+
+If it differs, the run you measured is a superseded-head result: re-fetch the new head into a worktree (`git fetch origin refs/pull/<n>/head:refs/remotes/pr/<n>`), verify the diff between the two shas is exactly the fix you prescribed, re-run the deciding leg at the new head (local gate + poll its fresh run), and grade *that*. Say in the verdict which shas were superseded and why ("`<old>` NOT GREEN, run `<id>`; `<new>` GREEN, run `<id>`") so the board reads the history rather than one verdict floating on an abandoned commit. A NOT-GREEN at a superseded sha is never "the fix failed" — it is the completed verdict of the pre-fix state.
 
 **A verdict is about a sha, so it expires; a cause is not, so post that once on the umbrella.**
 When every head in a family has moved past the shas you read, do not post a late verdict dressed as a
@@ -557,6 +809,8 @@ review — freeze one head and judge it, or say nothing. What does not expire is
 is true of any head that kept that base, so it belongs on the tracking issue and each lane can act on it
 without a fresh measurement from you. Post the cause on the umbrella issue, the verdict on the PR, and
 never the other way round.
+
+**A gate-fix PR that proves its case by QUOTING a close keyword can red on its own proof text.** When a PR under review describes the very hazard it fixes (e.g. umbrella-close-guard proof body quoting `(closes #1812)` as the measured example), the keyword-naive `check-pr-closing` parse treats the quoted example as a real close: the squash set `{1812}` then disagrees with the body set `{#1815}` and the PR's required gate reds on itself. As reviewer, grep the PR's OWN commit + body for close-keyword adjacency before judging green: `git show -s --format='%B' HEAD | grep -inE 'closes #[0-9]|fixes #[0-9]|closed #[0-9]'` and compare the squash set to the body's `closing_references`. A head whose tree is byte-identical to a reviewed sha but whose commit/body text was rewritten (force-push, same tree, message-only) changes the *wiring verdict* (close sets, `check-pr-closing`) without touching the logic — re-anchor the citation to the new sha rather than re-reviewing the code, and scan any later PR body that quotes your earlier verdict text before judging it, since that quote can re-trip the same parse.
 
 When a peer lane says "re-measure from `<head>`, your finding does not reproduce here", **do it before
 you defend it.** `git ls-remote origin refs/pull/<n>/head`, re-run the exact gate/check at that sha, and
@@ -572,13 +826,35 @@ on `REVIEW_REQUIRED`, the approve step or its gate is at fault — report it aga
 own issue, and post the green verdict as `gh pr review -a` per #1193 so the board records that the
 criteria were met at that head, without this lane merging anything. Equally, never derive "green" from
 a job count that is still moving: a run with rows queued or in progress has no verdict, and the pending
-row is often the deciding one.
+row is often the deciding one. **When the deciding leg is merely `in_progress` (a long suite, ~12–14 min),
+poll it to a conclusion rather than stopping:** get the job id from `gh api
+repos/<o>/<r>/actions/runs/<run>/jobs --jq '.jobs[]|select(.name|test("unit"))|.id'`, then loop `gh api
+repos/<o>/<r>/actions/jobs/<job> --jq '"\(.status)/\(.conclusion)"'` with a ~25s sleep and a bounded count,
+breaking on `completed`. A `completed/success` at the head is then a real verdict to cite; stopping
+at the first `in_progress` reads as "no verdict" when the leg would have concluded a few minutes later. Only
+the *absent* run (queued, never started) is "no verdict, stop" — an *advancing* one you wait for.
+
+**Size the loop to the call cap, not to the job — a killed poll is not a failed conclusion.** A foreground
+terminal call is killed at roughly 420 s of wall time even when a larger `timeout` is requested, so a
+`18 × 35 s` loop (630 s) dies mid-poll and the error reads like a tool failure rather than "still running".
+The cap catches loops that look modest too: `18 × 25 s` (450 s) is still over it and was killed in
+practice, so count iterations, not just the sleep. Keep each poll call at ~12–15 iterations × 25 s
+(≈ 300–375 s), expect to re-poll once for a ~12–14 min unit leg (the second `for i in $(seq 1 12)` call
+usually sees `completed/success` on the first ticks), and treat the killed call as *no information*:
+re-issue the same loop from the current state, never re-run CI or push to "get a fresh run". A unit leg that started before your first poll will have advanced
+when the second call opens.
 
 ## Evidence block to include in every review
 
 Numbers and exit codes, from your own run: the gate command + exit code, the failing or
 absent engine/cell names, the test count, the doc gate line (`[check-docs] ok: …`), and the
 CI verdict with the run id. Quote `gh` output, never paraphrase "CI looks green".
+
+**When you need to prove a multi-part finding (or clear the nerve guard's "verification has not
+passed"), run one executable claim script rather than a series of prose reads:** `templates/finding-verification.py`
+is a copyable harness — replace its CLAIMS section with the finding's assertions against fresh `gh`/file
+reads, run it, and quote `RESULT: ALL VERIFIED` + exit 0. Exit 1 names the failure. It is evidence a
+reader can re-run, not churn to appease a heuristic.
 
 When the verdict is going to a merger, make it one sentence they can act on, either way:
 
@@ -591,11 +867,6 @@ either: not green, because <job> failed at <sha> in run <id> — <cause or "caus
 "verified" and "no verdict", and a merger reading only success/failure cannot see it.
 
 ## Scheduled watch
-
-The PR-watch monitor is versioned in-tree at **`agents/llgenie-pr-reviever/scripts/pr_watch.py`**
-(closes #1037; issue #1577). Check the repo copy first — a live-only edit under
-`~/.hermes/profiles/…/scripts/` is unversioned and untraceable (issue #1060/#791). Its test
-module `scripts/test_pr_watch.py` lives beside it in the tree too.
 
 `scripts/pr_watch.py` in this profile prints a deterministic fingerprint of every open PR
 (head sha, review decision, merge state, labels, check buckets, comment count, the latest review
@@ -635,6 +906,24 @@ is to feed it the same refs twice and diff those — `--changes-index origin/mai
 `--soul-rules <ref>` twice must both `diff -q` empty with `exit 0`. State that you measured frozen
 inputs, and say the live/two-run diff is the documented exception, so a reviewer reading your
 verification does not mistake an expected board movement for a broken script.
+
+**A monitor fix is proven by executing the fixed path, not just by its unit predicates.** After repairing a crash class in `pr_watch.py` (a null run id becoming a URL, a `gh` non-zero becoming `SystemExit`), the acceptance is a real run of the entrypoint that shows the killer signature absent — not a green pytest module, which exercises predicates in isolation and never walks the whole tick. Run `main([])` with stderr captured and assert the failure string never appears, plus a clean exit:
+
+```bash
+python3 - <<'PY'
+import sys, io, contextlib
+sys.path.insert(0, 'scripts')
+import pr_watch
+buf = io.StringIO()
+with contextlib.redirect_stderr(buf):
+    rc = pr_watch.main([])          # the actual cron entrypoint, full board
+err = buf.getvalue()
+print('rc=', rc, 'killer_absent=', 'actions/runs/null' not in err, 'gh_abort_absent=', 'ERROR gh' not in err)
+assert rc == 0 and 'actions/runs/null' not in err
+PY
+```
+
+Quote `rc=0`, the absent-marker booleans and the report's first lines in the closing comment. This is the layer between "the predicates pass" and "the cron tick does not abort" — a fix that guards `usable_run_id` but leaves one unguarded path still fails end-to-end while the unit test is green. The incident this closes: a monitor died silently on seven consecutive ticks because the unit-level guard existed in one function but an unguarded sibling path still built `actions/runs/null/jobs`; only running `main()` under `redirect_stderr` showed the abort.
 
 The first three lines are fixed and in this order: `workflows: active=N (names) disabled=M (names)`,
 then `main: <sha> CI <status>/<conclusion> [FAILED:<jobs>]`, then the queue. The `main:` line exists
@@ -683,6 +972,30 @@ from — which is the right answer when the ask is "which PRs are red or conflic
 them" rather than "review this one".
 Run it after any change to the script; a divergence between the printed and hashed
 stream would make the monitor lie about whether the state moved.
+
+**Verdict-citability audit (scope 3 of the empty-queue contract, measured 2026-11-02 → filed #1619).**
+The #1273 standard is "a merged/reviewed PR carries a citable verdict naming the run id AND the head sha." When the reactive queue is empty, sweep it mechanically instead of eyeballing: `gh pr list --state all` for merged, then per PR `gh api …/issues/<n>/comments` + `…/pulls/<n>/reviews`, regex `\b\d{11,}\b` for run and `\b[0-9a-f]{7,40}\b` for sha. Key discriminator: **the declaring verdict can be the auto-merge APPROVED review body, which is generic text** (`LGTM`, or "Approved by the repo's auto-merge job (issue #491)") — it interpolates neither field, so a green-merged PR can have a non-citable verdict on record. This is distinct from the bot-verdict *marker* `run=` slot (#1556): the APPROVED *body* path was never brought under it. Separate your own lane's verdicts from the audit (mine were 13/13 citable) so the finding names the real owner of the gap, and discriminate the 5 flagged rows before calling them gaps (claim/evidence notes legitimately defer the run id to the verdict). File the finding as a refined six-section `agent:implement` issue (#1197/#1273 route), confirm the label on-record, one line to the planner.
+
+**Close-set completeness audit (empty-queue contract, scope 3, measured 2026-11-02 → filed #1629).**
+`check_pr_closing.py` validates that the keywords a PR body DID write are ADJACENT to the ref (`closes #N`) — it does NOT detect a PR whose diff actually fixes issue X while the body names X (numerically) but never grants it a closing keyword. Probe this class: for a merged fixing PR, `grep -o 'closes #N'` the body vs `git show <merged-commit>:<file>` the diff; every issue number the body references that the diff demonstrably implements must be either adjacent-closed or on-record "does not close because <reason>". A descoping issue (#1617 symptom) can be closed while the true root-cause (#1582 guard) is orphaned-OPEN with its fix landed in main. Root cause: the gate checks adjacency of chosen keywords, never issue-set completeness of the change. Reusable: `gh issue list --search "<closes-keyword> in:title"` to rule out a duplicate before filing, and confirm the fixing commit via `git show --stat` on the merge before claiming the issue is resolved. When the dispatch names a reactive PR (#1628), re-read its state first — it may have merged mid-dispatch (moot, no verdict owed) and its generic auto-merge APPROVED body is then evidence for #1619, not a new vehicle.
+
+**Acceptance write-back audit (empty-queue contract, scope 3, measured → filed #1644).** The renderer enforces `## Acceptance criteria` as tickable `- [ ]` items (`scripts/check_issue_body.py`, "a criterion a reviewer cannot tick is not one", #745) — but nothing writes the result back: a PR closed on all-green, with every criterion proved in a reviewer's verdict, leaves the issue's boxes `- [ ]` forever. Probe it: pick a recently-closed issue whose fixing PR was reviewed, `gh issue view <n> --json body,state --jq '.state, .body'`, and count `grep -cE '^- \[ \]'` (unticked) vs `'^- \[x\]'` (ticked); a CLOSED issue with all criteria still `- [ ]` while the merge was reviewer-proved is the gap. Confirm the mechanism with `grep -cE '\[x\]|acceptance' scripts/auto_merge.py` (0 ⇒ no write-back) and that no `PATCH /repos/…/issues/{n}` on the body exists anywhere. The fix is the reviewer's own write-back: on a reviewed-green merge, tick exactly the criteria the posted verdict proved (referencing review id + head sha + run id), leave unproved ones unticked, and an auto-merged PR with no reviewer verdict legitimately leaves all unticked (#1088-class — honest, not a defect). File as a six-section `agent:implement` issue; the approve-chain identity problem (#1088) is a separate open policy issue, explicitly excluded from this finding.
+
+**Filing any audit finding: six-section issue, prior-art first, prove it against the repo's own intent.** Before filing: rule out a duplicate with targeted `gh issue list --state all --search '<phrase> in:title,body'` per phrasing (several unrelated-looking hits that only share words is *not* prior art). Render the body in the exact six-section shape (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` / `## Acceptance criteria` (`- [ ]` items) / `## Technical` last) — a producer that must pass `check_issue_body.py` renders *through* `issue_body.render`, but a hand-filed audit finding writes the same headings in the same order with a dedupe marker on line 1. Write the body with a heredoc to a file and post `gh issue create --body-file` (never a `--body` string that shell would expand), label `agent:implement`, then verify the landing (`gh issue view <n>` shows all six `## ` headings in order) and post the audit-deliverable comment naming the measured sha/PR/issue numbers. Quote the repo's own renderer docstring as the standard the finding is measured against — an audit finding is the tree failing its own stated contract, not a taste call.
+
+**#1619 implementation (planner-routed own-vehicle):** when a finding this lane filed is routed BACK to it to implement (implementer declined), the deliverable is the PR — but the self-review prohibition still holds: post evidence as a comment-only review on that PR, never `-a`/`-r`, never a merge/arm (#1088). The fix bodies: `scripts/auto_merge.py::approve()` interpolates the head sha judged (`state.headRefOid` threaded through `try_approve`) and the deciding run id (`$GITHUB_RUN_ID`) into the APPROVED review text; a PR whose state carries no head sha is never approved. AC#4 citable-guard regression = assert the `pr review --body` satisfies the #1273 sweep regexes `\b\d{11,}\b` (run) and `\b[0-9a-f]{7,40}\b` (sha) and contains the actual run id + judged sha; a no-head-sha state must post no approval and no merge. When a new base CI is broken (a ci.yml run with `total_count:0` jobs = a workflow-load rejection, not a PR defect), confirm with `git show <base-commit>:.github/workflows/pipeline.yml` that the base carries the defect (#1618 GITHUB_TOKEN-under-workflow_call) and that your diff never touches a workflow — then report the deciding unti leg as blocked on the base fix + rebase, and post the evidence comment rather than a verdict.
+
+- **A dispatch can name a PR that is CLOSED the same minute you start — re-read `state` at the FIRST check and stop if it is not OPEN, never after polling/building the verdict.** Measured: #1708 closed (not merged) 18:49:32Z, head_ref_deleted 18:52:22Z; my first `gh pr view` returned `state: CLOSED` and I polled to a green unit, posted a GREEN verdict 19:01:42Z — a ghost-frame on a closed PR, needing a withdrawal comment. The planner's "review this PR" may have been written from an OPEN board snapshot minutes earlier; the PR can close under you between dispatch and your first read. The one read is the `gh pr view <n> --json state` line, taken before anything else (before the checks read, before the worktree): if `state != OPEN` (closed without merge, `merged_at: null`), there is **no head to grade** — record the run facts only as evidence, post no verdict, report the closed-without-merge state back and stop. A closed-not-merged PR is not "no verdict yet", it is "already concluded by its owner — review is moot".
+- **A `# proc-allow: <reason>` marker must sit ON the line the proc-gate scans — the `subprocess.run(` opener — not on a wrapped continuation line.** `check-proc-gate` matches "a line carrying `# proc-allow:`"; when the call is wrapped so the marker ends up on the `capture_output=` continuation line, the opener line reads as a bare call site and the gate reds `scripts/<f>.py:<line>` naming only the `subprocess.run(` line. **Two-fold disclosure trap:** (1) a generator that writes `subprocess.run([…], cwd=root,` on line N and the marker on N+1 looks right in the editor but fails the gate; (2) **a defect masked by a later ci-unit red survives a first review** because `make ci-unit`/test-unit stops at the FIRST failing gate — fixing that gate lets the suite progress to a genuinely-second bug that existed from the start. Measured twice in this class: fixing five convention gates exposed a sixth (`check-import-roots`, see the workflow-PR list) that was present in the new test file from the first push, and the unit leg reds at a gate *after* the tests pass (2985 passed, then `check-import-roots`), so a green test count is never a green chain. When a fix turns one red green, re-run the **whole** unit chain before declaring the PR green — and when a fix push lands, expect the next failure to be a masked one; grade it as a new, own-diff defect, not as evidence the fix failed. **A mid-green PR is a parked lane, not a done lane — a fix that is correct but never re-evaluated at a fresh head leaves the PR red (#1705): name the still-red gates + the current sha and hold; "correct" is not "green at the current head", and a body edit does NOT re-trigger CI so the stale-head verdict is meaningless.** Verify marker placement with the gate itself (`python3 scripts/check_proc_gate.py check`) at the head, never by reading the source.
+- **A gate that reads the linked issue's `## Acceptance criteria` is BLIND to an issue whose criteria live under a `**`-bold header — measure the issue's heading shape before trusting a green.** `issue_body.section_body` matches only `^## <name>$`, so an issue authored as `**Acceptance criteria:**` (bold, no `## ` heading at all) yields **zero** items: `acceptance_verdict(issue, pr)` returns `[]` → the gate reports `[check-pr-acceptance] OK` (green) on a closes-#N it is supposed to hold, and the write-back seam `acceptance_writeback.tick_acceptance` raises `BodyError: the body has no ## Acceptance criteria section` — so even a posted reviewer verdict CANNOT tick the boxes. Measured on #1792/#1797 (`## headings in #1792: NONE`; gate + tick both green/fail as described). When a dispatch premise says "X reds a gate because the issue is unticked", do not assume the gate sees the issue's boxes: run the real gate against the live issue body AND `acceptance_writeback.tick_acceptance` against it, and check `python3 -c 'import re,json;[m.group(1) for m in re.finditer(r"^##\s+(.+?)\s*$", open(F).read(), re.M)]'` on the issue body for a canonical `## ` heading. A verdict-gated write-back (#1644) is only ever reachable on a canonical-`##`-headed issue — when bold-headed, get the body re-rendered (fix B), drive the seam from your accepted COMMENTED verdict: `python3 scripts/acceptance_writeback.py writeback --issue <N> --proven 1..K --verdict-ref 'reviewer=<self> comment=<id> head=<sha> run=<run>' --repo asimov-agent/llgenie` (dry then live), verify = `gh issue view <N>` shows all `- [x]` + updatedAt moved. Confirmed on #1792: verdict comment 6661591003 → write-back PATCHED 6/6 (15:15Z) → `acceptance_verdict(ticked issue, closes-PR)` = 0 findings (gate clears); re-measure head CI on a fresh run after the tick. **A comment does NOT auto-trigger a rerun — but when it IS re-run at the same head, the acceptance gate re-reads the issue body LIVE (`check_pr_acceptance.py`: "The issue body is read LIVE (`gh api repos/<o>/<r>/issues/<n>`) at merge time — the merge-tip measure, never a cached copy") and the PR body LIVE (`ci.yml`: `PR_BODY="$(gh api .../pulls/$PR_NUMBER" --jq '.body // ""' ...`)"` — "NOT an event snapshot, so a body-only fix clears on rerun"), so `gh run rerun <id> --failed` at the SAME head IS the honest re-trigger and re-reads criteria 1+3 → the gate drops to only the still-unticked designed hold. It is NOT event-bound, and no push/regraft/new pull_request event is owed for an issue-side or body-side tick. Measured on #1820: write-back ticked #1818 1+3, rerun of 42148365235 read LIVE body → `[check-pr-acceptance] 1 violation` (only criterion 2, the designed post-merge hold), down from 3. When a peer (or my own report) says a write-back "wont clear until a fresh PR event", that is a stale-snapshot misconception — verify by reading `scripts/check_pr_acceptance.py` (docstring verbatim) and `ci.yml` before re-posting it.
+- **When a PR has several `guard` check-runs of the same name, only ONE is the acceptance-bearing row — read each job's step list before reporting the acceptance step green (or red).** Three guard rows can register on one head: a trigger/owner-guard row and a checkout-only row carry `Set up job` / `Owner or collaborator trigger guard` / checkout, no make steps; the row that actually embeds `make check-pr-acceptance` (+ `check-pr-closing`, `check-pr-authors`, `check-pr-agents-line`, `check-pr-sync-line`, `check-pr-base`) is the one that proves the acceptance gate. On #1797@05724a17c only guard check-run 127334830552 listed `make check-pr-acceptance` = success; the other two were scaffolding. Read `gh api …/actions/jobs/<id>` steps, never assume the first `guard` row is the gate. **An acceptance-PR that is done-but-unmerged typically shows exactly this shape at its head: the acceptance vertical green (guard·check-pr-acceptance success, #1644 ticked issue) and a SAME-PR `check-pr-base` red for base drift** (`HEAD` merge-base with `origin/main` = an older merge, foreign commit self) — that red is a rebase onto the current main tip, owned by the PR's lane (I never push to another's branch, #1706) and it is NOT a re-open of the acceptance verdict. Name the rebase target (current `origin/main`) and hold; re-post a branch verdict once a concluded run at the rebased head is all-green.
+- **A peer can re-dispatch "the boxes are still unticked / post the unblock verdict" against a SUPERSEDED head after your seam tick already landed — verify your own write-back persisted before ever re-ticking, and never re-tick a completed verdict-gated tick.** Measured on #1797: I completed the #1644 seam tick at 15:15Z (`acceptance_writeback writeback --issue 1792 --proven 1..6 --verdict-ref 'reviewer=llgenie-pr-reviever comment=6661591003 head=b4bc5420 …'` PATCHED 6/6, each box carrying the `(proven: …)` marker); a later planner dispatch cited head `b4bc5420` and "6 violation(s)" as if current — but the wire head had advanced to `05724a17c` and the boxes were 6/6 `[x]`. The cited run 42052094718 was created 15:09Z at the old head, BEFORE the tick. Correct action: re-read the live PR head + the live issue's box marks + the run's created-at, confirm no work is owed (the verdict + tick are done), post a correction naming the comment id of the seam's produced tick, and explicitly say "no re-tick" (#1644 stays seam-sanctioned). Do NOT post a fresh verdict or a second write-back against an already-ticked issue. When a dispatch premise contradicts what you measured, trust the live wire (PR head sha, issue `edited_at`/`updated_at`, box mark of each `## Acceptance criteria` item, and the CI run's `created_at` vs your tick time) over the peer's textual claim — a threshold veto surfacing "6 violations" on a pre-tick run is the faithful hold, not evidence the fix failed.
+- **The acceptance-hold release proof is the LIVE-BODY local re-read + the rendered-body class check — a CI rerun is optional evidence, not a requirement, and it must group by run id.** After any `--proven` tick, prove the drop with `scripts/check_pr_acceptance.py check --body-file <FRESHLY fetched PR body>` (must fall to `OK … rc 0` for a full tick, with zero `tick-unprovable` AND zero `acceptance-unchecked` on the rendered body — a held out-of-scope criterion is the only legal remaining row). If you additionally rerun a stale CI run for the durable CI-side record, enumerate EVERY stale run at the head first (`gh pr checks` + each row's `detailsUrl` → run id) and `gh run rerun --failed` once per distinct run id — a designed hold can red the guard AND a separate ci-scope workflow run, each with its own `check-pr-acceptance` job, so one rerun leaves the other red. The local live-body re-read is authoritative; the rerun just moves the evidence onto the CI wire. Full detail: `references/acceptance-hold-release.md` + `references/verdict-writeback-verification.md` §6.
+- **A write-back on a RE-STAGED head cites the new sha, and the write-back itself creates NO CI run id.** When the rebase lane re-pushes a branch onto live main (`#1848`: `dd57b47e92` → re-staged `9fd08a43` on base `b4e366c2`), re-run the evidence battery (tests, `git merge-tree --write-tree <base> <head>`, the acceptance gate) at the NEW head and write `--verdict-ref` with the new sha — old-head citations on the issue thread are historical, not the tick's anchor. The write-back is an ISSUE-BODY PATCH (`PATCHED #<n>`), so "the write-back run id" a lane asks for is the gate evidence RUN at the head (e.g. run `42231931400` @ `9fd08a43`), never a run the PATCH creates. Full detail: `references/verdict-writeback-verification.md` §1.
+- **A write-back ticks only the criteria the PR actually delivers — never the N/N a dispatch requests.** When a dispatch asks for a full tick to unblock a gate-PR, classify each linked-issue criterion against *this PR's diff*, tick only the delivered subset (`acceptance_writeback writeback --proven 2,4,6`, dry `--dry` then live), leave the rest `- [ ]`, and report that the gate reading them will correctly stay red until the other vehicles (a fleet rollout, a follow-up PR) land. Over-ticking fabricates proof no diff supports. The `check-pr-acceptance` out-of-scope exemption matches a criterion's **first three words** against the PR body's `## Not covered` — so "out of scope" in a dispatch is not the same as "exempted by the gate", and an undelivered-and-unrestated criterion still reds. Full detail: `references/verdict-and-completion-discipline.md`.
+- **The last PR of a fleet-rollout closing the umbrella cannot be un-ticked by a pre-merge write-back when one criterion is SELF-REFERENTIAL — measure the ordering before promising an unblock, and state the release path as merge-first.** When several PRs each `closes #umbrella` and cumulatively deliver its criteria, a criterion phrased "the PRs merge → downstream #X becomes tickable → a verdict ticks it" depends on *this* PR's own merge: the write-back needs the downstream tick, which needs the merge, which the red gate is holding — a closed loop no pre-merge tick can break. Verify by reading the umbrella's criteria against each PR's diff (which are delivered NOW by already-merged siblings vs which require the merge itself), then report the honest release path: the last PR merges first (owner path — never this lane, #1088), THEN the verdict-gated write-back ticks the delivered subset, THEN the downstream item ticks and the grandparent reaches N/N. Present the acceptance-red at the head as the correct by-design umbrella-hold, not a defect, and name which criteria the merged siblings already prove (cite the merged contract's file:line in `main`, not the PR's). This is the ordering twin of "tick only the delivered subset" above: same rule, but the delivered subset cannot include a criterion whose proof *is* the merge.
+- **A RUNTIME-VERIFICATION criterion — one whose only proof is a run that cannot exist until the PR's change is live — is a third class beside "delivered now" and "self-referential": hold it unticked pre-merge, and say the reason is structural, not deferral.** A criterion requiring "a push=true vllm/rocm engine-build cell (run id + job id) reports completed/success at the raised cap" (issue #1818 criterion 2) cannot be proven at the introducing PR's head because a push-triggered run at the NEW cap only happens once the workflow is on main — the PR itself does not fire that run. This is NOT the self-referential closed loop (#948), and NOT a "delivered subset" omission (#947): the diff delivers the *policy* (the matrix-aware cap), but the *verification* requires an on-wire cell that pre-merge structurally does not exist. Tick the policy criteria the PR proves (e.g. criterion 1 = the exact matrix-aware expression in the workflow, pinned by a unit test that evaluates the expression over the emitted matrix — rocm→360, others→240), tick the change-note/gate criterion (criterion 3), and hold the runtime cell criterion unticked with the reason stated on the verdict ("no completed push-trigger cell exists at this head today; current cell run X still in_progress at the OLD cap" — an in-flight cell is no verdict). State the release path: merge → the cap exercises on-wire → the criterion becomes provable + ticks. Do not fabricate the cell by citing an in-progress or old-cap run. Measured on #1820 (head 9aecbfab, run 42148365235, guard job 127665239152): verdict 6674989587 ticked #1818 criteria 1+3, criterion 2 honestly held, write-back read-back 2/3.
+- **A dispatch claiming "the artifacts are sha-identical both sides" is a claim to reconcile against measurement, not to rubber-stamp — tree≠live is EXPECTED when the PR itself adds the block.** When a fold/versioning dispatch says "sha256 <id> both sides (live==tree)", measure both yourself (`sha256sum` of the tree file and the live profile file at the exact path, after `find … -path '*<skill>/SKILL.md'` to locate live — it is under `~/.hermes/profiles/<lane>/skills/`, not the tree). A fold that copies live→tree *then appends* a new contract block legitimately lands tree≠live (tree = live + the added block); that is the PR working, not a defect — say so explicitly ("substance confirmed, tree adds the block the dispatch's exact sha omits") rather than red-ing the PR on a stale number. Only treat a mismatch as a defect when the tree is *missing* content the live has (silent truncation) or the added block is not verbatim. This is the fold-specific instance of "trust the live wire over the peer's textual claim."
 
 ### The two tree-side checks (`--soul-rules`, `--soul-shrink`)
 
