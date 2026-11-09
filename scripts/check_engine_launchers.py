@@ -24,8 +24,22 @@ exactly the defect this check exists to catch.
 Outcomes per engine:
   OK        launcher present and naming the expected tag
   STALE     launcher present and naming a different tag  -> FAIL, both tags and both pins
-  MISSING   no launcher in the bin dir                   -> informational (CI's normal state)
+  MISSING   no launcher in the bin dir
+              -> informational: a host may legitimately have none, CI has none (a fresh
+                 checkout has no launchers at all), so a missing launcher NEVER reds by
+                 itself. But see REQUIRED below — the launcher a host has already adopted.
+  REQUIRED  a CORE launcher that the host has already opted into llgenie for but is missing
+            -> FAIL. Discrimination: on a host with ZERO launchers (CI, an uninstalled
+            machine) every missing launcher is informational and the check exits 0; once the
+            bin dir holds even one launcher, the CORE pair `make install` always writes
+            (llama.cpp, llama.cpp-prism) becomes REQUIRED, and a partial install missing them
+            is a real defect. The contract is named per row by `required_for`.
   NOT PUBLISHED  with --check-registry: no manifest resolves for the expected tag -> FAIL
+
+The REQUIRED/informational split exists so the check's exit code means something: `check` on a
+fresh host (CI, an uninstalled machine) must exit 0 — every missing launcher is informational
+there — while a host that has opted into llgenie and is missing the default launcher pair is a
+broken install. A stale launcher still reds everywhere.
 
 No container is started and the default run touches no network. `--check-registry` is
 the only thing that talks to a registry, and it is opt-in so CI never depends on GHCR.
@@ -86,6 +100,18 @@ def expected(arch: str) -> list[dict]:
     return [e for e in iel.install_plan(arch, ["all"]) if e.get("variant")]
 
 
+def required_for(arch: str) -> set[str]:
+    """The launchers a host that has opted into llgenie MUST have on this backend — the CORE
+    pair `make install` always writes (`iel.CORE_ENGINES`), intersected with the rows that
+    actually have an image for `arch`. Every other engine's launcher is informational: it is
+    pulled on demand, so a host may legitimately have none. Named per row so the contract lives
+    in one place and the sweep's exit code is checked against it (issue #2296).
+    """
+    rows = expected(arch)
+    core_ids = set(iel.CORE_ENGINES)
+    return {r["engine"] for r in rows if r["engine"] in core_ids}
+
+
 def manifest_resolves(tag: str) -> bool:
     """Does a registry manifest resolve for this tag? Never pulls, never builds."""
     if not ei.REGISTRY:
@@ -94,20 +120,40 @@ def manifest_resolves(tag: str) -> bool:
                           capture_output=True).returncode == 0
 
 
+def _host_opted_in(bindir: Path, arch: str) -> bool:
+    """True when the host has installed at least one of the CORE launchers `make install` always
+    writes — the signal that it opted into the DEFAULT install set (vs a machine that only
+    pulled an on-demand engine, or CI / an uninstalled host where none is expected). Once the
+    CORE pair is partially present, the other half is REQUIRED (issue #2296)."""
+    if not bindir.exists():
+        return False
+    required = required_for(arch)
+    return any(launcher_path(bindir, engine).exists() for engine in required)
+
+
 def check(bindir: Path, arch: str, check_registry: bool = False) -> int:
     rows = expected(arch)
     if not rows:
         print(f"[launchers] no engine params for {arch}: nothing to compare")
         return 0
-    stale, unpublished = [], []
+    required = required_for(arch)
+    opted_in = _host_opted_in(bindir, arch)
+    stale, unpublished, required_missing = [], [], []
     ok = missing = 0
     for row in rows:
         engine, want = row["engine"], row["tag"]
         path = launcher_path(bindir, engine)
         if not path.exists():
             missing += 1
-            print(f"[launchers] no launcher for {engine} ({path}) - informational: a host may "
-                  f"legitimately have none, CI has none")
+            # informational when the host has no launchers at all (CI, a fresh machine), or when
+            # the engine is an on-demand one; REQUIRED when a host that HAS opted into the CORE
+            # pair is missing the other half — a partial default install it cannot serve.
+            req = engine in required and opted_in
+            bucket = "REQUIRED" if req else "informational"
+            print(f"[launchers] no launcher for {engine} ({path}) - {bucket}: "
+                  f"{'an opted-in host is missing a CORE launcher `make install` always writes' if req else 'a host may legitimately have none, CI has none'}")
+            if req:
+                required_missing.append((engine, want))
             continue
         have = launcher_tag(path)
         if not have:
@@ -129,10 +175,12 @@ def check(bindir: Path, arch: str, check_registry: bool = False) -> int:
                 print(f"[launchers] NOT PUBLISHED {row['engine']}: {row['tag']} resolves no manifest "
                       f"({ei.REGISTRY or 'no registry'})")
     summary = f"[launchers] {ok} ok, {len(stale)} stale, {missing} missing"
+    if required_missing:
+        summary += f" ({len(required_missing)} REQUIRED)"
     if check_registry:
         summary += f", {len(unpublished)} not published"
     print(summary + (f" (arch {arch})" if rows else ""))
-    if stale or unpublished:
+    if stale or unpublished or required_missing:
         for engine, have, want in stale:
             hp, hh, hv = tag_parts(have)
             wp, wh, wv = tag_parts(want)
@@ -141,6 +189,10 @@ def check(bindir: Path, arch: str, check_registry: bool = False) -> int:
             print(f"[launchers] stale launcher names {what}: {engine} launcher "
                   f"pin={hp or '(none)'} params={hh or '(none)'} variant={hv or '(none)'} -> "
                   f"expected pin={wp} params={wh} variant={wv}", file=sys.stderr)
+        for engine, _want in required_missing:
+            print(f"[launchers] REQUIRED missing: {engine} launcher is absent on a host that has "
+                  f"installed llgenie launchers; run `make engine-launchers ENGINES={engine}`",
+                  file=sys.stderr)
         return 1
     return 0
 

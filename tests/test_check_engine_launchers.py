@@ -98,6 +98,73 @@ def test_no_launcher_is_informational(tmp_path, capsys):
     assert "0 ok" in out
 
 
+def test_missing_launchers_on_an_uninstalled_host_are_all_informational(tmp_path, capsys):
+    """#2296 AC1/AC2: on a host with NO launchers (CI, a fresh machine), every missing launcher —
+    CORE and on-demand alike — is informational, so `7 missing (arch vulkan)` still exits 0. The
+    REQUIRED class only engages once the host has opted in with at least one launcher."""
+
+    empty = tmp_path / "bin"
+    empty.mkdir()
+
+    # When  the whole vulkan fleet is missing on an uninstalled host
+    code = cel.check(empty, "vulkan")
+    out = capsys.readouterr().out
+
+    # Then  nothing is REQUIRED and the job is green, naming the informational state per row
+    assert code == 0
+    assert "informational" in out
+    assert "7 missing" in out
+    assert "REQUIRED" not in out
+
+
+def test_a_host_missing_a_required_launcher_fails(tmp_path, capsys):
+    """#2296 AC3 negative control: once a host HAS installed at least one llgenie launcher, the
+    CORE pair `make install` always writes is REQUIRED — a partial install that drops one must
+    exit non-zero, because that host silently cannot serve an engine it committed to."""
+
+    # Given a host that HAS opted in (one launcher present) but is missing llama.cpp-prism
+    rows = [e for e in iel.install_plan(ARCH, ["all"]) if e.get("variant")]
+    engine = "llama.cpp"                                # a CORE engine install always writes
+    assert engine in iel.CORE_ENGINES and engine in {r["engine"] for r in rows}
+    partial = tmp_path / "bin"
+    partial.mkdir()
+    _write_launcher(partial, engine, next(r["tag"] for r in rows if r["engine"] == engine))
+    wanted = {r["engine"] for r in rows}                # the absent default pair is required
+    assert "llama.cpp-prism" in iel.CORE_ENGINES and "llama.cpp-prism" in wanted
+
+    # When  the check runs on this opted-in, partial host
+    code = cel.check(partial, ARCH)
+    out = capsys.readouterr()                            # stdout + stderr
+
+    # Then  it fails, names exactly the REQUIRED missing launcher, and says how to fix it
+    combined = out.out + out.err
+    assert code == 1, combined
+    assert "REQUIRED" in combined and "llama.cpp-prism" in combined, combined
+    assert "make engine-launchers" in combined, combined
+
+
+def test_a_missing_on_demand_launcher_stays_informational_even_when_opted_in(tmp_path, capsys):
+    """#2296 AC1: REQUIRED covers only the CORE pair; an on-demand engine a host never installed
+    is informational even on a host that HAS launchers — a host may legitimately serve fewer."""
+
+    rows = [e for e in iel.install_plan(ARCH, ["all"]) if e.get("variant")]
+    on_demand = next(r["engine"] for r in rows if r["engine"] not in iel.CORE_ENGINES)
+    host = tmp_path / "bin"
+    host.mkdir()
+    # Opted in via the FULL CORE pair `make install` always writes, so REQUIRED is satisfied.
+    for engine in iel.CORE_ENGINES:
+        _write_launcher(host, engine, next(r["tag"] for r in rows if r["engine"] == engine))
+
+    # When  the CORE pair is present but an on-demand engine is absent
+    code = cel.check(host, ARCH, check_registry=False)
+    out = capsys.readouterr()
+
+    # Then  the missing on-demand engine is informational, not the reason the check might red
+    assert code == 0, out.out + out.err
+    assert on_demand not in cel.required_for(ARCH)
+    assert f"no launcher for {on_demand}" in out.out
+
+
 def _stub_docker(bindir: Path, marker: Path, exit_code: int) -> str:
     """A fake `docker` on PATH: records that it ran, exits `exit_code`."""
     bindir.mkdir(parents=True, exist_ok=True)

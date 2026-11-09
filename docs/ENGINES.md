@@ -91,7 +91,12 @@ recomputes that tag from the **committed params using the launcher writer itself
 the `IMAGE=` line of the launcher that is actually installed. A launcher naming another tag is a
 **failure**: it would run an older pinned engine and report `--version` happily, or a fresh install
 would fail on a tag nobody pushed, with the error pointing at the registry instead of the pin drift
-(issue #842). A host with no launcher is informational — that is CI's normal state. `CHECK_REGISTRY=1`
+(issue #842). A missing launcher is `informational` — that is CI's normal state, and every `MISSING`
+row on a host with no launchers leaves the check green (#2296). One class is `REQUIRED`: once a host
+has installed at least one of the CORE launchers `make install` always writes (llama.cpp,
+llama.cpp-prism), the rest of that pair is a broken install and reds with `make engine-launchers
+ENGINES=<engine>` as the fix; on-demand engines (litert, mlx, ollama, vllm, …) are always
+informational because a host may legitimately serve fewer. `CHECK_REGISTRY=1`
 additionally fails a computed tag that resolves no manifest; the default run touches no network and
 starts no container.
 
