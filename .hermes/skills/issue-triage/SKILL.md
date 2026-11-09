@@ -73,3 +73,5 @@ REASON: <one line>
   exactly this shape.
 - **`implement` means the acceptance criteria are concrete enough** that the implementer can start
   without asking anything — if they are not, that is a `refine`.
+
+# probe-839 skills class
