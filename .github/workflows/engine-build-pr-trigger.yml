@@ -145,6 +145,13 @@ jobs:
 
   trigger:
     needs: [guard, actor-guard]
+    # A pull_request run proceeds under guard's existing same-repo check (guard fails => trigger is
+    # skipped, exactly as before #2381). A manual workflow_dispatch proceeds only once the separate
+    # dispatch-only actor-guard job succeeds (a refused dispatch fails it, so trigger is skipped and
+    # the run is RED, never a bare 0-job success on dispatch). `always()` + referencing the needed
+    # jobs' results stops GitHub's needs-skip from cancelling the pull_request path just because the
+    # dispatch-only actor-guard job is skipped on that event.
+    if: always() && ((github.event_name == 'workflow_dispatch' && needs['actor-guard'].result == 'success') || (github.event_name != 'workflow_dispatch' && needs.guard.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 250   # a max window that can hold a push=true build+push for a bump PR; producer itself can run 240 min
     steps:

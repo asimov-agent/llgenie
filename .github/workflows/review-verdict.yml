@@ -117,12 +117,15 @@ jobs:
 
   record:
     needs: guard
-    # A same-repo head only for a review event: a fork head's review event carries a read-only token
-    # and no secrets, so this job could not post the marker there (the reviewer lane covers those,
-    # separately). The check uses the event's head repo, which is non-empty for a PR event (#510).
-    # A manual dispatch has no head repo (there is no PR event) — it names the PR by number, so the
-    # actor guard job above gates it instead, and this job must never be a 0-job on a dispatch.
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    # The guard is a disjunction (#2381): a manual dispatch passes only once the dispatch-only actor
+    # guard job above succeeds (a refused dispatch fails that job, so this job is skipped and the run
+    # is RED — never a 0-job success). A pull_request_review still runs under the existing SAME-REPO
+    # head-repo guard (a fork head's review event carries a read-only token and no secrets, so this
+    # job could not post the marker there; the reviewer lane covers those separately). The check uses
+    # the event's head repo, which is non-empty for a PR event (#510). `always()` + referencing
+    # `needs.guard.result` stops GitHub's needs-skip from cancelling the review path just because the
+    # dispatch-only guard job is skipped there.
+    if: always() && ((github.event_name == 'workflow_dispatch' && needs.guard.result == 'success') || (github.event_name != 'workflow_dispatch' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
