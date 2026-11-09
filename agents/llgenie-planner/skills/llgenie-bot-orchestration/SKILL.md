@@ -235,6 +235,9 @@ dispatch while a `bot-claim:` TTL is live.
   `--parent <task>` to gate a dependent issue, and `hermes kanban dispatch --max 5`. A delivery is landing only
   when the task reads `running` *and* its worktree shows edits: `git -C <repo>/.worktrees/<task> status --porcelain`.
   `kanban runs <task>` tails the *first* attempt, so a stale `spawn_failed` diagnostic sits above a healthy run.
+- **GH issues→kanban cards** ("load N to triage"), both directions (no-PR issues AND open PRs' closing
+  issues) plus the `kanban create` traps (`--title` positional, `--json` id, dedupe, archive-not-delete):
+  `references/gh-issue-to-kanban-triage.md`.
 - **Every dispatch starts with the preflight**: the `main` sha you measured, plus "open a fresh worktree off
   `origin/main` and re-read `AGENTS.md` there before the first edit". A brief with no sha is a brief the implementer
   cannot check itself against.
