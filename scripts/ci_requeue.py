@@ -36,6 +36,14 @@ DEFAULT_WINDOW = "2h"
 
 _WINDOW_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 
+#: The stderr shapes `gh run rerun` emits when GitHub REFUSES a retry — a decision, not a
+#: transient failure (issue #2295). A run whose workflow was deleted, whose artefacts expired,
+#: or whose conclusion GitHub will not re-open answers this way every time; retrying the sweep
+#: can never clear it, so the healer records it as SKIPPED (never failed) and moves on. Any
+#: other non-zero gh return — rate limit, 5xx, auth — is a transient/real failure and STAYS
+#: fatal (the negative control: a real problem must not be swallowed).
+NON_RETRYABLE_MARKERS = ("cannot be retried", "cannot be rerun")
+
 
 def parse_window(text: str) -> dt.timedelta:
     """`2h` / `90m` / `1d` -> a timedelta (the shape every `--window` in this repo takes)."""
@@ -52,6 +60,18 @@ def _gh(*args: str) -> str:
     if r.returncode != 0:
         raise SystemExit(f"[requeue] {exe} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
+
+
+def _gh_no_raise(*args: str) -> tuple[int, str]:
+    """Run `gh`, returning (returncode, stderr) instead of aborting — the probe a rerun needs.
+
+    `rerun()` must tell GitHub's *refusal* to retry from a *transient* failure (issue #2295): a
+    run GitHub will not retry is a decision and must not red the sweep, so it is returned here for
+    classification; every other non-zero return is a real problem and stays fatal.
+    """
+    exe = os.environ.get("CI_REQUEUE_GH") or "gh"
+    r = subprocess.run([exe, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    return r.returncode, r.stderr.strip()
 
 
 def _now() -> dt.datetime:
@@ -84,6 +104,19 @@ def completed_runs(repo: str, window: dt.timedelta, now: dt.datetime | None = No
             break
         page += 1
     return out
+
+
+def _job_count(repo: str, run: dict) -> int:
+    """How many jobs a run instantiated (`total_count`) — 0 for a cancelled run means GitHub
+    will refuse `gh run rerun --failed` with "This workflow run cannot be retried" (nothing to
+    retry; measured on the engine-build dispatch run #2295). Deterministic and cheap, so `plan`
+    can classify a non-retryable run WITHOUT dispatching a rerun (the DRY classifier).
+    """
+    try:
+        raw = _gh("api", f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100")
+    except SystemExit:
+        return -1                                 # unknown: don't guess, let the runtime classify
+    return int((json.loads(raw or "{}") or {}).get("total_count", -1))
 
 
 def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tuple[list[dict], list[dict]]:
@@ -129,6 +162,13 @@ def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tup
         if newest.get(key, created) > created:
             skipped.append({**run, "why": "superseded: a later run of this workflow is on this branch"})
             continue
+        if _job_count(repo, run) == 0:
+            # GitHub answers `gh run rerun --failed` on a cancelled run with no jobs with "This
+            # workflow run cannot be retried" — nothing was instantiated, so a retry is a
+            # DECISION GitHub has already made (issue #2295). Skip it now (the DRY classifier),
+            # so the sweep and the runtime both record it as skipped, never failed.
+            skipped.append({**run, "why": "no jobs instantiated: GitHub will not retry this run"})
+            continue
         requeue.append(run)
     return requeue, skipped
 
@@ -171,16 +211,33 @@ def stalls(runs: list[dict], minimum_minutes: float = STALL_MIN_MINUTES) -> list
     return sorted(out, key=lambda r: r["minutes"], reverse=True)
 
 
-def rerun(repo: str, run: dict, dry: bool) -> bool:
-    """Re-run one cancelled run's jobs; True when something was dispatched (or would be, for `dry`)."""
+def rerun(repo: str, run: dict, dry: bool) -> str:
+    """Re-run one cancelled run's jobs; returns its recorded status.
+
+    Returns:
+      "reran"  a new attempt was dispatched (or would be, under `--dry`)
+      "skip"   GitHub REFUSED the retry ("This workflow run cannot be retried") — a
+               decision, recorded as skipped so the sweep's exit stays 0 (#2295)
+      "dry"    a dry/plan run: nothing dispatched, the plan just names it
+
+    A refusal is GitHub answering *decidedly*, never a transient failure: retrying the sweep
+    cannot clear it, so it is recorded (not aborted) and the healer moves on. Every other
+    non-zero return (rate limit, 5xx, auth) still raises, so a real problem is not swallowed.
+    """
     if dry:
         print(f"[requeue] DRY would re-run {run['id']} {run.get('name')} "
               f"{(run.get('head_branch') or '')}@{str(run.get('head_sha'))[:7]}")
-        return False
-    _gh("run", "rerun", str(run["id"]), "--repo", repo, "--failed")
-    print(f"[requeue] re-ran {run['id']} {run.get('name')} "
-          f"{(run.get('head_branch') or '')}@{str(run.get('head_sha'))[:7]}")
-    return True
+        return "dry"
+    rc, err = _gh_no_raise("run", "rerun", str(run["id"]), "--repo", repo, "--failed")
+    if rc == 0:
+        print(f"[requeue] re-ran {run['id']} {run.get('name')} "
+              f"{(run.get('head_branch') or '')}@{str(run.get('head_sha'))[:7]}")
+        return "reran"
+    if any(marker in err for marker in NON_RETRYABLE_MARKERS):
+        run["why"] = f"GitHub will not retry this run ({err})"
+        return "skip"
+    raise SystemExit(f"[requeue] gh run rerun {run['id']} --repo {repo} --failed failed "
+                     f"({rc}): {err}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -193,14 +250,17 @@ def main(argv: list[str] | None = None) -> int:
 
     window = parse_window(a.window)
     requeue, skipped = plan(a.repo, window)
+    dry = a.dry or a.cmd == "plan"
     for run in requeue:
-        rerun(a.repo, run, dry=a.dry or a.cmd == "plan")
+        status = rerun(a.repo, run, dry=dry)
+        if status == "skip":          # a decision, not a failure: route it to the skip bucket
+            skipped.append(run)
     for run in skipped:
         print(f"[requeue] keep {run['id']} {(run.get('head_branch') or '')}@{str(run.get('head_sha'))[:7]} "
               f"- {run['why']}")
-    verb = "would re-run" if (a.dry or a.cmd == "plan") else "re-ran"
+    verb = "would re-run" if dry else "re-ran"
     print(f"[requeue] {verb} {len(requeue)} cancelled run(s) in the last {a.window}; "
-          f"left {len(skipped)} superseded run(s) alone")
+          f"kept {len(skipped)} run(s) alone (superseded or refused)")
     return 0
 
 
