@@ -61,4 +61,5 @@ upload — no seed/post steps.
 - `actionlint` over the six migrated legs + `agent-leg.yml` → 0 (only pre-existing
   SC2129 style in untouched blocks).
 - `make openspec-validate NAME=reuse-agent-leg` → valid.
-- Runs: <run ids filled after the PR opens>.
+- `make lane-preflight` → OK (6 gates); `make test-unit` → green at the branch head
+  (run ids recorded on the PR).
