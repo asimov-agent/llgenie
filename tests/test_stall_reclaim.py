@@ -18,7 +18,16 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "agents" / "llgenie-planner" / "scripts"))
 
+# Suppress bytecode writing for the duration of the import: a plain `import`
+# drops `scripts/__pycache__/stall_reclaim.cpython-*.pyc` into the tree, which
+# make sync-agent-profile would copy into the live profile (the #2155 lane's
+# own `test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree` exists
+# for exactly this). A test must not mutate the tree it tests.
+import sys as _over_sys  # noqa: E402
+_prior_dwb = _over_sys.dont_write_bytecode
+_over_sys.dont_write_bytecode = True
 import stall_reclaim as sr  # noqa: E402
+_over_sys.dont_write_bytecode = _prior_dwb
 
 STALL_MIN = sr.STALL_MIN
 MAX_CPU = sr.MAX_CPU_TICKS
