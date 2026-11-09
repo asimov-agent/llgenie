@@ -361,7 +361,9 @@ again, which is the rebase lane's job.
 history replacement (your rebased head does not contain the current remote tip). The working incantation after a
 rebase onto a moved base: `git fetch origin <branch>` (to refresh the ref), then `git push origin HEAD:<branch>
 --force-with-lease` — plain, no explicit sha, so git reads the just-fetched expected value. The `+ remote…local`
-forced-update line in the output is the proof it replaced the old head.
+forced-update line in the output is the proof it replaced the old head. This is exactly the shape
+`scripts/rebase_bot.sh` uses (a plain `git push --force-with-lease`, line 263, after its fetch), so a lane that
+rebases onto a moved base pushes the same way the bot does.
 
 **A hand-spliced conflict region keeps its `=======` even when the text blocks are right — compile after every
 manual resolution.** Cutting both sides out of a merge marker and joining them leaves the divider line behind,
