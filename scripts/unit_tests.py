@@ -140,17 +140,41 @@ def argv(root: str | Path | None = None, python: str | None = None,
 
 
 def _make_recipes(root: Path) -> dict[str, str]:
-    """`{target: its recipe block}` for the Makefile, so a roster entry's `target` claim is
-    checked against the recipe that would actually run the file."""
-    path = root / MAKEFILE
-    if not path.exists():
+    """`{target: its recipe block}` across the makefiles, so a roster entry's `target` claim is
+    checked against the recipe that would actually run the file.
+
+    The 2,083-line Makefile split into a short top makefile + `mk/*.mk` includes (issue #800), so
+    the targets live behind `include mk/*.mk`. Resolve the includes (wildcard + trailing comments)
+    the same way `check_wiring._makefile_list` does, then read the concatenated text — a roster
+    entry naming a target that moved keeps resolving.
+    """
+    paths = _makefile_list(root)
+    if not paths:
         return {}
-    text = path.read_text()
+    text = "\n\n".join((root / rel).read_text() if (root / rel).exists() else ""
+                      for rel in paths)
     spans = [(m.group(1), m.start()) for m in re.finditer(r"^([a-z0-9][a-z0-9._-]*):", text, re.M)]
     out = {}
     for i, (name, start) in enumerate(spans):
         end = spans[i + 1][1] if i + 1 < len(spans) else len(text)
         out[name] = text[start:end]
+    return out
+
+
+def _makefile_list(root: Path) -> list[str]:
+    """The top makefile + every `mk/*.mk` it `include`s, in include order (issue #800)."""
+    top = root / MAKEFILE
+    if not top.exists():
+        return []
+    out, seen = [MAKEFILE], {MAKEFILE}
+    for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", top.read_text(), re.M):
+        inc = m.group(1)
+        if "*" in inc:
+            candidates = sorted(p.relative_to(root).as_posix() for p in root.glob(inc))
+        else:
+            candidates = [inc]
+        out.extend(c for c in candidates if c not in seen and (root / c).exists())
+        seen.update(candidates)
     return out
 
 
