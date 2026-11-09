@@ -1,7 +1,7 @@
 # agents/llgenie-business-analyst — #2169: live→tree profile fold (SKILL.md), rebuild-parity proof
 
 - **Date:** 2026-11-09 · **Issue:** #2169 · **PR:** ready-for-review PR closing #2169
-- **Branch:** `llgenie-wt-2169-fold` (from `origin/main` `ffac22274e94ffd7ad040dc64a9dfad410f37125`)
+- **Branch:** `llgenie-wt-2169-fold` (from `origin/main` `8608f50e132ae3793f8ab76f33c9a37e20aefe88`; originally cut from `ffac2227`, rebased onto fresh main before landing)
 
 ## The gap
 
