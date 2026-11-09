@@ -10,14 +10,29 @@ section regenerated from the canonical file, because only its owning lane may ch
 import json
 import pathlib
 import re
-import subprocess
+import subprocess  # noqa: F401  (kept: the gate scans sources; this module routes via scripts.proc)
 import sys
 
 H = "## Standing rules (fleet, learned 2026-10-28)"
 
 
+#: The repo this script resolves triples in is the cwd context of every `git` read. Route the
+#: subprocess through the scripts.proc seam (issue #2229): a git failure must raise, never read as
+#: an empty stdout. Same repo-root sys.path bootstrap scripts/engine_pins.py uses.
+if len(sys.argv) > 1:
+    repo_root = str(pathlib.Path(sys.argv[1]).resolve())
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
+    from scripts.proc import run_text  # noqa: E402  (#2229: the seam, not a bare subprocess call)
+
+
 def sh(*args: str) -> str:
-    return subprocess.run(args, capture_output=True, text=True, cwd=sys.argv[1]).stdout
+    #: The seam's `run_text` raises ProcError on a git failure instead of returning "" — a failed
+    #: read must never look like a clean empty answer (the exact #797/#2229 failure mode).
+    if "run_text" in globals():
+        return run_text(args, cwd=repo_root)
+    import scripts.proc as _proc
+    return _proc.run_text(args, cwd=str(pathlib.Path(sys.argv[1]).resolve()))
 
 
 def base_version(path: str) -> str:

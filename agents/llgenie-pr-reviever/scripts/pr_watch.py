@@ -30,7 +30,7 @@ HOLD = "do-not-merge"
 
 
 def gh(*args: str) -> str:
-    p = subprocess.run(["gh", *args], capture_output=True, text=True)
+    p = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: p.returncode inspected below (rc!=0 -> raise SystemExit), #797; tracked remainder for #2229 migration
     if p.returncode != 0:
         print(f"ERROR gh {' '.join(args)}: {p.stderr.strip()[:300]}", file=sys.stderr)
         raise SystemExit(1)
@@ -326,7 +326,7 @@ def queue_state() -> str:
 
 def git(*args: str, cwd: str | None = None) -> str:
     """`git` in the llgenie checkout — injectable so `--selftest` needs no repo."""
-    p = subprocess.run(["git", *args], cwd=cwd or str(REPO_PATH),
+    p = subprocess.run(["git", *args], cwd=cwd or str(REPO_PATH),  # proc-allow: p.returncode inspected after the call (rc!=0 -> raise RuntimeError), #797; tracked remainder for #2229 migration
                        capture_output=True, text=True)
     if p.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)}: {p.stderr.strip()[:200]}")

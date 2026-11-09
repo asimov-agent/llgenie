@@ -29,14 +29,24 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (kept: gate scans sources; module routes via scripts.proc)
 import sys
+from pathlib import Path
 
 SHA = re.compile(r"[0-9a-f]{40}")
 
+#: Repo-root sys.path bootstrap so scripts.proc (the ONE subprocess seam, #797/#2229) imports —
+#: same pattern as scripts/engine_pins.py. The script lives at <repo>/agents/**/scripts/.
+_REPO = Path(__file__).resolve()
+while len(_REPO.parts) > 1 and not (_REPO / ".git").exists():
+    _REPO = _REPO.parent
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+from scripts.proc import run_ok  # noqa: E402  (#2229: the seam)
+
 
 def git(wt: str, *args: str) -> str | None:
-    r = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True)
+    r = subprocess.run(["git", "-C", wt, *args], capture_output=True, text=True)  # proc-allow: reads returncode, returns None on rc!=0 (the tracked remainder, #797)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
@@ -57,8 +67,7 @@ def hist_blobs(wt: str, rev: str, path: str) -> set[str]:
 
 
 def line_sets(wt: str, a: str, b: str, path: str) -> tuple[set[str], set[str]]:
-    diff = subprocess.run(["git", "-C", wt, "diff", f"{a}..{b}", "--", path],
-                          capture_output=True, text=True).stdout
+    diff = run_ok(["git", "-C", wt, "diff", f"{a}..{b}", "--", path]).stdout or ""
     adds = {ln[1:] for ln in diff.splitlines() if ln.startswith("+") and not ln.startswith("+++")}
     rems = {ln[1:] for ln in diff.splitlines() if ln.startswith("-") and not ln.startswith("---")}
     return adds, rems

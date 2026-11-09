@@ -90,7 +90,7 @@ def merge_outbox(existing: list[str], fresh: list[str], open_numbers: set[int],
 
 
 def gh(*args: str) -> str:
-    out = subprocess.run(["gh", *args], capture_output=True, text=True)
+    out = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: out.returncode inspected below (rc!=0 -> TALLY-ERROR), #797; tracked remainder for #2229 migration
     if out.returncode != 0:
         # A failed read must never look like "no change".
         print(f"TALLY-ERROR: gh rc={out.returncode} ({out.stderr.strip()[:120]})")

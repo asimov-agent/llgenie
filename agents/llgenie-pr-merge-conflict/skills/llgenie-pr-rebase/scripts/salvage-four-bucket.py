@@ -42,7 +42,7 @@ ORG_REPO = "asimov-agent/llgenie"
 
 def run(*a, timeout=180):
     try:
-        return subprocess.run(a, cwd=REPO, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(a, cwd=REPO, capture_output=True, text=True, timeout=timeout)  # proc-allow: callers inspect `.returncode` (out() returns "" only on rc==0), #797; tracked remainder for #2229 migration
     except subprocess.SubprocessError:
         return None
 

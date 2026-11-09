@@ -24,7 +24,7 @@ import argparse, hashlib, subprocess, sys
 
 def git_blob(repo: str, ref: str, path: str) -> bytes:
     """Raw bytes of `path` at `ref` in `repo` — bytes, never decoded/stripped."""
-    r = subprocess.run(
+    r = subprocess.run(  # proc-allow: r.returncode inspected on the line after; rc!=0 -> FileNotFoundError, #797; tracked remainder for #2229 migration
         ["git", "-C", repo, "cat-file", "blob", f"{ref}:{path}"],
         capture_output=True,
     )
