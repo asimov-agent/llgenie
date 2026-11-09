@@ -96,3 +96,21 @@ def test_writeback_refuses_a_moved_head():
     assert rf.head_moved(live_head=judged, judged_head=judged) is False
     # A short/empty live head (unreadable) is treated as moved — never assume it still matches.
     assert rf.head_moved(live_head="", judged_head=judged) is True
+
+
+def test_with_live_head_attaches_the_live_head_twin():
+    """Issue #2288 AC2 — a `head=` verdict-ref also names the PR's live head at measurement."""
+    judged = "a" * 40
+    live = "b" * 40
+    # a `head=`-only ref gets its `live=` twin appended (idempotent on replay)
+    out = rf.with_live_head(f"reviewer=rr comment=42 head={judged} run=99", live)
+    assert out == f"reviewer=rr comment=42 head={judged} run=99 live={live}"
+    assert rf.with_live_head(out, live) == out
+    # a ref already carrying `live=` is unchanged
+    assert rf.with_live_head(f"reviewer=rr comment=42 head={judged} live={live}", live) \
+        == f"reviewer=rr comment=42 head={judged} live={live}"
+    # a ref with no `head=` (a reproducible-command tick) needs no live twin
+    assert rf.with_live_head(f"reviewer=rr comment=42 agent_profile_sync rc=0 {judged}", live) \
+        == f"reviewer=rr comment=42 agent_profile_sync rc=0 {judged}"
+    # an empty live head adds nothing
+    assert rf.with_live_head(f"reviewer=rr head={judged}", "") == f"reviewer=rr head={judged}"

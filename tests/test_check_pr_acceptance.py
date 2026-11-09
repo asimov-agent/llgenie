@@ -134,15 +134,23 @@ def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch, state: str = "OPEN") 
 
     The sidecar keeps the issue body's real newlines out of the script source, so the detector cannot
     misread an f-string/escaping artifact for a live response. `state` is served as the issue's live
-    state; no `pull_request` key means an ISSUE, exactly as the real API answers.
+    state; no `pull_request` key means an ISSUE, exactly as the real API answers. Also answers
+    `gh run view <id> --json conclusion` from `run.json` (a per-run conclusion map, default
+    `success`) so the issue #2288 live run re-check can resolve the tick's cited `run=`.
     """
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "issue.json").write_text(json.dumps({"body": issue_body, "state": state}))
+    (bindir / "run.json").write_text(json.dumps({}))
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if sys.argv[1:3] == ['run', 'view']:\n"
+        "    rid = sys.argv[3]\n"
+        "    runs = json.load(open(here + '/run.json'))\n"
+        "    out = {'status': 'completed', 'conclusion': runs.get(rid, 'success')}\n"
+        "    print(json.dumps(out)); sys.exit(0)\n"
         "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
         "    print(open(here + '/issue.json').read()); sys.exit(0)\n"
         "sys.exit(1)\n")
@@ -282,6 +290,93 @@ def test_a_bare_self_tick_with_no_proven_is_RED():
 
     assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
 
+
+# --- tick-red-run / tick-stale-head: the evidence must be live-current (issue #2288) -------------
+# A write-back tick may cite a `run=` whose run concluded FAILURE (the #2288 audit: 4 runs all
+# concluded failure, the by-design `check-pr-acceptance` guard reds while the box is unchecked, so a
+# write-back that cites that red run as its proof is circular), and a `head=…`/`live=…` may describe a
+# tree the PR has rebased away from. The gate re-checks the cited run's live conclusion and the cited
+# head against the merge-time (current) head, and holds either — the tick is only as honest as the run
+# + head behind it.
+
+
+def _run_path(tmp_path, run_map=None) -> Path:
+    """The fake-gh `run.json` sidecar path, so a test can set a cited run's conclusion."""
+    p = tmp_path / "bin" / "run.json"
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    p.write_text(json.dumps((run_map or {})))
+    return p
+
+
+def test_a_successful_cited_run_tick_is_GREEN(tmp_path, monkeypatch):
+    # A tick citing a run that DID conclude success is current evidence — green (no #2288 finding).
+    # The tick's own `live=` twin equals the merge-time head, so it is not stale either.
+    live = "a" * 40
+    _fake_gh(tmp_path, _ticked(f"criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                               f"head={live} live={live} run=42191377162)"), monkeypatch)
+    _run_path(tmp_path, {"42191377162": "success"})
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    assert run_cli(["check", "--body-file", str(body), "--rev", live]) == 0
+
+
+def test_a_red_cited_run_tick_is_RED_as_tick_red_run(tmp_path, monkeypatch):
+    # THE #2288 defect: a tick cites run=42530742557 — whose live conclusion is `failure` (the
+    # by-design guard red). The gate must hold it as `tick-red-run`, not pass it as proof.
+    _fake_gh(tmp_path, _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                               "head=f79820dbecc539748ea3cd3aa45a626626078b8 run=42530742557)"),
+             monkeypatch)
+    _run_path(tmp_path, {"42530742557": "failure"})
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    out = tmp_path / "out.txt"
+    import contextlib
+    with open(out, "w") as fh, contextlib.redirect_stdout(fh), contextlib.redirect_stderr(fh):
+        rc = run_cli(["check", "--body-file", str(body), "--rev", "f" * 40])
+    assert rc != 0, "a tick citing a FAILED run must hold the merge (#2288)"
+    text = out.read_text()
+    assert "did NOT conclude success" in text, text
+    assert "42530742557" in text and "failure" in text, text
+
+
+def test_a_stale_head_tick_is_RED_as_tick_stale_head(tmp_path, monkeypatch):
+    # A tick cites head=f79820db (the PR has since rebased to the current head) — the #2288 class.
+    # The write-back seam appends `live=<sha>` (AC2); with no twin, the cited head itself is checked.
+    _fake_gh(tmp_path, _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                               "head=f79820dbecc539748ea3cd3aa45a626626078b8 run=42191377162)"),
+             monkeypatch)
+    _run_path(tmp_path, {"42191377162": "success"})
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    out = tmp_path / "out.txt"
+    import contextlib
+    with open(out, "w") as fh, contextlib.redirect_stdout(fh), contextlib.redirect_stderr(fh):
+        rc = run_cli(["check", "--body-file", str(body), "--rev", "b" * 40])
+    assert rc != 0, "a tick citing a stale (rebased-away) head must hold the merge (#2288)"
+    text = out.read_text()
+    assert "head is no longer the PR's live head" in text, text
+
+
+def test_a_cited_head_matching_the_live_head_is_GREEN(tmp_path, monkeypatch):
+    # A tick whose `live=` twin equals the merge-time head is current — green.
+    _fake_gh(tmp_path, _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                               f"head=abc1234 live={'a' * 40} run=42191377162)"), monkeypatch)
+    _run_path(tmp_path, {"42191377162": "success"})
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    assert run_cli(["check", "--body-file", str(body), "--rev", "a" * 40]) == 0
+
+
+def test_live_evidence_is_skipped_when_rev_is_not_a_sha(tmp_path, monkeypatch):
+    # A bare `HEAD`/branch word cannot be the staleness referee (main guards with GIT_SHA.fullmatch),
+    # and an unreadable run is never trusted as proof — but a `--rev` of `HEAD` runs the run re-check.
+    _fake_gh(tmp_path, _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                               "head=abc1234 run=0000000000)"), monkeypatch)
+    _run_path(tmp_path, {"0000000000": "failure"})
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    assert run_cli(["check", "--body-file", str(body), "--rev", "HEAD"]) != 0
+
 # --- squash-text closes are held too (issue #1815) --------------------------------------------------
 # GitHub's native close-on-merge reads the SQUASH commit text, so a `(closes #N)` that lives only in
 # the commit messages (never the PR body) is a real close that would auto-close a multi-lane rollout
@@ -399,15 +494,23 @@ def _fake_gh_map(tmp_path: Path, mapping: dict[str, dict], monkeypatch) -> None:
     The rollout-lane gate probes each referenced issue's live body + state, so the fake must serve
     DIFFERENT bodies/states per issue number (the single-issue `_fake_gh` cannot). `mapping` is
     `{issue-no-as-string: {body, state}}`, plus `pr: True` to make that number a PULL REQUEST (the
-    API then carries a `pull_request` key, exactly as it does for a real PR — issue #2088).
+    API then carries a `pull_request` key, exactly as it does for a real PR — issue #2088). Also
+    answers `gh run view <id> --json conclusion` with `success` so the issue #2288 live run re-check
+    resolves any cited `run=` on a ticked umbrella.
     """
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "issues.json").write_text(json.dumps(mapping))
+    (bindir / "run.json").write_text(json.dumps({}))
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if sys.argv[1:3] == ['run', 'view']:\n"
+        "    rid = sys.argv[3]\n"
+        "    runs = json.load(open(here + '/run.json'))\n"
+        "    out = {'status': 'completed', 'conclusion': runs.get(rid, 'success')}\n"
+        "    print(json.dumps(out)); sys.exit(0)\n"
         "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
         "    num = (sys.argv[2].rsplit('/', 1)[-1] if sys.argv[1:2] == ['api'] else sys.argv[3])\n"
         "    m = json.load(open(here + '/issues.json'))\n"

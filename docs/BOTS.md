@@ -859,6 +859,15 @@ unproven close instead of silently passing. It is VERIFICATION only: it never ti
 docs gate run it beside `check-pr-closing`, fetching that body via `gh api` (issue #1589) and passing
 the live squash range via `PR_BASE`/`PR_HEAD`; a push to main has no body and prints
 a `nothing to validate` note instead of failing. Implemented as issue #1792, canary as issue #1811.
+Since #2288, a TICKED criterion's evidence is re-checked against the PRESENT tree too: a cited
+`run=<id>` whose live `gh run view` conclusion is not `success` (an unreadable run, or the by-design
+`check-pr-acceptance` guard red that fires while the box is unticked — a circular self-proof) holds
+the merge as `tick-red-run`, and a cited `head=<sha>`/`live=<sha>` that is not the merge-time head
+holds it as `tick-stale-head`. `review_finalize` (#1808) writes the PR's live head as a `live=<sha>`
+twin beside every `head=<sha>` it ticks, so a rebased marker is visible as stale from the issue
+thread alone. The 11 red-run/stale ticks measured at `e34cfd2e` (issue #2288 audit) are recorded
+stale and held until re-ticked: #2296×3, #2181×6, #2061×1, #1558×1 — their four cited runs
+(`42530742557`, `42508044658`, `42513135877`, `42155990415`) all concluded `failure` at that head.
 The gate also refuses a close on a rollout umbrella while a referenced LANE issue is still open
 (issue #1859): even when the umbrella's own `- [ ]` boxes are all ticked, a `#<n>` the umbrella cites
 in its body that is still OPEN and cites the umbrella back is held as `rollout-lane-open` — the half

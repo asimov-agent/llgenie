@@ -47,6 +47,11 @@ BASE_REPO = "asimov-agent/llgenie"
 
 #: A ticked acceptance line's inline citation, e.g. `(proven: reviewer=… comment=42 …)`.
 PROVEN_COMMENT_RE = re.compile(r"\(proven:[^)]*comment=(?P<id>\d+)[^)]*\)")
+#: `head=<sha>` / `live=<sha>` twins inside a `(proven: …)` marker (issue #2288, same shape as
+#: `check_pr_acceptance.HEAD_REF`/`LIVE_REF`): the writer appends `live=` so the ref names BOTH the
+#: judged head and the PR's live head at measurement, and a stale (rebased) tick is visible as stale.
+HEAD_REF = re.compile(r"\bhead\s*=\s*([0-9a-f]{7,40})\b")
+LIVE_REF = re.compile(r"\blive\s*=\s*([0-9a-f]{7,40})\b")
 
 
 def criteria_count(body: str) -> int:
@@ -117,6 +122,23 @@ def head_moved(live_head: str, judged_head: str) -> bool:
     return (live_head or "").strip().lower() != (judged_head or "").strip().lower()
 
 
+def with_live_head(verdict_ref: str, live_head: str) -> str:
+    """Give a `head=<sha>` verdict-ref its `live=<sha>` twin (issue #2288 AC2).
+
+    A `(proven: … head=<sha>)` marker must ALSO name the PR's live head at measurement, so a rebased
+    (stale) tick is visible as stale from the issue thread alone. Idempotent: a ref that already
+    carries `live=` is returned unchanged, and a ref with no `head=` (a reproducible-command tick)
+    needs no live twin.
+    """
+    ref = (verdict_ref or "").strip()
+    if not ref or not HEAD_REF.search(ref) or LIVE_REF.search(ref):
+        return ref
+    live = (live_head or "").strip()
+    if not live:
+        return ref
+    return f"{ref} live={live}"
+
+
 def _gh(gh: str, args: list[str]) -> str:
     r = __import__("subprocess").run([gh, *args], capture_output=True, text=True)
     if r.returncode != 0:
@@ -153,7 +175,11 @@ def finalize(gh: str, repo: str, pr: int, issue: int, head: str, criteria: int,
         return 0
 
     # The seam's one write (tick + PATCH). No weakening: `proven` is explicit, ref required.
-    out = aw.tick_acceptance(body, proven, verdict_ref)
+    # issue #2288 AC2: give every `head=` marker its `live=` twin — the PR's live head at measurement
+    # — so a rebased tick is visible as stale from the issue thread (and the gate's staleness referee
+    # does not hold a correctly-current write-back).
+    ref = with_live_head(verdict_ref, live)
+    out = aw.tick_acceptance(body, proven, ref)
     if dry:
         print(f"[review-finalize] would PATCH #{issue} write-back (dry)")
         return 0

@@ -114,6 +114,18 @@ CITE = re.compile(r"#(\d+)")
 PROVEN_MARKER = re.compile(r"\(proven:\s*(.*?)\)\s*$", re.S)
 #: A named CI workflow run — `run=42191377162` — the strongest provable evidence (issue #1858).
 RUN_ID = re.compile(r"\brun\s*=\s*\d+\b")
+#: A captured run id for a LIVE conclusion re-check — the write-back may cite a `run=` whose run was
+#: a by-design RED guard run (issue #2288): the guard reds while the box is still unchecked, so a
+#: write-back that cites that same run as its proof is circular. `check-pr-acceptance` re-reads each
+#: cited run's `gh run view` conclusion at merge and holds a tick whose run did NOT conclude `success`.
+RUN_CATCH = re.compile(r"\brun\s*=\s*(\d+)\b")
+#: A `head=<sha>` citation — the judged tree the write-back measured (issue #2288). A tick whose
+#: cited head is no longer the PR's live head is stale; AC2 requires the marker to ALSO name the live
+#: head at measurement (`live=<sha>`), and this gate holds a tick whose head/live is not current.
+HEAD_REF = re.compile(r"\bhead\s*=\s*([0-9a-f]{7,40})\b")
+#: A `live=<sha>` citation — the PR's live head at measurement, the staleness twin beside `head=`
+#: (issue #2288).
+LIVE_REF = re.compile(r"\blive\s*=\s*([0-9a-f]{7,40})\b")
 #: The reproducible fold/sync form: a command + its exit code + the measured tree sha, e.g.
 #: `cmp live==tree <path> · agent_profile_sync --check PROFILE=x (rc 0, 4c3ac6f)`. A hash/compare
 #: with no `rc=` (or no sha) is not re-measurable from the issue thread alone (#1784/#1819 class).
@@ -130,6 +142,83 @@ def _is_provable_tick(text: str) -> bool:
     if RUN_ID.search(ref):
         return True  # a live named run is reproducible from the issue thread
     return bool(RC_SHA.search(ref) and GIT_SHA.search(ref))
+
+
+def _run_conclusion(gh: str, repo: str, run_id: str) -> "str | None":
+    """The LIVE `gh run view` conclusion of a cited run — the re-check that catches a by-design red
+    gate run used as proof (issue #2288). Returns the conclusion string, or None when the run is
+    unreadable (a named-but-unreadable run is NOT success, so the tick is held, never trusted)."""
+    try:
+        out = proc.run_checked([gh, "run", "view", str(run_id), "--repo", repo, "--json",
+                                "conclusion"])
+    except proc.ProcError:
+        return None
+    try:
+        return (json.loads(out).get("conclusion") or "").strip().lower() or None
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+
+def _cited_runs(ref: str) -> list[str]:
+    """Every `run=<id>` cited in a `(proven: …)` marker, in order."""
+    return [m.group(1) for m in RUN_CATCH.finditer(ref or "")]
+
+
+def _tick_live_evidence(text: str, gh: str, repo: str, live_head: str) -> list[dict]:
+    """Re-check a TICKED criterion's cited run/head against the PRESENT tree (issue #2288).
+
+    A `(proven: … run=<id>)` marker is only as honest as the run it cites: the by-design-guard-red
+    run (a `check-pr-acceptance` gate that reds while the box is unticked) is NOT success, so a tick
+    that cites it as its proof is circular and must be held. A `head=<sha>`/`live=<sha>` marker is
+    only current when `live` still is the PR's live head; a rebased tick names a tree the PR moved
+    away from and must be visible as stale. Returns collected findings (empty when current).
+    """
+    m = PROVEN_MARKER.search(str(text or ""))
+    if not m:
+        return []
+    ref = m.group(1).strip()
+    findings: list[dict] = []
+    live_head = (live_head or "").strip().lower()
+    for run_id in _cited_runs(ref):
+        conclusion = _run_conclusion(gh, repo, run_id)
+        if conclusion != "success":
+            findings.append({
+                "key": "tick-red-run",
+                "blocking": True,
+                "title": f"ci: a ticked acceptance criterion cites a run that did NOT conclude success "
+                         f"(run={run_id} concluded {conclusion or 'unreadable'})",
+                "evidence": (
+                    f"acceptance item cites `run={run_id}` but its live `gh run view` conclusion is "
+                    f"`{conclusion or 'unreadable'}`, not `success`. A by-design-red gate run (the "
+                    f"`check-pr-acceptance` guard reds while the box is unticked) is not proof the box "
+                    f"was met — re-tick with a run that concluded `success`, or a reproducible "
+                    f"`command rc=0 <sha>` (issue #2288)."
+                ),
+                "where": "issue-criteria-proof",
+            })
+    # Staleness: a head=/live= marker must still name the PR's live head at measurement.
+    h_m = HEAD_REF.search(ref)
+    l_m = LIVE_REF.search(ref)
+    if (h_m or l_m) and live_head:
+        h_head = h_m.group(1) if h_m else ""
+        l_head = l_m.group(1) if l_m else ""
+        cited = (l_head or h_head).lower()
+        if cited != live_head:
+            findings.append({
+                "key": "tick-stale-head",
+                "blocking": True,
+                "title": "ci: a ticked acceptance criterion's head is no longer the PR's live head",
+                "evidence": (
+                    f"acceptance item cites `head={h_head or '?'}`"
+                    + (f"/`live={l_head}`" if l_head else "")
+                    + f", but the PR's current live head is `{live_head}` — the tick describes a tree "
+                      f"the PR has rebased away from. Re-tick with the current head, or carry "
+                      f"`live=<current-head>` beside `head=` so a reader sees it was current at "
+                      f"measurement (issue #2288)."
+                ),
+                "where": "issue-criteria-proof",
+            })
+    return findings
 
 
 
@@ -544,6 +633,17 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
         items.extend(acceptance_verdict(issue, body, n, verdict=verdict))
+        # issue #2288: re-check every TICKED criterion's cited run/head against the PRESENT tree. A
+        # tick may cite a by-design-red gate run (`run=`) as its proof, and may carry a head/live the
+        # PR has rebased away from — either must hold the merge. `args.gh`/`args.repo` resolve the
+        # run's live conclusion; the staleness referee is the PR's live head, read from `args.rev`
+        # when it is a sha (PR_HEAD in CI; a bare `HEAD`/branch word cannot be the referee).
+        live_referee = (args.rev or "").strip()
+        if not GIT_SHA.fullmatch(live_referee):
+            live_referee = ""
+        for _pos, _tick, _text in _acceptance_items(issue):
+            if _tick:
+                items.extend(_tick_live_evidence(_text, args.gh, args.repo, live_referee))
         # A close target that is ALREADY closed cannot be closed prematurely, so its lane probe is
         # not a control — measured #1694 (CLOSED 2026-11-04T21:09:51Z) still flagged by a
         # 2026-11-08 run (issue #2088). The acceptance half above stays: a closed issue's unticked
