@@ -153,6 +153,13 @@ def _body_of(line: str) -> str:
     return line[start:end]
 
 
+def _acceptance_of(body: str) -> str:
+    """The `## Acceptance criteria` section of a body: the tickable list, and nothing after it."""
+    start = body.index("## Acceptance criteria")
+    end = body.index("## Technical", start)
+    return body[start:end]
+
+
 # ---------------------------------------------------------------------------
 # Route B: a red run with no pushable PR files ONE deduped issue
 # ---------------------------------------------------------------------------
@@ -261,6 +268,31 @@ def test_the_issue_body_carries_the_failing_job_and_log_tail(tmp_path):
     body = _body_of(creates[0])
     assert "publish" in body and "run tests" in body
     assert "line5" in body
+    # And the acceptance names the cause class (the failing step, not just the job) plus the
+    # negative control (the failing job's id, which the guard must fire on) — the #2220 shape
+    acc = _acceptance_of(body)
+    assert "failure CLASS" in acc and "CI/run tests" in acc, acc
+    assert "job id `7`" in acc, "the negative control names the failing job id"
+
+
+def test_the_acceptance_tracks_the_guard_firing_on_the_job_id(tmp_path):
+    # Given a failed run whose failing job carries a reactor-known id
+    log = gh_stub(tmp_path, failed_run(job="publish", job_id=42), [])
+    # When the reactor files the issue
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    acc = _acceptance_of(_body_of(creates[0]))
+    # Then the acceptance names the cause class, the prevented recurrence, the negative control
+    # (this job's id), and demotes the generic green/`closes` boxes to supporting evidence — so a
+    # symptom patch that merely re-runs one job cannot tick it (issue #2220)
+    assert "failure CLASS" in acc, acc
+    assert "negative-control test that FAILS on the pre-fix tree" in acc, acc
+    assert "job id `42`" in acc, acc
+    assert "closes #<this issue>" in acc, acc
+    assert "supporting evidence" in acc, acc
+    # and the acceptance is no longer the three-line generic list alone
+    assert "job id" in acc and "failure CLASS" in acc
 
 
 def test_the_file_path_writes_only_an_issue(tmp_path):

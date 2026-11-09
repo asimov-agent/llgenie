@@ -598,6 +598,30 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
     # the publish so the reader has the actual remedy, and #2259 wires the gate to do it for us.
     is_pins_publish = "registry-liveness" in workflow.lower() or "pins-public" in step.lower() or \
         "not published" in (log_tail or "").lower() or "manifest unknown" in (log_tail or "").lower()
+    if is_pins_publish:
+        acceptance = [
+            "the NOT PUBLISHED tag resolves a ghcr manifest (the dispatched engine-build `push=true` "
+            "cell is green)",
+            "the tag no longer appears in `check-engine-pins-published ALL=1` output",
+            "the tracking issue's tag is published (`ghcr_publish_probe.sh` -> PUBLISHED)",
+        ]
+    else:
+        acceptance = [
+            f"the failure CLASS this tracker names — `{workflow}/{step or '(none named)'}` from the "
+            "failing step's logged error in the Technical tail, not the job name `{job_name}` — is "
+            "fixed, so a symptom re-run of one job cannot tick this box".format(job_name=job_name),
+            "the recurrence is prevented: a negative-control test that FAILS on the pre-fix tree and "
+            "PASSES on the fix proves the guard now holds this class (it cannot be re-triggered by "
+            "the same logged error)",
+            f"job id `{job.get('databaseId') or '?'}` (the failing job this tracker names) is green "
+            "in the fixing PR's CI run — the guard firing on that job id is what this tracker "
+            "watches",
+            "the failing make target is green locally on this host, with its real output recorded "
+            "(supporting evidence)",
+            "the PR that fixes it is green in CI on the same job that failed (supporting evidence)",
+            "`closes #<this issue>` is in that PR, so merging it closes the failure (supporting "
+            "evidence)",
+        ]
     return render_body(
         marker=marker,
         problem=(
@@ -640,20 +664,7 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
             "log instead of guessed at, and the class of failure is fixed rather than re-run."
             + (" A partial publish now has a dispatch, not just a name." if is_pins_publish else "")
         ),
-        acceptance=[(
-            "the NOT PUBLISHED tag resolves a ghcr manifest (the dispatched engine-build `push=true` "
-            "cell is green)"
-            if is_pins_publish else
-            "the failing make target is green locally on this host, with its real output recorded"
-        ), (
-            "the tag no longer appears in `check-engine-pins-published ALL=1` output"
-            if is_pins_publish else
-            "the PR that fixes it is green in CI on the same job that failed"
-        ), (
-            "the tracking issue's tag is published (`ghcr_publish_probe.sh` -> PUBLISHED)"
-            if is_pins_publish else
-            "`closes #<this issue>` is in that PR, so merging it closes the failure"
-        )],
+        acceptance=acceptance,
         technical=[
             f"**owned by lane:** `{owned}`",
             f"**failure class:** `{workflow}/{step or job_name}`",
