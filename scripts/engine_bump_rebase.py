@@ -147,8 +147,8 @@ def pr_is_behind(pr, repo: str, run_git=None, log=None) -> bool:
     git and compare the PR head against that.
     """
     if run_git is None:
-        run_git = lambda *a, **k: subprocess.run(  # noqa: E731  same default as sync_pr_with_main
-            ["git", "-C", repo, *a], capture_output=True, text=True, **k)  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+        run_git = lambda *a, **k: subprocess.run(  # noqa: E731  same default as sync_pr_with_main  # proc-allow: direct subprocess call site (default run_git helper), tracked remainder for issue #797
+            ["git", "-C", repo, *a], capture_output=True, text=True, **k)
     main_ref = upstream_main(repo, run_git, log)
     resolved = run_git("rev-parse", main_ref)
     main_sha = (resolved.stdout or "").strip()
