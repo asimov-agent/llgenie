@@ -37,6 +37,32 @@ git diff origin/main HEAD | grep '^+' | grep -c '/home/<user>'   # must be 0 on 
 Match on added lines only: a removal legitimately contains the path, and counting the whole diff
 reports the fix as a defect.
 
+## Reconcile live and tree in BOTH directions — the tree can be the truncated side
+
+`make sync-agent-profile PROFILE=<p> CHECK=1` is read-only and compares live
+`$HOME/.hermes/profiles/<p>/` against `agents/<p>/`. Read its verdict as a **direction**, not a count:
+
+- **live ahead** — the tree is the truncated side. Copy live→tree, then `cmp` each file to prove
+  identity, and fold the result into your branch. A write-mode sync here would have *dropped* the live
+  content.
+- **tree ahead** — live is stale; sync tree→live, but only after proving every live-ahead sibling is a
+  pure superset (line-set diff: each tree-only line is present live, rephrased at most), never a
+  whole-profile force.
+
+Never run write-mode `sync-agent-profile` to "fix" a drift you have not classified per file: it
+overwrites whichever side it copies over, so a lane whose live is richer loses rules silently. Justify
+the direction with a **line-set** diff (`diff <(sort a) <(sort b)`), not byte counts — a file can grow
+in bytes while losing a rule (two added paragraphs, one removed rule).
+
+**Live moves mid-session.** The running bot keeps writing its own skills, so a live-ahead set measured
+earlier is stale by your final push. Re-measure parity at the end of the task and timestamp the claim;
+"live and tree agree" is only true at the moment it was measured.
+
+**A repeatedly-firing verification check means an un-made mutation, not a missing report.** When the
+same "prove it" check returns after several passes of more read-only evidence, stop measuring and look
+for the tree change you have not made — usually versioning a live-only edit into the tree, or folding a
+repaired file into the branch. Another report over the same facts is not the mutation.
+
 ## Create worktrees under `$HOME`, never `/tmp`
 
 The host `/tmp` is a small tmpfs shared by every lane with a hard **inode** ceiling. When it fills,

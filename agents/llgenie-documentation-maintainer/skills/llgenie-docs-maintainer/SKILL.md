@@ -13,7 +13,9 @@ metadata:
 # Maintaining the LLGenie docs
 
 > Write `$HOME`, never `/home/<user>`, in anything you author; cut worktrees under `$HOME`, never
-> `/tmp`; and a stacked PR is closed for good when its base merges — `references/authoring-and-delivery.md`.
+> `/tmp`; a stacked PR is closed for good when its base merges; and a live-vs-tree drift is folded in the
+> direction you PROVED per file — the tree is often the truncated side;
+> `references/authoring-and-delivery.md`.
 >
 > A dispatch may race a fix already merged by another lane: check issue state, the closing PR and
 > `make check-docs` before branching — `references/dispatch-race-verification.md`.
