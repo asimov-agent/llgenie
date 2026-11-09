@@ -421,7 +421,7 @@ def _reap_dm_waiters(apply: bool) -> tuple:
     if not DM_ENABLED:
         return stalled, reaped
     try:
-        out = subprocess.check_output(["pgrep", "-f", "bot_mode_dm.py"])
+        out = subprocess.check_output(["pgrep", "-f", "bot_mode_dm.py"])  # proc-allow: pgrep rc=1 on no-match is the probe signal, caught below; #797, DM-reaper only
         pids = [int(p) for p in out.split()]
     except (OSError, subprocess.CalledProcessError, ValueError):
         return stalled, reaped
@@ -456,7 +456,7 @@ def _reap_dm_waiters(apply: bool) -> tuple:
 
 def _process_elapsed(pid: int) -> Optional[int]:
     try:
-        out = subprocess.check_output(["ps", "-o", "etimes=", "-p", str(pid)])
+        out = subprocess.check_output(["ps", "-o", "etimes=", "-p", str(pid)])  # proc-allow: ps rc=1 on a gone pid is the probe signal, caught below; #797, DM-reaper only
         return int(out.strip())
     except (OSError, subprocess.CalledProcessError, ValueError):
         return None
