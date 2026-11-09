@@ -692,13 +692,15 @@ def test_official_upstream_images_are_used_as_bases(skills):
     assert "FROM lmsysorg/sglang:v0.5.23" in df("sglang", "cuda")
     assert "engine_runner.py install" not in df("sglang", "cuda")
     assert "engine_runner.py install" in df("sglang", "rocm")
-    # #2386/#2429: vllm/cuda is THIN over vLLM's official CUDA serving base (prebuilt, zero install);
-    # the rocm + cpu cells still source-compile the pinned sha (mirror of #2274 rocm thin, applied to cuda).
+    # #2386/#2429 + #1558/#2274: both vllm GPU cells are THIN over the official prebuilt serving
+    # bases (vllm/cuda over vLLM's CUDA image, vllm/rocm over AMD's rocm/vllm), zero install;
+    # only the cpu cell still source-compiles the pinned sha.
     assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in df("vllm", "cuda")
+    assert "FROM docker.io/rocm/vllm:rocm10.1.0" in df("vllm", "rocm")
     assert "engine_runner.py install" not in df("vllm", "cuda")
-    for b in ("rocm", "cpu"):
-        assert "FROM vllm/vllm-openai" not in df("vllm", b)
-        assert "engine_runner.py install" in df("vllm", b)
+    assert "engine_runner.py install" not in df("vllm", "rocm")
+    assert "FROM vllm/vllm-openai" not in df("vllm", "cpu")
+    assert "engine_runner.py install" in df("vllm", "cpu")
     # And llama.cpp and ollama compile every variant, never FROM their official images
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)
@@ -1838,10 +1840,11 @@ def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
                 "VLLM_TARGET_DEVICE=cuda uv pip install --no-build-isolation",
                 "files.pythonhosted.org", "sha256sum -c", "uv pip install"):
         assert bad not in joined, f"thin cuda cell must not install: {bad!r} present"
-    # rocm and cpu still source-compile the pinned sha (unchanged)
-    for b in ("rocm", "cpu"):
-        other = "\n".join(p[b]["install"])
-        assert "git clone" in other and "-e ." in other, f"{b} must stay a source build"
+    # rocm is also THIN (#2274: AMD's rocm/vllm prebuilt, zero install); cpu stays a source build
+    assert p["rocm"].get("prebuilt") is True
+    assert p["rocm"].get("install") == []
+    cpu = "\n".join(p["cpu"]["install"])
+    assert "git clone" in cpu and "-e ." in cpu, "cpu must stay a source build"
 
 
 def test_rocm_source_builds_pin_a_base_their_build_accepts():

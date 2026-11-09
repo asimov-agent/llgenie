@@ -30,20 +30,7 @@ hw_flags:
     gpu_targets: "'{gpu_targets}'"
 install:
   cuda: []   # prebuilt thin image over vLLM's official CUDA serving base — zero install steps (see container.cuda)
-  rocm:
-    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # the rocm build file names the amd index and the torch it needs, but pins a BARE
-    # triton (3.7.1+git0263a6a6) while torch==2.12.0+rocm7.14.0 requires the rocm-suffixed
-    # wheel (triton==3.7.1+git0263a6a6.rocm7.14.0) — upstream pin defect at 5df63a72; the
-    # resolver reports 'your requirements are unsatisfiable' unless the pins agree.
-    - "cd {src} && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match"
-    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
-    - "cd {src} && bash tools/build_rust.sh"
-    # the -e . CMake step must resolve HIP against the BASE image's /opt/rocm (which ships
-    # hipcc + FindHIP.cmake): without ROCM_PATH/HIP_PATH/CMAKE_MODULE_PATH pointing there, torch's
-    # LoadHIP.cmake falls back to the pip rocm-sdk-core wheel path and fails 'No FindHIP.cmake in
-    # CMAKE_MODULE_PATH' / 'Optional package HIP not found' (issue #1365, run 41342311363 rocm).
-    - "cd {src} && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+  rocm: []   # prebuilt thin image over AMD's official rocm/vllm serving base — zero install steps (see container.rocm)
 
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
@@ -106,8 +93,13 @@ container:
     binary: "vllm"
     binary_flags: ["--version"]
   rocm:
-    apt: [python3-dev]
-    # (thin prebuilt — #2274 carried the AMD rocm/vllm change; comment kept minimal here)
+    # AMD's official prebuilt rocm/vllm serving base (issue #1558 / PR #2274). prebuilt: true runs
+    # zero install steps; the image ships the baked vllm + ROCm runtime, and `detect` probes it via
+    # `from vllm import __version__`. Entrypoint serves (see launch below).
+    base: docker.io/rocm/vllm:rocm10.1.0_ubuntu24.04_py3.14-pytorch_2.13.0_vllm-0.29.0
+    prebuilt: true
+    binary: "vllm"
+    binary_flags: ["--version"]
   cpu:
     apt: [python3-dev, libnuma-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]
