@@ -5,25 +5,19 @@ description: Test a llgenie PR against its issue's acceptance criteria.
 
 # Testing an LLGenie PR against its issue
 
-<!-- host-bot-tools:begin -->
-
-## Tools
-
-This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `code_execution`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
-
-Skills that stay enabled: `containerized-repo-verification`, `github`, `llgenie-pr-testing`.
-Every other installed skill is listed in `skills.disabled`.
-The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
-## Role artifact (2026-11-01)
+## Role artifact
+The artifact is the test evidence: failing test name or pass count, job id, sha, and run id. Do not take another lane's fix. `message_agent` to `llgenie-planner` with the PR number, the sha, and the run id. Persist it as a git-tracked commit on a `tester/verify-<n>` branch (not only a comment or scratch JSON) — `references/verification-evidence-persistence.md`.
 
-The artifact is the test evidence: failing test name or pass count, job id, sha, and run id. Do not take another lane's fix. `message_agent` to `llgenie-planner` with the PR number, the sha, and the run id.
-
-When a whole-suite run reds, classify each failure as **inherited-main vs fold-regression** before reporting — reproduce the failing gate on a clean-detached worktree at the base sha. See `references/classifying-suite-reds.md`.
+Classify a whole-suite red as **inherited-main vs fold-regression**: reproduce the failing gate on a clean worktree at the base sha — `references/classifying-suite-reds.md`. A `make check-pr-acceptance` / `ci-verdict` red on an issue with unchecked boxes is the BY-DESIGN pre-review gate; verdict from the test module at the head — `references/red-job-triage.md`. Reading head state, rebase re-verification, and the failed/pending/green distinction: `references/pr-state-inspection.md`. For `gh` quoting/PATH/body posting → `references/gh-command-mechanics.md`.
 
 Issue and PR numbers differ: `#824` is an issue; the PR implementing it is found with
 `gh pr list --repo asimov-agent/llgenie --search 824` (PR title carries `(#824)`).
+
+An "audit your own domain" dispatch is a PR-shaped job, not a comment: `references/own-domain-audit.md`
+carries the three fixed acceptance criteria, the measurement procedure, and the by-design
+`check-pr-acceptance` hold a tester must report rather than clear by self-ticking.
 
 ## Standing order (every reply)
 
@@ -310,6 +304,7 @@ against `name:` prefixes, not ids).
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
 - **A just-opened PR reports `no checks reported` from `gh pr checks` for a minute or two — read `gh run list --branch <ref>` for what was actually scheduled.** Check-runs register only after the dispatch, so a poller's first pass sees an empty board and its `ALL_CONCLUDED` fires on nothing. Enumerate the workflows by name (`CI`, `ci-scope …`, `holds — …`) with `gh run list --branch <ref> --json databaseId,status,headSha,workflowName`, then judge each with `gh run view <id> --json status,conclusion,jobs` — an empty `gh pr checks` is a timing artifact, not "CI never triggered".
+- **Read `references/monitoring-ci-runs.md` before arming a watcher** — tab-split `gh pr checks` (`awk -F'\t' '$1=="linux / unit"{print $2}'`) and accept only a real `conclusion`; `queued` is not a verdict.
 - **One watcher per run — check the process table before launching a second.** A polling loop on a
   pending job is easy to double-launch (a background `term` call plus a fresh `for … sleep` loop),
   and two loops reading the same job id produce duplicate wake-ups and duplicate verdicts on a thread
@@ -320,19 +315,9 @@ against `name:` prefixes, not ids).
   reports a superseded head as a concluded verdict.** A rebase or force-push during the poll moves the
   branch (and cancels the watched run) while the loop keeps reading the old run's `completed` result,
   so its `ALL_CONCLUDED@<oldsha>` wake-up describes a tree the PR no longer carries — and each one
-  costs a turn re-litigating a run that cannot speak about the branch. Guard the head inside the loop:
-
-  ```
-  for i in $(seq 1 80); do
-    h=$(git ls-remote origin refs/heads/<branch> | cut -f1)
-    if [ -z "$h" ]; then echo "BRANCH_GONE — read .state/.mergedAt, do not keep polling"; exit 0; fi
-    if [ "${h:0:8}" != "<watched-head-8>" ]; then echo "HEAD_MOVED to ${h:0:8} — new CI cycle"; exit 0; fi
-    r=$(gh pr checks <n> --repo <repo> 2>&1)
-    if ! printf '%s' "$r" | grep -qE 'pending|queued|in_progress|waiting'; then echo "CONCLUDED @ $h"; ...; exit 0; fi
-    sleep 30
-  done
-  ```
-
+  costs a turn re-litigating a run that cannot speak about the branch. Guard the head inside the loop;
+  the re-arm-tested loop shape (tab-split leg, real `conclusion` only, tip re-check) is in
+  `references/monitoring-ci-runs.md`.
   **Compare prefixes of the SAME width — a watched head held at 7 chars against `${h:0:8}` reports
   `HEAD_MOVED` on every cycle for a branch that never moved.** `a6b62c3 != a6b62c39`, and the tell is
   that the "new" sha is a truncation of the expected one: same commit, fewer digits. Slice both sides to

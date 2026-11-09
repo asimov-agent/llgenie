@@ -174,6 +174,32 @@ Check: `gh api repos/<owner>/<repo>/pulls/<n> | jq '.auto_merge.enabled_at'` —
 
 For an `--auto` request, the *request identity* is always populated (`enabledBy`, `mergeMethod`), but only a genuinely-enabled arm populates the *enablement fact*. On GraphQL `autoMergeRequest` the field is `enabledAt`; on raw REST `auto_merge` it is `enabled_at`. Read the one the checker keys on: `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'`. Null = "pending request, not enabled" — quote that verbatim instead of "armed". Verify the SAME call the checker uses; a GraphQL identity-enabler is never a REST enablement fact.
 
+## 11. A cluster of reds that all run `make check-pr-acceptance` is the BY-DESIGN pre-review gate, not a code failure
+
+When `scope`/`guard` (and a `ci-verdict` sibling) are red on a fresh implementer PR whose linked issue
+still has `- [ ]` boxes, they are almost always ONE cause: `make check-pr-acceptance` validates the PR's
+**LIVE** body against the **LIVE** linked issue, and the issue's criteria are unchecked until the review
+finalize ticks them (owner side). Signature of the class:
+
+- The failing step in both jobs is the same `make check-pr-acceptance` line.
+- Running `make check-pr-acceptance` yourself on a worktree at the head **passes** (`--body-file
+  /dev/null` = no PR body to validate) — so a local RC 0 does NOT mean CI will be green; the red needs
+  the live body/issue, which the detached run never sees. Do not report "gate passes locally, CI is
+  lying"; report which body each invocation read.
+- `ci-verdict` red is a CONSEQUENCE: its whole job is to hold a finished scope run to that run's
+  published decision and say "no verdict" out loud, so it inherits the scope red. It is not a second probe.
+
+**Confirm the mechanism before calling it expected.** Read the **linked issue of an analogous already-merged PR** (same gate, same shape — a docs/audit PR that closed its issue): its boxes are ticked with a provenance line `proven: reviewer=<bot> head=<sha> ...`. That provenance was written by the **reviewer's verdict finalize**, not by the PR that closed it — the proof that the red is the pre-review hold and clears on review, not a defect to chase. An audit/record PR that closes its own issue with unticked boxes is the same class: the tester lane reports the red as the by-design gate and leaves ticking to the reviewer; it never ticks its own boxes.
+
+**A criterion that says "the PR is green on the same job that failed" can be a CIRCULAR hold — say so instead of "unproven".** When one criterion is exactly that sentence and the job it names is red *because* this gate is holding that very unticked criterion, the criterion can never be satisfied by running anything: ticking it requires the reviewer, and the reviewer's tick clears the gate. Measured shape: `ci-verdict` conclusion `failure` whose summary reads `guard FAILED … ci-scope NO DECISION`, while the guard's own job log carries `check-pr-acceptance` naming `acceptance item N ("the PR that fixes it is green in CI on the same job that failed") is still - [ ]`. Report three separate facts, never one verdict: (a) the job's own logic is green — quote the settled-run verdict line the other criteria carry; (b) the red is this gate holding item N; (c) the criterion is circular and clears on the reviewer's write-back. Calling it "the fix is unproven" is wrong, and so is ticking it yourself.
+
+What it means for the verdict: this gate is the pre-review admission check, not the acceptance signal.
+Do NOT (a) call it a code failure, (b) try to flip it by editing the PR body's ticks yourself, or (c)
+wait on it as if the head were untested. The real acceptance evidence is the changed test module run
+directly at the head in the canonical container (`docker run ... ghcr.io/asimov-agent/llgenie/test:<tag>
+python3 -m pytest tests/test_<module>.py -q`); that pass count IS the tester's verdict row, while the
+`check-pr-acceptance` red is stated as "by-design pre-review gate the owner resolves at finalize".
+
 ## 10. Verify a census-repoint PR (shared-gate unblocker, #1221/#1222)
 
 When a PR exists only to re-point `docs/ARCHITECTURE.md`'s `measured at <sha>` off a non-ancestor
