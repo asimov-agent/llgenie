@@ -40,6 +40,76 @@ review pass, or this lane's behaviour/SOUL and its branches must be reconciled. 
 `security-scan.yml` is its OWN pipeline — `schedule` 04:05 UTC + `workflow_dispatch` only, never a
 `push`/`pull_request` check. Flow: guard → `make check-security-scan` → `make security-scan-all` →
 `make security-verdict EVENT=…` → `make security-issues` → `make security-bumps` → SARIF + artifact.
+
+## Profile-versioning / #791 sync PRs: the two gates past the SYNC line (#1784, 2026-11-06)
+
+When a lane PR changes `agents/<profile>/` and lands a profile-sync fix, the guard+scope run THREE gates that red
+silently unless the body and the linked issue are both right (each read from the job log, never guessed):
+
+- **`check-pr-openspec-change` (#1807):** the PR changes `agents/<profile>/skills/.../SKILL.md` (product code to
+this gate — only `docs/` / `agent-wiki/` / `CHANGES.md` / `README.md` are docs-only), so the body must name an
+ACTIVE OpenSpec change: add `OPENSPEC: <name>` on its own line. For a #791 profile-sync fold name
+`agent-profile-tree` (the #791 change, tasks ticked). Preflight: `python3 scripts/check_pr_hygiene.py
+openspec-change --head <sha> --base origin/main --body-file <body>`.
+
+- **`check-pr-acceptance` (#1792):** if the body carries `closes #N`, the linked issue's `## Acceptance criteria`
+must carry ticks at merge time; a still-`- [ ]` row is a violation. The write-back goes through the #1644 verdict
+seam: `scripts/acceptance_writeback.py writeback --issue <n> --proven 1,2,3 --verdict-ref
+`'<reviewer+head+run+evidence>'` (adds a `(proven: …)` suffix, leaves unproven boxes unticked). Tick ONLY criteria
+the lane genuinely measured, else the issue misrepresents. Check: `scripts/check_pr_acceptance.py check
+--body-file <body> --repo <o>/<r>`.
+
+  **A "re-pin the AC evidence to head X" request is a past-sha snapshot — verify the PR merge state and the CURRENT
+  tick text BEFORE writing back again.** A second `acceptance_writeback` on an already-ticked AC APPENDS a second
+  `(proven: …)` suffix (duplicated evidence), and `gh issue edit` of the body clobbers whatever the reviewer lane
+  already wrote. So first `gh pr view <n> --json state,mergedAt` and grep the live body for the sha current ticks
+  carry (`gh issue view <n> --json body --jq .body | grep -oE 'head[ _]sha?=[0-9a-f]{7}|head=[0-9a-f]{7}'`): if the
+  PR is MERGED and the reviewer already anchored the ticks at a head whose AC-relevant files are sha256-identical
+  to the merged tree, re-pinning is a NO-OP — say so with the sha256/merge proof instead of re-writing. Only write
+  back when a tick is missing or provably wrong at the current tree.
+
+- **`ci-verdict`:** reds as a snapshot of an earlier guard-fail run on the same head; recomputes green when the
+run concludes. Do not chase it — wait for completion.
+
+Order: fix the body (AGENTS/BASE/SYNC/OPENSPEC/closes) → tick the issue via writeback → `gh pr edit` → rerun the
+failed guard/scope (a body-edit does NOT re-trigger push workflows) → wait for the whole run → read the arm via
+GraphQL (`autoMergeRequest`/`state`; REST omits `enabled_at` while blocked, #964).
+
+**Two more reds a #791 per-lane pointer PR trips, and the fixes (#1849/#1855, 2026-11-06):**
+
+- **`linux / unit` → `test_agent_profiles.py` `skill-reference-missing`:** the SKILL.md pointer row inlined the
+  FULL canonical path (`.../references/<canonical-pointer>.md`), and `check_agent_profiles.py`
+  resolves every `references/<X>.md` token in SKILL.md relative to the LOCAL skill dir — the canonical reference
+  lives in the implementer lane's tree, not mine, so the token is a missing-file red. Fix: point SKILL.md only
+  at the lane's own in-tree `references/<pointer>.md` (exists), and keep the canonical cross-lane path in the
+  POINTER FILE's body (a `references/` file's content is not scanned by `_skill_findings`). Verify with
+  `python3 scripts/check_agent_profiles.py` (no local-lane finding) + the 3 unit tests on the test image.
+
+- **`check-pr-base`: a branch cut from current `origin/main` at open reds once main advances — it must be cut
+  from the CURRENT tip.**
+
+**A `#791`/implement PR can red `ci-unit` for NON-test reasons — read the failing job's OWN log each time.**
+Two `linux / unit` reds on one PR (#1876/#1282, 2026-11-06) shared the same aggregate signature (`make ci-unit`
+step failed, matrix green) but different causes, neither a test failure: (1) **`check-proc-gate`** reds a new
+`scripts/` module that uses a bare `subprocess.run` — fix by routing through `scripts.proc.run_ok` (never raises
+on non-zero) with a repo-root `sys.path` bootstrap (same pattern as `scripts/check_pr_acceptance.py`), NOT a
+`# proc-allow:` carve; the gate regex `\bsubprocess\.(run|check_output|Popen)\s*\(` matches the literal text even
+in a comment, so never write `subprocess.run (` (space before paren) or the phrase in prose — it counts as a bare
+call site. (2) **`check-pr-base`** reds inside `ci-unit` (aggregate reads FAILED) when main advanced while CI ran —
+rebase onto the CURRENT tip, `make bot-preflight`, update AGENTS/BASE, re-push. The aggregate `linux / unit` bucket
+is the least informative signal; always read the failing step's own log to tell a test failure from a gate the unit
+job runs. Re-anchor discipline bites on EVERY push cycle when a fleet lands continuously (main moved
+`a2ecc5b6 → dea3dcab → 57715198` across three cycles); verify the deliverable files are byte-identical across each
+rebase (sha256 per file) so the AC evidence still binds. A rebase + force-with-lease onto the moved tip, then REGENERATE the AGENTS/BASE
+  preflight lines (they name the base; the old sha is stale) and re-edit the body. The gate verdict cites the
+  main sha it measured, so read the failing line before concluding a branch defect.
+
+- **A per-lane vehicle of a multi-lane tracker must NOT close the tracker — and must not be an `agent/*` head if
+  it names it.** A body/squash claiming `#N` (subject ending `(#N)` or `Issue: #N`) is held to an ADJACENT
+  `closes #N`; closing a five-lane tracker from one lane is a false close AND reds `check-pr-acceptance`
+  (verified: #1850 carried `Closes #1849` and reded). Use a NON-`agent/*` head (e.g. `fix/<n>-...`), name the
+  tracker in prose only, keep `#N` out of the subject's trailing `(#N)`, and satisfy `check-pr-openspec-change`
+  with an `OPENSPEC: <active-change>` body line (e.g. `agent-profile-tree`).
 Scanners run from pinned images in `containers/scanners/digests.json`. Policy is data:
 `data/security-policy.json` (`fail_on`, `issue_severities`, `enforce_events`, `require_fix`).
 Downstream: `security-bot.yml` picks ONE issue per run by LABEL and opens a reviewable PR.
@@ -47,7 +117,7 @@ Downstream: `security-bot.yml` picks ONE issue per run by LABEL and opens a revi
 ## Audit in four commands
 
 ```bash
-cd "$HOME/repository/git/llgenie" && git fetch origin && git log --oneline -1 origin/main
+cd $HOME/repository/git/llgenie && git fetch origin && git log --oneline -1 origin/main
 gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --limit 10 \
   --json createdAt,status,conclusion,event --jq '.[]|"\(.createdAt[0:16]) \(.status)/\(.conclusion) \(.event)"'
 RID=$(gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --event schedule --limit 1 --json databaseId --jq '.[0].databaseId')
@@ -233,7 +303,10 @@ zero-arg function call and errors `function not defined: headRefOid/0`, which lo
 exist on the PR. So write `--jq '{head:.headRefOid,base:.baseRefName}'`, never `{head:headRefOid,…}`, and
 prefer `--jq '{state,mergeable,head:.headRefOid}'` over hand-slicing (`[0:10]`) when a short sha is wanted —
 an abbreviated sha in the report can be taken from `git rev-parse --short` or sliced in `python3`, not fought
-in `gh`'s jq.
+in `gh`'s jq. **Also: inside `\(...)` a literal glued to a slice is a parse error** — `"\(.created_at[0:16]Z)"`
+errors `unexpected token "Z"` because jq reads `[0:16]` then the bare `Z` as a new token; put the literal OUTSIDE
+the interpolation (`"\(.created_at[0:16])Z"`) or inside the parens as a string (`"\(.created_at[0:16]) \(...)Z"` is
+wrong too — only a string literal `"Z"` inside parens, or a plain suffix after the closing paren, is valid).
 
 **A base refresh does NOT invalidate a prior verdict proof when the fixed file is byte-identical across the
 rebase — prove it with sha256, do not re-derive it.** When the planner asks to re-anchor a PR onto a moved
@@ -339,6 +412,25 @@ non-root `USER` after the last root-requiring step — but first prove the image
 workflow or target** (`grep -rn '<image-tag>|<make-target>' .github/workflows/ Makefile`; if `CMD`
 writes nothing, e.g. `--help`, the drop is safe) and use a reserved non-root UID already precedent
 (`USER 65532:65532`, the scanner image's) so the choice is not arbitrary.
+
+**A `scanner-images` job red whose step log shows only `[scanner-image] build failed: <scanner>` has no
+visible cause — the build's own stderr is swallowed by `scripts/scanner_image.py`.** `build()` runs the
+docker build through `run_ok` and prints a one-line summary on failure (`[scanner-image] build failed: X`),
+never the docker output, so the job log cannot tell you WHY (a network fetch, a digest miss, an apk
+resolution failure). Do not chase the missing log and do not assume the code is at fault. Classify it in
+this order: (1) read the PR's own diff — `gh pr view <n> --json files --jq '.files[].path'`; a `scanner-images`
+red on a PR that touches nothing under `containers/scanners/` or `containers/scanners/digests.json` is not
+that diff's defect. (2) **Reproduce at the exact head**: fetch the PR head (`git fetch origin
+refs/pull/<n>/head:refs/remotes/origin/pr<n>` — the head sha is not in a bare local clone, `git cat-file`
+404s on the short form), `git worktree add <tmp> <head>`, then `docker build -t llgenie/scanner-<id>:repro
+<tmp>/containers/scanners/<id>` and `docker run --rm <tag> --version`; a build that succeeds and prints the
+pinned version (e.g. semgrep reports `1.165.0` for a `1.165.0-r0` pin) at the SAME head with the SAME
+pinned base digest means the CI failure is environmental (runner/network/cache flake), not a Dockerfile
+defect. (3) **Confirm with a same-head control**: `gh run rerun <id> --failed` and read the re-run's
+conclusion — a green re-run at the same sha is the decisive proof of flake (a build that only passes on
+retry was never a durable defect, so the remedy is the retry + a note, never a Dockerfile edit). Only a build
+that fails deterministically across the local repro AND a same-head re-run is a finding to file. Clean up with
+`git worktree remove --force <tmp>` (never prune another lane's worktrees).
 
 **A change-note fragment reds `scope`/`check-docs` unless it matches the parser's shape.** The fragment is
 parsed by `scripts/changes_index.py`: it must be **exactly one row**, and its note column must point at an
@@ -492,6 +584,27 @@ An own-domain audit that files findings must land BOTH the finding (open, six-se
 
 A work product that is only comments is not a verifiable change — land the record in the tree. An own-domain audit (#1245 re-audit) that files one-or-more findings must ALSO land the audit record itself as a committed artifact (agent-wiki note + changes.d fragment + PR), not just file the findings on the issue: the completion guard measures a changed path in the tree, and an audit conclusion that exists only as issue comments is rejected however many were posted. File the finding (exposure, indexed, tagged) AND commit the record.
 
+A work product that is only comments is not a verifiable change — land the record in the tree.
+
+**An own-domain audit *record* PR that closes the audit tracker (`closes #<tracker>`) is held to the
+  tracker's OWN `## Acceptance criteria` boxes *before* it can merge.** `check-pr-acceptance` reds the
+  scope gate on any unticked criterion in an issue the PR body closes, even when every record-content gate
+  (lint, closing, acceptance-form) is green. The gate's only remedy is a verdict-gated
+  `acceptance_writeback` tick: `python3 scripts/acceptance_writeback.py writeback --issue <n> --proven 1,2
+  --verdict-ref '<the evidence: metric + command + rc + sha>'`, then `gh run rerun <scope-run> --failed`
+  (scope reads the issue body live). Auto-merge without a reviewer verdict must not self-tick, but a
+  clean-audit lane genuinely measured the criteria and may tick them with that reproducible evidence —
+  leaving them unticked parks the record PR `BLOCKED` behind an intended gate forever.
+
+  **A local `make lint` green on a freshly-written fragment is a FALSE green for CI.** The linefeed
+  check (`lint_linefeeds.py`) scans only TRACKED files, so a brand-new changes.d fragment that lacks its
+  trailing newline passes local lint and reds the CI `ci-lint` step on the very next commit. Ground-truth
+  the final byte (`tail -c 1 <file> | od -c` must be `\n`) or run the make gates after `git add`, not
+  before.
+
+  (The audit-record PR must NOT carry `closes #<finding>` for the finding it records; it may close only
+  the audit tracker. Finding issues stay OPEN.)
+
 A work product that is only comments is not a verifiable change — land the record in the tree.** Issue
   comments are the right home for a *defect* finding, but an audit pass, an idle-audit result, or a review
   conclusion is a *record of work*: a completion-integrity check reads a branch with no committed artifact as
@@ -531,7 +644,7 @@ A work product that is only comments is not a verifiable change — land the rec
   it returns. Confirm the gate is advisory before treating it as a wall: `nerve_stats --section gate` reports
   `gate_mode: advisory` with a tiny `bypass_rate` — an advisory hook is a nudge, not a blocked write. A
   remote-only dispatch re-verified on the API plus a formal `PASS` is complete; a fabricated local artifact is
-  the wrong answer even when the guard keeps nagging.
+  the wrong answer even when the guard keeps nagging. **A LIVE-PROFILE-ONLY mutation is the same class.** The guard tracks git-tree changed paths only; an edit made directly to `~/.hermes/profiles/<profile>/SOUL.md` or `skills/**` — which this lane makes directly and must NOT sync into the tree while the tree sweep belongs to a separate issue — is invisible to it even though it really happened. Do not fabricate a tree PR to satisfy the guard: that PR steps on the tree-sweep issue's scope and duplicates its work. Prove the edit by read-back instead (per patched file `grep -n '\$HOME' <file>` shows the conversion, and `ls -la --time-style=+%H:%M` shows this turn's mtime), then adjudicate with `nerve_verify` `PASS` exactly as above.
 - **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
   the job that ran it.
 - **Never add `push:`/`pull_request:` triggers** to `security-scan.yml`: `make check-security-scan` refuses
@@ -600,6 +713,9 @@ A work product that is only comments is not a verifiable change — land the rec
   before pushing. Layout, manifest gate, exemptions, stacked-branch rule, the
   canonical-block extraction, and how to name the writer of live drift (curator ledger) and fold its patches
   without a byte-copy deleting a tree-only rulebook: `references/agent-soul-versioning.md`.
+
+- **Sweeping path literals to `$HOME` is a shape-classified edit, not a blind find-and-replace.** Author `$HOME`, never `/home/<user>`, in anything this lane writes. When applying it across skills/SOUL, classify every hit FIRST — convert only where the shell expands it, and LEAVE ABSOLUTE the contexts where `$HOME` never expands: a Python string literal inside a quoted `<<'PY'` heredoc, `scripts/*.py` source, and parsed data files (`.curator_ledger.jsonl`). A `$HOME` inside those is inert text the interpreter or reader never expands, so converting it silently breaks the snippet. Retired copies under `skills/.archive/` are out of scope unless asked. Verify with `grep -rc '/home/<user>'` before and after and confirm every remaining hit is a deliberate carve-out, not an oversight.
+- **Do not `message_agent` the planner in a turn where the planner already messaged you — your final response is the reply.** The tool refuses it (`@<planner> messaged you this turn and your final response already goes back to them: put your reply in it instead`) and blocks a retry; write the answer as the turn's closing response.
 - Open a repo-style issue FIRST (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` /
   `## Acceptance criteria` / `## Technical`, with measured command output), then commit
   `type(scope): subject (#NNN)` + `Closes #NNN`, push, `gh pr create --base main`.

@@ -63,6 +63,42 @@ agents/<profile>/skills/<name>/SKILL.md
 6. **Gate before the PR:** `python3 scripts/check_agent_profiles.py check` → OK, and it reports how many
    profiles it read (an unchecked tree passes vacuously).
 
+## Measuring live/tree parity before any fold — read-only, then line-subset proof
+
+`make sync-agent-profile PROFILE=<p> CHECK=1` is a byte-size comparison; `make tester-fold-live PROFILE=<p>`
+(no `COPY`) is the finer instrument: it labels every file `same` / `DRIFT` / `LIVE-MISSING` (tree has it, live
+does not) / `LIVE-ONLY` (live has it, tree does not) / `mid-write` and prints a `N same, N drifted, …` tally.
+Run BOTH read-only first, at a freshly fetched main, and quote their numbers before touching a file.
+
+**Never run `make tester-fold-live PROFILE=<p> COPY=1` (or `FORCE=1`) as a first move — copy mode OVERWRITES
+the tree file with the live file wholesale and silently deletes any line the tree has that live lacks.** Its
+name says "fold live", but a COPY is not a union: one measured run overwrote 31 tree files and destroyed 72
+tree-only lines across 12 files. Measure the line-subset BOTH ways before any copy/force:
+
+```bash
+L=~/.hermes/profiles/<p>/skills/<name>/SKILL.md      # live
+git show origin/main:agents/<p>/skills/<name>/SKILL.md > /tmp/t.md   # tree
+grep -v '^\s*$' "$L" | sed 's/[[:space:]]*$//' | sort -u > /tmp/l.s
+grep -v '^\s*$' /tmp/t.md | sed 's/[[:space:]]*$//' | sort -u > /tmp/t.s
+comm -13 /tmp/l.s /tmp/t.s | wc -l   # TREE-ONLY lines — a live→tree COPY destroys these
+comm -23 /tmp/l.s /tmp/t.s | wc -l   # LIVE-ONLY lines — a tree→live sync destroys these
+```
+
+A copy is safe in a direction ONLY when the lines it would delete are zero: `comm -13` = 0 → live→tree copy
+ok; `comm -23` = 0 → tree→live sync ok. **When BOTH are non-zero neither blind direction is safe — the fold
+MUST be a line-level union merge (recipe below), and the honest finding is "no safe copy exists", not a
+guess.** A measured drift where the tree carried 2 unique lines (a gate pointer + a jq fragment) and live
+carried 81 meant both `sync` (tree→live destroys 81) and `COPY=1` (live→tree destroys 2) were wrong; only a
+union preserved both. Do not let a tool's `TRUNCATED?` warning on one direction lull you into trusting the
+other direction — measure both branches of the fork independently.
+
+**A drifting file can differ while one side is a strict superset of the other** — check the ⊇ before reaching
+for a merge. If one side's line set is a subset of the other's (`comm -13` or `comm -23` = 0), the fold is a
+plain copy in the superset's direction and loses nothing; only an interleaved drift (both directions non-zero)
+needs the union. And a `LIVE-ONLY`/`LIVE-MISSING` reference file is not itself a red — `check_agent_profiles`
+reds `skill-reference-missing` on a SKILL.md that *links* a file the tree lacks, so grep the live SKILL for
+the file's stem: an unlinked orphan reference file is inert (no gate cares) until something links it.
+
 ## Pitfalls
 
 - **The canonical block GROWS — re-extract, never hand-append the new bullet.** A rule added later
