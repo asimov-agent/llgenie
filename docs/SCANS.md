@@ -29,7 +29,7 @@ not red.
 
 **The scan also sees the engine runtime deps** (issue #1282). A cell's pinned deps live as JSON
 strings in `containers/engines/params/*.json` install lines, which no scanner parses as a dependency
-declaration — so a vulnerable or silently-unsatisfiable `torch==2.14.0` / `litert-lm==0.19.0` /
+declaration — so a vulnerable or silently-unsatisfiable `torch==2.14.0` / `litert-lm==0.19.1` /
 `ziglang==0.17.0` (and its `--index-url`) never touched the SBOM. `make sbom` / `make
 security-scan-all` therefore first run `make engine-pins`, which writes the Exact pins each cell
 actually installs into `security-reports/engine-pins/` (a requirements-shaped file + a sha-bound

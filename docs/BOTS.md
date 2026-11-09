@@ -399,7 +399,7 @@ agent image registers the checkout's directory once, at build time
 `skills.external_dirs` → `/repo/.hermes/skills`, the mount point every leg runs in) and reads the
 value back — a registration that did not land fails the build, not a bot run. The script writes a
 real YAML **list** because `hermes config set` takes a list on a newer CLI and silently stores a
-string on the pinned `hermes-agent==0.19.0`, which then resolves to no directory at all.
+string on the pinned `hermes-agent==0.19.1`, which then resolves to no directory at all.
 
 ```bash
 make check-agent-skills       # CI (ci-unit): every leg preloads a real skill, prompts stay pointers
@@ -2157,7 +2157,7 @@ make test-unit         # hermetic unit tests — the suite is DISCOVERED by scri
 make openspec-tasks-check  # every ACTIVE OpenSpec change has no unchecked `- [ ]` task box — the
                        # completion half of the openspec gate (the loop's last stage, and ci-openspec)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
-                       # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.0 + pytest;
+                       # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.1 + pytest;
                        # needs python3.12)
 make test-install      # install tests (run in-container; host-artifact asserts — no skips via test-install-ci)
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container

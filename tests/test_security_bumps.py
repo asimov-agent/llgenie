@@ -84,7 +84,7 @@ def _root(tmp_path: Path, compiled: dict[str, str] | None = None, gate_exit: int
     compiled = compiled if compiled is not None else {"certifi": "2026.7.22", "filelock": "3.32.5",
                                                       "urllib3": "2.7.0"}
     (root / "tools" / "requirements.in").write_text(
-        "numpy\ngguf==0.19.0\n-c security-floors.in\n", encoding="utf-8")
+        "numpy\ngguf==0.19.1\n-c security-floors.in\n", encoding="utf-8")
     (root / "tools" / "requirements-dev.in").write_text(
         "pytest==8.3.5\n-c security-floors.in\n", encoding="utf-8")
     (root / "tools" / "requirements.txt").write_text(
