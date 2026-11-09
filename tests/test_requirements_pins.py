@@ -95,7 +95,7 @@ def test_every_direct_runtime_dependency_is_pinned_exactly() -> None:
     # And   the three the repository actually imports are named exactly
     pinned = {item["name"]: item["spec"] for item in items}
     assert pinned["numpy"] == "==2.4.6"
-    assert pinned["gguf"] == "==0.19.1"
+    assert pinned["gguf"] == "==0.19.0"
     assert pinned["huggingface_hub"] == "==1.30.0"
 
 
