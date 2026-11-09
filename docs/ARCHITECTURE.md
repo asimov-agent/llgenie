@@ -167,7 +167,7 @@ The tree is 3989 tracked files: `data/` 13, `skills/` 18 (17 engine directories 
 
 | Path | Role |
 |---|---|
-| `Makefile` | the only entry point for every stage and gate; CI calls `make <target>` and nothing else |
+| `Makefile` | the split top makefile (issue #800): shared env, `.PHONY`, `help`, `version` and the six `include mk/*.mk` — every stage/gate target lives in `mk/{engines,gates,ci,security,bots,install}.mk`; CI calls `make <target>` and nothing else, and `scripts/check_wiring.py` resolves the includes before building its graph |
 | `scripts/` | all logic: install, detection, pick, engine images/params, registry sync, scans, bots, gates, plus the shell legs the bots run |
 | `skills/engines/` | one `SKILL.md` per engine (and a `README.md`), the source `generate-engine-params` reads |
 | `containers/engines/` | shared `base/` Dockerfiles, generated `dockerfiles/<id>/Dockerfile.<arch>`, frozen `params/`, `binaries.json`, `entrypoint.sh` |
