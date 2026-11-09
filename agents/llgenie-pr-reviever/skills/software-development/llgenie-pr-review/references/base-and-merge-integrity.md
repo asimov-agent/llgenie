@@ -108,6 +108,180 @@ A branch being behind `main` is **not** itself a `CONFLICTING` state, so per the
 rule it is not a reason to rewrite — but it does mean CI at that head ran against a superseded
 base, which changes how a red may be attributed.
 
+## A cited witness HEAD can go stale too — re-anchor a fresh-all-green AC witness to the LIVE head
+
+A record that pins a required witness to a specific PR head (e.g. "#1836-AC4 fresh all-green must
+be read at an ancestor-of-`781f698a7e` head emitting vllm-rocm cells") must be re-read against the
+BRANCH's live head before the witness is measured, not just against main. The PR's branch advances
+independently: measured 13:38Z — the #1837 live head had moved to `545a4e49db` while the record
+cited `c139ca97`. Wiring the newer head into the requirement is a task-relative edit, not noise:
+quoting a stale head invites a future re-measure at a branch state that no longer exists (or was
+already superseded), and the deterministic-read class would be judged on the wrong tree. State the
+live head (via `gh api repos/<o>/<r>/pulls/<n> --jq .head.sha`) beside the required-shape wording
+each time the witness must actually be taken.
+
+The sibling case is a head cited by a RUN RECORD: it can be orphaned outright (`git merge-base
+--is-ancestor <cited> <live head>` non-zero, the branch advanced past it). Measure the live head and
+say both — see `dispatch-red-attribution-vs-leg-log.md`, "Check the cited head is still an ANCESTOR".
+
+## A `(proven:)` pin orphaned by a SQUASH MERGE — re-anchor to the merge commit, still no re-judge
+
+The re-anchor-not-rejudge class has a post-merge variant: a head you DID judge gets merged as a
+**squash** (the merge commit has ONE parent), and the merge commit is a brand-new sha — your branch
+head is NOT an ancestor of main, so a `(proven: … head=<branch-head> …)` tick on the closed issue now
+cites an unreachable sha. Measured on #1862: re-anchored to `0dd9fa63ae` pre-merge (15:19Z), then
+#1864 squash-merged 15:23Z into `5bb742b2c2` (single parent `760a50372a`);
+`git merge-base --is-ancestor 0dd9fa63ae 5bb742b2c2` → rc=1.
+
+Prove content, then re-point, in this order (never re-judge):
+
+```bash
+git merge-base --is-ancestor <branch-head> <merge-commit>          # rc=1 → squash orphaned it
+git diff --quiet <branch-head> <merge-commit> -- <graded paths>    # rc=0 → content carried intact
+```
+
+Both hold ⇒ the judgement stands, only the pin's sha is gone from every future tree. Re-run the
+proving command AT the merge commit and `writeback --proven <same> --verdict-ref '… head=<merge-commit> …'`
+on the (possibly closed) issue — a closed row still records the AC state the fleet reads and the
+planner may dispatch the re-point. Verify the old sha appears ZERO times on-wire, quote both shas + the
+prove shape, name the pre-merge record it supersedes, and keep the unproven marker row untouched.
+
+A local command at the merge commit is the pin's anchor; the stronger complement is a **concluded CI
+run whose own head is the merge commit** (`gh api "repos/<o>/<r>/actions/runs?per_page=100" --jq
+'.workflow_runs[]|select(.head_sha|startswith("<merge>") and .conclusion!="" )|{id,name,conclusion}'`).
+Post it as a separate read-back record listing each green run id — but attribute reds by the log's
+`pr=` line, never by the run list's `head_sha`: a `workflow_run`-triggered `ci-verdict` leg runs at
+the tip and carries the tip's sha while judging some OTHER open PR (see
+`dispatch-red-attribution-vs-leg-log.md`, "A `workflow_run` verdict leg inherits the TIP's head_sha").
+A merged tip can therefore show green CI plus unrelated ci-verdict reds at the same sha; both belong
+in the record, and neither reopens the re-anchored row.
+
+## A write-back `(proven:)` pin that is not the mergeable head — re-anchor, do NOT re-judge
+
+Same class, one level deeper: the stale pin lives INSIDE an acceptance tick. A `(proven: … head=X …
+rc=0 X…)` citation written after a rebase-only push can name an intermediate head that is **not an
+ancestor** of the current head — the tick's substance is right, but a strict tick re-verifier at
+merge time may red a sha that is not the mergeable head.
+
+Prove rebase-not-content before doing anything, in this order:
+
+```bash
+git diff --quiet <cited> <live-head> -- <the graded paths>   # rc=0 → byte-identical content
+git merge-base --is-ancestor <cited> <live-head>              # rc=1 → superseded, not an ancestor
+```
+
+Both together mean the pin is stale, the judgement is not — so **re-anchor, never re-judge** (no new
+verdict, no flipped tick, no re-read of a criterion that already passed). Re-anchor shape:
+
+1. Re-run the proving command **at the live head**, so the new pin cites evidence actually executed
+   there (a pin is an execution record, not a content claim).
+2. `writeback --issue <n> --proven <same list> --verdict-ref 'reviewer=… head=<LIVE 40-hex> <cmd>
+   rc=0 <LIVE 40-hex>'` — same proven positions, only the sha changes; unproven rows keep their `- [ ]`.
+3. Render locally with `apply --body-file <fetched body> --proven … --verdict-ref …` and confirm the
+   old sha appears **zero** times before PATCHing (see `verdict-writeback-verification.md` for the two
+   subcommands' differing argument shapes).
+4. Re-run the gate on the live PR body afterwards, and confirm the PR head did not move during the
+   write-back.
+5. Post a short correction comment quoting **both** shas and the prove-shape (byte-identical +
+   non-ancestor), naming the earlier record it supersedes. The old comment's content judgement stays;
+   only its cited sha was stale, and the board must be able to tell which of the two it may trust.
+6. Expect repeats under a fast-moving base: measured twice on #1862 within ~1h (`43d0544c` re-anchor,
+   then the live head moved again via another rebase onto `760a50372a` → `0dd9fa63ae`, same graded
+   files byte-identical). Each flag is a fresh pass, not a re-judge — the reply cites the newest live
+   head and the same byte-identical proof, and names the record it supersedes. Never promise this is
+   the last time until the PR actually merges.
+
+## A stale base reds `check-pr-base`, which CANCELS the walking legs — no unit verdict at that head
+
+When the branch's merge-base with current `origin/main` is an older main (the base moved under it
+after another PR merged), the `guard` job's `check-pr-base` step (issue #845) FAILS — and because the
+`guard` leg gates the matrix, the walking legs (`linux / unit`, `install`, …) are **skipped/cancelled,
+not run**. `gh pr checks` then shows `linux … skipping` and a `guard … fail`, plus a derived
+`ci-verdict … fail` (the echo of the guard, #58). Do **not** read that as "unit pending, wait for it":
+no unit run will ever conclude at that head — the gate that would launch it already redded.
+
+The verdict is therefore "**not green, rebase owed**", not "waiting": the prior head's fix may be
+correct in the tree (verify it locally, e.g. the marker/line the last verdict asked for), but no run
+id can yet certify it under CI. Remedy = rebase onto current `origin/main` (the #1015/#845
+trigger — a genuine stale base, unlike a merely-behind-but-clean branch), then a fresh matrix runs
+`linux / unit` at the new head; post the green verdict citing THAT run id. State plainly which
+sub-facts are done (hold lifted, fix in tree) and which is blocked (no unit verdict — cancelled by
+the `check-pr-base` red), so the board does not read a cancelled matrix as a failing fix.
+
+## A `check-pr-base` red on a MAIN-TIP run is a phantom when main advances mid-run
+
+A CI run triggered on `main` right after a merge has head = the merge commit. If **another** PR
+merges while that run is executing, `origin/main` advances past the run's head, and `check-pr-base`
+then FAILS on that merge-tip run — `HEAD is NOT cut from origin/main — its merge-base is <the
+merge-commit>, measured against origin/main at <a newer tip>`. That red is a **phantom**, not a
+regression in the just-merged content, and it is a *different* case from the stale-branch red above
+(there a branch must be rebased; here nothing is wrong with the merged work).
+
+Confirm the phantom before reporting it, in this order:
+
+```bash
+git merge-base --is-ancestor <merge-commit> <current-main-tip>   # YES → the content IS on main
+git log --oneline <run-head>..<current-main-tip>                # a later, unrelated merge moved the base
+```
+
+Then read the failing leg's own log (`linux / unit` → `make ci-unit` → `check-pr-base`) to show it
+is the **only** red — every real gate (authors, closing, hygiene, openspec, agents-read, lint) passes.
+A `check-pr-base` red alone, on a head that is merely *behind* the current tip, is base-staleness,
+not a product defect. For the fleet-merge variant — the `foreign commits (0): (no commits in
+base..rev)` tell, the chain-gate/PR-side applicability, and the re-anchor-to-fleet-complete-tip rule
+— see `references/phantom-check-pr-base-fleet-merge.md`; do not treat each sibling's phantom red as
+blocking, and never fabricate a green off the phantom itself.
+
+The correct "main green at merge tip" evidence therefore **re-anchors**: it is a CI run at the
+**current** main tip (whose ancestry includes the merge commit), not the run that reddened while the
+tip moved. Do not write "main green" off a run that is behind the current tip and do not close the
+acceptance row on it — state "no verdict at the re-anchored head yet" and wait for a concluded CI at
+the current tip (or the next main-tip run). Report the phantom red beside the re-anchored green; never
+sweep it under, because the red run is part of the record even when it was not the merge's fault.
+
+## A phantom-red label covers only the leg it was measured on — re-attribute every leg
+
+A dispatcher (or a PR body, or your own last record) may hand you a blanket "all N reds are the
+tracked <class> noise" attribution. Treat that as a **claim about the run**, not a finding: the
+noise class was measured on one leg, and the other legs have their own failure text. Read each
+failing leg's own log and name what it actually says before you discount any of it.
+
+Measured: a dispatch declared three reds (guard, scope, ci-verdict) all "#1862-class noise, not this
+PR's defect". The scope leg's own log said something else entirely —
+
+```
+[check-docs] ERROR: change->note: this branch changes scripts/<x>.py but adds no
+agent-wiki/<stem>.md note — a behavioural change owes a note (and its docs/changes.d/<stem>.md row)
+```
+
+— a real, merge-blocking gate red caused by **this** diff (a behavioural change to a `scripts/`
+file with no `agent-wiki/` note, no `docs/changes.d/` row and no `CHANGES.md` row). The guard leg
+was the expected pre-write-back `check-pr-acceptance` red and the ci-verdict leg was genuinely the
+noise class; only one of the three was the PR's own defect, and the blanket label would have hidden
+it. Confirm the diff really adds no note:
+
+```bash
+gh api repos/<o>/<r>/pulls/<n>/files --jq '[.[]|select(.filename|test("agent-wiki|docs/changes.d|CHANGES.md"))|.filename]'
+```
+
+So: attribute per leg, each with its own quoted failure line, and when one red survives the noise
+label, it is a REVIEW FINDING with the implementer's fix named (which files to add) — not an approval
+blocker you quietly absorb, and not a green you may write off.
+
+## Reproducing a gate locally: `| tail` eats the exit code
+
+`python3 scripts/<gate>.py check 2>&1 | tail -15; echo rc=$?` prints **tail's** status, so a failing
+gate reads `rc=0` and the repro looks green beside its own ERROR line. Run the gate on its own, then
+tail separately:
+
+```bash
+python3 scripts/check_docs.py check; rc=$?; echo "rc=$rc"
+```
+
+When the container gates a step (`make check-docs` → `scripts/changes_index.py check`,
+`scripts/check_docs.py check`, …) reproduce the same script the leg runs, not a nearby sibling —
+and quote the gate's own `[name] ERROR:` sentence as the evidence anchor at the head sha.
+
 ## A rebase can clear the conflict and leave the cause
 
 `mergeStateStatus` going `DIRTY → BLOCKED` after a rebase is **not** evidence that the problem was
@@ -186,7 +360,27 @@ present head will merge.
 
 ## Quote the base at the moment of the claim
 
-Every finding, control and verdict is relative to a base sha. Read it (`git fetch origin
-refs/heads/main:refs/remotes/live/main` then `gh api .../commits/main --jq .sha`, and require them
-to match) *in the same turn* as the claim. A clean merge at a superseded base proves nothing about
+Every finding, control and verdict is relative to a base sha. Read it *in the same turn* as the
+claim, and require the fetched ref to match the API tip:
+
+```bash
+git fetch origin refs/heads/main:refs/remotes/live/main --force   # --force is required, see below
+gh api repos/<o>/<r>/commits/main --jq .sha                       # the true tip; require equality
+```
+
+**A bare `git fetch origin refs/heads/main:refs/remotes/live/main` with no `--force` is silently
+REJECTED** (`! [rejected] … (non-fast-forward)`) whenever the local `live/main` ref already exists and
+has moved — the fetch updates nothing and leaves you measuring the OLD tip, so a merge-base you compute
+afterwards is against a base that is not the current main. Add `--force`; then the API cross-check is
+the guard that the ref really moved (`live/main` short sha == `commits/main` API sha). A clean merge at a superseded base proves nothing about
 the base you will target; a control run against yesterday's main proves nothing about today's.
+
+**Fetching the PR head does NOT refresh the base ref — and a stale `live/main` shows the PREVIOUS
+merge's work as if the current PR were adding it.** `git fetch origin refs/pull/<n>/head:…` moves only
+the head; `refs/remotes/live/main` stays wherever it was. Diff `live/main..head` then reads as the PR
+carrying whole sections that actually landed in main via an earlier merge (measured: a base-PR's whole
+fork-skip test block appeared as additions under the follow-on PR, because `live/main` was one merge
+behind). The tell is that the "new" code is the just-merged PR's exact content — verify by comparing the
+true base: `gh api repos/<o>/<r>/commits/main --jq .sha` must equal `git rev-parse --short refs/remotes/live/main`,
+else `git fetch origin refs/heads/main:refs/remotes/live/main --force` and re-diff. Fetch the base with
+`--force` **in the same turn** you fetch the head, before any `git diff`; the head fetch is never enough.

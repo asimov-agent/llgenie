@@ -13,8 +13,8 @@ head=$(gh api repos/$R/pulls/<n> --jq .head.sha)
 br=$(gh api repos/$R/pulls/<n> --jq .head.ref)
 repo=$(gh api repos/$R/pulls/<n> --jq .head.repo.full_name)   # decide the push target NOW
 
-git -C /home/asimov/repository/git/llgenie worktree add --detach ../../llgenie-wt/rb<n> "$head"
-cd /home/asimov/repository/git/llgenie-wt/rb<n>
+git -C "$HOME/repository/git/llgenie" worktree add --detach ../../llgenie-wt/rb<n> "$head"
+cd "$HOME/repository/git/llgenie-wt/rb<n>"
 
 # 2. skip if already current (merge-base == origin/main) -> `git rebase` says "up to date" fast
 mb=$(git merge-base HEAD origin/main); [ "$mb" = "$(git rev-parse origin/main)" ] && echo "current, skip"
