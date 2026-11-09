@@ -310,7 +310,7 @@ cell whose install steps only pull a wheel or a release archive, and passes only
 carry a dated entry in `scripts/engine_source_guard.py::KNOWN_NOT_SOURCE` naming issue #615.
 
 Converted from a wheel/archive to a real build so far: `llama.cpp` ×4 (PR #616), `freetoken/cuda`
-(clone at `ba31db2e` + upstream `setup.py`, its own sm_75/80/90/100/120 fat list), `mlx/cpu` +
+(clone at `5a73685b` + upstream `setup.py`, its own sm_75/80/90/100/120 fat list), `mlx/cpu` +
 `mlx/cuda` (`ml-explore/mlx` at the `mlx-lm` pin built with `MLX_BUILD_CUDA=ON` and
 `-DMLX_CUDA_ARCHITECTURES` from the shared fat list, cuDNN headers for its CUDA backend, then
 `mlx-lm` from its own tree), `tensorfold/cuda` (a Zig project at its pin — `build.zig`,
