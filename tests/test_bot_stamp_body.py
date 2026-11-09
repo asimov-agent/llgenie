@@ -212,6 +212,29 @@ def test_the_fix_bot_re_stamps_a_repair_and_only_claims_a_push_it_made():
     assert '[ -n "${PUSHED:-}" ]' in text, "the comment still claims a push on a green no-op"
 
 
+def test_fix_bot_claims_a_push_only_when_the_api_head_ref_moved():
+    """#2370: 'Pushed as one commit' is bounded by the PR head ref READ BACK from the API differing
+    between before and after the repair — a green loop verdict is never the fact by itself."""
+
+    # Given the fix-bot workflow
+    text = WORKFLOWS["fix-bot.yml"]
+
+    # Then  it captures a pre-push baseline headRefOid from the PR API before the loop
+    assert 'gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid' in text, \
+        "#2370: the pre-push baseline must be read from the PR API (headRefOid)"
+    assert "id: prehead" in text, "#2370: the pre-push head-ref capture step is missing"
+
+    # And it reads the post-push headRefOid back from the API after the push step
+    assert "id: posthead" in text, "#2370: the post-push head-ref read-back step is missing"
+
+    # And the comment step compares PRE and POST, claiming a push only when they differ
+    assert "PRE: ${{ steps.prehead.outputs.head }}" in text, "#2370: PRE is not wired to the comment"
+    assert "POST: ${{ steps.posthead.outputs.head }}" in text, "#2370: POST is not wired to the comment"
+    assert '$POST" != "${PRE:-}"' in text, "#2370: the push claim is not gated on the API ref having moved"
+    assert "the PR head ref did not move (pre" in text, \
+        "#2370: a no-move head must post a non-success comment naming the unchanged head"
+
+
 def test_the_stamp_target_is_wired_and_documented():
     """`make bot-stamp-body` exists, is phony, and is the documented pre-open step (#2050)."""
 
