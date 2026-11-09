@@ -159,6 +159,60 @@ def test_an_engine_change_selects_the_engine_rows_and_the_install_proof():
     assert rows["scanner-images"], "the issue's table selects the scanners for any `containers` change"
 
 
+def test_an_engine_skill_pin_change_selects_the_unit_security_battery():
+    """A `skills/engines/**` SKILL.md carries dependency pins (issue #2227).
+
+    The skill is the GENERATOR of `containers/engines/params/*.json`, which `engine_pins.py`
+    inventories into the security SBOM — so a pin edited directly in the skill is a dependency pin
+    that reaches `main` with NONE of the security gates unless `linux/unit` runs (`check-engine-
+    pins-published`, `check-secret-output`, `check-proc-gate`, `check-security-scan`, `check-actions`).
+    Before this fix the `engines` class selected only `guard`/`ci-images`/`lint`/`install`/`cpu-health`
+    and SKIPPED `unit`; the `engines` class must now re-include it.
+    """
+    classes, _, _wide = cs.classify(["skills/engines/vllm/SKILL.md"])
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+
+    assert "engines" in classes, classes
+    assert rows["linux/unit"], "an engine SKILL.md pin edit must run the security + pin battery"
+
+    # `containers/engines/**` was already `unit`-selected via `containers`; adding `engines` keeps it
+    # selected (a no-op re-inclusion) — assert it does not regress.
+    classes, _, _wide = cs.classify(["containers/engines/params/strata.json"])
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+    assert rows["linux/unit"], "a containers/engines change must keep selecting unit"
+
+    # Negative controls proving `unit` GAINED `engines`, not that every path runs `unit`:
+    # a non-engine skill (`agents/**`) already selects `unit` via `skills`; a `docs`-only path
+    # must still skip it.
+    classes, _, _wide = cs.classify(["agents/llgenie-planner/SKILL.md"])
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+    assert classes == ["skills"], classes
+    assert rows["linux/unit"], "a non-engine skill already selects unit via the skills class"
+
+    classes, _, _wide = cs.classify(["docs/ARCHITECTURE.md"])
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+    assert classes == ["docs"], classes
+    assert not rows["linux/unit"], "a docs-only change must still skip unit"
+
+
+def test_an_engine_pin_change_is_held_to_the_security_gate_set_in_ci_unit():
+    """Regression: the security + pin battery lives ONLY in `linux/unit` (issue #2227).
+
+    If `scripts/ci_scope.py` `_STAGES["unit"]` loses `engines`, this test reds — the exact change that
+    would let a `skills/engines/*/SKILL.md` pin skip every security gate. `Makefile` `ci-unit`
+    (bash 1821-1860) is the sole carrier of `check-engine-pins-published` / `check-secret-output` /
+    `check-proc-gate` / `check-security-scan` / `check-actions`, so the unit re-inclusion is the gate.
+    """
+    # Assert the named gate targets still live under the `ci-unit` body — if the battery moves, the
+    # unit-reinclusion test must move with it, not silently guard a target that no longer exists.
+    makefile = (REPO / "Makefile").read_text()
+    body = makefile.split("ci-unit:")[1].split("\n\n")[0]
+    for target in ("check-engine-pins-published", "check-secret-output", "check-proc-gate",
+                   "check-security-scan", "check-actions"):
+        assert target in body, f"{target} moved out of ci-unit — re-anchor the #2227 unit test"
+
+
+
 def test_the_report_prints_one_class_line_per_class_and_one_verdict_per_job():
     classes, _, _wide = cs.classify(["tests/test_ci_scope.py"])
     rows = cs.select(classes)
