@@ -367,6 +367,41 @@ def _help_lines(root: Path = REPO) -> dict[str, str]:
     return out
 
 
+def _script_steps(root: Path, recipes: dict[str, str]) -> dict[str, set[str]]:
+    """`{target: the make targets its script entry point runs}` for the extracted stages (#800).
+
+    The five longest recipes moved their snippets into `scripts/<stage>.py` modules; a module whose
+    `STEPS` names a list of make targets (`scripts/ci_unit.py`) runs each one as `make <target>`, so
+    they are real edges in the same sense a `$(MAKE) y` recipe line is. Without this seam, moving
+    ci-unit's 49 `$(MAKE)` lines into the module severs the graph: every check-* target was
+    reachable-by-CI only because ci-unit's recipe literally named it, and the split would light up
+    as "claims CI coverage, nothing reaches it". A target whose recipe runs the module picks up the
+    steps.
+    """
+    out: dict[str, set[str]] = {}
+    for t, recipe in recipes.items():
+        if "scripts/" not in recipe:
+            continue
+        for m in re.finditer(r"scripts/([A-Za-z0-9_./-]+)\.py", recipe):
+            script = m.group(1).replace(".", "/") if "/" in m.group(1) else m.group(1)
+            mod = root / "scripts" / f"{script}.py"
+            if not mod.exists():
+                continue
+            text = mod.read_text()
+            sm = re.search(r"^STEPS\s*=\s*(\[[^\]]*\])", text, re.M | re.S)
+            if not sm:
+                continue
+            try:
+                steps = ast.literal_eval(sm.group(1))
+            except (ValueError, SyntaxError):
+                continue
+            names = {s.split()[0] for s in steps if isinstance(s, str)}
+            live = {n for n in names if n in recipes}
+            if live:
+                out.setdefault(t, set()).update(live)
+    return out
+
+
 def graph(root: Path = REPO) -> dict:
     """The whole wiring graph, computed from the real files: which target/workflow names
     each document, and which of those targets the CI workflows actually call."""
@@ -377,6 +412,11 @@ def graph(root: Path = REPO) -> dict:
     named_by_target = {t: set(DOC_RE.findall(r)) & set(docs) for t, r in recipes.items()}
     calls = {t: ({m.group(1) for m in MAKE_RE.finditer(r)} & set(recipes)) | (prereqs.get(t, set()) & set(recipes))
              for t, r in recipes.items()}
+    # a recipe that runs a script whose STEPS list names make targets acquires that script's edges
+    # (issue #800: the five long recipes moved into scripts/ci_unit.py, so ci-unit still reaches the
+    # check-* gates it used to list as `$(MAKE)` lines).
+    for t, ssteps in _script_steps(root, recipes).items():
+        calls.setdefault(t, set()).update(ssteps)
     workflow_targets = {w: {m.group(1) for m in MAKE_RE.finditer(t)} for w, t in steps.items()}
     # a workflow `run:` block that names a document directly (make target-less usage)
     workflow_docs = {d for t in steps.values() for d in DOC_RE.findall(t) if d in docs}

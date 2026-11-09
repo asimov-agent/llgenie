@@ -222,55 +222,7 @@ ci-lint: bash-check ## CI job lint: make lint + the zero-byte file gate
 	$(MAKE) lint
 	$(MAKE) check-empty-files
 ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param / quant-catalog checks
-	$(MAKE) test-unit
-	$(MAKE) skills-validate
-	$(MAKE) check-registry
-	$(MAKE) check-strata-models
-	$(MAKE) check-quant-catalog
-	$(MAKE) check-trend-list-matrix
-	$(MAKE) check-vram-scope-view
-	$(MAKE) skills-validate REGISTRY=data/models.json UNSUPPORTED=data/unsupported-engines.json
-	$(MAKE) check-engine-skill-gap
-	$(MAKE) check-engine-params
-	$(MAKE) check-engine-coverage
-	$(MAKE) check-engine-source
-	$(MAKE) check-engine-capabilities
-	$(MAKE) check-engine-launchers
-	$(MAKE) check-engine-pins-published
-	$(MAKE) check-model-links
-	$(MAKE) check-wiring
-	$(MAKE) check-secret-output
-	$(MAKE) check-docs
-	$(MAKE) check-architecture-census
-	$(MAKE) check-dispatch-forms
-	$(MAKE) check-pr-hygiene
-	$(MAKE) check-report-hygiene
-	$(MAKE) check-report-header
-	$(MAKE) check-proc-gate
-	$(MAKE) proc-gate-report
-	$(MAKE) check-issue-bodies
-	$(MAKE) check-skill-code-parity
-	$(MAKE) check-pr-authors
-	$(MAKE) check-pr-closing
-	$(MAKE) check-pr-base
-	$(MAKE) check-workflows
-	$(MAKE) check-module-names
-	$(MAKE) check-claim-reader
-	$(MAKE) check-scanner-images
-	$(MAKE) check-security-scan
-	$(MAKE) check-security-issues
-	$(MAKE) check-security-bumps
-	$(MAKE) check-security-bot
-	$(MAKE) check-actions
-	$(MAKE) check-renovate
-	$(MAKE) check-agent-skills
-	$(MAKE) check-agent-profiles
-	$(MAKE) check-agent-model
-	$(MAKE) issue-bot-gates
-	$(MAKE) issue-bot-gates-check
-	$(MAKE) check-import-roots
-	$(MAKE) check-package-layers
-	$(MAKE) check-agent-profiles-ratchet
+	@python3 scripts/ci_unit.py
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
 ci-openspec: bash-check ## CI job openspec: validate the STRUCTURE of every active change and assert none has an unchecked task — a hardcoded change name let an invalid spec land (issue #156)

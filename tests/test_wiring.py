@@ -49,6 +49,20 @@ def _tree(tmp_path: Path, makefile: str, tests: dict, workflows: dict | None = N
     return tmp_path
 
 
+def _ci_unit_steps() -> set[str]:
+    """The make targets `scripts/ci_unit.py` owns (issue #800): the ci-unit sequence's STEPS.
+
+    The `ci-unit` recipe moved its 49 `$(MAKE)` lines into `scripts/ci_unit.py`'s `STEPS`, so the
+    check-* gates it used to list as `$(MAKE)` lines are now the module's steps. Reading the module
+    keeps the assertion on the real file the gate runs, not a hand-kept list here.
+    """
+    text = (REPO / "scripts" / "ci_unit.py").read_text()
+    block = text.split("STEPS = [", 1)[1].split("]", 1)[0]
+    steps = {ln.strip().strip('"').strip("'").split()[0]
+             for ln in block.splitlines() if ln.strip().strip('"').strip("'")}
+    return {s for s in steps if s}
+
+
 # ---------------------------------------------------------------------------
 # the real tree
 # ---------------------------------------------------------------------------
@@ -456,8 +470,12 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     all_mk = "\n".join((REPO / rel).read_text() for rel in cw._makefile_list(REPO))
 
     # When the ci-unit job and the unit suite are read
-    # Then ci-unit runs the wiring check, and this test file is in the discovered suite
-    assert "$(MAKE) check-wiring" in all_mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    # Then ci-unit runs the wiring check through its sequence module (issue #800 moved the 49
+    # `$(MAKE)` lines into scripts/ci_unit.py), and this test file is in the discovered suite
+    ci_unit_block = all_mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "python3 scripts/ci_unit.py" in ci_unit_block  # wired to the script entry point
+    ci_steps = _ci_unit_steps()
+    assert "check-wiring" in ci_steps  # the script's STEPS still run the wiring check
     assert "tests/test_wiring.py" in ut.select(REPO)
     assert "check-wiring:" in all_mk and "wiring-report:" in all_mk
 
