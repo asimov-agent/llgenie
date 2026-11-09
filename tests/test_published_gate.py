@@ -29,7 +29,9 @@ def _legs():
 
 
 def test_the_install_and_serve_legs_run_only_when_this_run_publishes():
-    """Fail closed (issue #844 / #1027): push=false publishes nothing, so neither leg may run."""
+    """Fail closed (issue #844 / #1027): push=false publishes nothing, so neither leg may run.
+    The serve leg is now a BINARY check on the just-published image (issue #2319); the serve
+    conformance test itself is host-only."""
     install, serve = _legs()
     assert install and serve, (len(install), len(serve))
     for s in install + serve:
@@ -56,12 +58,16 @@ def test_the_install_leg_installs_versions_and_uninstalls_the_just_published_ima
 
 
 def test_the_serve_leg_serves_the_published_image():
-    """Pull the just-published image (digest == :ARCH), re-check the binary version, then serve it."""
+    """Pull the just-published image (digest == :ARCH) and verify the BINARY answers -h/--version only
+    (issue #2319) — no server starts in CI. The serve conformance test is host-only (make test-engine-host)."""
     mk = (REPO / "Makefile").read_text()
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
     assert "pull-published" in recipe
     assert "test_published_engine_binary.py" in recipe
-    assert "engine_smoke.py" in recipe and "--image" in recipe
+    assert "$(MAKE) test-engine-image" in recipe  # test-engine-image runs the -h/--version binary probe
+    # no --serve INVOCATION in CI (the recipe's prose may mention the host-only make command):
+    # the check is that engine_smoke --serve is not called as a command line.
+    assert "--serve;" not in recipe and "--serve " not in recipe.splitlines()[-2]
 
 
 def test_the_dispatch_push_defaults_to_false():

@@ -200,7 +200,9 @@ def binary_smoke(spec: dict | None = None, skill: dict | None = None,
         if not binary:
             print(f"[smoke] FAIL {tag}: binaries.json has no binary for {spec['id']}/{spec['variant']}")
             return 1
-        flags = ei.variant_flags(spec) or ["--version", "-h"]
+        # probe set pinned to EXACTLY -h + --version (owner directive 2026-11-09, issue #2319):
+        # the engine-build gate tests only those two flags, never more.
+        flags = ["-h", "--version"]
         print(f"[smoke] binary {binary}  image {tag}  flags: {' '.join(flags)}", flush=True)
         ok = True
         for flag in flags:
@@ -215,8 +217,9 @@ def binary_smoke(spec: dict | None = None, skill: dict | None = None,
     if not binary:
         print(f"[smoke] FAIL {skill.get('id')}: no binary in the skill plan; cannot binary-smoke")
         return 1
-    documented = [str(f) for f in ((skill or {}).get("binary_flags") or [])]
-    flags = list(dict.fromkeys(documented or ["--version", "-h"]))
+    # probe set pinned to EXACTLY -h + --version (issue #2319): the engine binary gate is
+    # -h then --version, nothing else.
+    flags = ["-h", "--version"]
     print(f"[smoke] binary {binary}  flags: {' '.join(flags)}", flush=True)
     ok = True
     for flag in dict.fromkeys(flags):

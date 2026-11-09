@@ -1395,11 +1395,11 @@ build-engine: ## Build ENGINE's image for one backend from its generated Dockerf
 run-engine: ## Run ENGINE's image: OpenAI API on 127.0.0.1:$(PORT)/v1 as llm-local (MODEL=<path under ~/models | HF id>)
 	@test -n "$(ENGINE)" -a -n "$(MODEL)" || { echo "Usage: make run-engine ENGINE=<id> MODEL=<path|hf-id> [ARCH=] [PORT=11434]"; exit 1; }
 	python3 scripts/engine_image.py run "$(ENGINE)" $(ARCH_ARGS) --model "$(MODEL)" --port "$(PORT)"
-test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH), then (1) the binary reports its version and (2) the container serves the tiny model and answers "hi" on /v1/chat/completions as llm-local (cpu images, and GPU images of engines with a CPU fallback run without GPU devices; GPU-only engines get the version test). Serve conformance is the explicit opt-in tier (issue #1717): the engine-build workflow runs this ONLY for cells whose engine declares the arch in data/engine-capabilities.json (serve-vs-flags decision, issue #1748); a cell whose engine does not declare the arch proves only the binary flags (make test-engine-stage) and never runs a serve assertion. `python3 scripts/engine_capability.py serve ENGINE ARCH` is the decision.
+test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH) and verify the engine BINARY answers -h/--version (issue #2319). The engine-build CI gate is binary-only — it never starts a server. The serving conformance test is HOST-only: `make test-engine-host ENGINE=<id> ARCH=<arch> [MODEL=...]` (or the explicit `--serve` tier `make test-engine-serve`), run manually by the llgenie-engine-improver with the smallest model that fits. `python3 scripts/engine_capability.py serve ENGINE ARCH` reports whether an arch may serve at all; the checkout's chat-testable decision is no longer part of the CI gate.
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-published-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
 	$(MAKE) test-engine-image ENGINE=$(ENGINE) ARCH=$(ARCH)
-	# issue #204: the real published image's engine binary must answer its documented flags.
+	# issue #204: the real published image's engine binary must answer its flags (-h/--version, issue #2319).
 	# It runs in the TEST IMAGE like every other test stage (issue #621): the runner's own python3 has
 	# no pytest, so a bare `python3 -m pytest` here fails with "No module named pytest" — which is what
 	# every test-published-* job did as soon as the published matrix started carrying rows again.
@@ -1407,9 +1407,7 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 	$(call engine_test,LLGENIE_PUBLISHED_PULLED=1 LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)") \
 		python3 -m pytest -q -p no:cacheprovider tests/test_published_engine_binary.py
 	@$(CI_HOME_CLEAN)
-	@if python3 -c 'import sys; sys.path.insert(0, "scripts"); import engine_image as ei; sys.exit(0 if ei.chat_testable("$(ENGINE)", "$(ARCH)") else 1)'; then \
-	  python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image $(if $(filter cpu,$(ARCH)),,--no-gpu) --serve; \
-	else echo "[published] $(ENGINE)/$(ARCH) needs a GPU to serve (no CPU fallback): version test only; its cpu image is chat-tested"; fi
+	@echo "[published] $(ENGINE)/$(ARCH) binary verified (-h/--version); the serve conformance test is host-only (make test-engine-host, issue #2319)"
 push-engine: ## Push ENGINE's image to GHCR only after its binary FILE answers the version/help flags it documents: <registry>/<name>:<pinned-hash-arch> and :<arch>
 	@test -n "$(ENGINE)" || { echo "Usage: make push-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py push "$(ENGINE)" $(ARCH_ARGS)

@@ -25,9 +25,9 @@
 #       the binary reports its version and answers the flags a user types) ->
 #       make push-engine ENGINE= ARCH= (ONLY when push=true, and only after that test passed;
 #       push-engine re-checks the binary's flags before it pushes) ->
-#       make test-published-engine ENGINE= ARCH= (serve-leg: pull the JUST-published image, digest
-#       == :ARCH, re-check the binary version, then SERVE it and answer "hi"; cpu-fallback rows serve,
-#       GPU-only rows get the version test via --no-gpu) ->
+#       make test-published-engine ENGINE= ARCH= (published-binary-leg: pull the JUST-published image,
+#       digest == :ARCH, verify the engine BINARY answers -h/--version only — no server is started in CI,
+#       issue #2319) ->
 #       make test-engine-install ENGINE= ARCH= (install-leg: install + the installed launcher's engine
 #       version (test-built-engine) + uninstall the image this row just published; the product
 #       `llgenie --dry` (ci-install-dry) is NOT here — the producer is product-LESS (#1027), the tool
@@ -35,6 +35,9 @@
 #       exercisable on GitHub-hosted (GPU-less) `ubuntu-latest` runners — it needs an NVIDIA GPU on
 #       the run host to docker-run `--device nvidia.com/gpu=all` — and SKIPS there with a documented
 #       reason (issue #1240); it runs on a GPU+CDI-capable host.
+#       Serving is NOT exercised in CI (issue #2319): the published engine's binary is verified with
+#       -h/--version only. The host-only serve test (make test-engine-host / make test-engine-serve)
+#       is run manually by the llgenie-engine-improver.
 # Never: never merges, never pushes to `main`, never runs on a schedule, never publishes an image
 #        whose binary has not answered its test, and never builds the `none` placeholder row.
 #
@@ -64,10 +67,6 @@ on:
         description: "Rebuild from scratch, ignoring the layer cache (true) or reuse a cached/available image (false)"
         required: false
         default: "false"
-      model:
-        description: "An LLM model to serve in the host-verify matrix last step (ENGINE/ARCH both set; default: each engine's smallest supported model)"
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -231,7 +230,7 @@ jobs:
       - name: hf CLI (tiny test model)
         if: ${{ matrix.engine != 'none' }}
         run: uv tool install "huggingface_hub[cli]>=0.30"
-      - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the engine binary smoke — the binary in the built image answers the flags it documents (issue #1717), never a serving-readiness wait; detect: the binary reports its version and answers the flags a user types; the OpenAI-serving conformance tier is the explicit --serve opt-in on the push serve-leg)"
+      - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the engine binary smoke — the binary in the built image answers the flags it documents (issue #1717), never a serving-readiness wait; detect: the binary reports its version and answers the flags a user types; serving is NOT exercised in CI — the one and only engine gate is the binary answering -h/--version (issue #2319); the OpenAI-serving conformance tier is a host-only command (the `make test-engine-serve` target, run manually by the engine improver))"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
       - name: "bind-proof: record the head_sha this build-and-verify run proved (issue #1293) — the verdict a reader quotes is self-binding only when the run's head still equals the PR's current head"
@@ -239,26 +238,13 @@ jobs:
         run: |
           echo "head_sha=${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "head_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-      - name: "capability: can this cell serve? (engine-capabilities.json archs, issue #1748) — gate serve-leg + host-verify"
-        id: served_arch
-        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
-        run: |
-          if make engine-capability-serve ENGINE="${{ matrix.engine }}" ARCH="${{ matrix.variant }}" >/dev/null 2>&1; then
-            echo "served_arch=yes" >> "$GITHUB_OUTPUT"
-          else
-            echo "served_arch=no" >> "$GITHUB_OUTPUT"
-            echo "::warning::engine ${{ matrix.engine }} does not declare arch ${{ matrix.variant }} in engine-capabilities.json — binary-flags-only, no serve assertion (issue #1748)"
-          fi
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "serve-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH), re-check the binary version, then SERVE it and answer 'hi' (cpu-fallback rows; GPU-only rows get the version test via --no-gpu so the published binary is still exercised). Runs ONLY for cells whose engine declares the arch in engine-capabilities.json (serve-vs-flags decision, issue #1748): a cell whose engine does not declare the arch proves only the binary flags and never runs a serve assertion."
-        if: ${{ matrix.engine != 'none' && inputs.push == 'true' && steps.served_arch.outputs.served_arch == 'yes' }}
+      - name: "published-binary-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH) and verify the engine BINARY answers -h/--version only (issue #2319). No server is started in CI; the serve conformance test is host-only (make test-engine-host / make test-engine-serve, run manually by the llgenie-engine-improver with the smallest model that fits)."
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "host-verify MATRIX last step: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }} — the parameterized host-verify command (issue #1322): in parallel (max-parallel 20, one matrix element per supported engine x arch cell), pull the JUST-published image (never build), serve it against MODEL (default: the engine's smallest supported model), assert an llm-local /v1/chat/completions answer and report the measured t/s. The supported set is keyed off the RUNNER's own arch types at runtime (the command reuses engine_skills nvidia_compute_caps()/rocm_gfx_targets()); a GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them. Runs ONLY for cells whose engine declares the arch in engine-capabilities.json (serve-vs-flags decision, issue #1748); a cell whose engine does not declare the arch proves only the binary flags and never runs a serve assertion."
-        if: ${{ matrix.engine != 'none' && inputs.push == 'true' && steps.served_arch.outputs.served_arch == 'yes' }}
-        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — matrix constants, quoted, make-routed (issue #1595)
-        run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }}
+
