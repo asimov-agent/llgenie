@@ -195,23 +195,25 @@ def test_a_name_that_is_not_a_variable_is_refused():
 # the wiring: the bot jobs run the check, the target runs the script in the image
 # ---------------------------------------------------------------------------
 def test_every_bot_job_proves_the_agent_shell():
+    # The ONE place the check lives is the composite action (issue #798): a single step that every
+    # agent leg calls, so the shell is proven exactly once per leg by calling it.
+    leg = (ROOT / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    steps = [l for l in leg.splitlines()
+             if "make agent-shell-keys-check" in l and not l.lstrip().startswith("#")]
+    assert len(steps) == 1, f"agent-leg does not prove the agent's shell exactly once: {steps}"
+    assert 'AGENT_SHELL_CHECK_KEYS="${{ inputs.shell_keys }}"' in steps[0], steps[0]
+
     for workflow, keys in BOT_JOBS.items():
         text = (WORKFLOWS / workflow).read_text()
 
-        # Then the job runs the check with exactly the keys that job sets. Only STEP lines count:
-        # a comment naming the target is not a second check, and the dispatch-form guard REQUIRES a
-        # workflow's `Flow:` header to name the targets its run takes (`make check-dispatch-forms`),
-        # so prose would otherwise trip this count. The repo's other guards strip comments the same
-        # way (check_wiring, check_secret_output) — read the decision, not the prose.
-        steps = [l for l in text.splitlines()
-                 if "make agent-shell-keys-check" in l and not l.lstrip().startswith("#")]
-        assert len(steps) == 1, f"{workflow} does not prove the agent's shell exactly once: {steps}"
-        want = 'AGENT_SHELL_CHECK_KEYS="' + " ".join(keys) + '"'
-        assert want in steps[0], f"{workflow} proves the wrong key set: {steps[0]}"
+        # Then the leg receives exactly the keys that job sets, by NAME, from the composite input
+        # (the shell proof is a property of calling the leg, not of a hand-written step per job).
+        want = 'shell_keys: "' + " ".join(keys) + '"'
+        assert want in text, f"{workflow} proves the wrong key set: {want!r}"
 
         # And every key it proves is one the job actually sets (else the check fails on a key it lacks)
         for k in keys:
-            assert re.search(rf"^\s+{k}: \$\{{\{{", text, re.M), f"{workflow} proves {k} but never sets it"
+            assert re.search(rf"^\s+{k}: \$\{{{{", text, re.M), f"{workflow} proves {k} but never sets it"
 
 
 def test_the_check_is_wired_to_a_make_target_ci_runs():
