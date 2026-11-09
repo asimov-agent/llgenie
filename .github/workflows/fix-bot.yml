@@ -233,6 +233,20 @@ jobs:
             exit "$rc"
           fi
 
+      # The outcome comment must prove a push landed by reading the PR head ref back from the API,
+      # never by the loop's verdict alone (issue #2370): capture the PRE-push headRefOid before the
+      # loop, then after the push step read the POST-push ref back, and claim "Pushed as one commit"
+      # only when the two differ.
+      - name: Read the PR head ref before the repair (pre-push baseline, issue #2370)
+        id: prehead
+        if: steps.pr.outputs.number != ''
+        env:
+          NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          echo "head=$(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT"
+          echo "pre head: $(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)"
+
       - name: Run the fix loop INSIDE the agent image (check -> repair -> re-check)
         id: loop
         if: steps.pr.outputs.branch != ''
@@ -297,6 +311,21 @@ jobs:
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
 
+      # Issue #2370: the previous step recorded what the PUSH step THINKS it pushed; this step reads
+      # the PR head ref BACK from the API. The outcome comment claims "Pushed as one commit" only when
+      # the post-push ref differs from the pre-push baseline captured above — a green loop with a
+      # clean tree, a no-op push, or a rejected lease all leave the ref equal, and the comment must
+      # say "the PR head did not move" instead of echoing the loop's verdict (see the comment step).
+      - name: Read the PR head ref back from the API (post-push, issue #2370)
+        id: posthead
+        if: always() && steps.pr.outputs.number != ''
+        env:
+          NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          echo "head=$(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT"
+          echo "post head: $(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)"
+
       # The body a repair leaves behind must satisfy the same gate as a fresh PR (issue #2050): the
       # preflight pair is re-measured and re-written when the branch was synced onto the latest main
       # (a sync moves the base; a repair that could not sync keeps the base it opened with).
@@ -323,18 +352,22 @@ jobs:
           NUM: ${{ steps.pr.outputs.number }}
           OUTCOME: ${{ steps.loop.outcome }}
           PUSHED: ${{ steps.push.outputs.pushed }}
+          PRE: ${{ steps.prehead.outputs.head }}
+          POST: ${{ steps.posthead.outputs.head }}
           REPORT: /tmp/fix-report.txt
         run: |
           set -uo pipefail
           {
-            if [ "$OUTCOME" = "success" ] && [ -n "${PUSHED:-}" ]; then
+            if [ "$OUTCOME" = "success" ] && [ -n "${PUSHED:-}" ] && [ -n "${POST:-}" ] && [ "$POST" != "${PRE:-}" ]; then
               echo "The fix-bot ran \`${FIX_CHECK}\`, repaired the failure, and the check is GREEN again."
               echo
               echo "Pushed \`${PUSHED}\` as one commit with the owner PAT, so CI re-runs on the new head. A human still reviews — the bot never merges."
             elif [ "$OUTCOME" = "success" ]; then
-              # issue #2050: the loop's own verdict is not the fact. A green loop with a clean tree
-              # pushed NOTHING, and claiming a push that never landed is what #2051 measured.
-              echo "The fix-bot ran \`${FIX_CHECK}\` and ended green with NO tree change to commit — the PR head did not move, so there is nothing new to re-test. A human still reviews — the bot never merges."
+              # issue #2050 + #2370: the loop's verdict is not the fact, and neither is the push
+              # step's own output — the evidence is the PR head ref read BACK from the API. A green
+              # loop with a clean tree, a no-op push, or a rejected lease all leave the ref equal
+              # (PRE == POST), so the comment says the head did not move instead of claiming a push.
+              echo "The fix-bot ran \`${FIX_CHECK}\` and ended green, but the PR head ref did not move (pre \`${PRE:-?}\` == post \`${POST:-?}\`) — nothing was pushed, so there is nothing new to re-test. A human still reviews — the bot never merges."
             else
               make fix-bot-report REPORT="$REPORT" CHECK="$FIX_CHECK" 2>/dev/null \
                 || echo "The fix-bot ran \`${FIX_CHECK}\` and it is still failing after ${FIX_ROUNDS} attempts; leaving it for a human."
