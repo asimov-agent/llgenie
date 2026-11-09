@@ -2616,8 +2616,11 @@ used before carries no `write:packages`, so its own `agent-image-push-check` ref
 `403 DENIED … does not match expected scopes`). It is `linux/amd64` only: building Hermes under arm64
 emulation times out. The content hash stays the immutable tag. A re-run does not rebuild when that hash is already on GHCR, and it still points `:latest` at the hash. Pulls use `:latest`.
 
-The fix-bot (`fix-bot.yml`: hourly `schedule` + `workflow_dispatch`) repairs the branch,
-re-checks and stops — it **never merges**; a human reviews the result:
+The fix-bot (`fix-bot.yml` is `workflow_dispatch`-only) repairs the branch, re-checks
+and stops — it **never merges**; a human reviews the result. The bot is **MANUAL-ONLY**
+(owner directive 2026-11-08, #2293): no `schedule`, no `workflow_run` — a person (or the
+run-failure-reactor, itself a human dispatch) hands it a PR or branch, and a re-added
+auto-trigger fails `make check-workflows` (#2293):
 
 ```
 make fix-bot-sweep      # which red PR deserves the bot, then dispatch it (DRY=1 previews; needs gh)
