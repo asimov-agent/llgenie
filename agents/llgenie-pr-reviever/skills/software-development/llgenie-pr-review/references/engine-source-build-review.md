@@ -86,7 +86,7 @@ prior conversion (llama.cpp, sglang, vllm).
 
 ## 5. The census/guard test and the docs must move with it
 
-The source guard (`scripts/check_engine_source.py` / `tests/test_engine_source_guard.py` family) asserts
+The source guard (`scripts/engine_source_guard.py` / `tests/test_engine_source_guard.py` family) asserts
 the exact **source-vs-prebuilt count** and any recorded exception (e.g. `litert/cpu`, whose pip package is
 a Bazel wheel over a Git-LFS `prebuilt/*.so`, so building it would still ship a foreign binary). Run it
 and quote the count line — a conversion that flips a cell without updating the count reds this gate.
