@@ -464,6 +464,7 @@ make agent-profiles-report                                            # every pr
 make profile-drift                                                   # host-only: tree copies that are PREFIXES of the live rulebook (#928)
 make profile-drift-alarm                                             # the SCHEDULED caller: file ONE issue on drift (#928)
 make check-tick-prompt                                               # host-only: reds when the live tick's jobs.json prompt diverges from agents/llgenie-planner/prompts/ (#2159)
+make check-cron-drift                                                # host-only: reds when a live planner cron prompt (auto-approve-merge db0a3e1a3d7c, auto-rebase-resolve 71c5192ebdba) diverges from agents/llgenie-planner/prompts/ (#2359)
 make verify-lane-contract                                             # host-only: verifies every live llgenie lane's SOUL commits to the behavioural contract (report line, never-merge, bookend, versioned-edit, own duty, communication + materialised skills), printing N/13 lanes pass (#2260)
 make tester-fold-live PROFILE=llgenie-tester                         # host-only: fold live→tree for a lane (or --check only) (#1079)
 make skill-parity                                                     # host-only, READ-ONLY: report live↔tree skill drift (#1924)
