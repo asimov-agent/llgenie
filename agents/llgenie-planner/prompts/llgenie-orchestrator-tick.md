@@ -34,7 +34,7 @@ STEP 3 — MEASURE THE WHOLE BOARD, once:
     bash "$TB"
 Quote: the `TOTAL open=… stale=… dirty=…` line from section B, and `idle_non_planner=…` from C.
 Sections are: A preflight, B open PRs, C lanes, D queue, E stalls, F CI at tip, G drift.
-Satisfy steps 4-8 and 10-11 by reading the section they name. Do not re-invent these queries in prose.
+Satisfy steps 4-8 and 11-12 by reading the section they name. Do not re-invent these queries in prose.
 
 STEP 4 — RED PRs OUTRANK THE BACKLOG (section B). Apply this before any other dispatch:
   4a. Every PR whose `base=` differs from `main_sha` is STALE. A `DIRTY` PR gets NO CI run at all —
@@ -79,7 +79,7 @@ STEP 5 — PUT EVERY IDLE LANE ON A RED PR (section C). For each lane showing `<
       check-docs change-note gap → llgenie-documentation-maintainer; product code / linux / unit
       red → llgenie-issse-implementer; scripts, workflows, gates, Makefile → llgenie-ci-pipelines-
       maintainer; acceptance write-back / verdict → llgenie-pr-reviever; evidence for an acceptance
-      claim → llgenie-tester; engine pins / serving drift → llgenie-engine-improver; scan coverage
+      claim → llgenie-tester; engine pins / serving drift → llgenie-engine-improver (engine-domain map #2270: new-engine scaffold/params/rebuild AND engine-bump PR repair → engine-improver; a gate-SCRIPT defect in engine-bump.yml → ci-pipelines-maintainer, two-trails #2073); scan coverage
       / rule freshness → llgenie-security.
   5d. Re-run `bash "$TB"` after dispatching and re-read section C. If ANY lane is still at 0 and an
       open red PR in its own domain is unowned, THIS PASS IS NOT FINISHED — dispatch it out loud
@@ -156,20 +156,34 @@ editing its own SOUL). FILE a detailed issue under agents/<lane>/ recording whic
 element the SOUL is missing and how a lane is violating it, then dispatch the owning lane to
 land the SOUL correction by PR. The planner owns the regression, not the lane.
 
-STEP 10 — CI AT THE TIP (section F). Never trust a remembered red:
+STEP 10 — WORKTREE CLEANUP (owner mandate 2026-11-08, issue #2262). The host leaks
+worktrees and /tmp is under build headroom — restore it every pass; the owner has
+explicitly CONFIRM=1'd this destructive cleanup, pinned in the issue:
+    1. `make worktree-report`  # mutates nothing; measure first
+    2. `make worktree-prune CONFIRM=1`   # owner-authorized: deletes proven-merged worktrees + branches
+    3. `/tmp` scratch pass: remove /tmp/wt-* whose head IS an ancestor of origin/main
+       (`git merge-base --is-ancestor <head> origin/main` rc=0); NEVER delete one that is
+       ahead of main — report it, keep it. #794/#2262.
+    4. `make check-host-space`  # /tmp space AND inodes; refuse a /tmp build/worktree below threshold
+Quote all four lines (`pruned N branches, M worktrees`, `check-host-space` pass/refuse) on the pass record.
+The guard (worktree_prune_guard.py) treats this tick as unattended and refuses without CONFIRM=1 —
+the owner's mandate in #2262 is the confirmation; pass it. Never delete anything whose head is ahead
+of origin/main, whatever its PR/issue state.
+
+STEP 11 — CI AT THE TIP (section F). Never trust a remembered red:
     gh run view <run-id> --repo "$SLUG" --json status,conclusion,headSha
 Quote `status`, `conclusion` and `headSha`. If `headSha` != `main_sha`, the red describes THAT
 commit, not the tip — say so, and re-measure at the tip. `cancelled` is not a verdict. A PR whose
 checks are all green can still be BLOCKED on REVIEW_REQUIRED. Report counts (N pass / N pending /
 N fail), never the word "green" while a check is pending.
 
-STEP 11 — LANE DRIFT (section G), measure only:
+STEP 12 — LANE DRIFT (section G), measure only:
     make -C "$REPO" sync-agent-profile PROFILE=<lane> CHECK=1
 Quote: files that differ per lane. NEVER run it without CHECK=1 — several tree copies are the
 truncated side (#2084), so a blind sync destroys live behaviour. File one deduped issue per
 drifting lane; do not sync.
 
-STEP 12 — DOCS AND ARCHITECTURE, every pass. Neither lane has a scheduler, so silence is
+STEP 13 — DOCS AND ARCHITECTURE, every pass. Neither lane has a scheduler, so silence is
 non-compliance:
   - message_agent → llgenie-documentation-maintainer: `make check-docs` plus
     `git log --oneline origin/main -20`, then verify the note trio (agent-wiki/<stem>.md,
@@ -179,13 +193,13 @@ non-compliance:
     agents/ layout, pipeline shape, gate contract); file what it finds as a refined issue.
 Quote: both nudges delivered, and a clean audit as `docs audited at <sha>, no gaps` with counts.
 
-STEP 13 — THE FORK IS NOT UPSTREAM. Verify against origin, never the fork:
+STEP 14 — THE FORK IS NOT UPSTREAM. Verify against origin, never the fork:
     git -C "$REPO" rev-list --left-right --count origin/main...origin/main
     git -C "$REPO" remote -v
 Quote: the count line. Lanes push to the fork (andyholst/llgenie), so verify every head against
 `origin` (asimov-agent), never a fork ref.
 
-STEP 14 — REPORT. First re-run the measurement so your report is checked against the board, not
+STEP 15 — REPORT. First re-run the measurement so your report is checked against the board, not
 against your memory of it:
     bash "$TB" | grep -E "main_sha:|TOTAL open=|idle_non_planner=|tasks: stalled=|dm:    stalled="
 Quote: those five lines, verbatim. If a figure you are about to report does not appear in that
@@ -197,8 +211,8 @@ Then end the pass with these lines, each filled from the step named:
     stalls: tasks stalled=N reclaimed=N | dm stalled=N (step 7)
     dispatch: <lane> #<id> — <what> (steps 4, 5, 6)
     closed: <issue> — <why> (step 6b)
-    nudged: docs, architect (step 12)
-    drift: <lane> <files> (step 11)
+    nudged: docs, architect (step 13)
+    drift: <lane> <files> (step 12)
 An empty queue is not an idle excuse. Every pass ends with a dispatch, a close with evidence, or a
 written reason nothing could move. Never end on "waiting".
 
