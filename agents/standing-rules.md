@@ -8,6 +8,16 @@ because that is the text the agent actually runs under.
 profile's SOUL against this file byte-for-byte, so a bullet added here and not there is a failing test rather
 than a rule that silently stops existing.
 
+## Placement of ad-hoc probe and attribution worktrees
+
+Ad-hoc probe, attribution and verification trees a lane cuts for its own measurement work (`attr1696`,
+`base2071`, `verify2127`, ...) belong under `$HOME/repository/git/llgenie-wt/`, NEVER under `/tmp` — a repo
+worktree goes in the repo's own worktree directory (AGENTS.md: `../llgenie-wt`), so nothing a lane makes
+accumulates as debris in the shared host tmpfs that every lane shares for container builds and ephemeral
+probes. A `/tmp` tree a lane does create is the safe collector's job to reclaim, never a hand-`rm -rf`
+(`make reclaim-tmp-worktrees`, issue #2141). Write `$HOME`, never `/home/<user>`, in every `agents/**/*.md`
+and docs file you touch (issue #2145).
+
 ## Standing rules (fleet, learned 2026-10-28)
 
 - **Never push to a branch you were not dispatched for.** Another lane's PR is read-only; propose a patch as a comment.

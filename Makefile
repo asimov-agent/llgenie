@@ -2006,6 +2006,10 @@ check-host-space: ## Host: refuse a /tmp worktree or container build when the sh
 	python3 scripts/check_host_space.py check
 .PHONY: check-host-space
 
+reclaim-tmp-worktrees: ## Host: reclaim /tmp worktree and probe-tree debris that is provably safe to delete — a tree is removed only when it is clean AND its HEAD is an ancestor of origin/main AND idle >= MIN_IDLE_MIN (issue #2141); DRY=1 by default and deletes/pins NOTHING (DRY=0 to act), FORCE=1 drops the on-main + idle tests but NEVER the dirty refusal and pins every novel head as refs/reclaimed/<name> before forced removal; SCAN_ROOT=/REPO=/MIN_IDLE_MIN=/BASE=/FORCE= override; root-owned leftovers are reported with the `sudo rm -rf <path>` remedy, never retried
+	@REPO="$${REPO:-$$HOME/repository/git/llgenie}" SCAN_ROOT="$${SCAN_ROOT:-/tmp}" MIN_IDLE_MIN="$${MIN_IDLE_MIN:-60}" DRY="$${DRY:-1}" FORCE="$${FORCE:-0}" BASE="$${BASE:-origin/main}" bash scripts/reclaim_tmp_worktrees.sh
+.PHONY: reclaim-tmp-worktrees
+
 engine-capability-serve: ## Does ENGINE declare ARCH in engine-capabilities.json archs (issue #1214)? The serve-vs-flags decision (issue #1748): exit 0 -> the engine may serve on this arch (serve-leg/host-verify run), exit 1 -> binary-flags-only (never serve), exit 2 -> usage (ENGINE/ARCH). The workflow gates its serve legs on this target so every CI command is a make target, not an inline script (AGENTS.md).
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make engine-capability-serve ENGINE=<id> ARCH=<arch>"; exit 2; }
 	@python3 scripts/engine_capability.py serve "$(ENGINE)" "$(ARCH)"
