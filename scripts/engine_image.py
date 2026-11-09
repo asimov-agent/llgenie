@@ -1197,6 +1197,12 @@ NO_CACHE_EXPORT = {
         "`no space left on device` with 107 GiB free (runs 42326740375 and 41971301136), while the "
         "same cell on the docker driver went green with 104 GiB free (run 41957934540)"
     ),
+    ("vllm", "rocm"): (
+        "31.3 GiB compressed / ~60+ GiB unpacked (AMD rocm/vllm rocm10.1.0 base 22.8 GiB pytorch/ROCm "
+        "layer) — the container driver's export+load (~3x) hit `no space left on device` with 106 GiB "
+        "free (run 42531128064), while the build itself succeeded; same cell on the docker driver "
+        "builds straight into the daemon."
+    ),
 }
 
 
