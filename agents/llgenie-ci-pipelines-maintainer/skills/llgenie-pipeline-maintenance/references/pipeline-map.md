@@ -21,7 +21,7 @@ unless noted).
 | `engine-build.yml` | dispatch only | — | reactor (added in #780) |
 | `engine-bump-rebase.yml` | schedule + dispatch | `41 5 * * *` | reactor |
 | `engine-bump.yml` | schedule + dispatch | `53 6 * * 1` | reactor |
-| `fix-bot.yml` | schedule + `workflow_run<CI>` + dispatch | `17 * * * *` | reactor |
+| `fix-bot.yml` | dispatch only (manual, #2293) | — | reactor (once the reactor is dispatched by hand) |
 | `issue-bot.yml` | `issues: [labeled]` + schedule + dispatch | `23 6 * * *` | reactor |
 | `issue-dedupe.yml` | schedule + dispatch | `51 */6 * * *` | reactor (added in #780) |
 | `issue-refiner.yml` | schedule + dispatch | `43 * * * *` | reactor |
@@ -32,7 +32,7 @@ unless noted).
 | `rebase-bot.yml` | schedule + dispatch | `29 */6 * * *` | reactor (entry was stale until #780) |
 | `registry-sync-review.yml` | schedule + dispatch | `55 * * * *` | reactor (added in #780) |
 | `registry-sync.yml` | schedule + dispatch | `19 5 * * 1` | reactor |
-| `run-failure-reactor.yml` | `workflow_run` on 19 names | — | skips itself (self-trigger loop) |
+| `run-failure-reactor.yml` | dispatch only (manual, #2293; `run_id` input) | — | skips a re-added auto trigger (`check-workflows` refuses it) |
 | `search-smoke.yml` | schedule + dispatch | `11 7 * * *` | reactor (added in #780) |
 | `security-bot.yml` | `issues: [labeled]` + schedule + dispatch | `9 5 * * *` | reactor (added in #780) |
 | `security-scan.yml` | schedule + dispatch | `5 4 * * *` | **exempt by design** — `make security-issues` + `security-bot` own its red |

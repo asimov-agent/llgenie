@@ -1,11 +1,11 @@
 {
-  "note": "Workflows a `workflow_run` consumer deliberately does NOT watch (issue #349). `make check-workflows` fails when a workflow's completion is routed nowhere and no entry here records why \u2014 an omission has to be a dated decision, not an accident. An entry is refused without a `reason` and reported STALE once it names no workflow (the workflow was renamed or deleted), so this file cannot rot either.",
-  "decided_utc": "2026-10-29",
+  "note": "Workflows a `workflow_run` consumer deliberately does NOT watch (issue #349). `make check-workflows` fails when a workflow's completion is routed nowhere and no entry here records why — an omission has to be a dated decision, not an accident. An entry is refused without a `reason` and reported STALE once it names no workflow (the workflow was renamed or deleted), so this file cannot rot either.",
+  "decided_utc": "2026-11-08",
   "workflows": {
-    "security-scan \u2014 the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
+    "security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
       "reason": "Its red is already a work item with an owner: the scan's `fail_on` gate (critical/high WITH a fix, `data/security-policy.json`) is deliberate (`docs/SCANS.md`), `make security-issues` files the advisory issues, and `security-bot` turns one of them into a green PR. The reactor's Route B would file a SECOND issue per push to `main` (its marker carries the head sha), spending the issue-bot's 3-a-day budget on the same advisories."
     },
-    "run-failure-reactor \u2014 routes a failed run to a fix or a deduped issue (never merges)": {
+    "run-failure-reactor — routes a failed run to a fix or a deduped issue (never merges)": {
       "reason": "It skips its own completion so a self-trigger loop is impossible (#286); listing itself is refused by the `workflow-run-self` rule. Its own red is what `code-review-bot` and `queued-alarm` report, and a red reactor run cannot route itself."
     },
     "ci-hf-live — the merge-to-main real-Hub test pipeline (HF live tests + the committed-link liveness gate), never a PR check": {
@@ -13,6 +13,90 @@
     },
     "all-pipelines — weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one)": {
       "reason": "Its only failure mode is a red in a pipeline it just dispatched, and THAT pipeline's own completion is already routed to the run-failure-reactor by its own event — so watching the umbrella would double-file every red it reports. The umbrella's red is the report itself: the full table names the failing workflow, the disabled list, and the sha swept. Routing it again (a second issue per failed swept pipeline) would spend the issue-bot's 3-a-day budget re-filing what the failing workflow already filed. The failure mode this workflow prevents — silent disabled/red pipelines — is exactly the state no consumer could route, which is why the report is the control (issue #1102)."
+    },
+    "auto-merge": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "ci-frozen-reaper — cancel + re-run a run stuck in_progress past its threshold, every 2 hours": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "ci-verdict — holds a finished CI run to its published scope decision, and says \"no verdict\" out loud": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "engine-bump — bumps pinned engines to their newest upstream release and opens the PR": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "engine-bump-rebase — rebases every open engine-bump PR onto the latest main": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "holds — fails when a do-not-merge label names no resolving issue": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "pipeline": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "queued-alarm — reports CI jobs queued far too long, once per affected run": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "registry-liveness — a committed pinned engine image whose manifest is missing must be named to the board, not left green": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "registry-sync — syncs the vendored registry and regenerates the derived tables, then opens the PR": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "registry-sync-review — a GREEN registry-sync PR is reviewed into ONE agent:implement issue": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "review-verdict — record a submitted review as the bot-verdict marker at the head it judged": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "search-smoke — one real Firecrawl request proves the masked web reach": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "zero-job-pending — a dispatched run that instantiates no jobs must be named, not left pending": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "code-review-bot — reviews the tree and the pipelines and files one issue per finding (never edits code)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "fix-bot — repairs a failing PR branch until its checks pass (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "issue-bot — implements ONE issue per run as a reviewable PR (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "main-ruleset — fails when the main ruleset has no required status checks (the missing merge-block gate)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "security-bot — turns ONE auto-fixable vulnerability issue into a green PR (never merges)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
+    "stale-branch-cleanup — delete non-main branches with no live vehicle, older than 3 days (daily cron)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
     }
   }
 }

@@ -57,23 +57,22 @@ A bot never works from a stale base:
   bot pushed meanwhile the push is rejected instead of clobbering it.
 - The **fix-bot** repairs a PR whose head is the base repository **or the fork its token may push
   to** (`make fix-bot-sweep OWN_FORK=andyholst`, issue #340). Every llgenie PR is opened from the
-  fork, so without the allowlist the scheduled sweep passed over every PR and repaired nothing;
-  the branch is now checked out from — and pushed to — the PR's own head remote.
-- **The fix-bot is woken by the failure it repairs** (issue #538). `fix-bot.yml` runs on `workflow_run` for
-  `CI` when a `pull_request` run concluded `failure` **or `timed_out`** (a timeout-capped run is a verdict,
-  not a cancellation — issue #1465), resolves that run's PR with `make fix-bot-resolve`
-  (issue #629), captures the failed run's log, and dispatches the repair for **that** PR
-  (`make fix-bot-sweep PR=<n>`). The hourly sweep stays as a fallback. Up to **5** attempts per head
-  (`FIX_ROUNDS`/`rounds`, counted by the PR's `fix(bot):` commits); a failure this runner cannot reproduce
-  (a macOS-only job, a GPU-only image test) is repaired from the captured log and marked **UNVERIFIED** —
-  CI re-runs and re-triggers, so a real flake is retried instead of being dropped because a Linux check
-  was green.
-- **A failed run whose PR already landed is not a failure** (issue #629). `workflow_run` reports arrive
-  after the merge that made them moot, so `make fix-bot-resolve` answers an empty `number=` (exit 0,
-  "nothing to repair") and the sweep proceeds as its scheduled form does — it picks the PR that deserves
-  the bot, and does nothing when none does. The merge gate keeps the opposite reading: `make
-  auto-merge-resolve` still **fails loudly** when nothing resolves, because a green PR must never be
-  silently dropped. One resolver (`scripts/resolve_run_pr.py`, `--allow-none`), two documented answers.
+  fork, so without the allowlist the sweep passed over every PR and repaired nothing; the branch is
+  now checked out from — and pushed to — the PR's own head remote.
+- **The fix-bot is MANUAL-ONLY** (owner directive 2026-11-08, #2293). It used to be woken by the
+  failure it repairs: `fix-bot.yml` ran on `workflow_run` for `CI` (issue #538) and on its own hourly
+  `schedule`. Both auto-triggers are gone — a red PR is surfaced to a human, not auto-repaired — so
+  the bot starts only on `workflow_dispatch`, by a person (or by the run-failure-reactor, itself a
+  human dispatch). A re-added non-dispatch trigger fails `make check-workflows` (#2293). Up to **5**
+  attempts per head (`FIX_ROUNDS`/`rounds`, counted by the PR's `fix(bot):` commits); a failure this
+  runner cannot reproduce (a macOS-only job, a GPU-only image test) is repaired from the captured log
+  and marked **UNVERIFIED** — CI re-runs and re-triggers, so a real flake is retried instead of being
+  dropped because a Linux check was green.
+- **A failed run whose PR already landed is not a failure** (issue #629). The run-failure-reactor
+  answers an empty `number=` (exit 0, "nothing to repair") and routes nothing. The merge gate keeps
+  the opposite reading: `make auto-merge-resolve` still **fails loudly** when nothing resolves, because
+  a green PR must never be silently dropped. One resolver (`scripts/resolve_run_pr.py`,
+  `--allow-none`), two documented answers.
 
 Driven by `scripts/bot_sync_main.sh`; `tests/test_bot_sync.py` runs the rules through a real
 scratch git repository.
@@ -319,7 +318,6 @@ queues behind its scheduled run instead of overlapping it. The current slots:
 | Bot | Cron | Minute today |
 |---|---|---|
 | `issue-bot` | `23 6 * * *` | daily 06:23 |
-| `fix-bot` | `17 * * * *` | hourly at :17 |
 | `queued-alarm` | `7,37 * * * *` | twice hourly (:07, :37) |
 | `engine-bump-rebase` | `41 5 * * *` | daily 05:41 |
 | `registry-sync` | `19 5 * * 1` | Monday 05:19 |
@@ -346,8 +344,9 @@ a bot declares no concurrency group — so a future bot that lands on a used slo
 **Every minute is odd, and that is enforced (issue #560).** GitHub drops the top-of-hour and
 half-hour slots under load — this repository measured it: `auto-merge.yml`'s `*/30 * * * *`
 (`:00`, `:30`) produced **0** `schedule` runs of 66 while `queued-alarm` (:07/:37, 53 runs),
-`fix-bot` (:17, 48), `issue-refiner` (:43, 45) and `rebase-bot` (:29, 30) all fired normally in
-the same window. `every-cron-minute-is-odd` is now part of the same guard: a cron whose minute
+`issue-refiner` (:43, 45) and `rebase-bot` (:29, 30) all fired normally in the same window
+(`fix-bot`'s former `:17` hourly slot is gone — it is manual-only since owner directive 2026-11-08,
+#2293). `every-cron-minute-is-odd` is now part of the same guard: a cron whose minute
 field expands to any even minute fails `make test-unit`, naming the workflow and the minute, so
 `*/N`-at-zero cannot come back. A second guard, `the-auto-merge-sweep-stays-scheduled`, keeps the
 sweep's schedule in place: the always()-on-every-CI-completion retry (#558) cannot retry a
@@ -1894,9 +1893,12 @@ reporting leg the guard reads and its verdict.
 ## The run-failure reactor (issue #286)
 
 A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.
-It is triggered by `workflow_run: types: [completed]` over the repo's own workflows, and the route
-decision lives in `scripts/run_failure_reactor.py` (stdlib only, no LLM), never in a job `if:` that
-can silently skip (issue #107):
+It is MANUAL-ONLY (owner directive 2026-11-08, #2293): a red PR is no longer an automatic issue
+factory, so the reactor starts only on `workflow_dispatch` with a `run_id` input — a person (or the
+all-pipelines sweep) hands it ONE run and it routes that run. It no longer runs on
+`workflow_run: [completed]`, and a re-added auto trigger fails `make check-workflows` (#2293). The
+route decision lives in `scripts/run_failure_reactor.py` (stdlib only, no LLM), never in a job `if:`
+that can silently skip (issue #107):
 
 ```bash
 make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run>   # route a failed run
@@ -1948,18 +1950,20 @@ make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # previe
   failure on a *different* head can be a different defect (`macos / unit` failed on the engine-image
   digest, the README dispatch table and a cron collision within six hours).
 
-`.github/workflows/run-failure-reactor.yml` runs it on every completed run. It **never** repairs,
-commits, pushes or merges in the file-issue path — it files; the issue-bot owns implementation, the
-fix-bot owns PR repair. A run it cannot diagnose is reported loudly, never silently dropped.
+`.github/workflows/run-failure-reactor.yml` routes the ONE run a dispatch hands it
+(`inputs.run_id`). It **never** repairs, commits, pushes or merges in the file-issue path — it files;
+the issue-bot owns implementation, the fix-bot owns PR repair. A run it cannot diagnose is reported
+loudly, never silently dropped.
 
-Its `workflows:` roster is TRUE, not a list someone remembered (issue #349): GitHub matches it against
-each workflow's top-level `name:` verbatim and takes no wildcard, so `make check-workflows` fails
-`ci-unit` when a name in it is no workflow's `name:` (a rename stops matching silently — measured on
-`rebase-bot.yml` after #463, whose failures then routed nowhere for a week), when a workflow's completion
-is routed nowhere, when the list names the reactor itself (a self-trigger loop), or when an entry in
-`tests/fixtures/workflow-run-exemptions.json` has no `reason` or names no workflow (a stale exemption).
-Two workflows are exempted there, each with its reason written down: `security-scan`, whose red is
-already a work item `make security-issues` and `security-bot` own, and the reactor itself.
+Its former `workflows:` roster is gone with the `workflow_run` trigger (owner directive 2026-11-08,
+#2293), so those workflows' reds are no longer auto-routed: each is recorded in
+`tests/fixtures/workflow-run-exemptions.json` with a dated reason (the reactor is manual-only now).
+The roster rule still applies to the rosters that remain — `make check-workflows` fails `ci-unit` when
+a `workflow_run` name is no workflow's `name:` (a rename stops matching silently — measured on
+`rebase-bot.yml` after #463, whose failures then routed nowhere for a week), when a workflow's
+completion is routed nowhere and no dated exemption records it, when the list names the workflow
+itself, or when an entry in `tests/fixtures/workflow-run-exemptions.json` has no `reason` or names no
+workflow (a stale exemption).
 
 ### A scheduled sweep must not queue behind itself (issue #917)
 
@@ -2004,6 +2008,7 @@ A bot you cannot dispatch without reading its YAML is a bot only its author can 
 The table below is generated from the workflows by `make dispatch-forms-report` and verified against
 them by `make check-dispatch-forms`, so the documentation you read before dispatching cannot drift
 from the pipeline that will run.
+
 <!-- dispatch-forms:begin -->
 
 | workflow | what the run does | dispatch inputs |
@@ -2030,6 +2035,7 @@ from the pipeline that will run.
 | `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |
 | `registry-sync-review.yml` | a GREEN registry-sync PR is reviewed into ONE agent:implement issue | `dry` (optional, default `false`) — Preview the brief and the issue body this run would file, filing nothing |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
+| `run-failure-reactor.yml` | routes a failed run to a fix or a deduped issue (never merges) | `run_id` (required) — the completed CI run id to route to a fix or a deduped issue (from `gh run list` / the Actions page)<br>`context` (optional, default `manual`) — what triggered this dispatch (a red PR, a red main push, a scan red) — recorded, not used by the route |
 | `scope.yml` | selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs | none — dispatch re-classifies the current tree against `main`; the selected set is a |
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
