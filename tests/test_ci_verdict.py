@@ -43,6 +43,17 @@ CANCELLED_FANOUT = [
     {"name": "linux", "status": "completed", "conclusion": "skipped"},
 ]
 
+#: The #2061 class — a run whose OWN `guard` job FAILED (measured 42505814856 @ 1238c15e, and the
+#: three #2061 runs 42428359272/42428362394/42428367776): `guard` FAILED, the image jobs skipped,
+#: every selected downstream row ABSENT. The verdict is RED (failure=1), so the summary must NAME
+#: `1 FAILED (guard)`, never the #1111 "0 failures is not a verdict" sentence beside that failure.
+GUARD_FAILED_FANOUT = [
+    {"name": "guard", "status": "completed", "conclusion": "failure"},
+    {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
+    {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
+    {"name": "linux", "status": "completed", "conclusion": "skipped"},
+]
+
 #: Run 41126873965 — the same class of change, where the unit gate actually ran and failed.
 RED_RUN = [
     {"name": "guard", "status": "completed", "conclusion": "success"},
@@ -98,6 +109,46 @@ def test_a_cancelled_fan_out_with_no_decision_is_never_green():
 
     # And  the check-run it would post is a FAILURE, never a success
     payload = cs.check_run_payload(verdict, "0bd5ac6e", result["lines"])
+    assert payload["conclusion"] == "failure", payload
+
+
+def test_a_failed_guard_is_named_as_the_cause_never_zero_failures():
+    """The #2061 misstatement: `guard FAILED` beside `0 failures` in ONE summary line.
+
+    When the run's OWN guard fails (a guard red, e.g. 42505814856 @ 1238c15e), every selected row
+    is skipped/absent and `failure=1`. The unlocked summary must NAME that failure and the guard,
+    never repeat the #1111 "0 failures is not a verdict" sentence beside an actual failure — that
+    made a board quote "0 failures" for a run whose guard had JUST reddened.
+    """
+
+    # Given a run whose own guard failed, the image jobs skipped and no decision
+    result = cs.verify(None, GUARD_FAILED_FANOUT)
+
+    # Then  it is RED (failure=1), not none, and the cause is the guard
+    assert result["verdict"] == cs.RED, result["lines"]
+    assert result["counts"]["failure"] == 1 and result["counts"]["no_verdict"] == 3
+
+    # And  the final summary names the guard as the CAUSE of a named red — and never says
+    # "0 failures is not a verdict" beside an actual failure (#2061, conformity after #2285)
+    assert any("FAILED (guard)" in line for line in result["lines"]), result["lines"]
+    assert not any("0 failures is not a verdict" in line for line in result["lines"]), result["lines"]
+
+    # And  verdict/counts/exit are untouched by the message split (a full-green run is unchanged)
+    assert result["counts"] == {"success": 0, "failure": 1, "skipped_by_decision": 0,
+                                "no_verdict": 3, "pending": 0, "blocked": 0}
+
+
+def test_a_guard_failure_with_a_decision_is_a_named_red(tmp_path, capsys):
+    """The with-decision shape, as `ci-verdict` judged it on the wire (run 42505814856): RED,
+    `1 FAILED (guard)`, and the CLI still exits 1 (a red verdict)."""
+    decision = decision_for(["Makefile"])
+    rc, checks = _cli(tmp_path, GUARD_FAILED_FANOUT, decision=decision)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    # #2285 reworked the summary into a blocked-aware named red; the cause names the guard
+    assert "FAILED (guard)" in out and "blocked by a gate" in out, out
+    assert "0 failures is not a verdict" not in out, out
+    payload = json.loads(checks.read_text(encoding="utf-8"))
     assert payload["conclusion"] == "failure", payload
 
 
