@@ -406,13 +406,14 @@ def test_the_gate_is_wired_into_ci_unit_and_make():
 
     # Given the makefiles (the top + its mk/*.mk includes, issue #800 split) and the CI stage
     makefile = "\n".join((REPO / rel).read_text(encoding="utf-8")
-                         for rel in ["Makefile"] + sorted(p for p in __import__("os").listdir(REPO / "mk") if p.endswith(".mk")))
+                         for rel in ["Makefile"] + ["mk/" + p for p in sorted(__import__("os").listdir(REPO / "mk")) if p.endswith(".mk")])
 
     # When  the gate's target, its help line, its .PHONY entry and its CI stage are read
-    # Then  all four exist and `make -n` prints the real command
+    # Then  all four exist, ci-unit runs it (through scripts/ci_unit.py's STEPS, issue #800),
+    #       and `make -n` prints the real command
     assert "check-agent-skills: ## " in makefile
     assert "check-agent-skills" in phony_block(makefile), "the target must be declared .PHONY"
-    assert "\t$(MAKE) check-agent-skills\n" in makefile
+    assert "check-agent-skills" in (REPO / "scripts" / "ci_unit.py").read_text(encoding="utf-8")
     printed = subprocess.run(["make", "-n", "check-agent-skills"], cwd=REPO,
                              capture_output=True, text=True, check=True).stdout
     assert "python3 scripts/check_agent_skills.py check" in printed

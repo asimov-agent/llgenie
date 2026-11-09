@@ -16,7 +16,30 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = REPO / "Makefile"
+
+
+def makefiles_text() -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, joined (issue #800 split).
+
+    The 2,083-line Makefile split its targets into `mk/{engines,gates,ci,security,bots,install}.mk`,
+    so the pytest recipe lines this seam guards now live behind the includes. Read the concatenation
+    the way the build resolves it — a pytest invocation that moved still has to use a seam.
+    """
+    top = (REPO / "Makefile").read_text()
+    body = [top]
+    for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", top, re.M):
+        inc = m.group(1)
+        if "*" in inc:
+            for p in sorted(pp for pp in REPO.glob(inc) if pp.is_file()):
+                body.append(p.read_text())
+        else:
+            p = REPO / inc
+            if p.is_file():
+                body.append(p.read_text())
+    return "\n\n".join(body)
+
+
+MAKEFILE_TEXT = makefiles_text()
 
 #: The seams a test command may run through. `$(TEST_RUN)` and `$(ENGINE_TEST_RUN)` resolve to the test
 #: image in CI and to the venv on a dev host; `$(call engine_test,…)` builds the same container command with
@@ -85,17 +108,17 @@ def offenders(text: str) -> list[tuple[str, str]]:
 def test_every_pytest_in_a_make_recipe_runs_through_the_test_seam():
     """A recipe that needs pytest must get it from the test image (or the venv), never from the host."""
 
-    # Given every recipe line in the Makefile, continuations joined
-    recipes = _logical_recipe_lines(MAKEFILE.read_text())
+    # Given every recipe line in the makefiles, continuations joined
+    recipes = _logical_recipe_lines(MAKEFILE_TEXT)
 
     # When  the lines that run pytest are read
     pytest_lines = [(t, c) for t, c in recipes if _PYTEST.search(c)]
 
     # Then  there is more than one (the suite is driven from several targets) …
-    assert pytest_lines, "no pytest invocation found in the Makefile: the parser or the targets changed"
+    assert pytest_lines, "no pytest invocation found in the makefiles: the parser or the targets changed"
 
     # And  every single one runs through a seam that provides pytest
-    bad = offenders(MAKEFILE.read_text())
+    bad = offenders(MAKEFILE_TEXT)
     assert not bad, (
         "a make recipe runs pytest on a bare host python (issue #621 — the runner has no pytest):\n"
         + "\n".join(f"  {t}: {c}" for t, c in bad)
