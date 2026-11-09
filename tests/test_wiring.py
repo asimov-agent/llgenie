@@ -74,10 +74,11 @@ def test_the_real_tree_has_no_unwired_document():
         assert not (graph["ci_reachable"][doc] and doc in recorded), doc
 
     # And each recorded decision carries the reason and the target a human runs
+    all_mk = "\n".join((REPO / rel).read_text() for rel in cw._makefile_list(REPO))
     for doc, e in exceptions["documents"].items():
         assert (doc.startswith("tests/") or doc.startswith("scripts/")) and (REPO / doc).exists(), doc
         assert len(e["reason"]) > 40 and e["decided"] and e["target"], doc
-        assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
+        assert f"{e['target']}:" in all_mk, doc
 
 
 def test_the_report_names_every_document_and_the_host_only_decisions():
@@ -451,14 +452,14 @@ def test_the_real_tree_declares_no_phony_entry_it_cannot_run():
 def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     """The guard is only real when the pipeline runs it."""
 
-    # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    # Given the makefiles (the top + its includes, issue #800 splits targets across mk/*.mk)
+    all_mk = "\n".join((REPO / rel).read_text() for rel in cw._makefile_list(REPO))
 
     # When the ci-unit job and the unit suite are read
     # Then ci-unit runs the wiring check, and this test file is in the discovered suite
-    assert "$(MAKE) check-wiring" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) check-wiring" in all_mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
     assert "tests/test_wiring.py" in ut.select(REPO)
-    assert "check-wiring:" in mk and "wiring-report:" in mk
+    assert "check-wiring:" in all_mk and "wiring-report:" in all_mk
 
     # And the removed dead test file is gone for good
     assert not (REPO / "tests" / "test_engine_bump_build.py").exists()

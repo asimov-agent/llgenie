@@ -101,7 +101,7 @@ def _makefile_list(root: Path) -> list[str]:
         if not path.exists():
             continue
         out.append(rel)
-        for m in re.finditer(r"^\s*include\s+(\S+)\s*$", path.read_text(), re.M):
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", path.read_text(), re.M):
             inc = m.group(1)
             if "*" in inc:
                 pending.extend(sorted(p.relative_to(root).as_posix()
@@ -138,12 +138,12 @@ def _target_files(root: Path) -> dict[str, list[str]]:
 #: quietly grow back toward the 2,000-line monolith; the top makefile is the includes + help/phony
 #: only, so it carries a small budget of its own.
 MK_LINE_BUDGET = {
-    "mk/engines.mk": 420,
-    "mk/gates.mk": 380,
-    "mk/ci.mk": 260,
-    "mk/security.mk": 260,
-    "mk/bots.mk": 480,
-    "mk/install.mk": 300,
+    "mk/engines.mk": 460,
+    "mk/gates.mk": 260,
+    "mk/ci.mk": 420,
+    "mk/security.mk": 180,
+    "mk/bots.mk": 580,
+    "mk/install.mk": 220,
 }
 
 
@@ -542,8 +542,9 @@ def check(g: dict, exceptions: dict) -> list[str]:
     # gate, because only the called -> exists direction was checked. Both shapes are reported in
     # ONE pass so a single edit fixes the whole set.
     for target in sorted(g.get("phony_no_target") or ()):
-        errors.append(f".PHONY declares `{target}`, but no target of that name exists in "
-                      f"{' or '.join(MAKEFILES)}: because the name is declared phony, "
+        mfs = " or ".join(_makefile_list(g.get("root") and Path(g["root"]) or REPO))
+        errors.append(f".PHONY declares `{target}`, but no target of that name exists in {mfs}: "
+                      f"because the name is declared phony, "
                       f"`make {target}` prints \"Nothing to be done\" and exits 0 — a green no-op "
                       f"that verifies nothing. Add the recipe back, or delete the stale "
                       f"declaration (a key outlives its recipe when a union resolution drops one "
