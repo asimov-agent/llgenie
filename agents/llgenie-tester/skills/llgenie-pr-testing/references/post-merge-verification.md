@@ -62,6 +62,30 @@ names the sha and calls it non-ancestor, it rejects the thing the fix claims to 
 Marker present + excluded from ci-unit + executed in the live pipeline = ROUTED. Marker present but
 only excluded = silently skipped. Say which, with the file and the seam line, not just "removed".
 
+## A merged PR that CLOSES an umbrella — the tick state decides, not the close event
+
+A squash whose message carries a closing keyword closes the linked issue at merge time, whether or not
+the work behind it is done. So for every merged PR whose body carries a `closes #<n>`, read the closed
+issue's OWN state and measure three numbers — never infer "done" from `state=CLOSED`:
+
+```
+gh api repos/<org>/<repo>/issues/<umbrella> --jq '{state:.state, closed_at:.closed_at}'
+gh api repos/<org>/<repo>/issues/<umbrella> --jq '[.body|scan("- \\[ \\]")]|length'   # unticked boxes
+gh pr view <sibling-pr> --json state,mergedAt,mergeCommit     # per remaining vehicle
+```
+
+Verdict shape: **premature umbrella close** when the issue is CLOSED, its `closed_at` is within the
+same minute as the merged vehicle's `mergedAt`, **any** acceptance box is still `- [ ]`, and sibling
+lane vehicles are still OPEN. Report it that way — the umbrella closed at N lanes landed, not at the
+coverage its criteria describe — because a CLOSED umbrella drops the remaining vehicles' tracking off
+the board (`mergeStateStatus` shows nothing for a merged vehicle, and a CLOSED issue reads as done).
+
+Two things this check catches that a per-pr green does not: (a) the squash-merge close keyword is a
+*text* trigger, so an umbrella with five vehicles closes on the first or second one; (b) the merged
+vehicle itself can be green and still not satisfy the umbrella's criteria — those are the umbrella's
+boxes, not the vehicle's. Cite the umbrella close time, the vehicle's merge time, the unticked count
+and the still-open siblings; those four are the whole finding.
+
 ## Trust the tip you re-read, not a watcher you armed earlier
 
 A background watcher (a `gh run watch` / poll loop) is pinned to a run/sha at the moment you start it.
