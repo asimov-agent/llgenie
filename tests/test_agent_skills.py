@@ -404,8 +404,9 @@ def test_agents_md_must_state_the_rule(tmp_path):
 def test_the_gate_is_wired_into_ci_unit_and_make():
     """A guard no CI job runs is a defect, not a spare part."""
 
-    # Given the Makefile and the CI stage
-    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    # Given the makefiles (the top + its mk/*.mk includes, issue #800 split) and the CI stage
+    makefile = "\n".join((REPO / rel).read_text(encoding="utf-8")
+                         for rel in ["Makefile"] + sorted(p for p in __import__("os").listdir(REPO / "mk") if p.endswith(".mk")))
 
     # When  the gate's target, its help line, its .PHONY entry and its CI stage are read
     # Then  all four exist and `make -n` prints the real command

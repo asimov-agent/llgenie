@@ -63,7 +63,10 @@ RETIRED_RULES_FILE = Path("scripts") / "fix_bot_rules.md"
 INLINE_UNATTENDED = "NEVER ask a question"
 #: The preflight every unattended leg owes before it reads anything else (issue #792).
 PREFLIGHT_OBLIGATION = "make bot-preflight"
-LEG_SOURCES = ("Makefile", "scripts/*.sh")
+#: The shell legs / makefiles the bots' `-s <skill>` flags live in. The bot legs moved from the top
+#: Makefile into `mk/bots.mk` (issue #800 split), so the makefile sources are the top file + every
+#: `mk/*.mk`; a domain file with no leg contributes nothing.
+LEG_SOURCES = ("Makefile", "mk/*.mk", "scripts/*.sh")
 _SKILL_FLAG = re.compile(r"(?:^|\s)(?:-s|--skills)[\s=]+(\S+)")
 
 

@@ -119,7 +119,7 @@ SELF_TARGETS = frozenset({GATE_TARGET, GATE_CHECK})
 
 
 def _recipes(text: str) -> dict[str, str]:
-    """`{target: its recipe text}`, computed from the real Makefile (the same shape check_wiring
+    """`{target: its recipe text}`, computed over the resolved makefiles (the same shape check_wiring
     reads, kept local so this gate stays one stdlib file)."""
     spans = [(m.group(1), m.start()) for m in re.finditer(r"^([a-z0-9][a-z0-9._-]*):", text, re.M)]
     out: dict[str, str] = {}
@@ -197,15 +197,63 @@ def _step_name(block: str) -> str:
     return ""
 
 
+def _makefile_text(root: Path) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, joined (issue #800).
+
+    The 2,083-line Makefile split into a short top makefile + `mk/{engines,gates,ci,security,
+    bots,install}.mk` includes, so this gate's target roster must read the concatenation — FAST_GATES
+    and the ci-unit classification are checked against the same names `make` itself would resolve.
+    """
+    text = (root / MAKEFILE).read_text()
+    body = [text]
+    for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", text, re.M):
+        inc = m.group(1)
+        if "*" in inc:
+            for p in sorted(pp for pp in root.glob(inc) if pp.is_file()):
+                body.append(p.read_text())
+        else:
+            p = root / inc
+            if p.is_file():
+                body.append(p.read_text())
+    return "\n\n".join(body)
+
+
+def _ci_unit_steps(root: Path) -> list[str]:
+    """The make targets `scripts/ci_unit.py` runs, if the ci-unit recipe uses it (issue #800).
+
+    ci-unit's 49-line `$(MAKE)` sequence moved into `scripts/ci_unit.py`'s `STEPS`; without this
+    seam the fast/deferred classification would see ci-unit run nothing and red every gate.
+    """
+    script = root / "scripts" / "ci_unit.py"
+    if not script.exists():
+        return []
+    text = script.read_text()
+    block = text.split("STEPS = [", 1)[1].split("]", 1)[0]
+    out = []
+    for ln in block.splitlines():
+        tok = ln.strip().replace('"', "").replace("'", "").strip().strip(",").strip()
+        name = tok.split()[0] if tok else ""
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 def check(root: Path = REPO) -> list[str]:
     """Every finding about the gate's own wiring, from the real files (empty means wired)."""
     errors: list[str] = []
     makefile = root / MAKEFILE
     if not makefile.exists():
         return [f"{MAKEFILE} is missing: the gate has nothing to read"]
-    text = makefile.read_text()
+    text = _makefile_text(root)
     recipes = _recipes(text)
     calls = {t: _make_calls(r) for t, r in recipes.items()}
+    # ci-unit's sequence moved into scripts/ci_unit.py's STEPS (issue #800): attribute those calls
+    # to it so the roster below still classifies every gate it runs.
+    if "scripts/ci_unit.py" in recipes.get("ci-unit", ""):
+        calls.setdefault("ci-unit", [])
+        for name in _ci_unit_steps(root):
+            if name not in calls["ci-unit"]:
+                calls["ci-unit"].append(name)
 
     # 1. Every gate `ci-unit` runs is classified: fast (run here) or deferred (with a reason).
     unit = calls.get("ci-unit")
