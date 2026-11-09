@@ -128,5 +128,35 @@ def test_a_push_still_uses_the_owner_pat():
         backing = step_token or job_token or checkout_token
         assert "BUMP_TOKEN" in backing or "BUMP_TOKEN" in checkout_token, (
             f"{name}:{job_name} pushes and nothing in the job carries the owner PAT "
-            f"(step={step_token!r}, job={job_token!r}, checkout={checkout_token!r})"
-        )
+            f"(step={step_token!r}, job={job_token!r}, checkout={checkout_token!r})")
+
+
+def test_the_run_failure_reactor_dispatch_uses_github_token_not_a_secret():
+    """The reactor's dispatch credential is decided ONCE as github.token — never a backlog fallback (#2091).
+
+    #2086 had the reactor dispatch with `secrets.BUMP_TOKEN`, an owner PAT with no `workflow`/
+    `Actions: write` scope, so the dispatch was refused `403 … /dispatches` (run `42442836444`) and
+    the repair leg was dead. The repo convention (`docs/BOTS.md`) is that a dispatch uses `github.token`,
+    and fix-bot's guard now admits the repository bot on a `workflow_dispatch` (#1571). This locks
+    the decision: the dispatch step carries `github.token` as `GH_TOKEN`, and NO other credential
+    (DISPATCH_TOKEN / a secrets.* fallback) may lurk on the step.
+    """
+    # Given the reactor's dispatch step
+    job_name, job, step = find_step("run-failure-reactor.yml", "make run-failure-reactor")
+    step_env = (step.get("env") or {}) or {}
+
+    # Then  it is handed github.token as GH_TOKEN
+    assert step_env.get("GH_TOKEN") == TOKEN, (
+        f"run-failure-reactor.yml:{job_name} dispatch is handed GH_TOKEN={step_env.get('GH_TOKEN')!r}; "
+        f"a dispatch needs {TOKEN} (the job declares actions: write, #412/#2091)"
+    )
+    # And  no second credential (a DISPATCH_TOKEN env, or a secrets.* fallback) is on the step —
+    #     the decision is made ONCE, never a fallback that silently changes identity.
+    secrets_leaked = {k: v for k, v in step_env.items() if "secrets." in v}
+    assert "DISPATCH_TOKEN" not in step_env and not secrets_leaked, (
+        f"run-failure-reactor.yml:{job_name} carries a second dispatch credential "
+        f"(DISPATCH_TOKEN={step_env.get('DISPATCH_TOKEN')!r}, secrets refs={secrets_leaked!r}); "
+        f"the dispatch identity must be github.token only (#2091)"
+    )
+    # And  the job declares the write the dispatch needs, so github.token can perform it
+    assert permission(job, workflow("run-failure-reactor.yml"), "actions") == "write"

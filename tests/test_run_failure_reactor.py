@@ -112,16 +112,17 @@ else:
     return log
 
 
-#: The owner identity a dispatch must carry (fix-bot's guard refuses `github-actions[bot]`, #510).
-OWNER_TOKEN = "ghp_owner_token_for_tests"
+#: The repository-scoped token a dispatch carries (`${{ github.token }}`); fix-bot's guard admits
+#: the repository bot on a `workflow_dispatch` (#1571), so the job token dispatches correctly (#2091).
+JOB_TOKEN = "ghs_repo_token_for_tests"
 
 
-def run_reactor(tmp_path: Path, args: list[str], dispatch_token: str | None = OWNER_TOKEN):
+def run_reactor(tmp_path: Path, args: list[str], token: str | None = JOB_TOKEN):
     env = dict(os.environ)
     env["PATH"] = f"{tmp_path / 'bin'}:{env['PATH']}"
-    env.pop("DISPATCH_TOKEN", None)
-    if dispatch_token is not None:
-        env["DISPATCH_TOKEN"] = dispatch_token
+    env.pop("GH_TOKEN", None)
+    if token is not None:
+        env["GH_TOKEN"] = token
     return subprocess.run([sys.executable, str(REACTOR), *args], cwd=str(tmp_path),
                           env=env, capture_output=True, text=True, timeout=60)
 
@@ -395,26 +396,25 @@ def test_a_red_fork_pr_run_dispatches_the_fix_bot_as_the_owner(tmp_path):
     assert "branch=feat/x" in dispatch[0], dispatch[0]
     assert not [l for l in calls if l.startswith("issue create")], calls
 
-    # And   the dispatch carries the OWNER identity, never the job token (fix-bot's guard refuses
-    #       github-actions[bot]: run 39917926028)
-    assert f"token={OWNER_TOKEN}" in dispatch[0], dispatch[0]
+    # And   the dispatch carries the repository-scoped token (github.token) — fix-bot's guard now
+    #       admits the repository bot on a workflow_dispatch (#1571, #2091)
+    assert f"token={JOB_TOKEN}" in dispatch[0], dispatch[0]
 
 
 def test_a_missing_dispatch_token_is_loud_and_dispatches_nothing(tmp_path):
-    """A dispatch as `github-actions[bot]` would be refused by the guard: refuse to make it at all."""
+    """A dispatch without any credential refuses to run at all — never a silent no-op dispatch."""
 
-    # Given the same red fork PR, but no DISPATCH_TOKEN in the environment
+    # Given the same red fork PR, but no GH_TOKEN in the environment
     log = gh_stub(tmp_path, failed_run(event="pull_request"), [], rest=_fork_rest(),
                   fork_prs={"feat/x": [260]}, checks={"260": RED},
                   pr_meta=_open_pr_meta(260))
 
     # When  the reactor routes the run
-    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"],
-                    dispatch_token=None)
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"], token=None)
 
     # Then  it fails loudly, naming the variable, and neither dispatches nor files anything
     assert r.returncode == 1, r.stdout + r.stderr
-    assert "DISPATCH_TOKEN" in r.stderr, r.stderr
+    assert "GH_TOKEN" in r.stderr, r.stderr
     calls = log.read_text().splitlines()
     assert not [l for l in calls if l.startswith("workflow run")], calls
     assert not [l for l in calls if l.startswith("issue create")], calls
