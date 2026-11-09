@@ -24,10 +24,6 @@ See `references/body-gate-agents-base.md`; SOUL change: `references/authoring-ve
 
 <!-- host-bot-tools:begin -->
 
-## Verdict tooling pitfall: self-approval is refused on the author's own PR
-
-When the reviewer CLI is authenticated as the same account that authored the PR (here the whole fleet runs as `andyholst`), `gh pr review -a`/`-r` fails with GraphQL "Can not approve your own pull request". The `-a`/`-r` merge-state cannot be set from that token — it is not a retry-able failure. Still document the verdict AT the head via `gh pr comment` (quote sha, run id, each acceptance criterion, the -a refusal and why), name which thread must carry a reviewer-scoped token, and report the finding to the inbox. Never claim APPROVE state you could not set; say exactly why it was refused.
-
 ## Tools
 
 This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
@@ -36,6 +32,10 @@ Skills that stay enabled: `github`, `llgenie-pr-review`.
 Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
+
+## Verdict tooling pitfall: self-approval is refused on the author's own PR
+
+When the reviewer CLI is authenticated as the same account that authored the PR (here the whole fleet runs as `andyholst`), `gh pr review -a`/`-r` fails with GraphQL "Can not approve your own pull request". The `-a`/`-r` merge-state cannot be set from that token — it is not a retry-able failure. Still document the verdict AT the head via `gh pr comment` (quote sha, run id, each acceptance criterion, the -a refusal and why), name which thread must carry a reviewer-scoped token, and report the finding to the inbox. Never claim APPROVE state you could not set; say exactly why it was refused.
 
 ## Role artifact (2026-11-01)
 
