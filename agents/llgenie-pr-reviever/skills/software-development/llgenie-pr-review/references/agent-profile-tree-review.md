@@ -108,6 +108,32 @@ never as a property of the branch, and re-run after the repair push and again be
 `LIVE-MISSING` (no live profile on this host) is a different fix from `LIVE-LONGER` (a real shrink) —
 keep them distinct in the report.
 
+## Measure tree↔live drift READ-ONLY — the fold/COPY tool destroys tree-only lines
+
+Two commands answer "how far has this lane's tree copy drifted from its live profile?", and both are
+safe because they write nothing:
+
+```bash
+make sync-agent-profile PROFILE=<lane> CHECK=1   # per-file DIFFERS / TRUNCATED? with byte counts
+make tester-fold-live PROFILE=<lane>             # counts: N same, N drifted, N live-missing, N live-only
+```
+
+The second is the only one that reports the **live-only** set (files that exist on the host and not in
+the tree — the direction the gate cannot see), so run it when the question is coverage rather than
+byte-identity.
+
+**Never run `make tester-fold-live PROFILE=<lane> COPY=1` to "fix" drift you have not proven is a
+subset.** COPY is a raw overwrite, not a merge: it replaces tree files with live content and destroys
+every tree-only line in a file that is a partial copy (measured on a sibling lane: 31 files overwritten,
+72 tree-only lines lost across 12 files, because 29 of 64 live files carried lines the tree lacked).
+The same hazard sits behind `sync-agent-profile` without `CHECK=1` — it is one-way tree → live, so it
+silently truncates the live rulebook instead.
+
+A drift report is therefore a **finding to route** (a versioned tree update under
+`agents/<lane>/` via an issue + PR), never a sync to run. Only a per-file line-subset proof — every
+tree line present in the live file — makes a copy safe, and `FORCE=1` still needs the same proof along
+with reverting the tree afterwards if the copy was already run.
+
 ## Verifying your own repair
 
 Rewrite the file in a worktree you own, then verify the **committed blob**, not the working copy:
@@ -143,6 +169,61 @@ leave "the branch matches live" standing after it has stopped being true.
 the short side.** The fix is in the tree (re-copy the live file), never `make sync-agent-profile` — the
 sync is one-way tree → live and would destroy live behaviour. Re-verify with `cmp -s` per file and quote
 both sides' version and byte count; a green `check-docs` says nothing about this comparison.
+
+## Versioning a live-only lane TOOL (`agents/<lane>/scripts/`), not just SOUL and skills
+
+A lane tool that lives only in `~/.hermes/profiles/<lane>/scripts/` is the same blind spot as a
+live-only skill file — the tree loop never walks the live side, so nothing reports it. Vendoring it
+is a byte-copy job with four steps, in this order:
+
+1. **Fetch live main, branch from that sha, and write it into the start comment** (rule 15). Never
+   branch from a sha quoted in a message.
+2. **Copy the script AND its test module**, then prove identity rather than asserting it:
+   `sha256sum` both sides and `diff` them (empty output + equal digests is the evidence, a `cp` is
+   not). Re-run the vendored test in-tree (`pytest scripts/test_<tool>.py`) and the tool's own
+   `--selftest` from the repo copy, so the proof comes from the tree and not from the live file you
+   copied.
+3. **Name the in-tree path in the SKILL body** so the next reader checks the repo copy instead of
+   `~/.hermes` only — and make the note true for every file it mentions. A note claiming "its test
+   lives beside it in the tree" when only the script was vendored is a false claim of coverage; add
+   the test or drop the clause.
+4. **Check each gate's OWN scope before assuming a vendored script trips it.** A policy seam that
+   globs the repo-level `scripts/` does not police `agents/<lane>/scripts/` — read the checker's path
+   enumeration (e.g. `check_proc_gate.py`'s `SCRIPTS = "scripts"`) instead of pre-emptively rewriting
+   the copy to satisfy a gate that never looks at it. Changing a byte-identical copy to appease a gate
+   that does not read it destroys the byte-identity contract, which is the actual requirement.
+
+Record the vendoring in the same change-note trio as any behaviour change, and keep the diff to the
+monitor plus its note — another lane's live-only files are ambient debt, not part of this PR's scope.
+
+## "Mirrors the live doctrine" is doctrinal fidelity, NOT byte-identity — do not hold it for a superset
+
+A PR that lands a *reference* codifying a doctrine already in a live profile (e.g. `references/…md`
+added under one lane's skill tree, closing an issue that says "land the ground-truth reference") is a
+different acceptance shape from the vendored-copy `CHECK=1` above. The claim in its body is usually
+*"mirrors the planner's live `<file>`"*, and the verify step is a diff of the tree blob **at the head
+sha** against the live source:
+
+```bash
+TREE=$(git show <head>:agents/<lane>/skills/…/references/<file>.md)
+LIVE=$(cat ~/.hermes/profiles/<lane>/skills/…/references/<file>.md)
+diff <(printf '%s\n' "$TREE") <(printf '%s\n' "$LIVE")
+```
+
+**A byte difference is the expected, correct result here, not a defect.** The tree copy is a *faithful
+superset*: it preserves every operative rule (rule → CI `pull_request` run id + sha, never a local
+read; read the failing job's own log line; rerun-that-re-reds = deterministic product red; degraded
+output still dispatches) and *adds* the acceptance-bound material — a worked false-green example, the
+head re-measurement (`rev-list --count upstream/main..HEAD == 0`, `merge-base == upstream/main`), the
+subset-check form. Judge it by **doctrinal fidelity plus the acceptance text**, and say so explicitly:
+"not byte-identical, correct — a superset that preserves each rule and adds the acceptance specifics".
+A reviewer who reds or holds this because the bytes differ from the live file has applied the
+vendoring contract to the wrong class: byte-identity pins a *copy* (`make sync-agent-profile CHECK=1`),
+it does not pin a *codification* whose whole job is to re-express the doctrine for one lane with the
+issue's acceptance baked in. Only flag it if a preserved rule is actually dropped or inverted — then
+name the missing rule, not the byte count. The doc gates this class must still pass are the ordinary
+text ones (`scripts/lint_linefeeds.py` → `LINT OK`, `scripts/check_docs.py check` → rc=0 with its
+`ok:` line), measured at the frozen head in a detached worktree, since both new files are new text.
 
 ## Review checklist
 
