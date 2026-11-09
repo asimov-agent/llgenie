@@ -749,12 +749,16 @@ def test_the_decision_step_claims_nothing_when_nothing_is_picked(tmp_path):
 
 
 def test_a_red_pr_that_is_only_behind_is_left_to_the_fix_bot(tmp_path):
-    """Division of labour: a rebase fixes staleness, not a failing test."""
+    """Division of labour (narrowed, #2071 half B): a red PR that is NOT measured behind — and
+    whose red is a real failing test, not the staleness gate — stays the fix-bot's; only a
+    measured-behind PR whose only red is staleness is taken here. The conflicted one is taken
+    even when red, since the rebase is the precondition."""
     gh, _log = _fake_gh(tmp_path, {"search": [], "checks_by_pr": {"1": ["FAILURE"], "2": ["FAILURE"]},
                                    "prs": [_pr(1, "BEHIND", created="2026-09-01T00:00:00Z"),
                                            _pr(2, "DIRTY", created="2026-09-02T00:00:00Z")]})
     res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
-    # the conflicted one is taken even though it is red: the rebase is the precondition
+    # PR 1 is BEHIND but with no measurement backing it, so `not measured_behind` keeps it the
+    # fix-bot's; the conflicted one is taken even though it is red: the rebase is the precondition
     assert res["pr"] == 2, res
     assert any("the fix-bot owns that" in r for r in res["reasons"])
 

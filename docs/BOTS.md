@@ -942,9 +942,12 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   `gave-up` from a failed attempt is never the record (issues #457/#467) — so no label is invented
   and no PR is rebased in a loop — and it skips a fork it cannot push to.
 - **It keeps out of the other bots' way.** It skips a PR with checks **in flight** (rebasing
-  would cancel the run deciding it), and leaves a **red, merely-behind** PR to the fix-bot — a
-  rebase fixes staleness, not a failing test — while still taking a **conflicted** red PR, since a
-  rebase is the precondition for fixing anything on it. The implementer cannot be raced (it pushes
+  would cancel the run deciding it). A red PR whose only red is the staleness gate and is
+  **measured behind** is taken here — the rebase is the precondition for `check-pr-base`, so
+  "fix-bot owns a red PR" cannot swallow a stale one (#2071); a PR red for a real failing test
+  stays the fix-bot's, the narrowing keying on the measured-behind fact, never the state
+  string. It still takes a **conflicted** red PR, since a rebase is the precondition for fixing
+  anything on it. The implementer cannot be raced (it pushes
   a new branch and only then opens the PR, so its PRs are fresh by construction), and the refiner
   never touches a branch. If the rebase bot and the fix-bot ever do collide, the fix-bot's plain
   fast-forward push and this bot's `--force-with-lease` mean the **second one is rejected loudly**:
