@@ -93,7 +93,7 @@ DOCS_TRIGGER_IGNORE: tuple[str, ...] = CLASSES["docs"]
 #: `install-published-*` is one job per backend.
 _STAGES = {
     "lint": None,
-    "unit": ("scripts", "tests", "data", "skills", "containers", "workflows"),
+    "unit": ("scripts", "tests", "data", "skills", "containers", "engines", "workflows"),
     "install": ("scripts", "containers", "engines", "skills", "data"),
     "agents-read": ("skills",),
     "openspec": ("docs",),

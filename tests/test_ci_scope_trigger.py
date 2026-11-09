@@ -69,6 +69,36 @@ PURE_DOC = (
 )
 
 
+def test_an_engine_skill_md_carries_dependency_pins_tracked_by_the_unit_battery():
+    """Regression (issue #2227): a skill that generates engine pins must gate on `linux/unit`.
+
+    This is the trigger-half of the #2227 contract: `skills/engines/*/SKILL.md` GENERATES the
+    `containers/engines/params/*.json` pins that `engine_pins.py` inventories into the security SBOM,
+    and `linux/unit` is the ONLY carrier of `check-engine-pins-published` / `check-secret-output` /
+    `check-proc-gate` / `check-security-scan` / `check-actions`. The classifier-half is in
+    `test_ci_scope.py::test_an_engine_skill_pin_change_selects_the_unit_security_battery`; this asserts
+    the same class membership from the trigger side so neither file can drift.
+    """
+    import sys
+    sys.path.insert(0, str(REPO / "scripts"))
+    import ci_scope as cs
+
+    # Not every markdown under skills/engines gets a dedicated job in ci.yml, but the ONE that
+    # generates pins must hold the full matrix — a paths-ignore that skipped it would be a wide
+    # markdown filter dropping a non-doc role, exactly the drift this module pins closed.
+    assert PURE_DOC("skills/engines/vllm/SKILL.md") is False, (
+        "an engines SKILL.md pin generator is NOT a pure doc — a wide **/*.md skip would drop it"
+    )
+    classes, unmatched, _wide = cs.classify(["skills/engines/vllm/SKILL.md"])
+    assert unmatched == []
+    assert "engines" in classes, classes
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+    assert rows["linux/unit"], (
+        "#2227: a skills/engines pin change must re-include linux/unit; the engines class now "
+        "selects it via _STAGES[\"unit\"]"
+    )
+
+
 def test_the_deferred_contract_keeps_branches_guarded():
     """No filter YET (deferral) — but the trigger must stay `pull_request` on `main` only."""
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
