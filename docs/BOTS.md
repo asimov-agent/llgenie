@@ -1912,10 +1912,11 @@ make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # previe
   `pull_requests` array is empty (measured, #277/#170), so the PR is resolved from the run's
   `head_branch` + `head_repository.owner.login` with `scripts/resolve_run_pr.py` — the resolver
   auto-merge uses (issue #555). A **fifth-party** fork is still never dispatched: no token this
-  repository holds can push it. The dispatch carries the **owner** identity (`DISPATCH_TOKEN`, from
-  the environment only) because the dispatched run's actor is the token's identity and every guarded
-  workflow here refuses `github-actions[bot]` — a dispatch with the job token died in fix-bot's own
-  guard (run `39917926028`). A missing `DISPATCH_TOKEN` is a loud failure, never a red no-op run.
+  repository holds can push it. The dispatch carries the repository-scoped `github.token` (the job's
+  own `GH_TOKEN`, `actions: write` — issue #412/#2091) because fix-bot's guard now admits the
+  repository bot on a `workflow_dispatch` of this repository (issue #1571); it is taken from the
+  environment by NAME (`GH_TOKEN`), never argv (issue #555). A missing credential is a loud failure,
+  never a red no-op rumor.
 - **A REFUSED dispatch is reported on the PR, and does not red the job (issue #2086).** A dispatch
   credential without the endpoint's scope is refused `HTTP 403 … Resource not accessible by personal
   access token` (measured run `42442836444`, head `e51f2fd0`): the whole repair leg is dead and only
@@ -2306,7 +2307,7 @@ measured on PR #1982 head `aeac049f`: `engine-build-pr-trigger` `failure` (run 4
 
 
 make run-failure-reactor  # route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a PR this bot can push
-                       # (this repo or the owner's fork) -> dispatch the fix-bot as the OWNER (DISPATCH_TOKEN); else file
+                       # (this repo or the owner's fork) -> dispatch the fix-bot with github.token (GH_TOKEN, #2091); else file
                        # ONE lane-labelled deduped issue (issue #286, #2076, fork routing #555)
 make openspec-validate NAME=<change>   # validate ONE OpenSpec change (fail-closed)
 make openspec-validate-all             # validate the structure of EVERY active change — what ci-openspec runs (issue #156)

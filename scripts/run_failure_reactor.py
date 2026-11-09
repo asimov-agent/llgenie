@@ -15,10 +15,13 @@ The route decision lives HERE, in a stdlib-only, no-LLM script (unit-testable, l
     #277/#170), so the PR is resolved from the run's `head_branch` + `head_repository.owner.login`
     (`scripts/resolve_run_pr.py`, the resolver auto-merge uses). A FIFTH-PARTY fork is still refused:
     no token we hold can push it (issue #555).
-  * The dispatch must carry the OWNER identity. The dispatched run's actor is the token's identity,
-    and every guarded bot refuses `github-actions[bot]` (#510) — with `github.token` the dispatched
-    fix-bot died in its own guard (run `39917926028`). So `gh workflow run` uses `DISPATCH_TOKEN`
-    from the environment, never argv, and a missing one is a LOUD failure (issue #555).
+  * The dispatch uses the repository-scoped `github.token` (repo convention, issue #412). The
+    dispatched run's actor is the token's identity; fix-bot's guard now ADMITS `github-actions[bot]`
+    on a `workflow_dispatch` of this repository (issue #1571), so the token this job already carries
+    (GH_TOKEN=`${{ github.token }}`, granting `actions: write`) is both sufficient and correct — the
+    owner PAT was refused `403 … /dispatches` (run `42442836444`, issue #2091). `gh workflow run`
+    inherits that credential from the environment, never argv, and refuses to dispatch without it
+    (issue #555).
   * Route B — no pushable PR (a red main push, a red scheduled bot run, a red publish job): file
     exactly ONE issue whose title names the workflow plus the failing job, and whose body carries
     the failing job, its step, and a tail of the failing log (`gh run view RUNID --log-failed`).
@@ -185,10 +188,12 @@ def classify_workflow(workflow: str) -> Lane | None:
 #: own sweep repairs it (`fix_bot_sweep.eligible(..., own_fork=...)`, issue #477).
 TRUSTED_FORK = "andyholst"
 
-#: The credential `gh workflow run` carries. The dispatched run's actor is the token's identity, and
-#: every guarded workflow of this repo refuses `github-actions[bot]` (#510) — so the dispatch needs
-#: the OWNER, by env var name only, never on argv (issue #555).
-DISPATCH_TOKEN_ENV = "DISPATCH_TOKEN"
+#: The credential `gh workflow run` inherits from the environment. The dispatched run's actor is the
+#: token's identity; fix-bot's guard now ADMITS `github-actions[bot]` on a `workflow_dispatch` of this
+#: repository (issue #1571), so the repository-scoped `GH_TOKEN` (the workflow sets
+#: GH_TOKEN=`${{ github.token }}`, granting `actions: write`) is both sufficient and correct — the
+#: owner PAT was refused `403 … /dispatches` (run `42442836444`, issue #2091).
+TOKEN_ENV = "GH_TOKEN"
 
 #: How many lines of the failing log tail to carry in the issue body.
 LOG_TAIL_LINES = 40
@@ -471,23 +476,24 @@ def report_repair_unavailable(repo: str, pr: dict, run_id: int, refused: Dispatc
 
 
 def dispatch_fix_bot(repo: str, pr: dict, check: str = "make ci-unit") -> None:
-    """Dispatch the EXISTING fix-bot for this PR, as the OWNER (issue #555).
+    """Dispatch the EXISTING fix-bot for this PR, as the repository bot (issue #2091).
 
-    The dispatched run's actor IS the identity of the token `gh` carries, and every guarded workflow
-    of this repo refuses `github-actions[bot]` — a dispatch with `github.token` produced a fix-bot run
-    that died in its own guard (measured: run `39917926028`). So the dispatch takes its credential
-    from the environment (`DISPATCH_TOKEN`), never from argv, and a missing one fails LOUDLY instead
-    of producing a red no-op run we would then file an issue about.
+    The dispatched run's actor IS the identity of the token `gh` carries. Every guarded workflow of
+    this repo used to refuse `github-actions[bot]` (#510), so the dispatch carried the owner PAT — but
+    that PAT lacks the dispatch scope and was refused `403 … /dispatches` (run `42442836444`). #1571
+    since ADMITTED the repository bot on a `workflow_dispatch` of this repository, so the job's own
+    `GH_TOKEN` (`${{ github.token }}`, grants `actions: write`) now dispatches correctly. The
+    credential is taken from the environment by name only, never on argv (issue #555).
 
     A REFUSAL of the dispatch (the token lacks the scope the endpoint needs, measured: HTTP 403 on
     run `42442836444`) is raised as `DispatchRefused` so the caller can post it on the PR (#2086).
     """
-    token = (os.environ.get(DISPATCH_TOKEN_ENV) or "").strip()
+    token = (os.environ.get(TOKEN_ENV) or "").strip()
     if not token:
         raise RuntimeError(
-            f"{DISPATCH_TOKEN_ENV} is empty: a dispatch with the job token makes the fix-bot run's "
-            f"actor `github-actions[bot]`, which its own guard refuses (issue #555). Nothing was "
-            f"dispatched for PR #{pr.get('number')}.")
+            f"{TOKEN_ENV} is empty: the dispatch needs the repository-scoped credential the workflow "
+            f"sets (GH_TOKEN=`${{{{ github.token }}}}`, issue #2091). Nothing was dispatched for PR "
+            f"#{pr.get('number')}.")
     r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", repo,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "-f", f"pr_number={pr['number']}", "-f", f"branch={pr['headRefName']}",
                         "-f", f"check={check}", "-f", "rounds=3"],
