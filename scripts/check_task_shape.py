@@ -136,7 +136,7 @@ def _refuse_cli(args: argparse.Namespace) -> int:
     return 1
 
 
-def _owners_cli() -> int:
+def _owners_cli(args: argparse.Namespace) -> int:
     for cls in sorted(CLASS_OWNER):
         print(f"  {cls:16} {CLASS_OWNER[cls]}")
     return 0

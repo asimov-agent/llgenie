@@ -118,6 +118,16 @@ def test_scan_surfaces_a_blocked_misassigned_task(tmp_path):
     assert "t_good" not in r.stdout and "t_running" not in r.stdout
 
 
+def test_owners_subcommand_runs(tmp_path):
+    """The `owners` table command (AC-5's delivery vehicle) runs without crashing: main() dispatches
+    every subparser fn with `args`, so `_owners_cli` must take the Namespace. Regression for the
+    shipped `TypeError: _owners_cli() takes 0 positional arguments but 1 was given`."""
+    r = subprocess.run([sys.executable, str(SCRIPT), "owners"], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "llgenie-issse-implementer" in r.stdout
+    assert "TypeError" not in r.stderr
+
+
 def test_scan_clean_board_exits_zero(tmp_path):
     kj = tmp_path / "board.json"
     kj.write_text(json.dumps([{"id": "t_ok", "assignee": g.CLASS_OWNER["docs"], "status": "blocked",
