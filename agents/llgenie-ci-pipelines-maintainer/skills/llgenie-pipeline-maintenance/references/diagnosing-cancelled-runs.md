@@ -169,6 +169,53 @@ reaches the Hub. **Prove the guard catches the bug before trusting it:** plant t
 lowest primitive, or add the symbol to the pattern) and confirm the guard reds; a guard only ever run
 on the clean tree has demonstrated nothing.
 
+## The gate-coverage gaps this class leaves (audit #1420, 2026-11-01, sha 506a9fb4)
+
+Auditing whether a cancelled/stale-head run can pass every gate green found two residual gaps
+(filed #1422 and #1423, implementer queue): (A) **no gate reads `run_attempt` anywhere** —
+airright scan of every workflow + every script = zero hits, so a re-run (attempt 2) is
+indistinguishable from the attempt it replaced at every alarm site (`ci_verdict.superseding_run()`
+supersedes on workflow_id/branch/created_at only, never run_attempt); (B) `auto_merge`
+`RED_CONCLUSIONS = {failure,timed_out,startup_failure}` deliberately excludes `cancelled` and
+`neutral`, so a cancelled-CI head or a ci-verdict-`neutral` (superseded) head reads GREEN at the
+merge gate (`auto_merge.py:243`). #843/#1111/#817 already cover cancelled readability, the
+no-verdict red, and zero-in-progress — those are NOT new findings. When a re-run or a
+cancelled-mergeable head is in play, check run_attempt and the RED_CONCLUSIONS inclusion before
+trusting a "green" merge gate.
+
+A cancelled run that is a re-attempt and a cancelled run that is final are two different facts;
+a gate that cannot read `run_attempt` cannot tell them apart.
+
+## A file written by write_file can be missing its final newline — run lint after adding any new doc file
+
+`write_file` on a NEW `.md` file can drop the trailing newline even when the content looks
+complete, so the next `make ci-lint` (lint_linefeeds) reds it: "files missing a trailing
+newline". My #1444 added `agent-wiki/...-trigger.md` + `docs/changes.d/...-trigger.md`; CI's
+ci-scope job failed lint only because both lacked the closing newline. Fix:
+`PYTHONDONTWRITEBYTECODE=1 python3 scripts/lint_linefeeds.py --fix` (host), then re-run the
+lint gate, then amend+force-push to the PR's own head. (CI on the old head already fired, so a
+body edit does not re-trigger pull_request workflows — you must push a new commit or the fix
+never reaches the runner.)
+
+## Run origin governs what can be re-run: `workflow_run` runs are not retryable
+
+`gh run rerun [--failed]` REJECTS a run whose `event` is `workflow_run` with "This workflow run cannot
+be retried". Every reaction workflow in this repo (auto-merge, ci-verdict, run-failure-reactor
+completing) is `event=workflow_run`, so a cancelled one of those is NOT a verdict to heal. Any script
+that bulk-selects cancelled/failed runs (the `ci_requeue` healer is the living example) must filter on
+`event`, not only on `conclusion`: one non-retryable reaction run aborts the whole heal and leaves every
+retryable cancellation behind it unhealed — `make ci-requeue-cancelled` EXITS 1 and heals nothing that
+pass. Skip-and-report the non-retryable origin (name its id + `event`), and let the retryable ones still
+run. Prove the guard with a negative control: plant a cancelled `workflow_run` run in the window and
+assert the retryable runs are still re-run while it is skipped, not fatal.
+
+**Verification dispatch is itself a measurement.** Dispatching a workflow to prove a
+`workflow_run`-triggered monitor finally fires can surface a pre-existing defect in the dispatched
+workflow. When that dispatch fails, read the failing job's LOG, resolve the offending run id and its
+`event`/`workflow_id`, and file+route it as a finding — do not register only the green you were chasing
+and let the red you induced pass unexamined. The green you wanted and the red you found are both
+results of the dispatch.
+
 ## Recovery: re-run, never push
 
 To get a verdict on a cancelled head, `gh run rerun <run-id>` — a re-run **keeps the sha** and produces

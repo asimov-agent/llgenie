@@ -208,6 +208,27 @@ runs the gate). Run this check when adding a gate or a class, and before believi
 covered." Warning sign to also grep for: a class name the job map references but `CLASSES` never emits
 (typo/dead need) — symmetric to the dead selector.
 
+## A docs glob must not swallow a buildable artefact (Dockerfile → published image)
+
+A path can be BOTH documentation and an image source, and the docs class wins the race that matters.
+Measured: `CLASSES["docs"]` carried `openspec/**`, which swallowed `openspec/Dockerfile` — a diff
+touching only that Dockerfile classified as `docs`, `ci-images` was skipped, the image was never
+published, and `python3 scripts/ci_images.py pull openspec` then failed `openspec:<hash> is not
+published`. The image hash is derived from the Dockerfile alone, so editing the Dockerfile is precisely
+the change that must republish it — yet it was the one change that skipped the publisher.
+
+- **Check every docs-class glob for a buildable artefact under it.** A `Dockerfile`,
+  `docker-compose*.yml`, or any file whose bytes feed a `scripts/ci_images.py` hash belongs in the
+  `containers` class, never `docs`.
+- **Fix by NARROWING the docs glob, in BOTH places at once** (`openspec/**` → `openspec/changes/**` +
+  `openspec/config.yaml`), editing `ci_scope.py CLASSES["docs"]` AND `ci.yml pull_request.paths-ignore`
+  in one commit. The equality test (`test_ci_yml_ignores_exactly_the_docs_trigger_list` asserts
+  `set(CLASSES["docs"]) == set(ci.yml paths-ignore)`) reds if only one moves, and a `openspec/**` left
+  in either place keeps pulling the Dockerfile back into docs.
+- **Prove it on the OLD tree first:** run the classifier on the pre-fix check out — the moved path must
+  classify `docs` / no-`ci-images` before and `containers` / `ci-images` after. A rule only ever run on
+  the fixed tree has demonstrated nothing.
+
 ## Pitfalls
 
 - **A PR that mixes docs with anything else runs BOTH workflows.** The docs workflow's `paths:` matches

@@ -26,6 +26,35 @@ that was deliberately raised), and burns a review cycle.
      criteria are met; there is nothing to implement. Do not write a PR.
    - **A genuine residual gap** -> implement the narrow remaining change.
 
+## Run the acceptance at the EXACT sha the dispatch names — not at "current main"
+
+A dispatch that says "`<command>` passes at `<sha>`" is a claim about **that commit**, and the only
+measurement that settles it is running the command **at that sha** (check it out in a detached
+worktree: `git worktree add --detach /tmp/wt <sha>`). Verifying at current `main` or at a candidate
+vehicle's head proves something else and will keep you circling: the dispatch's premise can be false
+at its own coordinate while the current tree looks fine, or vice-versa. Measured: a dispatch asserted
+a LIVE seam "passes at `1fc00f30c` with those 7 carried over"; the seam was measured green at current
+main and at the candidate head, and only the run **at `1fc00f30c` itself** showed `LIVE_RC=1` — 18
+genuine 404/410 dead-link failures and **0** carry-over notes, refuting the premise at its own sha.
+Quote the gate's own log lines and the rc from that run; that is the deliverable.
+
+When the premise *is* false at that sha but green on the vehicle head, the honest conclusion is usually
+"the fix is the data/drop candidate already open" — not "write the gate-logic change." Two halves of a
+dispatch often differ: a policy half that is **already implemented and pinned by a passing suite**
+(changing it = duplicating plus possibly weakening a locked negative case) versus a genuine-removal
+half that **must stay red** ("passes now" includes "still reds on a real removal"). Prove both at the
+same sha before accepting or rejecting the dispatch.
+
+## Verify presence/absence against the artifact's REAL encoding, not a display-form grep
+
+A grep for an identifier in the form the dispatch/issue uses can report MISSING for something that is
+present, because the artifact stores a normalized form. Measured: a catalog keyed by model-id stored
+`lfm2-5-24b-a2b` and held `qwen3.8-27b`, `orbin-1.5-35b-moe`, `nemotron-dory-4b`; a grep for the
+dispatch's `mid/engine` (`lfm2.5-24b-a2b/SGLang`) form reported all seven "MISSING" while every model
+was present. Load the parsed artifact (JSON keys) and assert against that, or quote the gate's own
+NOTE/summary lines — never conclude absence from a grep of a differently-spelled form. A `grep -c |
+cut` pipeline that yields `0`/empty is a parse bug, not evidence of absence.
+
 ## When it is already satisfied
 
 - **Do not fabricate a no-op PR.** A commit that changes nothing to close an issue is a lie on the

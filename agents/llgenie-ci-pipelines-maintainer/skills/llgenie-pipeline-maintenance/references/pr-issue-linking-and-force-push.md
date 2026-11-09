@@ -54,6 +54,43 @@ surfaces must name the new issue; neither may name the old one as closed.
    If `auto` is `NONE`, re-arm with `gh pr merge <n> --squash --auto`. Report the arm time from
    `enabledAt`, and confirm `head` equals the amended sha — an arm read at the old head is not proof.
 
+## Rebasing a stale base: the base is the CANONICAL remote's `main`, not the name `origin/main`
+
+`check-pr-base` (issue #845) reds the guard job when your branch's merge-base with the **live**
+`origin/main` is not `origin/main` itself — i.e. main advanced past your cut. Inside CI `origin/main`
+is canonical `asimov-agent/llgenie` main, so a branch cut even a few merges back reds the moment main
+moves. This is neither a product defect nor a test failure: read the guard job's LOG for the merge-base
+sha it names, then rebase. But the rebase base is the trap.
+
+- **Resolve the true base with the API, never the remote name.** `git rebase --onto origin/main …`
+  rebases onto whatever `origin` points at. On this host `origin` is sometimes the fork
+  (`andyholst/llgenie`), whose `main` can sit *behind* canonical main and predate files your branch
+  imports — the rebase then silently drops them and the test import fails with an
+  `ImportError`/`ModuleNotFoundError`-shaped red unrelated to your change (measured: rebasing onto the
+  fork's `main` removed a pinned-publisher script the trigger imported). Ask the API for the tip:
+  `gh api repos/asimov-agent/llgenie/branches/main --jq .commit.sha`.
+- **Prove the lineage before trusting the tree.** The direction test
+  `git merge-base --is-ancestor <your-base> upstream/main` returns true AND the reverse
+  (`--is-ancestor upstream/main <your-base>`) returns **false** when `<your-base>` is stale relative to
+  canonical main. Both-true or reverse-true = you are on a divergent/behind lineage (a fork `main` was
+  literally an ancestor of the real base here).
+- **Re-do it cleanly onto canonical main:**
+  ```
+  git fetch upstream main
+  git rebase --onto upstream/main <your-original-base> <your-commit>
+  ```
+  then confirm `git merge-base upstream/main HEAD` equals `upstream/main` exactly, the vanished file is
+  back, and re-run the shape gates (`check_proc_gate`, the affected tests) against this tree — a second
+  rebase onto a newer main can reintroduce conflicts and drop-file regressions the first one masked.
+- **Container caveat.** Running `scripts/check_pr_base.py` inside the mount-point test container can
+  fail on `git rev-parse HEAD` because the mount is a separate full clone whose `.git` is not the
+  worktree's. Do not read that in-container error as a real base failure — verify the base condition
+  with HOST git's `git merge-base upstream/main HEAD` instead.
+- **Worktree detached-HEAD trap.** A `git rebase` leaves HEAD detached; `git push` then reports
+  "up-to-date" because the branch ref still points at the old sha. Re-point the ref
+  (`git branch -f <branch> HEAD && git checkout <branch>`) and re-read `git rev-parse --abbrev-ref HEAD`
+  before pushing.
+
 ## Pitfalls
 
 - **Do not rename the branch to chase the new issue number.** A force-pushed new head is enough;

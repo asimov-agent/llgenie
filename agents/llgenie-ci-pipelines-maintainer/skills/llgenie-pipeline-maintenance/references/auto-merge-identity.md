@@ -127,6 +127,23 @@ not exist. Verify before claiming any check gates a merge: `gh api repos/<o>/<r>
 
 ## A red `check-pr-authors` is fixed by RE-AUTHORING, never by editing the allowlist
 
+**First, verify the red is real and the branch is YOUR OWN live work.** A `check-pr-authors` "red" on a
+PR that has already merged is a phantom — its head, body and branch are frozen and the branch ref is
+deleted, so there is no commit to re-author and no ref to force-push as (`gh pr view <n> --json
+state,mergedAt,merge_commit_sha,head` first; `merged:true` → refuse, nothing is owed, reply with the
+merged sha and merge-commit file list). The re-author remedy assumes (a) the guard actually reds at a
+LIVE head (`gh pr checks <n>` and the guard job's `##[error]` line), and (b) you are on your OWN branch
+(`git rev-parse --abbrev-ref HEAD`) — re-authoring another lane's branch, or re-creating a deleted one to
+re-push, is never yours to do.
+
+**A bot lane re-authors to the BOT allowlisted identity, never to the human owner's.** `ALLOWED` in
+`scripts/check_pr_authors.py` contains both `Andy Holst <andy.holst@protonmail.com>` and
+`Asimov Agent <support@docondee.com>`. `andy.holst` belongs to the human owner; a bot `git`
+`user.name/user.email` (this lane's standing identity is `Asimov Agent <support@docondee.com>`) must never
+be switched to the owner's address to satisfy a gate — that is false attribution, not a metadata fix. If a
+dispatch names the owner's identity as the re-author for a bot branch, refuse (say the gate is met under
+the bot identity or the red is a phantom), and do NOT misattribute a commit to the owner.
+
 `scripts/check_pr_authors.py` reds a branch whose commit AUTHOR EMAIL is not in `ALLOWED` — the failure
 message names the remedy verbatim. This happens when a bot commit is authored under a local identity such
 as `bot@llgenie.local` that nobody added to the allowlist. Do not "fix" it by adding that address to

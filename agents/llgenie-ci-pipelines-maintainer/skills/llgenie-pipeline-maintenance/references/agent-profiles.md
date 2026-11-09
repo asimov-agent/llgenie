@@ -71,6 +71,40 @@ The escape hatch has to be reachable through the documented interface (`make …
 end against a temporary destination — refusal leaves the live file byte-identical, the forced run writes
 and reads back.
 
+**The two seams are destructive in OPPOSITE directions, and "reload my SOUL/skills" authorises NEITHER.**
+`sync-agent-profile` writes tree→live (loses live-only lines); `tester-fold-live … COPY=1` writes
+live→tree (loses tree-only lines, and lands in a COMMITTED file). Measured on two lanes: the fold
+overwrote 31 tree files and destroyed 72 tree-only lines across 12 files (a 35-line SKILL.md block among
+them), and the mirror-image install of a canonical SOUL/SKILL into live replaced 178 live-only lesson
+lines. So a "reload" request is answered with MEASUREMENT, twice, read-only:
+
+```bash
+make sync-agent-profile PROFILE=<p> CHECK=1     # rc=2 + "N of M differ" + how many would SHRINK live
+make tester-fold-live PROFILE=<p>               # rc=2 + the same/drifted/live-missing/live-only/mid-write counts
+```
+
+Never `COPY=1` or `FORCE=1` without a line-subset proof that no line on the losing side disappears
+(`comm -13 <(sort -u loser) <(sort -u winner)` must be empty). "Reload" is not a licence to write; the
+divergent classification above is exactly the case where BOTH directions destroy, so the answer to a
+reload request can legitimately be the numbers and a filed issue.
+
+**Reading the canonical file is NOT a reload, and a reload is only proven by hash equality.**
+`git show origin/main:<path>` plus a `skill_view` of the live skill shows you the text; the profile this
+session actually loads is untouched until the file is WRITTEN to the profile home, so "I re-read my
+SOUL" answers a different question than "my live behaviour is the canonical one". Prove the end state,
+not the read: `git show origin/main:<path> | sha256sum` against `sha256sum <profile-home>/<path>`, equal
+for BOTH `SOUL.md` and the lane `SKILL.md` (they can drift independently — a live SOUL 3 rules behind
+canonical while its SKILL is current). Report the two hashes; a reload reported without them is a claim
+about a read.
+
+**When a reload-by-install is nonetheless done, preserve the losing side and file it — never re-add it
+privately.** Back the live file up first (`backups/<name>-<utc>/` with the live copies, the live-only
+lines, and a full `diff -u`), install canonical, then record the survivors as an issue under
+`agents/<profile>/` ("behaviour is versioned here, never a private edit"). A private re-add re-creates
+the drift the next sync destroys; the tree is the only durable home. And after either seam, prove the
+repo is untouched (`git diff --name-only HEAD` → 0) — the tree is what a `COPY=1` damages, so a clean
+`git status` is the evidence that the pass was read-only.
+
 ## Covering the half of the comparison that cannot run in CI
 
 The live-vs-tree comparison needs `~/.hermes/profiles/`, which a CI runner does not have, so its strongest
