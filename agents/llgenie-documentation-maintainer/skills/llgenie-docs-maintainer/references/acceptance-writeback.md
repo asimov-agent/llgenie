@@ -127,6 +127,39 @@ failed jobs (`gh run rerun <run-id> --failed`) re-reads the PR body from the wir
 corrected body is exactly what the gate judges. Push an empty commit only when you also need a fresh
 head sha.
 
+### Prove the red at the STEP level, not the check-run name
+
+`gh pr checks` lists check-RUN conclusions (`guard  fail`, `scope  fail`, `ci-verdict  fail`), and three
+failing names read as three independent broken gates. They are almost always ONE failing step mirrored
+through the aggregating jobs: `guard` and `scope` both call `make check-pr-acceptance`, and `ci-verdict`
+reads back the guard's scope-decision artifact. Read each job's own `steps[]` before you believe the
+count:
+
+```bash
+gh api "repos/<o/r>/actions/runs/<run>/jobs" \
+  --jq '.jobs[]|select(.name=="scope")|.steps[]|"\(.conclusion//"pending")  \(.name)"' | grep -i fail
+```
+
+That one command converts a hand-wave into proof: it shows every non-acceptance step (`make ci-lint`,
+`check-docs`, `check-wiring`, `check-issue-bodies`, `check-pr-closing`, `check-pr-acceptance-form`) as
+`success` and names the single `failure  make check-pr-acceptance`. Only then is "every controllable
+gate is green; the sole red is the reviewer-gated write-back" a measured claim instead of an assertion.
+
+### When the write-back is genuinely verdict-gated, completion is evidence + hand-off, never a self-tick
+
+If the step-level read confirms the only red is `check-pr-acceptance` AND the boxes are proven, the
+correct close-out is three things — a self-tick is never one of them (the seam's write-back belongs to
+the lane holding the verdict, per the bounding rule):
+
+1. Post the step-level evidence on the PR (which steps passed, the one that failed, and the per-AC proof:
+grep counts, the twin test pass, the mutation-bites result).
+2. Give the reviewer the exact command with a MEASURED verdict-ref (head sha + CI run id), e.g.
+`acceptance_writeback.py writeback --issue N --proven 1,2,3,4,5 --verdict-ref '<review>/<sha>/<run>'`.
+3. State plainly on the record that the PR is NOT claiming the acceptance gate passes — it cannot until
+the reviewer ticks it. "Every verification in this lane's power is done and proven at `<sha>`" is the
+honest terminal state; repeatedly re-asserting "it's by design" without the step-level read is what keeps
+a completion guard (and a reviewer) from accepting the report.
+
 ## Don't reconstruct a merged fold's boxes by eye
 
 If a dispatch says "tick the boxes via the seam", the deliverable is the seam's output (the issue
