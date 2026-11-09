@@ -274,11 +274,16 @@ def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
     import ci_images
 
     root = _copy_inputs(tmp_path)
-    # the agent image's own inputs (its Dockerfile + every script it COPYs) must exist in the
-    # copy — read from the registry's input list, so adding a script cannot leave this behind
+    # the agent image's own inputs (its Dockerfile + every script it COPYs, plus the whole
+    # agents/ tree) must exist in the copy — read from the registry's input list, so adding a
+    # script cannot leave this behind (a directory input is copied as a tree)
     for rel in ("containers/agent/Dockerfile", *ci_images.IMAGES["agent"][1]):
-        (root / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / rel, root / rel)
+        src, dst = REPO / rel, root / rel
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
 
     before = ci_images.tag("agent", root)
     # a change to the test image's lockfile changes the test tag, hence the agent tag
@@ -286,6 +291,50 @@ def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
         f.write("pytest-timeout==2.3.1\n")
     after = ci_images.tag("agent", root)
     assert before != after and re.fullmatch(r"[0-9a-f]{12}", before)
+
+
+def test_agent_tag_changes_when_a_lane_profile_changes(tmp_path):
+    """A change inside agents/ (a lane SOUL.md or skill) must move the agent image tag — that is
+    what makes a stale image visible: a job pulling :latest pulls an image that carries the lanes
+    of THIS commit, not whatever the agent image last happened to be built with (issue #2181)."""
+
+    import ci_images
+
+    root = _copy_inputs(tmp_path)
+    for rel in ("containers/agent/Dockerfile", *ci_images.IMAGES["agent"][1]):
+        src, dst = REPO / rel, root / rel
+        if src.is_dir():
+            shutil.copytree(src, dst)
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+    before = ci_images.tag("agent", root)
+    # the lane tree is a hash input: edit a manifest lane's rulebook and the tag must move
+    soul = root / "agents" / "llgenie-planner" / "SOUL.md"
+    soul.write_text(soul.read_text() + "\n# a rule the lane gained\n")
+    after = ci_images.tag("agent", root)
+    assert before != after and re.fullmatch(r"[0-9a-f]{12}", before)
+
+
+def test_agent_context_carries_the_agents_tree_under_its_own_subdir():
+    """The agent Dockerfile COPYs agents/ — a flat context would collide every lane's SOUL.md
+    onto the same basename, so the whole tree lands under agents/ preserving subpaths (issue
+    #2181)."""
+
+    import ci_images
+
+    ctx = ci_images.context("agent")
+    try:
+        a = ctx / "agents"
+        assert a.is_dir(), "the agents/ tree must be in the context"
+        assert (a / "manifest.json").is_file()
+        assert (a / "llgenie-planner" / "SOUL.md").is_file()
+        # and the install scripts still sit flat at the context root, as the Dockerfile COPYs them
+        assert (ctx / "install_hermes_ci.sh").is_file()
+        assert (ctx / "Dockerfile").is_file()
+    finally:
+        shutil.rmtree(ctx)
 
 
 def test_publish_agent_moves_latest_when_the_hash_is_already_published(tmp_path):

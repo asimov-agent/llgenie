@@ -46,6 +46,7 @@
   ],
   "Structural gates": [
    "changes_index",
+   "agent_lanes_check",
    "check_agent_profiles",
    "check_agent_skills",
    "check_architecture_census",
