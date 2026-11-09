@@ -20,7 +20,7 @@ BASE_BRANCH=${STACK_BASE:-feat/agent-profile-implementer-skill}
 # The resolver sits beside the other skill scripts; fall back to the historical profile path only
 # if that file is absent, so an un-migrated host still works.
 RESOLVER=${REBASE_RESOLVER:-$(dirname -- "${BASH_SOURCE[0]}")/resolve-fleet-triple.py}
-[ -f "$RESOLVER" ] || RESOLVER=/home/asimov/.hermes/profiles/llgenie-pr-merge-conflict/cache/scratch/resolve-fleet-triple.py
+[ -f "$RESOLVER" ] || RESOLVER="$HOME/.hermes/profiles/llgenie-pr-merge-conflict/cache/scratch/resolve-fleet-triple.py"
 cd "$P" || exit 1
 git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" --quiet
 BASE=refs/remotes/origin/$BASE_BRANCH
