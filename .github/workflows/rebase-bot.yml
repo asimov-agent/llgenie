@@ -19,9 +19,12 @@
 #     so if the two ever collide the second one is REJECTED loudly — nothing is clobbered in
 #     either direction. This bot additionally skips any PR whose checks are IN FLIGHT, which is
 #     what makes a collision unlikely in the first place;
-#   * a merely-BEHIND PR that is RED is left to the fix-bot (a rebase fixes staleness, not a
-#     failing test); a CONFLICTED PR is taken even when red, because the rebase is the
-#     precondition for anything else to be fixable;
+#   * a red PR whose only red is the staleness gate and is MEASURED behind is taken HERE, not
+#     left to the fix-bot — a rebase is the precondition for `check-pr-base`, so "fix-bot owns
+#     a red PR" cannot swallow a stale one (#2071). A PR red for a real failing test is still
+#     the fix-bot's; the narrowing keys on the measured-behind fact, never the state string.
+#     A CONFLICTED PR is taken even when red, because the rebase is the precondition for
+#     anything else to be fixable;
 #   * the implementer cannot be raced: it pushes a NEW branch and only then opens the PR, so a PR
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
