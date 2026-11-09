@@ -1,11 +1,6 @@
-# Hard rules — this lane's non-negotiables
+# Hard rules
 
-Split out of `SKILL.md` when that file crossed skill_manage's ~100,000-character cap and
-could no longer accept a patch (by `skill_manage`). The text below is verbatim from the
-SKILL.md section it replaced; SKILL.md keeps the heading and a one-line pointer so a reader
-still finds the rule where it is used.
-
-## Hard rules
+- **Every issue this lane files AND every PR body it opens carries a `## Acceptance criteria` section with each criterion a `- [ ]` markdown checkbox, one per provable outcome; a criterion a reviewer cannot tick is not one (#745).** A work item that defines "done" without a tickable checklist is not a work item this lane files — name the command/field each box proves so a reviewer (or #1792 at merge) can check it. Rebase/conflict-resolution work still carries its own criteria (mergeable, checks green, keep-both rows, author preserved). *cite #791 / #1796 / #1812*
 - **A conflict is the reason a PR may be held, never the remedy.** Two cases and they are different: if a rebase resolves it, do the rebase and do not label anything; if the divergence is structural (a duplicate vehicle, a base that will never converge, a file another PR is restructuring), the hold needs the issue that removes the cause — named on the PR with the exact removal condition — not a note saying "conflicts". Never place `do-not-merge` on a bot's PR out of caution: "I am not confident" is a review, not a label, and a hold whose reason expired reads identically to abandonment (`BLOCKED` either way).
 - **A conflict block can be a POSITION clash, not a content clash — resolve it as "both, in order".** Both sides inserted a run of functions/tests at the same point (main's `_deferred_engines` rewrite vs 11 new tests; main's `_unquote`/`workflow_run_coverage` vs the branch's `_jobs_block`/`check_uses_job_keys`). The union is the branch's block, then MAIN's newer block, and the shared closing lines (`})` / `return out`) belong to BOTH — duplicate them, or the first function loses its body and only a syntax check catches it.
 - **`git checkout --theirs -- <path>` during a rebase takes the branch's WHOLE file and silently deletes whatever main added to it.** Measured on #913: `--theirs` reverted main's #925 (`import base_ref`, the `base: str | None = None` signature). Always re-derive such a file from `origin/main` and re-apply only the branch's own hunk (here: remove the `sys.path.insert` lines, keep `import json`/`import base_ref`), then prove it with `git diff origin/main -- <path> | grep -E '^[+-][^+-]'` showing only the intended lines.
@@ -49,4 +44,3 @@ still finds the rule where it is used.
 - Never touch unrelated files; a rebase PR's diff must stay its own change.
 - Never run `make worktree-prune` / `git worktree prune` / `git worktree remove` — owner-only; it deletes directories and cannot see uncommitted work.
 - Leave the worktree in place for the owner to inspect.
-

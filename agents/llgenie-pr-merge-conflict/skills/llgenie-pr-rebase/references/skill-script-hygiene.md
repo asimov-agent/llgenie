@@ -124,6 +124,17 @@ The symptom is that a bug you fixed in the tree is **still present when run thro
 
 The sync itself is guarded: it **refuses** with `live-edited-not-tree` when the live file was edited after the tree commit. That refusal is correct — merge the live file's unique lines *into the tree* deliberately (issue + PR), never reach for `--force`. A recurring cause is a `skill_manage` patch that wrote the same lesson with different typography (curly vs straight quotes); the fix is to delete the redundant live copy and keep the tree's text.
 
+**Two directions, only one is safe: `sync-agent-profile` writes tree→live; the fold tool's `COPY=1` writes live→tree and DESTROYS tree-only lines.** Measured: a lane hit a 29-of-64 file drift, ran the fold with `COPY=1`, and it overwrote 31 tree files with live content and deleted 72 tree-only lines across 12 files (a SOUL rule and 35 lines of a SKILL.md among them) — a plain `git checkout -- agents/<lane>` was the only recovery. So **measure read-only and never `COPY=1`/`FORCE=1` without a line-subset proof that no tree line disappears**:
+
+```bash
+make tester-fold-live PROFILE=<lane>            # read-only: reports drift counts, writes nothing
+make sync-agent-profile PROFILE=<lane> CHECK=1  # read-only: byte-identical yes/no per file
+```
+
+Report the drift counts and stop there. A live profile that carries lines the tree lacks is a *finding to land by issue + PR*, never a merge to run in place — and the counts go in the report so the next reader is not re-deriving them.
+
+When the sync refuses on an **unrelated** file (one your change does not touch), that is not a blocker for your PR: confirm your own file is already byte-identical (`md5sum <tree-file> <live-file>`), add the `SYNC:` body line, and **disclose the refusal and the drifting file in the PR body**. Silently forcing it destroys the drift owner's content; silently omitting the `SYNC:` line leaves the guard gate red.
+
 ## A detector must not conflate "nothing found" with "couldn't tell"
 
 A monitor whose gate suppresses unchanged output turns a false negative into a **permanent** one: wrong-but-stable output suppresses the very tick that would catch it. Measured: a DIRTY detector read GitHub's `mergeable` field, which returns `UNKNOWN` while computing, and mapped that to "no conflicts" — at one moment **every open PR read `UNKNOWN`**, so it printed `conflicting: none` and would have suppressed every subsequent tick even with a real conflict present. Fold the undetermined set through the authoritative measurement (`git merge-tree`) instead, and keep the output stable so quiet ticks still suppress.
@@ -160,6 +171,46 @@ def test_every_python_script_is_executable():
 ```
 
 The negative control is `chmod -x <one script>` → the test must red. Prove it.
+
+## A script that runs under cron or systemd must resolve its own binaries
+
+A scheduler does not inherit your interactive PATH. Measured: a shipped detector spawned a bare `"gh"`,
+and the cron process's PATH omitted the user toolchain shim directory, so every tick died before it read
+anything — `FileNotFoundError: 'gh'` inside a `subprocess.run([...])`.
+
+The failure shape is worse than a red: a monitor whose crashed run prints a traceback instead of
+`nothing found` is *silent* to a gate that suppresses unchanged output, and silence is indistinguishable
+from a clean result. The lane was blind while PRs genuinely conflicted.
+
+Resolve the way a login shell would, and keep the bare name as the final fallback so a genuine absence
+still names the binary rather than becoming a wrong guess:
+
+```python
+_BIN_DIRS = [os.path.expanduser("~/.local/share/mise/shims"), "/usr/local/bin", "/usr/bin", "/bin"]
+
+def _resolve_bin(name: str) -> str:
+    found = shutil.which(name)
+    if found:
+        return found
+    for d in _BIN_DIRS:
+        cand = os.path.join(d, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return name          # FileNotFoundError then names the binary, which is the useful failure
+
+GH  = _resolve_bin("gh")
+GIT = _resolve_bin("git")
+```
+
+Prove it under the scheduler's own environment, not yours — this is the negative control, and a run in
+your interactive shell proves nothing:
+
+```bash
+env -i HOME="$HOME" PATH=/usr/bin:/bin python3 <script>   # must print the normal result, rc=0
+```
+
+Also re-run the quiet-path contract in that same environment: two consecutive runs must still emit
+byte-identical output, or the cron gate stops suppressing quiet ticks.
 
 ## A script that reads `sys.argv[1]` must print usage, not a traceback
 
@@ -220,6 +271,13 @@ the rest; a whitelist is a growing list of holes you have to keep remembering to
 
 When a defect is found in one of two near-identical scripts, the same bug is almost always in the other, and finding it costs one grep. Measured: a hardcoded absolute repo path was fixed in `salvage-four-bucket.py`; a `grep -rn '/home/<user>'` across the skill scripts then found the identical pin in `batch-rebase.sh`, `stack-replay.sh` and a monitor — the three that actually perform rebases. A hardcoded absolute path in a shipped script is invisible on the machine it was written on, which is exactly what lets it survive review.
 
+**Re-grep to prove a fix landed; a prior turn's "done / not covered" note is a claim, not evidence.**
+Measured: a sweep reported certain files as already handled, and a later `grep -c '/home/<user>'`
+found the literal still in two shell scripts — the reported fixes had not actually been written.
+After any path/string sweep, count occurrences per file with `grep -c` and require the expected
+number per file (0 where converted, the carve-out count where parsed); a report that says "all
+clean" without a per-file count behind it can be describing edits that never happened.
+
 The corollary for this lane: a fix applied to the canonical copy only still leaves the resolver-loading twin stale, but the answer is **one canonical copy**, not a second one to mirror. Any divergence in the live pair is drift to clear by landing the tree's single copy (issue + PR) and re-syncing — never by patching both copies to agree, which is how the document-copy collision is regenerated (issue #1156).
 
 ## A shipped script must resolve its repo, never pin one host path
@@ -251,6 +309,34 @@ return "/home/<user>/repository/git/<repo>"   # documented fallback, not a silen
 
 Verify every branch of the resolution: no-arg resolves the worktree the script lives in, the env
 var overrides, and an explicit argument wins.
+
+### A home-path sweep must classify by EXECUTION context, not by file type
+
+Replacing `/home/<user>` with `$HOME` is correct **only where a shell expands it**. A blind sweep
+over every occurrence breaks the parsed contexts and silently disables the code you were making
+portable. Classify each hit by whether `$HOME` reaches a shell:
+
+| context | `$HOME` expands? | action |
+|---|---|---|
+| shell script body, `bash -c`, unquoted heredoc `<<EOF` | **yes** | convert to `$HOME/...` |
+| Python heredoc `<<'PY'`, `python3 -c '...'` (single-quoted), `.py` file, JSON/YAML/Makefile value | **no** | leave absolute — `$HOME` is a literal string there |
+| crontab entry | depends on shell; treat as no | leave absolute |
+
+Measured: a sweep that converted a the `[ -f "$RESOLVER" ] || RESOLVER=/home/...` fallback in a
+bash script was right, but the SAME sweep on a `python3 -c '...'` line or a `.py` script would have
+written a literal `$HOME` that never expands — a path that resolves to a directory named `$HOME`
+under cwd and fails at runtime. Grep-then-classify (`grep -rn '/home/<user>' <tree>` then read each
+hit's enclosing fence/quote), never `sed -i` across the tree.
+
+**Do not touch a COMMENT that recounts a past defect.** "the sibling pinned `/home/<user>/...` and
+would have failed on every runner" describes the literal-path bug — converting it to
+`$HOME/... would have failed` inverts the sentence into claiming the CORRECT form is broken.
+Reword the prose instead ("a hardcoded home path …"), or leave the comment; a comment is not
+shipped behaviour and rewriting it to match the sweep is a regression of meaning, not a fix.
+
+The negative control: after the sweep, every remaining `/home/<user>` must sit in a parsed
+context or a comment (grep the hits and read each one); every converted line must be in a shell
+context. A hit that is `$HOME` inside a single-quoted Python string is the bug this rule prevents.
 
 ## The OUTPUT is the contract, not the return value
 

@@ -84,6 +84,86 @@ git -C "$WT" rev-parse "$(git rev-parse $REMOTE/$BR)^{tree}"
 A rebase completed and parked (branch moved onto the new base, nothing pushed) is a legitimate terminal
 state for a diverged branch, and a far better one than a clean-looking push that destroys work.
 
+### When the branch owner DELEGATED the rebase, do not park — re-cut THEIR head
+
+"Leave it to its lane" assumes the lane is doing the rebase. If that lane explicitly handed it to you
+("my lane does not rebase"), parking leaves the PR conflicted with nobody working it — the delegation
+was the whole point. The correct move is to discard **your** prepared cut and replay **their** current
+head onto the new base, because their newer push may carry work yours does not.
+
+Decide with one diffstat before replaying, never by sha names or commit count:
+
+```bash
+# their newest head vs your prepared cut — is theirs a superset of yours?
+git diff --stat <their-head> <my-cut>                 # what mine has that theirs lacks
+for c in <their-head> <my-cut>; do git diff --stat $c^ $c | tail -1; done   # each commit's OWN size
+```
+
+If their commit's own diff is **larger** (more files, or files yours never touched), yours is the older
+generation: replay theirs. Measured: a re-cut prepared from an earlier head carried 11 files while the
+owner's fresher push carried 13, including a whole script and its test that my cut would have deleted —
+and the conflict set (`CHANGES.md` alone) was identical for both, so nothing about the rebase itself
+revealed the difference.
+
+After replaying theirs, prove no work was lost before pushing:
+
+```bash
+git ls-tree -r --name-only HEAD | grep -c '<a file only their version has>'   # WANT >= 1
+git diff --name-only origin/main...HEAD | wc -l                               # >= their own file count
+```
+
+Re-stamp the body at the new base afterwards either way — the head moved, so the previous `AGENTS:` sha
+is stale even though you did not author the change.
+
+### A branch that resolves itself between your fetch and your push is not an owed rebase
+
+A lease rejection can mean the owning lane already repaired the PR, so the PR is no longer a rebase
+target and pushing your prepared cut would *undo* their fix. Re-fetch and re-measure before deciding:
+
+```bash
+git fetch origin '+refs/heads/<branch>:refs/remotes/z<N>' >/dev/null
+git merge-tree --write-tree origin/main z<N> >/dev/null 2>&1 && echo CLEAN || echo CONFLICT
+```
+
+`CLEAN` on their new head means stop: the conflict you prepared to resolve no longer exists. Report the
+head that resolved it and push nothing. Measured: a fix-bot pushed its own repaired commit mid-prepare,
+and the correct action was to discard the prepared cut — the PR already read `mergeable=true` with
+`merge-tree` clean.
+
+## 2a. Worktree placement: create it, PROVE it exists, never fall through to the clone
+
+Two failures, both silent, both put your rebase in the wrong tree.
+
+**`git worktree add … && cd "$WT"` does not stop when the add fails.** If the add exits non-zero the `&&`
+short-circuits the `cd`, so the NEXT command runs in whatever directory you were already in — usually the
+owner's clone, where `git rebase` then fails with `error: cannot rebase: You have unstaged changes` (or,
+worse, succeeds against the wrong branch). Assert existence before you `cd`, and make the `cd` itself
+fatal:
+
+```bash
+WT="$HOME/repository/git/llgenie-wt/rb$N"
+rm -rf "$WT"
+git worktree add --detach "$WT" origin/main || { echo "WT FAILED #$N"; continue; }
+test -d "$WT" || { echo "WT MISSING #$N"; continue; }
+cd "$WT" || exit 1
+[ "$(git rev-parse --show-toplevel)" = "$WT" ] || { echo "WRONG TOPLEVEL: $(git rev-parse --show-toplevel)"; exit 1; }
+```
+
+**`No space left on device` from `git worktree add` can be INODES, not bytes — and `/tmp` is where that
+bites.** `df -h /tmp` reporting tens of GB free is not the check; tmpfs has its own fixed inode ceiling and
+every worktree spends thousands of them. Measured: the add died at `cannot create directory …: No space
+left on device` while `df -h` showed 21G free and `df -i` showed **100%** inodes (1,044,085 of 1,048,576)
+across 112 leftover worktrees.
+
+```bash
+df -i /tmp | tail -1      # IUse% near 100 => inode exhaustion, freeing bytes will not help
+```
+
+So place worktrees on **real disk beside the clone**, not under tmpfs:
+`"$HOME/repository/git/llgenie-wt/<name>"` — which is also the skill's documented root — and never "fix"
+the error by deleting worktrees: they are the owner's to prune, and an unpruned one can hold work that
+exists on no remote. Report the inode number and the count, and keep working on disk.
+
 ## 3. Gate, then push once — per PR
 
 ```bash
@@ -246,9 +326,8 @@ docs union, because a doc that lost one engine's paragraph still parses and stil
 **A replayed commit that applies cleanly can still regress the base — gate the whole replay, not just the conflicts.** Stacked-replay failures are not only `UU` conflicts and empty cherry-picks: a replayed commit re-deriving a file whose canonical newer form is already on the base tip applies without conflict yet silently undoes the newer content (measured on a SOUL fleet-block copy: the older generation deleted the base's newer rule-16 bullet, reddening the very gate the branch is about). After a stacked replay, run the branches' own gate; a red in the branch's own territory is the signal to check whether one replayed commit is an older generation — drop it (keep the base's file) rather than hand-reconcile, because its intent is already satisfied by the base.
 
 *detection* needed a hand diff of two trees, which does not scale — so `post-rebase-verify.sh` now
-runs that diff as **check 11** (every tracked text file that lost a base line the branch's OWN diff
-never deleted — the #2099 discriminator read via ORIG_HEAD), proven by
-`scripts/test-revert-detector.sh`, which the pytest suite runs.
+by `scripts/test-revert-detector.sh`, which the pytest suite runs.
+runs that diff as **check 11** (every tracked text file that lost a line the base still has), proven
 
 
 ## Quote headRefOid from the API, never a remembered sha — and prove it is reachable
