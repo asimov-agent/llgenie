@@ -29,6 +29,11 @@
 #                 replay of a captured snapshot); section B reads it instead of gh.
 #   KANBAN_JSON   an alternative kanban list already in hermes kanban --json shape;
 #                 sections C and D read it instead of hermes kanban list.
+#   KANBAN_DB     read-only SQLite path of the kanban board (default $HOME/.hermes/kanban.db);
+#                 section D reads task_runs.profile from it for the mis-profiled-run check.
+#                 Ignored when KANBAN_RUNS_JSON is set.
+#   KANBAN_RUNS_JSON an alternative task_runs excerpt already in [{"task_id", "profile",
+#                 "status"}] shape; section D reads it instead of the DB (tests / replay).
 #   MAIN_OVERRIDE an alternative main sha for section B's staleness comparison
 #                 (replay a historical snapshot; defaults to the freshly-fetched tip)
 
@@ -38,6 +43,7 @@ REPO="${REPO:-$HOME/repository/git/llgenie}"
 SLUG="${SLUG:-asimov-agent/llgenie}"
 HERMES_BIN="${HERMES_BIN:-$HOME/.hermes/hermes-agent/.hermes/bin/hermes}"
 STALL_SWEEP="${STALL_SWEEP:-$HOME/.hermes/profiles/llgenie-planner/cache/scratch/stall_reclaim.sh}"
+KANBAN_DB="${KANBAN_DB:-$HOME/.hermes/kanban.db}"
 JSON=0
 [ "${1:-}" = "--json" ] && JSON=1
 
@@ -131,17 +137,72 @@ print('  Every idle lane with an ownable red PR means the pass is NOT finished.'
 "
 
 # --- D. QUEUE: running / ready / blocked, with every READY task -------------
+# #2353: two ownership/health lines every pass must print. board-ownership is
+# measured from `kanban list --json` (assignee+status, no new dependency);
+# profiled_mismatch needs task_runs.profile, read read-only from KANBAN_DB (or
+# the KANBAN_RUNS_JSON seam, for tests).
 say "D. QUEUE (running / ready / blocked, and each READY task)"
-printf '%s' "$KANBAN_SRC" | python3 -c "
-import sys,json,collections
+if [ -n "${KANBAN_RUNS_JSON:-}" ]; then
+  RUNS_SRC=$(cat "$KANBAN_RUNS_JSON")
+elif [ -r "$KANBAN_DB" ]; then
+  RUNS_SRC=$(KANBAN_DB="$KANBAN_DB" python3 - <<'PY'
+import sqlite3, os, json
+db = os.environ["KANBAN_DB"]
+rows = []
+try:
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = [{"task_id": r[0], "profile": r[1], "status": r[2]}
+            for r in con.execute("SELECT task_id, profile, status FROM task_runs WHERE status='running'")]
+except Exception:
+    pass
+print(json.dumps(rows))
+PY
+)
+else
+  RUNS_SRC='[]'
+fi
+printf '%s' "$KANBAN_SRC" | KANBAN_RUNS_SRC="$RUNS_SRC" python3 -c "
+import sys,json,collections,os
 try: d=json.load(sys.stdin)
 except Exception: d=[]
+try: runs=json.loads(os.environ.get('KANBAN_RUNS_SRC','[]'))
+except Exception: runs=[]
 c=collections.Counter(t.get('status') for t in d)
 for s in ('running','ready','blocked'):
     print(f'  {s:9} {c.get(s,0)}')
 for t in d:
     if t.get('status')=='ready':
         print(f\"    READY {t['id']} {t.get('assignee') or '':32} {t.get('title') or '':44}\")
+# #2353 AC1 — lane-ownership invariant (measured from kanban list --json).
+# The planner legitimately OWNS ready cards only for its own orchestration
+# domain; a bulk assignee rewrite into llgenie-planner inflates planner
+# ready-ownership while collapsing the number of lanes still holding ready work.
+PLANNER='llgenie-planner'
+ready=[t for t in d if t.get('status')=='ready']
+planner_owned_ready=sum(1 for t in ready if t.get('assignee')==PLANNER)
+lanes_with_ready=len({t.get('assignee') for t in ready if t.get('assignee') not in (None,'',PLANNER)})
+# planner-domain cards: ready cards LLGenie's own orchestration machinery
+# created (the planner or its auto-decomposer) and handed to the planner —
+# the plausible ceiling for planner ready-ownership. A bulk assignee rewrite
+# reassigns LANE-created cards into planner; those are not in this set, so
+# planner_owned_ready can never stay under the domain ceiling once it happens.
+PLANNER_CREATORS=('llgenie-planner','auto-decomposer')
+planner_created=sum(1 for t in ready if t.get('assignee')==PLANNER and (t.get('created_by') or '') in PLANNER_CREATORS)
+expect='planner-domain {p} (ready, planner/decomposer-created)'.format(p=planner_created)
+status='OK' if planner_owned_ready<=max(1,planner_created) else 'RED'
+print(f'  board-ownership: planner_owned_ready={planner_owned_ready} (expect <= {expect}) lanes_with_ready={lanes_with_ready} -> {status}')
+# #2353 AC2 — mis-profiled run detection: for every running task compare its
+# active run's profile with its assignee. 2026-11-09's 6 planner-profiled runs
+# on lane tasks print 6 here; a healthy board prints 0.
+run_by_task={r.get('task_id'):r.get('profile') for r in runs if r.get('status')=='running'}
+mismatched=[]
+for t in d:
+    if t.get('status')!='running': continue
+    prof=run_by_task.get(t.get('id'))
+    ass=t.get('assignee')
+    if prof and ass and prof!=ass:
+        mismatched.append((t.get('id'), ass, prof))
+print(f'  profiled_mismatch={len(mismatched)}' + ('' if not mismatched else '  <-- '+', '.join(f'{i}={a}/{p}' for i,a,p in mismatched)))
 " 2>/dev/null
 
 # --- E. STALLED WORKERS (kanban tasks + DM waiters) --------------------------

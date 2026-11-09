@@ -105,6 +105,9 @@ def _run(pr_json, kanban_json):
             "MAIN_OVERRIDE": MAIN,
             "PR_LIST_JSON": pr_json,
             "KANBAN_JSON": kanban_json,
+            # hermetic: section D's mis-profiled-run check reads KANBAN_DB unless
+            # KANBAN_RUNS_JSON is set; a missing path yields '[]' (mismatch 0).
+            "KANBAN_DB": str(Path(tempfile.mkdtemp()) / "absent.db"),
             # never read the real credential helper
             "HERMES_BIN": "/bin/true",
         },

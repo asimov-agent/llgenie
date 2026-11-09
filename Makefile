@@ -1751,6 +1751,9 @@ test-health-host: ## After make install: llgenie serves the 0.5B model through ~
 	@HF_BIN="$${HF_BIN:-$$(command -v hf)}" $(PY) scripts/download_test_model.py
 	$(PY) -m pytest tests/test_health.py -p no:cacheprovider -q -s
 
+test-board-ownership-host: ## HOST-ONLY proof of #2353 AC3 (runs the real hermes CLI against a throwaway HERMES_KANBAN_DB; recorded host-only in unit-suite.json + host-only-wiring.json)
+	@$(PY) -m pytest tests/test_kanban_single_card_reassign.py -p no:cacheprovider -q
+
 test-recall-step: ## Host proof of the orchestrator STEP 2 recall fallback (issue #2186): asserts the pinned 9177 recall returns `results` and that the wrong default port 8888 fails while 9177/health succeeds. Needs the live hindsight daemon on 127.0.0.1:9177 (HINDSIGHT_API_PORT in ~/.hindsight/profiles/hermes.env), which no CI runner has, so it is kept OUT of the hermetic gate (tests/fixtures/unit-suite.json) and run on the tick host
 	@$(PY) -m pytest tests/test_procedure_recall_step.py -p no:cacheprovider -q
 
