@@ -43,6 +43,7 @@ from scripts.engine_bump_sync import (
     UPSTREAM_SLUG,
     is_engine_bump_pr,
     sync_pr_with_main,
+    upstream_main,
 )
 
 API = f"https://api.github.com/repos/{UPSTREAM_SLUG}"
@@ -135,9 +136,25 @@ def open_engine_bump_prs() -> list:
     return [pr for pr in prs if isinstance(pr, dict) and is_engine_bump_pr(pr)]
 
 
-def pr_is_behind(pr) -> bool:
-    """True if the PR head is BEHIND main / unverifiable (never merge those)."""
-    cmp = api(f"/compare/{pr['base']['sha']}...{pr['head']['sha']}")
+def pr_is_behind(pr, repo: str, run_git=None, log=None) -> bool:
+    """True if the PR head is BEHIND the LIVE upstream main head, or unverifiable (never merge those).
+
+    Compare against the LIVE upstream main head (the ref the workflow fetches in its
+    checkout, `upstream_main(repo)`) rather than GitHub's possibly-stale recorded
+    `pr['base']['sha']`: a stale recorded base is an older ancestor of the head, so
+    GitHub's compare API reports `ahead` and a genuinely-behind engine-bump PR is
+    skipped (issue #2383 — the #2266 shape). Resolve the live main head SHA from
+    git and compare the PR head against that.
+    """
+    if run_git is None:
+        run_git = lambda *a, **k: subprocess.run(  # noqa: E731  same default as sync_pr_with_main  # proc-allow: direct subprocess call site (default run_git helper), tracked remainder for issue #797
+            ["git", "-C", repo, *a], capture_output=True, text=True, **k)
+    main_ref = upstream_main(repo, run_git, log)
+    resolved = run_git("rev-parse", main_ref)
+    main_sha = (resolved.stdout or "").strip()
+    if resolved.returncode != 0 or not main_sha:
+        return True  # cannot resolve the live main head -> behave as behind (fail closed)
+    cmp = api(f"/compare/{main_sha}...{pr['head']['sha']}")
     if not isinstance(cmp, dict):
         return True
     return cmp.get("status") not in ("identical", "ahead")
@@ -166,7 +183,7 @@ def main() -> int:
     for pr in prs:
         n = pr["number"]
         ref = pr["head"]["ref"]
-        if not pr_is_behind(pr):
+        if not pr_is_behind(pr, args.repo, lambda *a: run_git(args.repo, *a)):
             log(f"  PR#{n} ({ref}): not behind main — skip")
             continue
         held = held_by_another_bot(n)
