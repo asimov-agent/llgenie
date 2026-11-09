@@ -13,6 +13,7 @@ STEP 1 — PREFLIGHT. One command, and it is the sha for the whole pass:
     bash "$TB" | sed -n '/A. PREFLIGHT/,/^$/p'
 Quote: `main_sha:` and `agents_md:` bytes+lines. Every brief you write carries that sha and size.
 Never quote a sha from an earlier turn — main moves about every 26 minutes here.
+    STATUS SELF-AUDIT — this tick is the fleet's ONLY scheduler, so its own silence is an OUTAGE, not lane idleness. In your pass record, report as a fleet outage (never as a lane's idleness): (a) this tick firing late, i.e. its next_run had been >1 interval overdue when it ran; (b) this tick or a sibling planner tick found disabled or never-run (last_run absent); (c) no tick has fired for >1 interval. A late or missing tick starves all 13 turn-based lanes — name it in the report's opening line ("FLEET OUTAGE: tick overdue/disabled") when it applies.
 
 STEP 2 — RECALL THE FAILURE CLASS before you interpret anything. Use whichever of these you have:
     # (a) if the agent tool exists in this turn:
@@ -34,7 +35,7 @@ STEP 3 — MEASURE THE WHOLE BOARD, once:
     bash "$TB"
 Quote: the `TOTAL open=… stale=… dirty=…` line from section B, and `idle_non_planner=…` from C.
 Sections are: A preflight, B open PRs, C lanes, D queue, E stalls, F CI at tip, G drift.
-Satisfy steps 4-8 and 11-12 by reading the section they name. Do not re-invent these queries in prose.
+Satisfy steps 4-9 by reading the section they name. Do not re-invent these queries in prose.
 
 STEP 4 — RED PRs OUTRANK THE BACKLOG (section B). Apply this before any other dispatch:
   4a. Every PR whose `base=` differs from `main_sha` is STALE. A `DIRTY` PR gets NO CI run at all —
@@ -127,8 +128,23 @@ STEP 7 — ONLY NOW THE BACKLOG (section D). Backlog is the LAST resort, not the
   6b. Near-identical issues filed minutes apart with the same bot marker are ONE defect in N
       trackers. Collapse onto the newest with a linked reason — measured 2026-11-08: seven
       identical `run-fixer:` issues for the ci-verdict defect, zero comments on any.
-  6c. A lane parked on backlog while it has an unowned red PR in its own domain is a MISPATCH:
-      correct it in this pass.
+  6d. LOAD 20 NEW UN-PR'D `agent:implement` ISSUES INTO THE KANBAN TRIAGE LIST EVERY PASS (owner
+      mandate, 2026-11-09). A triage pass that only eyeballs GitHub and never CARDS the
+      candidates leaves them invisible to the board. Use the proven procedure in the
+      orchestration skill reference `gh-issue-to-kanban-triage.md`: (1) measure candidates —
+      `gh issue list --repo \"$SLUG\" --state open --label agent:implement --limit 250 --json number,title`
+      intersect against open PRs (`gh pr list … --search closes\ #n`) and existing cards
+      (one vehicle per issue, #824); (2) card the first 20 that have NO open PR and NO live
+      card, each routed to its OWNING lane per the #2073/#2270 map (docs→documentation-maintainer,
+      gates/scripts→ci-pipelines-maintainer, security→security, profile-drift→that lane,
+      engine→engine-improver, rebase→pr-merge-conflict, verdict→pr-reviever, tester→tester,
+      architect→architect, orchestration→planner) — never everything to llgenie-issse-implementer;
+      (3) `kanban create \"llgenie #\$n: <title>\" --body-file … --assignee <lane> --json` — title is
+      POSITIONAL (there is NO --title flag), read the id back via --json, archive (NOT delete)
+      any duplicate card you create twice; (4) verify one live card per issue on-wire
+      (`kanban list --json | count '#n'`). ALSO card (5) every open PR's closing issue that
+      lacks a live card as a read-only mirror so PR→issue→board is complete (owner asked
+      2026-11-09: 5 issues #2322/#2316/#2296/#2123/#2138 were missing).
 Quote: issues considered, which already had vehicles, which you collapsed, which you dispatched.
 
 STEP 8 — STALLED WORKERS (section E). Run it, then act on it:
@@ -143,14 +159,13 @@ lifecycle guard refuses it, and it is unsafe from inside the gateway's process t
 STEP 9 — VERIFY LANE RESPONSIBILITY (every pass, after dispatch). A lane flouting its
 contract is a REGRESSION this step must catch, and it is the PLANNER's fix, not the
 lane's own repair:
-    python3 "$REPO/scripts/verify_lane_contract.py"
+    python3 "$HOME/.hermes/profiles/llgenie-planner/bin/verify_lane_contract.py"
 Quote: `N/13 lanes pass the behavioural contract` and any FAIL line, verbatim.
 The checker verifies the LIVE setup in $HOME (pathlib.Path.home()/.hermes/profiles/<lane>/
 — never the tree, never a hardcoded /home/<user>), asserting each lane's SOUL carries: the `BOT <lane> · working on #<id> · …` report line,
 the never-merge rule, bookending (start/finish comments where the work lives), the
 issue+PR-under-agents/<profile>/ versioning rule, the lane's OWN duty, and a communication
-commitment (message_agent / on-issue / recall), plus a materialised (non-.archive) skill
-under skills/ to load. A FAIL names the missing element.
+commitment (message_agent / on-issue / recall). A FAIL names the missing element.
 On a FAIL: do NOT tell the lane to fix itself (that is a self-audit loop and it will "pass" by
 editing its own SOUL). FILE a detailed issue under agents/<lane>/ recording which contract
 element the SOUL is missing and how a lane is violating it, then dispatch the owning lane to
@@ -161,11 +176,17 @@ worktrees and /tmp is under build headroom — restore it every pass; the owner 
 explicitly CONFIRM=1'd this destructive cleanup, pinned in the issue:
     1. `make worktree-report`  # mutates nothing; measure first
     2. `make worktree-prune CONFIRM=1`   # owner-authorized: deletes proven-merged worktrees + branches
-    3. `/tmp` scratch pass: remove /tmp/wt-* whose head IS an ancestor of origin/main
-       (`git merge-base --is-ancestor <head> origin/main` rc=0); NEVER delete one that is
-       ahead of main — report it, keep it. #794/#2262.
+    3. `/tmp` collector pass (issue #2141) — the ONLY delete path for /tmp trees; dry first, then act:
+         DRY=1 bash "$HOME/.hermes/profiles/llgenie-planner/bin/reclaim_tmp_worktrees.sh"
+               bash "$HOME/.hermes/profiles/llgenie-planner/bin/reclaim_tmp_worktrees.sh"
+       It removes only a tree that is clean AND whose HEAD is an ancestor of origin/main AND idle
+       >= MIN_IDLE_MIN; it reports (never deletes) a head on no remote ref, a dirty tree, or a tree
+       blocked by root-owned files, printing the exact `sudo rm -rf <path>` remedy. It also clears
+       cache-only deregistered debris. NEVER remove a /tmp tree by hand and NEVER delete one whose
+       head is ahead of main — report it, keep it. #794/#2262/#2141. Once #2141's PR lands, call
+       `make -C $HOME/repository/git/llgenie reclaim-tmp-worktrees` instead of the script path.
     4. `make check-host-space`  # /tmp space AND inodes; refuse a /tmp build/worktree below threshold
-Quote all four lines (`pruned N branches, M worktrees`, `check-host-space` pass/refuse) on the pass record.
+Quote all five lines (`pruned N branches, M worktrees`, the collector's `registered: …` and `debris: …`, `check-host-space` pass/refuse) on the pass record.
 The guard (worktree_prune_guard.py) treats this tick as unattended and refuses without CONFIRM=1 —
 the owner's mandate in #2262 is the confirmation; pass it. Never delete anything whose head is ahead
 of origin/main, whatever its PR/issue state.
@@ -211,8 +232,8 @@ Then end the pass with these lines, each filled from the step named:
     stalls: tasks stalled=N reclaimed=N | dm stalled=N (step 7)
     dispatch: <lane> #<id> — <what> (steps 4, 5, 6)
     closed: <issue> — <why> (step 6b)
-    nudged: docs, architect (step 13)
-    drift: <lane> <files> (step 12)
+    nudged: docs, architect (step 10)
+    drift: <lane> <files> (step 9)
 An empty queue is not an idle excuse. Every pass ends with a dispatch, a close with evidence, or a
 written reason nothing could move. Never end on "waiting".
 
