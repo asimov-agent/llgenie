@@ -2399,14 +2399,26 @@ make worktree-base     # resolve the base a worktree MUST be cut from — `refs/
                        # add -b`, so the new branch is cut from `origin/main` regardless of what the primary is
                        # parked on. The ref is refreshed (`git fetch --no-tags origin main`) before the read, so a
                        # stale or absent ref cannot stand in for the live base.
-make check-pr-base     # CI: fail when a PR's merge-base with the base ref is not the base itself — a branch cut
-                       # from another PR leaks that PR's diff under its own closes (issue #845, the #794 case: a
-                       # worktree inheriting the primary checkout's parked branch came out as a copy of #813).
-                       # `git merge-base <PR_BASE> <rev>` must equal `PR_BASE` itself; when a foreign commit is
-                       # present the gate fails and NAMES it, so the leak is visible. A clean branch exactly one
-                       # commit ahead of the base passes (the negative control). PR_BASE= the ref a PR must be
-                       # cut from (default refs/remotes/origin/main), PR_HEAD= the head rev (default HEAD). Reads
-                       # only; the CI guard job refreshes origin/main before the read (issue #1527).
+make check-pr-base     # CI: render one of three verdicts on a PR's merge-base with the base ref (the #2016/#845
+                       # contract, the shapes `scripts/check_pr_base.py` `_verdict()` returns):
+                       #   OK (exit 0)   — cut from the base (merge-base == base), or the ancestor/push-to-main
+                       #                  exemption (`base..rev` empty, #1867/#1906..#1909): nothing foreign leaks.
+                       #   STALE (exit 0) — behind main but clean: merge-base IS a `main` ancestor older than the
+                       #                  live tip, and every commit it carries is the branch's own (issue #2016,
+                       #                  resolved by #2023). A merely-behind PR is GREEN, not red — a rebase clears
+                       #                  it, it is not a #845 leak.
+                       #   FAILED (exit 1) — a genuine foreign-branch leak: a branch cut from another PR leaks
+                       #                  that PR's diff under its own closes (issue #845, the #794 case: a
+                       #                  worktree inheriting the primary checkout's parked branch came out as a
+                       #                  copy of #813), or a refused measure (a fetch failure / unresolvable base /
+                       #                  no common ancestor, issue #1734/1527). The gate NAMES the foreign commit,
+                       #                  so the leak is visible. A clean branch exactly one commit ahead of the
+                       #                  base passes (the OK negative control).
+                       # `git merge-base <PR_BASE> <rev>` equal to `PR_BASE` is a clean cut; an OLDER `main`
+                       # ancestor with all-own carries is STALE (still exit 0); a carry reachable from another
+                       # ref is FAILED (exit 1). PR_BASE= the ref a PR must be cut from (default
+                       # refs/remotes/origin/main), PR_HEAD= the head rev (default HEAD). Reads only; the CI
+                       # guard job refreshes origin/main before the read (issue #1527, #1734).
 make worktree-prune    # remove the worktrees and local branches whose PR already merged, so the checkout stops
                        # accumulating debris (issue #431). Eligibility is the PR, never a name pattern or an
                        # ancestry guess: this repo squash-merges, so a merged branch's tip is NEVER an ancestor
