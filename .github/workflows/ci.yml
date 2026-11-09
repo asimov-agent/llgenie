@@ -281,6 +281,32 @@ jobs:
           else
             echo "[check-pr-acceptance] no PR body on this run (a push to main): nothing to validate"
           fi
+      - name: make check-pr-acceptance-body (a PR whose OWN acceptance checklist is the SOLE vehicle — an engine-bump PR that closes no issue — is held to it; an unticked box at its head is RED, issue #2352)
+        env:
+          # Same live-body read as check-pr-closing (issue #1589): the body is fetched from the PR
+          # record via gh api, NOT an event snapshot, so a body-only fix clears on rerun. The gate
+          # only fires when the PR body checklist is the PR's SOLE acceptance record (it closes no
+          # issue); a PR that closes an issue is owned by the issue-side check-pr-acceptance, and a
+          # body with no checklist by check-pr-acceptance-form. A push to main has no PR number:
+          # PR_BODY stays empty and the gate is a no-op there. This RUNS IN THE JUDGED `guard` JOB,
+          # so a red box reds the judged CI run and ci-verdict, and auto-merge cannot arm (#2352).
+          PR_BASE: origin/main
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then
+            printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md
+            git fetch --no-tags --prune origin main
+            make check-pr-acceptance-body
+          else
+            echo "[check-pr-acceptance-body] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
         # #1867: THIS gate is meaningful ONLY on a pull_request. On a push to main the
         # pushed commit IS main's history the instant the run starts, but the gate re-fetches

@@ -1166,6 +1166,8 @@ check-pr-acceptance-form: ## CI: fail when a bot PR's body carries no own `## Ac
 	python3 scripts/check_pr_hygiene.py acceptance-form --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 check-pr-acceptance: ## CI: fail when a merged PR closes an issue whose `## Acceptance criteria` carries an unmarked `- [ ]` item, or when the PR body ticks a criterion the linked issue still has unchecked (issue #1792) — verification only, it never ticks boxes (that stays #1644, the verdict-gated write-back); the guard jobs call it with the LIVE PR body (same fetch as check-pr-closing, issue #1589) and the LIVE linked issue at merge time, and with the squash commit range (PR_BASE/PR_HEAD) so a `(closes #N)` that lives ONLY in the squash text GitHub's native close reads is held too (issue #1815); with PR_NUMBER it reads the LIVE trusted verdict trail on that PR, so a criterion proven by an approve verdict at the current head reports `proven-awaiting-writer` instead of red (issue #2187)
 	python3 scripts/check_pr_acceptance.py check --body-file "$(if $(PR_BODY),$(PR_BODY),/dev/null)" $(if $(PR_BASE),--base "$(PR_BASE)",) --rev "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" $(if $(PR_NUMBER),--pr "$(PR_NUMBER)",)
+check-pr-acceptance-body: ## CI: fail when a PR whose OWN `## Acceptance criteria` checklist is the SOLE vehicle for its acceptance record (an engine-bump PR that closes no issue, #2352) carries an unticked `- [ ]` box at its current head, or a `- [x]` box naming no re-producible run id / command+rc+sha — so auto-merge cannot arm on a ci-verdict that ignored an unticked box (measured #2267 merged 0/4 unticked with the pin unpublished at head); verification only, it ticks nothing; a PR that closes an issue is left to the issue-side `check-pr-acceptance`, and absence of a checklist to `check-pr-acceptance-form`; the guard jobs call it with the LIVE PR body (same fetch as check-pr-closing, issue #1589), never from a hermetic chain
+	python3 scripts/check_pr_acceptance.py body --body-file "$(if $(PR_BODY),$(PR_BODY),/dev/null)" $(if $(PR_BASE),--base "$(PR_BASE)",) --rev "$(if $(PR_HEAD),$(PR_HEAD),HEAD)"
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
 check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
@@ -1176,6 +1178,7 @@ pr-closing-report: ## Show the closing references a PR body carries, the squash 
 	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
 .PHONY: check-pr-closing pr-closing-report
 .PHONY: check-pr-acceptance
+.PHONY: check-pr-acceptance-body
 .PHONY: check-pr-openspec-change
 .PHONY: check-pr-acceptance-form
 .PHONY: check-pr-base

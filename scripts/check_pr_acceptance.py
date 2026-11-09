@@ -18,6 +18,9 @@ Commands:
                                   `## Acceptance criteria`, when the PR body ticks a criterion the
                                   issue has unticked, or when a ticked criterion names no provable
                                   evidence (run id or reproducible command+rc+sha)
+    check_pr_acceptance.py body    exit non-zero when a PR's OWN acceptance checklist (the sole
+                                  vehicle for a bump PR that closes no issue) carries an unticked box
+                                  or a tick with no re-producible evidence at its current head (#2352)
     check_pr_acceptance.py report  print the linked issues, their criterion counts and the verdict
 
 Usage:
@@ -53,7 +56,7 @@ if str(REPO_ROOT) not in sys.path:
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from scripts import check_pr_closing as cpc  # noqa: E402  the linked-issue set (closing_references)
-from scripts.acceptance_writeback import CHECKBOX_RE  # noqa: E402  the issue checkbox parse, reused
+from scripts.acceptance_writeback import CHECKBOX_RE, acceptance_items, BodyError  # noqa: E402  the checklist parse + the #1644 reuse
 from scripts import issue_body  # noqa: E402  the ## Acceptance criteria section scope
 from scripts import proc  # noqa: E402  the ONE subprocess seam (issue #797)
 from scripts import bot_verdict  # noqa: E402  the trusted verdict trail (`verdict_for_head`, #852/#2187)
@@ -383,6 +386,80 @@ def _pr_checkboxes(body: str) -> list[tuple[int, bool, str]]:
     return items
 
 
+def pr_body_acceptance_findings(body: str, closed: set[int]) -> list[dict]:
+    """The PR body's OWN acceptance boxes are held when they are the SOLE vehicle (issue #2352).
+
+    `check-pr-acceptance` (#1792) verifies the LINKED ISSUE's `## Acceptance criteria`;
+    `check-pr-acceptance-form` (#1796) only requires the PR body to CARRY a checklist — nothing reads
+    the PR body's OWN box tick-state. An engine-bump PR generates its own checklist and closes no
+    issue, so the PR body is the SOLE vehicle for its acceptance record, and its unticked boxes merged
+    silently (measured #2267: all four `- [ ]`, `ci-verdict` SUCCESS, the published-pin criterion
+    FALSE at the head — the manifest only arrived after the post-merge `engine-build push=true`).
+
+    This gate fires only in that sole-vehicle scope:
+
+      * a PR that closes ANY issue (`closed` non-empty) is owned by the ISSUE-side gate and skipped
+        here — that issue carries the acceptance record and `check-pr-acceptance` verifies it, so the
+        PR's body boxes are a complementary surface, never a second count;
+      * a body with no `## Acceptance criteria` section is `check-pr-acceptance-form`'s finding, not
+        this gate's — a body that declares no checklist has nothing to tick.
+
+    Findings:
+      * `acceptance-body-unchecked` (blocking) — a `- [ ]` box at the head, the bump-merged-while-
+        unticked class (issue #2352);
+      * `acceptance-body-tick-unprovable` (blocking) — a `- [x]` whose text names no CI run and no
+        reproducible `command + rc=<n> + <sha>`, the #1858 evidence rule on the body side (a tick is
+        only as honest as the run behind it — issue #745).
+    """
+    if closed:
+        # a linked issue is the acceptance record for a closing PR; check-pr-acceptance (#1792)
+        # verifies that issue's criteria, so holding the PR's own boxes too would double-count a
+        # correct implementer PR (which carries a body checklist AND closes its issue).
+        return []
+    try:
+        items = acceptance_items(body or "")
+    except BodyError:
+        # absence of a `## Acceptance criteria` checklist is check-pr-acceptance-form's finding.
+        return []
+    out: list[dict] = []
+    for pos, line in enumerate(items, 1):
+        m = CHECKBOX_RE.match(line)
+        if not m:
+            continue
+        text = m.group("rest").strip()
+        ticked = m.group("state").strip().lower() == "x"
+        if not ticked:
+            out.append({
+                "key": "acceptance-body-unchecked",
+                "blocking": True,
+                "title": "ci: a PR whose own ## Acceptance criteria are the sole vehicle carries an unticked acceptance box at its head",
+                "evidence": (
+                    f"PR-body acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [ ]` at the current "
+                    f"head, and this PR closes no issue, so its body checklist is the SOLE acceptance "
+                    f"record (issue #2352; measured #2267 merged with all four boxes unticked and the "
+                    f"published-pin criterion false at the head). To land, tick the box naming the CI "
+                    f"run that proves it (`run=<id>`) — a PR body has no write-back seam, so an "
+                    f"unproven box must stay red."
+                ),
+                "where": "PR body",
+            })
+            continue
+        if not _is_provable_tick(text):
+            out.append({
+                "key": "acceptance-body-tick-unprovable",
+                "blocking": True,
+                "title": "ci: a ticked PR-body acceptance box names no re-producible run id or command+rc+sha",
+                "evidence": (
+                    f"PR-body acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` but its text "
+                    f"names no `run=<id>` and no reproducible `command + rc=<n> + <sha>` (issue #1858 "
+                    f"on the body side). A tick is only as honest as the run behind it (issue #745); "
+                    f"name the CI run or a re-runnable proof."
+                ),
+                "where": "PR body",
+            })
+    return out
+
+
 def _fetch_issue_meta(gh: str, repo: str, issue: int) -> tuple[str, str, bool]:
     """The live `(body, state, is_pull_request)` of one referenced issue — the lane probe (#1859).
 
@@ -490,9 +567,32 @@ def main(argv: list[str] | None = None) -> int:
         c.add_argument("--base", default=None, help="git base of the squash range (PR_BASE; omit to skip the squash half)")
         c.add_argument("--rev", default="HEAD", help="git rev of the PR head (default HEAD)")
         c.add_argument("--cwd", default=None, help="repository the squash range is read from")
+    b = sub.add_parser("body", help="PR body's OWN acceptance checklist held when it is the SOLE vehicle (issue #2352)")
+    b.add_argument("--body-file", default=None, help="the file holding the PR body (LIVE, issue #1589)")
+    b.add_argument("--body", default=None, help="the PR body as a literal string (tests)")
+    b.add_argument("--base", default=None, help="git base of the squash range (PR_BASE; the squash text's closes count for the sole-vehicle test)")
+    b.add_argument("--rev", default="HEAD", help="git rev of the PR head (default HEAD)")
+    b.add_argument("--cwd", default=None, help="repository the squash range is read from")
     args = p.parse_args(argv)
     body = args.body if args.body is not None else (
         Path(args.body_file).read_text() if args.body_file else "")
+    if args.cmd == "body":
+        # The PR body's OWN acceptance checklist, when the PR is the SOLE vehicle for it (#2352).
+        # `closed` is the body closes ∪ the squash-text closes (GitHub's native close reads the
+        # squash text, #1815): a PR that closes an issue is owned by the issue-side gate (#1792) and
+        # its own boxes are not held here. An unreadable squash range falls back to the body closes —
+        # a body that closes no issue stays in scope (the #2267 bump shape).
+        closed = linked_issue_numbers(body)
+        if args.base:
+            try:
+                cwd = Path(args.cwd) if args.cwd else REPO_ROOT
+                msgs = cpc.commit_messages(args.base, args.rev, cwd)
+                closed = sorted(set(closed) | set(linked_squash_numbers(msgs)))
+            except RuntimeError:
+                pass  # unreadable squash range: stay on the body closes; never invent a close
+        items = pr_body_acceptance_findings(body, set(closed))
+        print(render(items))
+        return 1 if any(it.get("blocking", True) for it in items) else 0
     closed = linked_issue_numbers(body)
     squash_notes: list[dict] = []
     squash_range_error: dict | None = None
