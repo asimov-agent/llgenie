@@ -8,6 +8,7 @@ no signal to a worker pid; the DM-waiter reaper is structurally separate.
 """
 
 import ast
+import importlib.util
 import inspect
 import sqlite3
 import sys
@@ -16,18 +17,27 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "agents" / "llgenie-planner" / "scripts"))
 
-# Suppress bytecode writing for the duration of the import: a plain `import`
-# drops `scripts/__pycache__/stall_reclaim.cpython-*.pyc` into the tree, which
-# make sync-agent-profile would copy into the live profile (the #2155 lane's
-# own `test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree` exists
-# for exactly this). A test must not mutate the tree it tests.
-import sys as _over_sys  # noqa: E402
-_prior_dwb = _over_sys.dont_write_bytecode
-_over_sys.dont_write_bytecode = True
-import stall_reclaim as sr  # noqa: E402
-_over_sys.dont_write_bytecode = _prior_dwb
+# Load the shipped script WITHOUT adding a new import root and WITHOUT writing
+# bytecode into the tree. `sys.path.insert` into `agents/.../scripts/` would trip
+# the suite's one-import-root guard (issue #796, #1101: "a NEW import root is
+# refused"), and a plain `import` drops `scripts/__pycache__/stall_reclaim.cpython-*.pyc`
+# into the tree, which `make sync-agent-profile` would copy into the live profile
+# (the #2155 lane's own `test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree`
+# exists for exactly this). A test must not mutate the tree it tests.
+_prior_dwb = sys.dont_write_bytecode
+sys.dont_write_bytecode = True
+try:
+    _stall_src = REPO / "agents" / "llgenie-planner" / "scripts" / "stall_reclaim.py"
+    _spec = importlib.util.spec_from_file_location("stall_reclaim", _stall_src)
+    sr = importlib.util.module_from_spec(_spec)
+    # `stall_reclaim.py` is a module-level dataclass file; dataclasses resolve
+    # `cls.__module__` against `sys.modules`, so the module must be registered
+    # (the importlib pattern) or `_is_type` fails on the well-formed class.
+    sys.modules[_spec.name] = sr
+    _spec.loader.exec_module(sr)
+finally:
+    sys.dont_write_bytecode = _prior_dwb
 
 STALL_MIN = sr.STALL_MIN
 MAX_CPU = sr.MAX_CPU_TICKS
