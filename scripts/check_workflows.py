@@ -639,6 +639,53 @@ def check_uses_job_keys(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def check_scheduled_job_timeouts(root: Path = REPO_ROOT) -> list[dict]:
+    """Every job of a schedule-triggered workflow declares a `timeout-minutes` (issue #2317).
+
+    A scheduled engine/registry maintenance job with no ceiling inherits GitHub's
+    360-minute default, so a hang is invisible for six hours and blocks the whole
+    scheduled slot behind the workflow's concurrency group. The engine-build and
+    pipeline timeout-bounds tests (test_engine_build_timeouts.py,
+    test_pipeline_timeouts.py) cover the build/run paths; this rule nets the
+    `on.schedule` workflows the maintenance spider relies on. A `uses:` caller
+    cannot carry a ceiling (GitHub rejects the file, #882), so only jobs that run
+    steps are checked.
+    """
+    out: list[dict] = []
+    for path in workflow_files(root):
+        where = str(path.relative_to(root))
+        lines = path.read_text().splitlines()
+        if "schedule" not in _on_triggers(lines):
+            continue
+        found = _jobs_block(lines)
+        if found is None:
+            continue                        # no `jobs:` at all is another check's finding
+        start, body = found
+        job_starts = [i for i, line in enumerate(body)
+                      if re.match(r"^ {2}[A-Za-z0-9_-]+:\s*(#.*)?$", line)]
+        for n, idx in enumerate(job_starts):
+            name = body[idx].strip().rstrip(":").strip()
+            chunk = body[idx + 1:job_starts[n + 1] if n + 1 < len(job_starts) else len(body)]
+            text = "\n".join(chunk)
+            if re.search(r"^ {4}uses:", text, re.M):
+                continue                    # a `uses:` job cannot hold a ceiling (issue #882)
+            if re.search(r"^ {4}timeout-minutes:", text, re.M):
+                continue
+            out.append({
+                "key": f"workflow-scheduled-timeout/{where}#{name}",
+                "title": f"ci: {where} scheduled job `{name}` declares no `timeout-minutes`",
+                "evidence": (
+                    f"`{where}` runs on `schedule` and its `{name}` job has no `timeout-minutes`, so a "
+                    f"hang inherits GitHub's 360-minute default and is invisible for six hours — and it "
+                    f"blocks the workflow's concurrency group behind a zombie (issue #2317). Give the job "
+                    f"a bounded ceiling, as the engine-build (#1865) and pipeline (#846) paths already "
+                    f"require."
+                ),
+                "where": where,
+            })
+    return out
+
+
 def check_verdict_roster(root: Path = REPO_ROOT) -> list[dict]:
     """Every workflow that can post a check-run at a PR head must carry a judgement decision (#2116).
 
@@ -654,7 +701,8 @@ def findings(root: Path = REPO_ROOT) -> list[dict]:
     return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
             + check_manual_only(root)
-            + check_uses_job_keys(root) + check_verdict_roster(root))
+            + check_uses_job_keys(root) + check_scheduled_job_timeouts(root)
+            + check_verdict_roster(root))
 
 
 def render(items: list[dict]) -> str:
@@ -663,8 +711,9 @@ def render(items: list[dict]) -> str:
                 "every `workflow_run` names the workflows it reacts to, every workflow's "
                 "completion is routed to a consumer, every manual-only workflow is dispatch-only "
                 "(#2293), every `pull_request` workflow carries a "
-                "judgement decision the verdict can name, and no `uses:` job carries a job-level "
-                "key GitHub rejects at load time")
+                "judgement decision the verdict can name, no `uses:` job carries a job-level "
+                "key GitHub rejects at load time, and every job of a schedule-triggered workflow "
+                "declares a `timeout-minutes` ceiling (#2317)")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
         lines += ["", f"- {f['title']}", f"  where: {f['where']}", f"  {f['evidence']}"]

@@ -95,6 +95,12 @@ jobs:
   sync:
     needs: [guard]
     runs-on: ubuntu-latest
+    # A bounded ceiling: a no-change sync is ~1-3m, but a changed registry builds
+    # the test image + test-unit and legitimately runs ~29-40m (runs 40682255828,
+    # 40414178202, 40402053825). Width consistent with registry-sync-review's 60m;
+    # a hung sync then surfaces as a timeout instead of inheriting GitHub's
+    # 360-minute default (issue #2317).
+    timeout-minutes: 60
     # The sync make targets and the test image forward these tokens by name
     # (job-scoped, not workflow-wide — issue #1594).
     env:
