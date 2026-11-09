@@ -129,6 +129,24 @@ jobs:
         run: make test-image
       - name: make check-registry + check-quant-catalog + engine-skill-gap report + test-unit against the new registry
         if: steps.diff.outputs.changed
+        # #2395: do NOT forward the job's HF_TOKEN/GITHUB_TOKEN secret VALUES into this
+        # step. TEST_OPTS forwards the job-level vars into the test image (`-e HF_TOKEN
+        # -e GITHUB_TOKEN -e GH_TOKEN`), and `issue_implementer._gh()` passes
+        # `dict(os.environ)` to the spawned subprocess, so the large secret env exceeded the
+        # kernel ARG_MAX and the change path died `OSError: [Errno 7] Argument list too long`
+        # before opening the sync PR (runs 42608937982/42612274355 @ ffac222). Push CI's
+        # `linux / unit` runs the same suite green because its job declares no job-level
+        # secrets: the runner's automatic `GITHUB_TOKEN=github.token` (small, always set) is
+        # all the token the container sees, and `engine_bump_rebase.load_token()` requires a
+        # NON-empty GITHUB_TOKEN/GH_TOKEN (an empty string is falsy and breaks it — measured
+        # on run 42669761035). Re-pointing these at the small `${{ github.token }}` (exactly
+        # what push CI's unit job inherits) keeps this leg byte-identical to that passing
+        # path: no secret VALUE escapes, `load_token()` still finds a token, and the
+        # hermetic/gh-spawning tests see no big env.
+        env:
+          HF_TOKEN: ""
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         # `make engine-skill-gap` NAMES a new unskilled engine instead of failing the
         # job: the sync must still carry the data (#219). The loud gate is
         # `make check-engine-skill-gap` in ci-unit, which this PR then fails until the
