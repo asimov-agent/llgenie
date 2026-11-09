@@ -285,6 +285,16 @@ heavy cell is still running. Poll the truth cheaply:
     gh pr checks <n> --repo <o>/<r> --json name,state,workflow \
       --jq '.[]|[.name,.state,(.workflow//"-")]|@tsv'
 
+### `@tsv`/`@csv` are FORMAT flags — `@name` is not one, and quoting jq in `--jq` must stay flat
+
+`gh … --jq '.[]|[@name,.state]|@tsv'` fails `format not defined: @name` — `@tsv`, `@csv`, `@json` are
+jq FORMAT strings, but there is no `@name`/`@state`; a field is always `.name`, never `@name`. Inside
+an array for `@tsv`, write plain field accesses: `[.name,.state]|@tsv`. The tell is the literal
+`format not defined: @<x>` error — it is a jq syntax mistake, not a missing field. And when a
+`--jq` filter carries embedded single quotes or `$()`, put the whole call in a `/tmp/*.sh` script
+(see "Nested-quote shell" below) rather than nesting it in a `--jq '…'` string — the mangling looks
+like a data error but is shell/jq quote breakage.
+
 Then treat the still-`in_progress` run as the ONE outstanding verification: arm a background
 watcher at it (`gh run watch <run-id> --repo <o>/<r> --interval 40 --exit-status`, `notify=true`)
 and state the honest interim (N success, 1 in_progress) until it concludes. Only a `completed`
@@ -475,7 +485,12 @@ that stall, not slow I/O.
 
 A changelog like `CHANGES.md` usually conflicts on two INDEPENDENT rows (HEAD kept one entry,
 the branch adds another) — keep BOTH rows, delete the `<<<<<<<` / `=======` / `>>>>>>>` lines,
-`git add`, then continue. Sweep for leftover markers with an ANCHORED grep:
+`git add`, then continue. **When the conflicting file is GENERATED from fragments** (`docs/changes.d/`
+→ `CHANGES.md`, or `package-layers.json`-style indexes), prefer regenerating over hand-merging: stage
+the fragments from both sides and run the generator (`make changes-index` / `python3
+scripts/changes_index.py write`), then `git add` the regenerated file. A hand-merge of a generated file
+either lists a row the generator will drop on the next run or orders rows the generator would reorder —
+the regeneration is the canonical resolution. Sweep for leftover markers with an ANCHORED grep:
 `grep -nE '^(<{7}|={7}|>{7})' <file>`. A bare `grep '======='` false-positives on a `=======`
 that sits INSIDE a prose cell or a table line, and "fixing" that legit line corrupts the file —
 only a line-start run of seven markers is real conflict residue.

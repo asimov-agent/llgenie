@@ -1,5 +1,20 @@
 # Regenerating a generated index (red on merged main)
 
+## A `docs/changes.d/<stem>.md` fragment must BE a CHANGES.md table row, not prose
+
+`check-docs` / the changes-index gate reads each `docs/changes.d/<stem>.md` as a ONE-ROW
+`CHANGES.md` table line, not as a note body:
+
+    | <date> | <summary> | [<stem>.md](agent-wiki/<stem>.md) | #<issue> |
+
+The prose note lives in `agent-wiki/<stem>.md`; the `docs/changes.d/` fragment is only that
+single row indexing it. A fragment written as prose (a paragraph describing the change) reds
+with `agent-wiki/<stem>.md: is not indexed — add docs/changes.d/...-<issue>.md with its row`
+(`check_docs.py` matches the `[note](agent-wiki/<stem>.md)` cell specifically). Fix: rewrite
+the fragment as the one-row line above, then `make changes-index` (the writer, not the
+printer `render`) to regenerate `CHANGES.md` from all fragments, then `make check-docs`.
+Never hand-insert the row into `CHANGES.md` — it is rendered from the fragments.
+
 Quick map of the renderer's subcommands: `scripts/changes_index.py render` PRINTS the table
  to stdout; `write` rewrites `CHANGES.md`; `check` verifies committed == rendered. Running
  `render` and seeing your row is a NO-OP on disk — `git status` stays clean and the file is

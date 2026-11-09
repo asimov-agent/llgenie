@@ -17,6 +17,39 @@ The gate names exactly two resolution paths:
 When the criterion IS the PR's own deliverable (e.g. "the default `make engine-build` sweep is green"),
 only **path 1 is honest** — never "not covered" your own deliverable just to clear the gate.
 
+## Producing the run a verdict-gated AC names — dispatch it yourself, by workflow ID
+
+Many verdict-gated ACs are written so that the EVIDENCE IS THE DELIVERABLE: "engine-build vllm
+arch=rocm **push=false** is green (run id recorded, head sha bound)". No prior run satisfies this — the
+criterion wants a run at the CURRENT head, so dispatching it is your job, not something to bounce to the
+reviewer. "Verdict-gated" governs who TICKS the box (#1644), not who produces the run.
+
+Dispatch a `workflow_dispatch`-only producer:
+
+    # 1. resolve the workflow ID — NOT its name
+    gh workflow list --repo asimov-agent/llgenie --all --json name,id \
+      --jq '.[]|select(.name|test("engine-build";"i"))|{id,name}'
+    # 2. dispatch at the BRANCH (not a PR ref), one --field PER input
+    gh workflow run <id> --repo asimov-agent/llgenie \
+      --field engine=vllm --field arch=rocm --field push=false \
+      --ref fix/<branch>
+    # 3. bind the run to the head and read it back
+    gh run list --repo asimov-agent/llgenie --workflow <id> --limit 3 \
+      --json headSha,status,databaseId --jq '.[]|{head:.headSha[:9],status,run:.databaseId}'
+
+- **`gh workflow run <name>` fails** when the workflow's `name:` is long or carries an em dash
+  (`engine-build — builds and verifies EVERY …`) → `could not find any workflows named engine-build`.
+  Always dispatch by the numeric ID from `gh workflow list --json id`.
+- **`--field` takes exactly ONE value** — one `--field` per input. Passing two inputs into one
+  `--field` (or an array spliced as positionals) is silently rejected with no run created.
+- A `push=false` build-and-verify witness runs in its OWN concurrency group and does not queue behind a
+  stuck `push` anchor (see terminal-and-guard-pitfalls.md). A duplicate dispatch at the same head simply
+  supersedes/serialises — check `gh run list` for an already-`in_progress` run of the same cell before
+  firing a second one.
+- A run that is still `in_progress`, or one at a head the branch has since moved past, is NOT the
+  witness the criterion asks for — dispatch at the pushed head and report the run id + head sha once it
+  `concluded`. Then hand it to the reviewer to tick.
+
 ## Consequences for the lane
 
 - A run that is `in_progress` is **not a failure**. Wait for `conclusion`, then enumerate jobs
