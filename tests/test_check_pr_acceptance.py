@@ -587,7 +587,8 @@ def test_unticked_with_no_verdict_stays_unproven_RED():
 def test_unticked_with_approve_verdict_is_proven_awaiting_writer_GREEN():
     # THE #2187 fix: a trusted approve verdict at the current head proves the tree was reviewed, so
     # the unticked box is awaiting its write-back — a distinct, non-red state, never acceptance-unchecked.
-    verdict = {"head": "a" * 40, "run": "4245", "verdict": "approve", "reviewer": "github-actions[bot]"}
+    # The approver must be a genuinely DISTINCT reviewer (issue #2244): `andyholst`, never a merger token.
+    verdict = {"head": "a" * 40, "run": "4245", "verdict": "approve", "reviewer": "andyholst"}
     findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000, verdict=verdict)
     assert findings, "a verdict-proven criterion is still a REPORTED state"
     assert all(f["key"] == "acceptance-proven-awaiting-writer" for f in findings), \
@@ -614,6 +615,18 @@ def test_verdict_at_another_head_does_NOT_prove_later_head(tmp_path, monkeypatch
     assert any(f["key"] == "acceptance-unchecked" for f in findings)
 
 
+def test_an_approve_verdict_from_a_merger_identity_stays_RED(tmp_path, monkeypatch):
+    # issue #2244 negative control: the merger approving its own gate evidence — an approve verdict
+    # whose `reviewer=` names a merge-path identity (`asimov-agent` owner PAT, `github-actions[bot]`
+    # job/APPROVER token) — proves nothing, so the unticked box stays genuinely UNPROVEN (red), never
+    # `acceptance-proven-awaiting-writer`.
+    comments = _verdict_comment(reviewer="asimov-agent") + _verdict_comment(reviewer="github-actions[bot]")
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), comments, monkeypatch)
+    assert g.verdict_evidence("gh", "asimov-agent/llgenie", "123", "c" * 40) is None
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000)
+    assert any(f["key"] == "acceptance-unchecked" for f in findings), findings
+
+
 def _fake_gh_verdict(tmp_path: Path, issue_body: str, comments: list[dict], monkeypatch) -> None:
     """A fake gh answering `pr view N --json comments` (the verdict trail) AND the issue read.
 
@@ -638,13 +651,14 @@ def _fake_gh_verdict(tmp_path: Path, issue_body: str, comments: list[dict], monk
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
 
 
-def _verdict_comment(head: str = "", verdict: str = "approve") -> list[dict]:
-    """A trusted bot comment carrying the #852 marker for `head` (a real 40-hex value)."""
+def _verdict_comment(head: str = "", verdict: str = "approve", reviewer: str = "andyholst") -> list[dict]:
+    """A trusted comment carrying the #852 marker for `head`, authored by the review-verdict workflow
+    relay (`github-actions[bot]`) and naming the TRUE review author in `reviewer=` (issue #2244)."""
     h = head or ("c" * 40)
     return [{
         "author": {"login": "github-actions[bot]"},
         "body": (f"<!-- bot-verdict: head={h} run=4245 verdict={verdict} "
-                 f"reviewer=github-actions[bot] -->\n**Bot review verdict: approve** at head `{h[:12]}`"),
+                 f"reviewer={reviewer} -->\n**Bot review verdict: approve** at head `{h[:12]}`"),
     }]
 
 

@@ -19,12 +19,21 @@ same sha and no record of what was measured (#1551). The marker is deliberately 
 not a label: it cannot flip `reviewDecision`, it cannot be mistaken for a human sign-off, and it needs no
 second identity.
 
-Trust is bounded twice, because a PR comment can be written by anyone:
+Trust is bounded by who may post AND who the marker names, because a PR comment can be written by
+anyone:
 
   * the comment's AUTHOR must be one of the repository's own identities (`TRUSTED_VERDICT_AUTHORS`) or a
-    bot login (`…[bot]`);
-  * the `reviewer=` named in the marker must equal that comment's author, so a stranger cannot write
-    `reviewer=github-actions[bot]` and borrow the bot's name.
+    bot login (`…[bot]`); and
+  * APPROVER != MERGER (issue #2244): an ACCEPTING verdict whose `reviewer=` names a merge-path identity
+    — the owner PAT that merges (`asimov-agent`) or the job/APPROVER token (`github-actions[bot]`) — is
+    the merger approving its own gate evidence, never an independent review. It is rejected whatever
+    the comment's author. A BLOCKING verdict from any trusted reviewer still holds the PR (asking for
+    work is always the safe direction); and
+  * no-impersonation: when the marker is posted directly (author != `github-actions[bot]`), `reviewer=`
+    MUST equal that comment's author, so a stranger cannot write `reviewer=andyholst` and borrow a
+    trusted name; when the marker is authored by the review-verdict workflow token (`github-actions[bot]`,
+    a trusted relay), `reviewer=` is the REAL review event's author and must be a distinct identity
+    allowed to review (`allowed_reviewer`).
 
 Commands (stdlib only, the GitHub API only through a `gh` on PATH):
   bot_verdict post --repo R --pr N --head SHA --run RUN --verdict approve|changes [--reviewer L] [--note TEXT]
@@ -46,6 +55,14 @@ TRUSTED_VERDICT_AUTHORS = ("andyholst", "asimov-agent")
 #: A workflow's own token acts as `github-actions[bot]` (an App login, never a collaborator), and any
 #: `…[bot]` login is a bot too.
 BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
+#: The merge-path identities (issue #2244, the #1088 class): the tokens the repo's OWN auto-merge uses
+#: to clear a review block — the owner PAT that merges (`BUMP_TOKEN` -> `asimov-agent`) and the job /
+#: APPROVER token (`github.token` -> `github-actions[bot]`, the same App login as `app/github-actions`).
+#: An ACCEPTING verdict whose `reviewer=` names one of these is the merger approving its own gate
+#: evidence, so it is never evidence of an independent review (approver != merger). A BLOCKING verdict
+#: from one still holds the PR: asking for work is always the safe direction, and the reviewer lane
+#: runs under these same public identities for its `changes` verdicts.
+MERGER_LOGINS = tuple(a.lower() for a in ("asimov-agent", "github-actions[bot]", "app/github-actions"))
 #: The one verdict that clears a review block.
 ACCEPTING = ("approve", "approved", "pass", "lgtm")
 #: A verdict that asks for work: it blocks the merge at the head it names, and it is never an approval.
@@ -83,6 +100,18 @@ def trusted(login: str) -> bool:
         who.lower() in BOT_LOGINS or who.lower().endswith("[bot]")
 
 
+def allowed_reviewer(login: str) -> bool:
+    """A login that may be named as an INDEPENDENT reviewer (issue #2244, approver != merger).
+
+    A repo identity or a bot login (`trusted`) that is NOT a merge-path identity: an ACCEPTING verdict
+    must come from a genuinely distinct reviewer, never the account whose token would merge the PR.
+    `andyholst` is the repo's human reviewer identity; a dedicated reviewer `…[bot]` counts; a
+    `changes` verdict does not demand a distinct reviewer (it holds, it never proves).
+    """
+    who = (login or "").strip()
+    return bool(who) and trusted(who) and who.lower() not in MERGER_LOGINS
+
+
 def verdict_for_head(comments: "list[dict] | None", head: str) -> "dict | None":
     """The NEWEST trusted verdict whose marker names exactly `head`, or None.
 
@@ -93,6 +122,7 @@ def verdict_for_head(comments: "list[dict] | None", head: str) -> "dict | None":
     want = (head or "").strip().lower()
     if not want:
         return None
+    accepting = {a.lower() for a in ACCEPTING}
     found = None
     for c in comments or []:
         v = parse(str((c or {}).get("body") or ""))
@@ -101,9 +131,23 @@ def verdict_for_head(comments: "list[dict] | None", head: str) -> "dict | None":
         author = (((c or {}).get("author") or {}).get("login") or "").strip()
         if not trusted(author):
             continue
-        # No impersonation: the name in the marker must be the account that wrote the comment.
-        if v["reviewer"].lower() != author.lower():
+        reviewer = (v.get("reviewer") or "").strip()
+        # No impersonation / complementary APPROVER != MERGER (issue #2244): an ACCEPTING verdict
+        # whose named reviewer is a merge-path identity is the merger approving its own gate evidence
+        # — never an independent review — so it is dropped whatever the comment's author.
+        if v.get("verdict", "").lower() in accepting and reviewer.lower() in MERGER_LOGINS:
             continue
+        if author.lower() in BOT_LOGINS:
+            # The review-verdict workflow token (`github-actions[bot]`) authors a marker whose
+            # `reviewer=` is the TRUE review event's author and may differ from the bot itself; that
+            # reviewer must still be a distinct identity allowed to review (approver != merger).
+            if not allowed_reviewer(reviewer):
+                continue
+        else:
+            # A direct post (the reviewer lane writing `make bot-verdict`) must name its own author:
+            # a stranger cannot write `reviewer=<trusted name>` and borrow it (#852).
+            if reviewer.lower() != author.lower():
+                continue
         if v["head"] != want:
             continue
         found = dict(v, author=author)      # the last one in thread order wins
@@ -207,9 +251,11 @@ def post(gh: str, repo: str, pr: int, head: str, run: str, verdict: str, reviewe
     existing = [c for c in comments(gh, repo, pr) if parse(str(c.get("body") or ""))]
     for c in existing:
         v = parse(str(c.get("body") or ""))
-        author = (((c.get("author") or {}).get("login")) or "")
+        # Dedupe on the marker itself (head, run, verdict, reviewer), not the comment author: the
+        # review-verdict workflow authors as `github-actions[bot]` while `reviewer=` names the true
+        # review author, so author==reviewer is no longer the idempotence key (issue #2244).
         if (v["head"] == head and v["run"] == run and v["verdict"] == verdict
-                and author.lower() == reviewer.lower()):
+                and v["reviewer"] == reviewer):
             print(f"[bot-verdict] PR #{pr} already carries {verdict} at {head[:8]} "
                   f"(run {run}) from `{reviewer}`")
             return 0

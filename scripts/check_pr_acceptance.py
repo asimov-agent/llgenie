@@ -221,9 +221,10 @@ def verdict_evidence(gh: str, repo: str, pr: "int | str", head: str) -> "dict | 
     criterion box is unticked but the PR carries a trusted *approving* verdict at the current head,
     the criterion is proven-but-awaiting-writer — a distinct, non-blocking state — versus genuinely
     unproven (no verdict trail), which stays `acceptance-unchecked`. `bot_verdict.verdict_for_head`
-    enforces trusted author, reviewer == author, and exact head match. Only an ACCEPTING verdict is
-    evidence: a `changes` verdict proves nothing. An unreadable comment trail returns None, so the
-    criterion stays `unproven` (red) — evidence is never fabricated from a data gap.
+    enforces trusted author, approver != merger (a merge-path identity never proves — issue #2244)
+    and exact head match. Only an ACCEPTING verdict is evidence: a `changes` verdict proves nothing.
+    An unreadable comment trail returns None, so the criterion stays `unproven` (red) — evidence is
+    never fabricated from a data gap.
     """
     if not pr or not head:
         return None
@@ -235,6 +236,11 @@ def verdict_evidence(gh: str, repo: str, pr: "int | str", head: str) -> "dict | 
     v = bot_verdict.verdict_for_head(comments, head)
     if not v or (v.get("verdict") or "").lower() not in {a.lower() for a in bot_verdict.ACCEPTING}:
         return None  # a changes/reject verdict, or a verdict at another head, proves nothing here
+    # Defense in depth (issue #2244, completer of `verdict_for_head`): the acceptance EVIDENCE must
+    # never be seeded by the merger's own approve — reject a verdict whose named reviewer is a
+    # merge-path identity even if a future editor removes the guard upstream.
+    if (v.get("reviewer") or "").strip().lower() in bot_verdict.MERGER_LOGINS:
+        return None
     return v
 
 

@@ -846,8 +846,10 @@ acceptance-side sibling that stops a merge verifying green against an issue's un
 commit messages would otherwise auto-close a multi-lane rollout umbrella while its criteria are still
 unticked — the gate now holds it (and the close parse is negation-aware: `does not close #N` is not a
 close). Since #2187, an unticked box whose PR carries a TRUSTED approve verdict at the current head (a
-`bot_verdict` marker, #852 — trusted author, reviewer == author, exact head) is reported
-`acceptance-proven-awaiting-writer`, a distinct and non-red state: the write-back that ticks the box
+`bot_verdict` marker, #852 — trusted author, APPROVER != MERGER, exact head) is reported
+`acceptance-proven-awaiting-writer`, a distinct and non-red state: a verdict whose `reviewer=` names a
+merge-path identity (`asimov-agent` owner PAT, `github-actions[bot]` APPROVER/job token) is the merger
+approving its own gate evidence and proves nothing (issue #2244), and the write-back that ticks the box
 (`acceptance_writeback`/`review_finalize`, #1644/#1808) is verdict-gated and has no CI trigger, so a
 reviewed-green close must not read as unproven. A genuinely unproven box — no verdict, a `changes`
 verdict, or a verdict at another head — still reds `acceptance-unchecked`; the gate exits non-zero only
@@ -1648,8 +1650,12 @@ make bot-verdict-read REPO=asimov-agent/llgenie PR=<n> [HEAD=<sha>]   # what the
 triggered on a submitted `pull_request_review`: it resolves the exact head the review judged and the
 run that measured it, and runs `make bot-verdict VERDICT=approve|changes HEAD=<head> RUN=<run id>
 REPO=asimov-agent/llgenie PR=<n>` — posting the marker as the workflow's own token
-(`github-actions[bot]`, a trusted verdict author), so `reviewer == author` and the no-impersonation
-rule holds by construction. `tests/test_bot_verdict.py` greps `.github/workflows/`, `agents/` and
+(`github-actions[bot]`, a trusted relay) and naming the TRUE review event's author in the `reviewer=`
+slot — so the gate accepts a workflow-authored marker only when that reviewer is a genuinely DISTINCT
+identity, and this caller DROPS an approve review authored by a merge-path identity (`asimov-agent`
+owner PAT, `github-actions[bot]` APPROVER/job token), because the merger approving its own gate
+evidence is never an independent verdict (issue #2244, approver != merger). `tests/test_bot_verdict.py`
+greps `.github/workflows/`, `agents/` and
 `scripts/` for a caller and fails when none exists — a producer can never again ship with no caller.
 The reviewer lane (`llgenie-pr-reviever`) is updated to run the same target from the host (its own
 SKILL/SOUL, routed separately); it covers the heads this workflow's read-only fork event cannot.
@@ -1676,9 +1682,15 @@ Three rules make it safe, and each is a test rather than a convention:
   the tree green.
 - **The marker is not an approval and not a label.** It cannot flip `reviewDecision`, it cannot be
   mistaken for a human sign-off, and it posts one comment per (head, verdict) — a repeated run is quiet.
-- **It cannot be forged.** A PR comment may be written by anyone, so a verdict counts only when the
-  comment's author is one of the repository's own identities or a bot login **and** the `reviewer=` in the
-  marker equals that author — a stranger cannot write `reviewer=github-actions[bot]` and borrow the name.
+- **It cannot be forged, and the approver must be distinct from the merger.** A PR comment may be
+  written by anyone, so a verdict counts only when the comment's author is one of the repository's own
+  identities or a bot login. When a repo identity or the reviewer lane writes the marker directly, the
+  `reviewer=` must equal that author — a stranger cannot write `reviewer=andyholst` and borrow a
+  trusted name. When the review-verdict workflow token (`github-actions[bot]`) authors it, `reviewer=`
+  is the TRUE review event's author and must be a genuinely distinct identity; an APPROVE verdict that
+  names a merge-path identity (`asimov-agent` owner PAT, `github-actions[bot]` APPROVER/job token) is
+  the merger approving its own gate evidence and never counts (issue #2244, approver != merger). A
+  `changes` verdict from any trusted reviewer still holds the PR — asking for work is always safe.
 
 Because the required review cannot be moved by a marker, the merge of a verdict-cleared PR is the
 `--admin` path (the block is the identity, not a check — this branch has no required check in its
