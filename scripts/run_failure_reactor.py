@@ -598,6 +598,13 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
     workflow = run.get("workflowName") or "?"
     job_name = job.get("name") or "?"
     owned = lane.name if lane else "unclassified (filed with no implementation label)"
+    # An ENGINE-lane failure can never be proved by a LOCAL build: the repo forbids building an
+    # inference-server engine image on the host (AGENTS.md "Inference servers run ONLY in their
+    # container images", agents/llgenie-engine-improver/SOUL.md "Never build an inference-server
+    # engine image locally"). Its acceptance criterion 1 must name the provable form instead — the
+    # failing cell is green in a real RUN (the single-cell `engine-build` dispatch CI owns), with
+    # the cell's own log recorded (issue #2109).
+    is_engine = lane == ENGINE_LANE
     # The registry-liveness / engine-pins publish class: the failing step is a liveness GATE naming a
     # committed tag whose manifest is missing — the remedy is a PUBLISH (`engine-build push=true`),
     # not a code PR (issue #2259). The "no PR this bot can repair" truth is useless on its own; name
@@ -622,6 +629,8 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
             f"job id `{job.get('databaseId') or '?'}` (the failing job this tracker names) is green "
             "in the fixing PR's CI run — the guard firing on that job id is what this tracker "
             "watches",
+            "the failing cell is green in a real run of the failing cell, with its own log recorded "
+            if is_engine else
             "the failing make target is green locally on this host, with its real output recorded "
             "(supporting evidence)",
             "the PR that fixes it is green in CI on the same job that failed (supporting evidence)",

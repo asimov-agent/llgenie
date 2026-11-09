@@ -224,6 +224,25 @@ def test_an_engine_workflow_files_with_no_implementation_label(tmp_path):
     assert "**owned by lane:** `llgenie-engine-improver`" in _body_of(creates[0])
 
 
+def test_an_engine_build_acceptance_names_the_dispatch_run_never_a_local_build(tmp_path):
+    # A failed engine-build cell must be proved by a real run, never a local build (issue #2109):
+    # AGENTS.md "Inference servers run ONLY in their container images" and the engine lane's SOUL
+    # "Never build an inference-server engine image locally" forbid a host build — so the acceptance
+    # criterion 1 rendered for an engine-lane failure names the provable run form instead.
+    log = gh_stub(tmp_path, failed_run(workflow="engine-build — builds engine cells"), [])
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then the issue routes to the engine lane and its acceptance renders the dispatch form
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    body = _body_of(creates[0])
+    assert "**owned by lane:** `llgenie-engine-improver`" in body
+    # criterion 1 names a real run of the failing cell with its own log recorded
+    assert "the failing cell is green in a real run of the failing cell, with its own log recorded" in body
+    # and NEVER demands a local build
+    assert "locally on this host" not in body
+
+
 def test_a_repeated_broken_gate_files_nothing(tmp_path):
     # Given an OPEN issue already carrying the class-level marker for this workflow/failing-step
     # (a DIFFERENT run sha than the current one — the marker is class-level, issue #2076)
