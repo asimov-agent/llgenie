@@ -159,6 +159,23 @@ job log's `FAILED tests/…` lines) and re-judge each one **at merged `main`**, 
   "my diff is fine because I only checked the one test I care about".
 - Report the set, the per-test re-judgement and the main sha — never a bare "the run failed".
 
+## The `check-pr-closing` red that IS the implementer lane's commit (not base-staleness)
+
+The foreign-issue case above is base-staleness; the inverse is a real defect. On an issue-bot-opened
+docs PR (["implement #N"]/`Issue: #N` commit) the base is current and the branch is NOT rebase work:
+`git merge-base --is-ancestor origin/main HEAD` passes, yet `check-pr-closing` reds with the squash-commit
+violations. The join of COMMIT_MESSAGES claims #N (`Issue: #N` line or a `(#N)` subject) but carries no
+adjacent `closes|fixes|resolves #N`, while the PR body DOES close #N — the repo squash-bodies from
+COMMIT_MESSAGES, so the landing commit would claim-without-close, and the gate requires the close-sets to
+match. **This is a commit-message defect on the implementer lane's OWN branch, not a docs-content issue and
+not a rebase** — never weaken the gate, never edit the message to hide it, and never push to that branch
+(another lane's PR is read-only). Reproduce with
+`python3 scripts/check_pr_closing.py check --body-file <pr-body-with-closes> --base origin/main --rev HEAD`.
+The remedy: add the adjacent `closes #N` to the branch commit message (amending the implement commit).
+The docs lane's job is to verify the CONTENT is correct (`grep` for the stale claim in the doc), sign off
+that no docs edit is needed, and post the precise measured remedy on the issue so the repair lane (#222)
+applies it — the content lands unchanged once the commit message is fixed.
+
 ## Running one gate test when the suite harness will not start
 
 Symptom in a scratch venv: `python -m pytest tests/test_check_docs.py -q` exits **2** with a **0-byte**
