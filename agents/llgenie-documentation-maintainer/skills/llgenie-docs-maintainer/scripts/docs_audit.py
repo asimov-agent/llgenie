@@ -25,7 +25,7 @@ DIRS = ["data", "skills", "containers", "tests", "scripts", "openspec", "agent-w
 
 def ls(*paths: str) -> list[str]:
     cmd = ["git", "ls-tree", "-r", "--name-only", "HEAD"] + (["--"] + list(paths) if paths else [])
-    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(cmd, capture_output=True, text=True, check=True).stdout  # proc-allow: check=True raises on rc!=0 (rc inspected, #797); tracked remainder for #2229 migration
     return [line for line in out.splitlines() if line]
 
 

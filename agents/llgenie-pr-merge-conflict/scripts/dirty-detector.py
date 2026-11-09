@@ -85,11 +85,11 @@ def _conflicts_with_main(head: str) -> bool:
     if not head:
         return False
     try:
-        main = subprocess.run([GIT, "-C", REPO_DIR, "rev-parse", "refs/remotes/origin/main"],
+        main = subprocess.run([GIT, "-C", REPO_DIR, "rev-parse", "refs/remotes/origin/main"],  # proc-allow: rc inspected on the line after, #797; tracked remainder for #2229 migration
                               capture_output=True, text=True, timeout=60)
         if main.returncode != 0:
             return False
-        mt = subprocess.run([GIT, "-C", REPO_DIR, "merge-tree", "--write-tree", "--messages",
+        mt = subprocess.run([GIT, "-C", REPO_DIR, "merge-tree", "--write-tree", "--messages",  # proc-allow: rc carried in stdout+stderr (merge-tree rc 0/1 is the conflict signal), #797; tracked remainder for #2229 migration
                              main.stdout.strip(), head],
                             capture_output=True, text=True, timeout=120)
         # merge-tree exits non-zero on conflict; the marker text is the durable signal.
@@ -106,13 +106,13 @@ def _main_sha() -> str:
     byte-stable `conflicting: none` quiet path stays untouched, so a clean run keeps suppressing
     the tick and ONLY the conflict report — the line a tick WANTS to change — carries the sha.
     """
-    r = subprocess.run([GIT, "-C", REPO_DIR, "rev-parse", "refs/remotes/origin/main"],
+    r = subprocess.run([GIT, "-C", REPO_DIR, "rev-parse", "refs/remotes/origin/main"],  # proc-allow: rc inspected on the line after, #797; tracked remainder for #2229 migration
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else "unknown"
 
 
 def main() -> int:
-    out = subprocess.run(
+    out = subprocess.run(  # proc-allow: out.returncode inspected after the call (rc!=0 -> detector-error), #797; tracked remainder for #2229 migration
         [GH, "pr", "list", "--repo", REPO, "--state", "open", "--limit", "100", "--json", FIELDS],
         capture_output=True, text=True,
     )

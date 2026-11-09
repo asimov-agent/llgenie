@@ -7,7 +7,7 @@ Usage:
 Persists: <out>/models.json (live store), <out>/measurements.json,
 <out>/synced-README.md, <out>/measure.json (the classified evidence).
 """
-import sys, os, json, subprocess, argparse, tempfile
+import sys, os, json, argparse, tempfile
 from pathlib import Path
 
 ap = argparse.ArgumentParser()
@@ -21,6 +21,7 @@ args = ap.parse_args()
 sys.path.insert(0, args.worktree)
 os.chdir(args.worktree)
 from scripts import sync_registry as sr   # noqa: E402
+from scripts.proc import run_text          # noqa: E402  (#2229: seam, never a bare subprocess call)
 import scripts.model_engine_pick as mp      # noqa: E402
 
 OUT = Path(args.out); OUT.mkdir(parents=True, exist_ok=True)
@@ -38,7 +39,7 @@ if not readme.exists():
 qm = next((m for m in reg['models'] if m['id'] == args.model), None)
 if qm is None:
     raise SystemExit(f'model {args.model} not in live store (117 rows?)')
-head = subprocess.run(['git','rev-parse','--short','HEAD'], capture_output=True, text=True).stdout.strip()
+head = run_text(['git','rev-parse','--short','HEAD']).strip()
 res = {'head': head, 'sync_rc': rc, 'model': args.model, 'gb': args.gb, 'arch': args.arch}
 
 txt = readme.read_text(); lines = txt.split('\n')
