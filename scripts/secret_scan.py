@@ -122,6 +122,20 @@ def main(argv: list[str] | None = None) -> int:
     sys.stderr.write(result.stderr)
     print(f"[secret-scan] scanned the committable set: {copied} file(s) of {len(names)} listed "
           f"(tracked + untracked, ignored paths excluded).")
+    if result.returncode == 1:
+        # A real finding: a credential shape is present in the tree. The old 13-line make recipe
+        # carried this guidance (issue #800); folding it here keeps the message and the exit code in
+        # the one place the scanner's contract is defined, so the recipe is a one-line call.
+        print("SECRET SCAN FAILED: a credential shape is present in the working tree.", file=sys.stderr)
+        print("Remove the value, rotate the key in the provider AND in the GitHub secret, and only "
+              "then push. Never add it to .gitleaks.toml to make the scan pass -- an allowlist is "
+              "for a documented PLACEHOLDER, never for a real value.", file=sys.stderr)
+    elif result.returncode != 0:
+        # A scan that could not run is neither clean nor a finding; it is a failure of the scan
+        # itself and must never read as a clean tree (issue #382).
+        print(f"SECRET SCAN COULD NOT RUN (exit {result.returncode}): the scanner produced NO "
+              f"verdict. This is not a clean tree and not a finding -- read the message above and "
+              f"fix the scan itself. Never report a scan that could not run as clean.", file=sys.stderr)
     return result.returncode
 
 

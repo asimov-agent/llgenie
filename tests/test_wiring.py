@@ -58,9 +58,13 @@ def _ci_unit_steps() -> set[str]:
     """
     text = (REPO / "scripts" / "ci_unit.py").read_text()
     block = text.split("STEPS = [", 1)[1].split("]", 1)[0]
-    steps = {ln.strip().strip('"').strip("'").split()[0]
-             for ln in block.splitlines() if ln.strip().strip('"').strip("'")}
-    return {s for s in steps if s}
+    steps: set[str] = set()
+    for ln in block.splitlines():
+        tok = ln.strip().replace('"', "").replace("'", "").strip().strip(",").strip()
+        name = tok.split()[0] if tok else ""
+        if name:
+            steps.add(name)
+    return steps
 
 
 # ---------------------------------------------------------------------------

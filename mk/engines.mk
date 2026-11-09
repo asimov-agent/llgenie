@@ -9,21 +9,7 @@
 # on a 16 GB NVIDIA card). In CI, the build-variants job (ci.yml) calls
 # `build-variant` for each tree x backend combo instead.
 build-server:
-	@echo "==> detect_server: tree/backend for this card"
-	@python3 scripts/detect_server.py
-	@TREE=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['tree'])"); \
-	BACKEND=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['backend'])"); \
-	if [ -z "$$TREE" ] || [ -z "$$BACKEND" ]; then echo "ERROR: detect_server produced no tree/backend"; exit 1; fi; \
-	echo "==> building server: tree=$$TREE backend=$$BACKEND (clone-or-pull + build)"; \
-	set -o pipefail; \
-	if command -v stdbuf >/dev/null 2>&1; then LINEBUF="stdbuf -oL -eL"; else LINEBUF=; fi; \
-	SERVER_ROOT=$(SERVER_ROOT) $$LINEBUF $(REPO)/scripts/build_llama_server.sh "$$TREE" "$$BACKEND" 2>&1 | tee /tmp/llgenie_srv_build.log; \
-	SRV=$$(tail -n1 /tmp/llgenie_srv_build.log); \
-	test -x "$$SRV" || { echo "ERROR: build-server did not produce a binary ($$SRV)"; exit 1; }; \
-	mkdir -p $(dir $(SERVER_BIN_STAMP)); \
-	printf '%s\n' "$$SRV" > $(SERVER_BIN_STAMP); \
-	rm -f /tmp/llgenie_srv_build.log; \
-	echo "==> server binary: $$SRV (stamped to $(SERVER_BIN_STAMP))"
+	@python3 scripts/build_server.py build --repo $(REPO) --server-root $(SERVER_ROOT) --stamp $(SERVER_BIN_STAMP)
 # Explicit variant build (used by CI build-variants and by make install-<tree>-<backend>).
 # Sets the env seams (LLAMA_SERVER_TREE / LLAMA_BACKEND / LLAMA_RAM_BYTES) and runs
 # the SAME build_llama_server.sh, then stamps the binary path so `link` can
@@ -41,19 +27,7 @@ build-server:
 # The build log is streamed (tee). Do not send it through `tail` or
 # `2>/dev/null`: those hide the CUDA/Metal compile until the job ends.
 build-variant:
-	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make build-variant TREE=prism BACKEND=cuda"; exit 1; }
-	set -o pipefail; \
-	if command -v stdbuf >/dev/null 2>&1; then LINEBUF="stdbuf -oL -eL"; else LINEBUF=; fi; \
-	TREE=$(TREE) BACKEND=$(BACKEND) \
-		LLAMA_SERVER_TREE=$(TREE) LLAMA_BACKEND=$(BACKEND) \
-		LLAMA_RAM_BYTES=17179869184 \
-		SERVER_ROOT=$(SERVER_ROOT) $$LINEBUF $(REPO)/scripts/build_llama_server.sh "$(TREE)" "$(BACKEND)" 2>&1 | tee /tmp/llgenie_srv_build.log
-	@mkdir -p $(dir $(SERVER_BIN_STAMP))
-	@SRV=$$(tail -n1 /tmp/llgenie_srv_build.log); \
-		test -x "$$SRV" || { echo "ERROR: build-variant did not produce a binary ($$SRV)"; exit 1; }; \
-		printf '%s\n' "$$SRV" > $(SERVER_BIN_STAMP); \
-		rm -f /tmp/llgenie_srv_build.log
-	@echo "==> stamped server binary: $$(cat $(SERVER_BIN_STAMP))"
+	@python3 scripts/build_server.py build --repo $(REPO) --server-root $(SERVER_ROOT) --stamp $(SERVER_BIN_STAMP) --tree $(TREE) --backend $(BACKEND)
 # Serve an already-built variant on its own port. Does not rebuild, does not
 # relink ~/bin/llama-server, and does not stop whatever is already listening
 # (the long-running server keeps its port). PORT empty picks a free

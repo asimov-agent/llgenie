@@ -108,21 +108,7 @@ test-variant-image: ## Build the CUDA toolkit + python variant-build image local
 		$(RUNTIME) build -t $(VARIANT_IMG) "$$ctx"
 	@echo "Variant image built: $(VARIANT_IMG)"
 test-clean: ## Remove left-over/stopped orphaned containers of the test image (interrupted/failed runs)
-	# Docker/nerdctl-agnostic: list all containers referencing the test image
-	# (name format is <random>-test-id), stop+remove ONLY the stopped/left-over
-	# ones -- never kill a currently-running test (e.g. an in-progress health
-	# check). Never uses `--filter ancestor` (docker lacks it).
-	@containers=$$($(RUNTIME) ps -a -q 2>/dev/null); \
-	for c in $$containers; do \
-	  info=$$($(RUNTIME) inspect -f '{{.Image}}' $$c 2>/dev/null || echo ""); \
-	  if printf '%s' "$$info" | grep -q "llgenie/test"; then \
-	    running=$$($(RUNTIME) inspect -f '{{.Running}}' $$c 2>/dev/null || echo "false"); \
-	    if printf '%s' "$$running" | grep -qi "false"; then \
-	      $(RUNTIME) rm -f $$c 2>/dev/null; \
-	    fi; \
-	  fi; \
-	done; \
-	echo "Pruned stopped orphaned $(TEST_IMG) containers."
+	@python3 scripts/test_clean.py --runtime $(RUNTIME)
 # internal CI seam (issue #1000): the `-m network` twin of test-unit, run by the admitted `ci-network` pipeline — every test the hermetic gate excludes by marker runs HERE, never silently skipped; not user-facing and no `##` help line on purpose (engine-matrix-pushed precedent)
 # internal CI seam (issue #1000): the `-m network` twin of test-unit, run by the admitted `ci-network` pipeline — every test the hermetic gate excludes by marker runs HERE, never silently skipped; not user-facing and no `##` help line on purpose (engine-matrix-pushed precedent)
 test-unit-network: bash-check
