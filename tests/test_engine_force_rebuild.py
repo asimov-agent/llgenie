@@ -17,7 +17,7 @@ import scripts.engine_image as ei  # noqa: E402
 
 
 def _spec() -> dict:
-    return {"id": "llama.cpp", "tag": "llgenie/llama-cpp:7d7f0287-3932631f-cpu", "variant": "cpu",
+    return {"id": "llama.cpp", "tag": "llgenie/llama-cpp:a4d4f2fd-3932631f-cpu", "variant": "cpu",
             "backend": "cpu", "dockerfile": "containers/engines/dockerfiles/llama.cpp/Dockerfile.cpu",
             "params_file": "containers/engines/params/llama.cpp.json"}
 
@@ -668,18 +668,18 @@ def test_a_published_image_carries_its_hash_arch_and_latest_tags(monkeypatch):
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
 
     # When  the refs of the cpu variant and of a cuda variant are read
-    cpu = {"id": "llama.cpp", "tag": "llgenie/llama-cpp:7d7f0287-3932631f-cpu", "variant": "cpu",
+    cpu = {"id": "llama.cpp", "tag": "llgenie/llama-cpp:a4d4f2fd-3932631f-cpu", "variant": "cpu",
            "params_file": "containers/engines/params/llama.cpp.json"}
-    cuda = {**cpu, "tag": "llgenie/llama-cpp:7d7f0287-b93d412f-cuda", "variant": "cuda"}
+    cuda = {**cpu, "tag": "llgenie/llama-cpp:a4d4f2fd-b93d412f-cuda", "variant": "cuda"}
 
     # Then  the hash tag and :<arch> are always there, and :latest only on the canonical variant
     assert ei.publish_refs(cpu) == [
-        "ghcr.io/asimov-agent/llgenie/llama-cpp:7d7f0287-3932631f-cpu",
+        "ghcr.io/asimov-agent/llgenie/llama-cpp:a4d4f2fd-3932631f-cpu",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:cpu",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:latest",
     ]
     assert ei.publish_refs(cuda) == [
-        "ghcr.io/asimov-agent/llgenie/llama-cpp:7d7f0287-b93d412f-cuda",
+        "ghcr.io/asimov-agent/llgenie/llama-cpp:a4d4f2fd-b93d412f-cuda",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:cuda",
     ]
 
@@ -729,11 +729,11 @@ def test_a_not_yet_published_latest_does_not_fail_the_pull_but_a_drifted_one_doe
 
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "publish_refs", lambda spec: [
-        "ghcr.io/asimov-agent/llgenie/llama-cpp:7d7f0287-3932631f-cpu",
+        "ghcr.io/asimov-agent/llgenie/llama-cpp:a4d4f2fd-3932631f-cpu",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:cpu",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:latest",
     ])
-    digests = {"7d7f0287-3932631f-cpu": "sha256:aa", "llama-cpp:cpu": "sha256:aa",
+    digests = {"a4d4f2fd-3932631f-cpu": "sha256:aa", "llama-cpp:cpu": "sha256:aa",
                "llama-cpp:latest": ""}
     monkeypatch.setattr(ei, "_digest", lambda ref: digests[next(k for k in digests if k in ref)])
     spec = _spec()
@@ -809,7 +809,7 @@ def test_a_cell_not_in_the_map_still_exports_its_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
     # When  it builds
-    ei._buildx("llgenie/llama-cpp:7d7f0287-3932631f-cpu", str(tmp_path), False,
+    ei._buildx("llgenie/llama-cpp:a4d4f2fd-3932631f-cpu", str(tmp_path), False,
                "ghcr.io/asimov-agent/llgenie/llama-cpp:buildcache-cpu", no_cache_export=False)
 
     # Then  it stays on the container builder and both cache sides are present
