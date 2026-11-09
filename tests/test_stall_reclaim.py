@@ -159,6 +159,34 @@ def test_unused_database_fields_are_not_operands():
     assert "max_runtime_seconds" not in classify_src
 
 
+def test_log_source_is_the_lane_agent_log_never_the_kanban_log():
+    """The corrected axis reads `profiles/<lane>/logs/agent.log`, never the old
+    `<kanban>/logs/<task>.log`. Restoring the old per-run kanban-log axis must
+    fail this test, so the regression cannot silently return.
+
+    This is the negative control for acceptance criterion \"the suite fails if
+    the old kanban-log axis is restored\": the operand path is built from
+    `PROFILES_HOME/<profile>/logs/agent.log`, and `real_sample` reads exactly
+    that path — never a file under `LOG_DIR` (the kanban logs tree). A ragged
+    edit that points the sample back at the per-run log changes `agent_log_path`
+    and reds here.
+    """
+    lane_path = sr.agent_log_path("lane-x")
+    assert lane_path == sr.agent_log_path("lane-x")  # deterministic per profile
+    assert lane_path.endswith("logs/agent.log")
+    assert sr.PROFILES_HOME in lane_path      # the lane agent.log lives under profiles/
+    assert sr.LOG_DIR not in lane_path        # ... and never under kanban/logs/<task>.log
+    assert "/agent.log" in lane_path          # a file name, not a bare dir age
+
+    src = inspect.getsource(sr.real_sample)
+    assert "agent_log_path(profile)" in src   # the production sample reads the lane path
+    assert "LOG_DIR" not in src               # and has no second (kanban-log) operand
+    # the allowlist worker lookup still comes from task_runs, but the LOG operand
+    # is off the profiles tree, so a reverted kanban-log axis reds and is caught.
+    lookup = inspect.getsource(sr.running_candidates)
+    assert "profile" in lookup                # lane is carried so the agent.log resolves
+
+
 # --------------------------------------------------------------------------- #
 # operands printed on every verdict line                                      #
 # --------------------------------------------------------------------------- #
