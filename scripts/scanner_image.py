@@ -22,6 +22,7 @@ Commands (driven by make, never by hand):
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import hashlib
 import json
 import os
@@ -172,6 +173,10 @@ def write() -> int:
     if rules_sha:
         data["semgrep"]["rules_sha"] = rules_sha
         data["semgrep"]["rules_file"] = f"{SCANNER_DIR}/semgrep/rules/default.yml"
+        data["semgrep"]["rules_captured_at"] = _dt.date.today().isoformat()
+        data["semgrep"]["rules_count"] = str(sum(
+            1 for line in semgrep_pack.read_text(encoding="utf-8").splitlines()
+            if line.startswith("- id: ")))
     path = REPO / DIGESTS
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"[scanner-image] wrote {DIGESTS} ({len(data)} scanners"

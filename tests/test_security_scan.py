@@ -773,6 +773,72 @@ def test_check_fails_when_a_scanner_version_lags_the_declared_baseline(tmp_path,
     assert "semgrep" in buf.getvalue() and "baseline" in buf.getvalue()
 
 
+def test_check_reds_a_pin_older_than_the_rules_recency_baseline(tmp_path, monkeypatch):
+    """Negative control (issue #2283): a committed rules pack whose rules_captured_at is older than
+    the recency baseline must RED `make check-security-scan` — a frozen rule set must not pass green
+    while upstream adds rules it never sees."""
+
+    # Given a digests.json whose committed pack is many days old (older than RULES_BASELINE_DAYS)
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["semgrep"]["rules_captured_at"] = "2020-01-01"
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+
+    # Then  it fails naming the stale pack and the recency baseline
+    assert rc == 1
+    out = buf.getvalue()
+    assert "rules_captured_at" in out and "2020-01-01" in out
+    assert str(ss.RULES_BASELINE_DAYS) in out
+
+
+def test_check_reds_a_pin_with_no_rules_count(tmp_path, monkeypatch):
+    """The rules recency floor needs a parity target (issue #2283): a digests.json with no
+    rules_count cannot claim the committed pack is compared against upstream p/default."""
+
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["semgrep"] = {k: v for k, v in recorded["semgrep"].items() if k != "rules_count"}
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+    assert rc == 1
+    assert "rules_count" in buf.getvalue()
+
+
+def test_check_green_when_pack_within_recency_baseline(tmp_path, monkeypatch):
+    """The committed pack is within the recency floor (issue #2283): the current digests.json
+    records a recent rules_captured_at, so the gate stays green without a stale-pack red."""
+
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    captured = recorded["semgrep"].get("rules_captured_at")
+    assert captured, "digests.json must record rules_captured_at for the freshness floor"
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+    # The only reds we tolerate here are the ones that pre-date this check (no policy empty etc.)
+    out = buf.getvalue()
+    assert "rules_captured_at" not in out, out
+
+
 def test_the_stack_needs_no_account_and_no_secret(tmp_path, monkeypatch):
     """The whole stack is local: Trivy, Syft, Grype and Semgrep run from pinned images, and no
     scanner is behind a token — so no run is ever skipped for a missing credential."""
