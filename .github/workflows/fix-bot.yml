@@ -209,13 +209,17 @@ jobs:
 
       # The ordered agent-leg preflight (JEV #238, shell-keys #358) — the loop does not start
       # without it. One call, one place (issue #798).
+      # Gated on a resolved PR (issue #2430): with no branch, the workspace has no checkout, and a
+      # local composite action cannot load; the no-PR "nothing to fix" dispatch must be a clean skip.
       - name: Run the reusable agent-leg preflight (issue #798)
+        if: steps.pr.outputs.branch != ''
         uses: ./.github/actions/agent-leg
         with:
           phase: preflight
           shell_keys: "NOUS_API_KEY GH_TOKEN TYPESAFE_API_KEY"
       - name: Sync the PR's branch with latest upstream main before repairing it (issue #303)
         id: sync
+        if: steps.pr.outputs.branch != ''
         run: |
           set +e
           make bot-sync-branch
@@ -247,7 +251,9 @@ jobs:
       # The whole point of the redaction seam (issue #359): the reusable leg publishes the
       # REDACTED transcript, never the raw capture.
       - name: Upload the REDACTED agent transcript (issue #359)
-        if: always()
+        # always() but only when a PR was resolved (issue #2430): a no-PR "nothing to fix"
+        # workspace has no checkout, so the local composite cannot load — the skip must stay clean.
+        if: always() && steps.pr.outputs.branch != ''
         uses: ./.github/actions/agent-leg
         with:
           phase: upload
