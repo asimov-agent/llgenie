@@ -60,11 +60,12 @@ permissions:
 # job mid-wait would leave that run unobserved ("never cancel a live run", #1102 design). Scoping the key to
 # the head SHA (not just the PR number) means a synchronize push onto the same PR (e.g. a rebase) fires a NEW
 # trigger run for the new head instead of being queued behind the old head's build for up to ~90 min with
-# zero jobs and a frozen updated_at (issue #1831). A manual dispatch has no PR event, so it keys on the branch
-# input instead. cancel-in-progress: false is still preserved so a stale head never cancels a producer run
-# that is mid-build.
+# zero jobs and a frozen updated_at (issue #1831). (On a manual dispatch the PR keys are empty, so all
+# dispatch re-drives share one group — they must serialize anyway behind engine-build's own
+# `engine-build-push` queue, #917.) cancel-in-progress: false is still preserved so a stale head never
+# cancels a producer run that is mid-build.
 concurrency:
-  group: engine-build-pr-trigger-${{ inputs.branch || github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: engine-build-pr-trigger-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: false
 
 jobs:

@@ -186,9 +186,12 @@ jobs:
             STATE=$(gh api "repos/$REPO/pulls/$PR/reviews" \
               --jq '[.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")][-1].state // empty')
           fi
-          case "$STATE" in
-            approved|APPROVED) echo "VERDICT=approve" >> "$GITHUB_OUTPUT" ;;
-            changes_requested|CHANGES_REQUESTED) echo "VERDICT=changes" >> "$GITHUB_OUTPUT" ;;
+          # lowercase for one arm set: a review event reports lowercase, the reviews API reports
+          # uppercase
+ 
+          case "${STATE,,}" in
+            approved) echo "VERDICT=approve" >> "$GITHUB_OUTPUT" ;;
+            changes_requested) echo "VERDICT=changes" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "review state '$STATE' is not a verdict (approved/changes_requested) - nothing to record"
               echo "SKIP=true" >> "$GITHUB_OUTPUT" ;;
