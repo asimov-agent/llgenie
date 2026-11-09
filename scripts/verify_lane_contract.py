@@ -8,19 +8,27 @@ make the lane do its job are present and non-empty. A lane that matches the tree
 byte-for-byte but whose SOUL lacks the report line, the never-merge rule, or its
 own duty passes sync and fails here (issue #2260).
 
-Usage: python3 verify_lane_contract.py [--root DIR] [lane ...]
-  --root DIR   profiles root to verify (default $HOME/.hermes/profiles), so a
-               test can point a scratch fixture at it; the default is built from
-               pathlib.Path.home(), never a hardcoded machine account path.
-  lane ...     one or more lane names to check (default: every $HOME llgenie-* )
+Usage: python3 verify_lane_contract.py [--root DIR] [--manifest FILE] [lane ...]
+  --root DIR    profiles root to verify (default $HOME/.hermes/profiles), so a
+                test can point a scratch fixture at it; the default is built from
+                pathlib.Path.home(), never a hardcoded machine account path.
+  --manifest FILE  agents/manifest.json to read the lane roster from (default
+                <repo>/agents/manifest.json). The manifest is the ONE source of
+                truth for which lanes exist; a live lane the manifest no longer
+                lists is reported as drift, not silently checked.
+  lane ...      one or more lane names to check (default: every lane the
+                manifest lists, plus a drift report for live lanes the manifest
+                has dropped)
 Exit: 0 all pass; 1 any lane missing a contract element (names lane + element).
 """
 import argparse
+import json
 import pathlib
 import re
 import sys
 
 PROFILES = pathlib.Path.home() / ".hermes" / "profiles"
+DEFAULT_MANIFEST = pathlib.Path(__file__).resolve().parent.parent / "agents" / "manifest.json"
 
 
 def _path_names(path: pathlib.Path) -> str:
@@ -68,6 +76,19 @@ DUTY = {
 }
 
 
+def _manifest_lanes(manifest: pathlib.Path) -> list[str]:
+    """The roster source of truth: lane names listed in agents/manifest.json.
+
+    The manifest is the ONE set that drives the check. A lane added there is
+    verified for its own duty out of the box; a lane removed is reported as
+    drift instead of being silently checked from whatever SOUL is still under
+    $HOME (issue #2316).
+    """
+    with manifest.open() as fh:
+        data = json.load(fh)
+    return [p["name"] for p in data.get("profiles", [])]
+
+
 def _skills_have(sdir: pathlib.Path, pattern: str) -> bool:
     """Is there a materialized (non-.archive) skill matching `pattern` (as a path
     fragment, e.g. 'llgenie-security') with a non-empty SKILL.md under it?"""
@@ -95,7 +116,9 @@ def check(lane: str, root: pathlib.Path = PROFILES) -> tuple[bool, list[str]]:
     for label, rx, why in CONTRACT:
         if not re.search(rx, s, re.I):
             missing.append(f"{label}: needs '{rx}' — {why}")
-    if lane in DUTY and not re.search(DUTY[lane], s, re.I):
+    if lane not in DUTY:
+        missing.append(f"manifest-lane-without-duty: '{lane}' has no own-duty regex in the DUTY roster — a manifest lane must commit to its duty, add a DUTY entry for it")
+    elif not re.search(DUTY[lane], s, re.I):
         missing.append(f"own-duty: none of '{DUTY[lane]}' found — a lane whose SOUL never says what it does cannot be verified")
 
     # 2. The skills are MATERIALIZED (not just declared) under $HOME, and at
@@ -116,20 +139,34 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="verify_lane_contract.py")
     ap.add_argument("--root", default=str(PROFILES),
                     help="profiles root to verify (default $HOME/.hermes/profiles)")
-    ap.add_argument("lanes", nargs="*", help="lane names (default: every $HOME llgenie-*)")
+    ap.add_argument("--manifest", default=str(DEFAULT_MANIFEST),
+                    help="agents/manifest.json to read the lane roster from (default <repo>/agents/manifest.json)")
+    ap.add_argument("lanes", nargs="*",
+                    help="lane names (default: the lanes the manifest lists, plus a drift report)")
     args = ap.parse_args(argv)
     root = pathlib.Path(args.root)
+    manifest = pathlib.Path(args.manifest)
     if args.lanes:
         lanes = args.lanes
+        drift = []
     else:
-        lanes = sorted(p.parent.name for p in root.glob("llgenie-*/SOUL.md"))
+        # Roster ONE set: the manifest's lanes drive the check.
+        lanes = _manifest_lanes(manifest)
+        # Live lanes the manifest no longer lists are drift, never silently
+        # checked from the SOUL that happens to sit under $HOME.
+        live = sorted(p.parent.name for p in root.glob("llgenie-*/SOUL.md"))
+        drift = sorted(set(live) - set(lanes))
     failures = 0
     for lane in lanes:
         ok, missing = check(lane, root=root)
         mks = " MISSING: " + "; ".join(missing) if missing else " ok"
         print(f"  {lane:38} {'PASS' if ok else 'FAIL'}{mks}")
         failures += (not ok)
+    for d in drift:
+        print(f"  {d:38} DRIFT  live under $HOME but not in agents/manifest.json — dropped from the roster, not checked")
     print(f"\n  {len(lanes)-failures}/{len(lanes)} lanes pass the behavioural contract")
+    if drift:
+        print(f"  drift: {len(drift)} live lane(s) absent from the manifest's roster (reported, not failed)")
     return 1 if failures else 0
 
 
