@@ -29,37 +29,8 @@ hw_flags:
   rocm:
     gpu_targets: "'{gpu_targets}'"
 install:
-  cuda:
-    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # --no-build-isolation builds against a preinstalled torch: bump >= the sha's own
-    # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
-    # torchcodec (the vLLM video-decoding backend, `>= 0.14` in requirements/*.txt) is
-    # preinstalled from the SAME index: the default-PyPI wheel is built against the stable
-    # torch C++ ABI and `torch.ops.load_library(libtorchcodec_image.so)` dies with a generic
-    # "Could not load this library" against the preinstalled torch (issue #1365 run
-    # 41355299891 cpu/cuda).
-    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
-    - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
-    # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
-    # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
-    # shared devel base (no Rust toolchain) fails. build_rust.sh bootstraps rustup + the pinned
-    # toolchain and precompiles the artifacts into the source tree, letting -e . skip cargo (issue #1365).
-    - "cd {src} && bash tools/build_rust.sh"
-    - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
-  rocm:
-    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # the rocm build file names the amd index and the torch it needs, but pins a BARE
-    # triton (3.7.1+git0263a6a6) while torch==2.12.0+rocm7.14.0 requires the rocm-suffixed
-    # wheel (triton==3.7.1+git0263a6a6.rocm7.14.0) — upstream pin defect at 5df63a72; the
-    # resolver reports 'your requirements are unsatisfiable' unless the pins agree.
-    - "cd {src} && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match"
-    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
-    - "cd {src} && bash tools/build_rust.sh"
-    # the -e . CMake step must resolve HIP against the BASE image's /opt/rocm (which ships
-    # hipcc + FindHIP.cmake): without ROCM_PATH/HIP_PATH/CMAKE_MODULE_PATH pointing there, torch's
-    # LoadHIP.cmake falls back to the pip rocm-sdk-core wheel path and fails 'No FindHIP.cmake in
-    # CMAKE_MODULE_PATH' / 'Optional package HIP not found' (issue #1365, run 41342311363 rocm).
-    - "cd {src} && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+  cuda: []   # prebuilt thin image over vLLM's official CUDA serving base — zero install steps (see container.cuda)
+  rocm: []   # prebuilt thin image over AMD's official rocm/vllm serving base — zero install steps (see container.rocm)
 
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
@@ -106,13 +77,29 @@ env:
 health: "GET /health"
 alias_mode: flag
 container:
-  # every cell compiles the pinned sha on the shared devel base for that backend
-  # (cuda: nvidia/cuda:13.0.2-devel, rocm: rocm/dev-ubuntu-24.04:7.0-complete,
-  #  cpu: ubuntu:24.04) — no upstream vLLM wheel is installed (issue #937)
+  # Build-strategy (owner 2026-11-08): each vllm GPU cell is a THIN image over vLLM's official
+  # prebuilt serving base for that backend — `prebuilt: true` runs ZERO install steps, so the
+  # Dockerfile is only `FROM <official-image>` + the llgenie entrypoint wrap (base as-is, trimmed).
+  # No source compile, no wheel-install chain, no poetry. The served version is the base's baked vllm.
+  #  - rocm: FROM docker.io/rocm/vllm:<AMD-tag>   (issue #1558 / PR #2274)
+  #  - cuda: FROM docker.io/vllm/vllm-openai:v0.33.0  (issue #2386 / PR #2429, supersedes #937/#615 for cuda)
+  #  - cpu:  source-compiled (remains; no prebuilt cpu serving image today)
   cuda:
-    apt: [python3-dev]
+    # vLLM's official CUDA serving image, pinned to our vllm ref (v0.33.0). prebuilt: true runs
+    # zero install steps; the image ships the baked vllm + CUDA runtime, and `detect` probes it
+    # via `from vllm import __version__`. Entrypoint serves (see launch below).
+    base: docker.io/vllm/vllm-openai:v0.33.0
+    prebuilt: true
+    binary: "vllm"
+    binary_flags: ["--version"]
   rocm:
-    apt: [python3-dev]
+    # AMD's official prebuilt rocm/vllm serving base (issue #1558 / PR #2274). prebuilt: true runs
+    # zero install steps; the image ships the baked vllm + ROCm runtime, and `detect` probes it via
+    # `from vllm import __version__`. Entrypoint serves (see launch below).
+    base: docker.io/rocm/vllm:rocm10.1.0_ubuntu24.04_py3.14-pytorch_2.13.0_vllm-0.29.0
+    prebuilt: true
+    binary: "vllm"
+    binary_flags: ["--version"]
   cpu:
     apt: [python3-dev, libnuma-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]
@@ -120,16 +107,19 @@ upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, r
 
 # vLLM
 
-Built from the pinned sha on the shared devel base for the backend, installed into the engine
-image's own Python with `uv pip install --no-build-isolation -e .` (the container is the
-isolation; nothing is installed on the host).
+The GPU cells (cuda, rocm) are THIN images over vLLM's official prebuilt serving base for that
+backend (see `container` above): the Dockerfile is `FROM <official-image>` + the llgenie entrypoint
+wrap, `prebuilt: true` runs zero install steps, and the served version is the base's baked vllm.
+The cpu cell compiles the pinned sha on the shared devel base into the engine image's own Python
+(`uv pip install --no-build-isolation -e .`; the container is the isolation, nothing is installed
+on the host).
 
 ## Hardware parameters
 
 | Backend | Selection | Notes |
 |---|---|---|
-| cuda | compile at the pin: `uv pip install --no-build-isolation -e .` with `CMAKE_ARGS=-DCMAKE_CUDA_ARCHITECTURES` | compute capability >= 7.5, fat arch list `75;80;86;89;90;120` |
-| rocm | compile at the pin: same editable install with `VLLM_TARGET_DEVICE=rocm` + `PYTORCH_ROCM_ARCH` | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151 (ROCm >= 7.0.2) |
+| cuda | prebuilt: `FROM docker.io/vllm/vllm-openai:v0.33.0` (zero install) | compute capability >= 7.5, fat arch list `75;80;86;89;90;120`; the official CUDA serving image ships vllm + CUDA runtime |
+| rocm | prebuilt: `FROM docker.io/rocm/vllm:<AMD-tag>` (zero install) | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151; AMD's official rocm/vllm image ships the ROCm runtime |
 | cpu | compile at the pin: `VLLM_TARGET_DEVICE=cpu uv pip install --no-build-isolation -e .` | pure Python/C++ CPU build, AVX2/AVX512 or NEON |
 
 There is no macOS GPU backend. `vllm-metal` is a separate project.

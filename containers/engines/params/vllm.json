@@ -12,25 +12,17 @@
       "engine": "vLLM",
       "backend": "cuda",
       "arch": "75;80;86;89;90;120",
-      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
-      "prebuilt": false,
+      "base": "docker.io/vllm/vllm-openai:v0.33.0",
+      "prebuilt": true,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [
-        "python3-dev"
-      ],
+      "apt": [],
       "build_args": {
         "CUDA_ARCH": "75;80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
-      "install": [
-        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.33.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
-        "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/cu130",
-        "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/cuda.txt --index-strategy unsafe-best-match",
-        "cd /opt/llgenie/engines/vllm/src && bash tools/build_rust.sh",
-        "cd /opt/llgenie/engines/vllm/src && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
-      ],
+      "install": [],
       "env": {},
       "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
       "pre_launch": null,
@@ -51,24 +43,17 @@
       "engine": "vLLM",
       "backend": "rocm",
       "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
-      "base": "rocm/dev-ubuntu-24.04:7.0-complete",
-      "prebuilt": false,
+      "base": "docker.io/rocm/vllm:rocm10.1.0_ubuntu24.04_py3.14-pytorch_2.13.0_vllm-0.29.0",
+      "prebuilt": true,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [
-        "python3-dev"
-      ],
+      "apt": [],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
         "TORCH_BACKEND": "auto"
       },
-      "install": [
-        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.33.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
-        "cd /opt/llgenie/engines/vllm/src && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match",
-        "cd /opt/llgenie/engines/vllm/src && bash tools/build_rust.sh",
-        "cd /opt/llgenie/engines/vllm/src && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
-      ],
+      "install": [],
       "env": {},
       "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
       "pre_launch": null,

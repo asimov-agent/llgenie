@@ -688,13 +688,19 @@ def test_official_upstream_images_are_used_as_bases(skills):
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     # #1306: sglang/cuda is prebuilt (OOM-safe) — it starts FROM its official image
-    # and runs no install; sglang/rocm and vllm x3 / ollama x4 still compile.
+    # and runs no install; sglang/rocm and ollama x4 still compile.
     assert "FROM lmsysorg/sglang:v0.5.23" in df("sglang", "cuda")
     assert "engine_runner.py install" not in df("sglang", "cuda")
     assert "engine_runner.py install" in df("sglang", "rocm")
-    for b in ("cuda", "rocm", "cpu"):
-        assert "FROM vllm/vllm-openai" not in df("vllm", b)
-        assert "engine_runner.py install" in df("vllm", b)
+    # #2386/#2429 + #1558/#2274: both vllm GPU cells are THIN over the official prebuilt serving
+    # bases (vllm/cuda over vLLM's CUDA image, vllm/rocm over AMD's rocm/vllm), zero install;
+    # only the cpu cell still source-compiles the pinned sha.
+    assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in df("vllm", "cuda")
+    assert "FROM docker.io/rocm/vllm:rocm10.1.0" in df("vllm", "rocm")
+    assert "engine_runner.py install" not in df("vllm", "cuda")
+    assert "engine_runner.py install" not in df("vllm", "rocm")
+    assert "FROM vllm/vllm-openai" not in df("vllm", "cpu")
+    assert "engine_runner.py install" in df("vllm", "cpu")
     # And llama.cpp and ollama compile every variant, never FROM their official images
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)
@@ -1815,6 +1821,30 @@ def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
     torch_i = next(i for i, s in enumerate(cpu) if "torch==2.14.0" in s)
     cpu_txt_i = next(i for i, s in enumerate(cpu) if "cpu.txt" in s)
     assert torch_i < cpu_txt_i
+
+
+def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
+    """Issue #2386: the cuda cell is a THIN image over vLLM's official CUDA serving base
+    (prebuilt: true, install: [], FROM docker.io/vllm/vllm-openai:v0.33.0) — no source compile
+    AND no wheel-install chain. Any regression back to a source step (git clone / build_rust.sh /
+    -r …/build/cuda.txt / -e .) or to the discarded wheel flow must red the gate."""
+    p = json.loads((REPO / "containers/engines/params/vllm.json").read_text())["variants"]
+    cuda = p["cuda"]
+    # thin prebuilt: zero install steps, base is vLLM's official serving image
+    assert cuda.get("prebuilt") is True
+    assert cuda.get("install") == []
+    assert cuda.get("base") == "docker.io/vllm/vllm-openai:v0.33.0"
+    joined = "\n".join(cuda["install"])
+    # NO wheel flow and NO source-compile step on the cuda cell
+    for bad in ("git clone", "build_rust.sh", "requirements/build/cuda.txt", "-e .",
+                "VLLM_TARGET_DEVICE=cuda uv pip install --no-build-isolation",
+                "files.pythonhosted.org", "sha256sum -c", "uv pip install"):
+        assert bad not in joined, f"thin cuda cell must not install: {bad!r} present"
+    # rocm is also THIN (#2274: AMD's rocm/vllm prebuilt, zero install); cpu stays a source build
+    assert p["rocm"].get("prebuilt") is True
+    assert p["rocm"].get("install") == []
+    cpu = "\n".join(p["cpu"]["install"])
+    assert "git clone" in cpu and "-e ." in cpu, "cpu must stay a source build"
 
 
 def test_rocm_source_builds_pin_a_base_their_build_accepts():
