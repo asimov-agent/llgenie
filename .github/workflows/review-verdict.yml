@@ -24,16 +24,28 @@ name: review-verdict — record a submitted review as the bot-verdict marker at 
 # and get their marker from the reviewer lane (separate step). A SAME-REPO review event carries a
 # write token, so THIS caller is the one that records those heads.
 #
-# Flow: resolve the exact head judged + the run that measured it -> make bot-verdict VERDICT=...
-#       (the #852 producer). Only approved / changes_requested count; a commented review is not a
-#       verdict. A head with no concluded run is not posted (#1551: a verdict that names only a sha
-#       cannot be audited).
+# Trigger surface: a submitted pull_request_review, OR a manual workflow_dispatch naming the PR
+# (pr_number) and the head it judged (head_sha) so a missed verdict can be (re)recorded by hand.
+# Flow: guard (owner/collaborator with write, on a dispatch) -> resolve the exact head judged + the
+#       run that measured it -> make bot-verdict VERDICT=... (the #852 producer). Only approved /
+#       changes_requested count; a commented review is not a verdict. A head with no concluded run
+#       is not posted (#1551: a verdict that names only a sha cannot be audited).
 # Never: never merges, never pushes, never edits code, never invents a head (it reads the event's
-#       `head.sha`), never posts a marker for a head with no concluded run, never posts on a fork
-#       head it lacks write to.
+#       `head.sha`, or on a dispatch the PR's LIVE head after asserting the input matches), never
+#       posts a marker for a head with no concluded run, never posts on a fork head it lacks write to.
 on:
   pull_request_review:
     types: [submitted]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "the PR whose review verdict to (re)record at its current head"
+        required: true
+        type: number
+      head_sha:
+        description: "the 40-hex head sha this PR must currently be at — a stale name is a finding, not a pass"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -43,49 +55,140 @@ permissions:
 # per-PR group: two reviews on the same PR serialise; a verdict for head A and one for head B both
 # post (different heads), so nothing waits behind a verdict for another tree on the same PR.
 concurrency:
-  group: review-verdict-${{ github.event.pull_request.number }}
+  group: review-verdict-${{ inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
-  record:
-    # A same-repo head only: a fork head's review event carries a read-only token and no secrets, so
-    # this job could not post the marker there (the reviewer lane covers those, separately). The
-    # check uses the event's head repo, which is non-empty for a PR event (#510).
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  # The dispatch actor guard (issue #295): only a workflow_dispatch can be started by hand, so only
+  # that path needs the owner/collaborator-with-write check. A pull_request_review event stays under
+  # the same-repo head-repo guard on `record` below (a fork head's token is read-only); the actor
+  # guard is byte-identical to the other dispatchable workflows, and the bot passes it on a dispatch
+  # of this repository (issue #1571) so the all-pipelines sweep can drive it.
+  guard:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # The producer (`make bot-verdict` -> scripts/bot_verdict.py) runs from THIS tree, so the job
-      # must check it out before invoking make — a job without checkout runs `make` in an empty
-      # workspace and dies with "No rule to make target 'bot-verdict'" (#1565). Check out the base
-      # branch (a marker is trusted only when the tree that wrote it is the repo's own, never a
-      # fork head / PR head).
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-
-      - name: Prove the review event carries a full sha (a prefix is not a head)
-        id: head
+      - name: Owner / collaborator trigger guard
         env:
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  record:
+    needs: guard
+    # A same-repo head only for a review event: a fork head's review event carries a read-only token
+    # and no secrets, so this job could not post the marker there (the reviewer lane covers those,
+    # separately). The check uses the event's head repo, which is non-empty for a PR event (#510).
+    # A manual dispatch has no head repo (there is no PR event) — it names the PR by number, so the
+    # actor guard job above gates it instead, and this job must never be a 0-job on a dispatch.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # The PR identity: a manual dispatch names it; a review event carries it.
+      PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+    steps:
+      # Resolve the head this run may record. A review event carries a full 40-hex sha (a prefix is
+      # not a head); a dispatch names it as an input, and it is a FINDING — not a pass — when it is
+      # not the PR's CURRENT head (the marker must name the tree the review judged, and the merge
+      # gate reads the marker at the live head). On a dispatch this also resolves the PR's base ref,
+      # which the checkout below needs.
+      - name: Resolve the judged head (event sha, or the live PR head a dispatch must match)
+        id: resolve
+        env:
+          HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
+          DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           set -euo pipefail
           case "${#HEAD}" in
             40) : ;;
             *) echo "::error title=not-a-head::$HEAD is not a full 40-hex sha - the marker must name the tree the review judged"; exit 2 ;;
           esac
+          if [ "${DISPATCH}" = "true" ]; then
+            # A manual dispatch resolves the PR+head via the API and asserts the input matches the
+            # PR's CURRENT head — a stale head_sha must never record a marker on a tree the PR is no
+            # longer on (a finding, not a pass).
+            current=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
+            if [ "$current" != "$HEAD" ]; then
+              echo "::error title=stale-head::head_sha $HEAD does not match PR #$PR's current head $current - refusing to record a verdict for a stale tree"
+              exit 2
+            fi
+            echo "head $HEAD verified against the live PR #$PR"
+            echo "BASE_REF=$(gh api "repos/$REPO/pulls/$PR" --jq '.base.ref')" >> "$GITHUB_OUTPUT"
+          fi
           echo "HEAD=$HEAD" >> "$GITHUB_OUTPUT"
 
-      # Map the review decision GitHub already recorded. Only a real decision is a verdict.
+      # The producer (`make bot-verdict` -> scripts/bot_verdict.py) runs from THIS tree, so the job
+      # must check it out before invoking make — a job without checkout runs `make` in an empty
+      # workspace and dies with "No rule to make target 'bot-verdict'" (#1565). Check out the base
+      # branch (a marker is trusted only when the tree that wrote it is the repo's own, never a
+      # fork head / PR head). On a dispatch the event base is empty, so the resolved base ref wins
+      # (and the run assigned to this workflow on main is the repo's own tree).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.resolve.outputs.BASE_REF || github.event.pull_request.base.sha }}
+
+      # Map the review decision GitHub already recorded to a verdict. Only a real decision is a
+      # verdict. On a dispatch there is no review event, so the PR's latest approved-or-changes
+      # review — the decision the merge gate reads — is resolved through the API instead.
       - name: Map the review state to a verdict
         id: verdict
         env:
           STATE: ${{ github.event.review.state }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+          DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           set -euo pipefail
+          if [ "${DISPATCH}" = "true" ]; then
+            STATE=$(gh api "repos/$REPO/pulls/$PR/reviews" \
+              --jq '[.[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")][-1].state // empty')
+          fi
           case "$STATE" in
-            approved) echo "VERDICT=approve" >> "$GITHUB_OUTPUT" ;;
-            changes_requested) echo "VERDICT=changes" >> "$GITHUB_OUTPUT" ;;
+            approved|APPROVED) echo "VERDICT=approve" >> "$GITHUB_OUTPUT" ;;
+            changes_requested|CHANGES_REQUESTED) echo "VERDICT=changes" >> "$GITHUB_OUTPUT" ;;
             *)
               echo "review state '$STATE' is not a verdict (approved/changes_requested) - nothing to record"
               echo "SKIP=true" >> "$GITHUB_OUTPUT" ;;
@@ -103,7 +206,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          HEAD: ${{ steps.head.outputs.HEAD }}
+          HEAD: ${{ steps.resolve.outputs.HEAD }}
         run: |
           set -euo pipefail
           run_id=$(gh api \
@@ -124,9 +227,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ inputs.pr_number || github.event.pull_request.number }}
           VERDICT: ${{ steps.verdict.outputs.VERDICT }}
-          HEAD: ${{ steps.head.outputs.HEAD }}
+          HEAD: ${{ steps.resolve.outputs.HEAD }}
           RUN: ${{ steps.run.outputs.RUN }}
           REVIEWER: "github-actions[bot]"
         run: |
@@ -144,6 +247,6 @@ jobs:
         run: |
           echo "### review-verdict" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Review ${{ github.event.review.id }} on PR #${{ github.event.pull_request.number }}: "\
-               "state ${{ github.event.review.state }} at head ${{ github.event.pull_request.head.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR #${{ inputs.pr_number || github.event.pull_request.number }}: " \
+               "recorded ${{ steps.verdict.outputs.VERDICT || 'nothing' }} at head ${{ steps.resolve.outputs.HEAD }}" >> "$GITHUB_STEP_SUMMARY"
           echo "The bot never merges and never pushes; it records the verdict the merge decision reads." >> "$GITHUB_STEP_SUMMARY"

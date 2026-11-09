@@ -12,20 +12,28 @@
 #                  params differ) is hermetic — the script prints `no engine this change repins` and exits 0
 #                  touching no network. The trigger never runs on `push` to main: merging publishes on its own
 #                  schedule; a push would double-dispatch a full sweep (#614 design preserved).
+#                  `workflow_dispatch` is a manual re-drive of the same trigger (issue #2381): the base_ref
+#                  names the ref the head's params are measured against and `branch` names the head ref whose
+#                  params may repin engines — a hand re-run when a pin-bump event was missed or the trigger run
+#                  died mid-wait. Both inputs are REQUIRED, so a dispatch is always scoped.
 # Guard: this workflow does NOT weaken engine-build's owner/collaborator-with-write guard — that guard lives
 #        in engine-build.yml and STILL runs at dispatch time. A dispatch whose actor is not the owner/collab
 #        (or this repo's bot on a same-repo head, #1571) is refused BY THE PRODUCER. This trigger's own job
 #        mirrors that same-repo intent so a foreign-head PR (a fork bump) never even reaches the dispatch:
 #        it only dispatches when the PR head is a branch in THIS repository — a same-repo head can be produced
-#        only by a token with write access (issues #510/#1571). The trigger never bypasses or short-circuits the
-#        producer's guard; it joins the producer's own concurrency queue (`engine-build-push`, #917) and waits
-#        its turn. cancel-in-progress: false so a stale-head PR never cancels a producer run that is mid-build.
+#        only by a token with write access (issues #510/#1571). A manual workflow_dispatch is gated by its own
+#        actor guard job (byte-identical to the other dispatchable workflows, issue #295), and the trigger
+#        never bypasses or short-circuits the producer's guard; it joins the producer's own concurrency queue
+#        (`engine-build-push`, #917) and waits its turn. cancel-in-progress: false so a stale-head PR never
+#        cancels a producer run that is mid-build.
 # Verdict: `gh workflow run` exit 0 is never a verdict (#964's auto-merge trap applies to dispatch too); the
 #        trigger awaits the NEW workflow_dispatch run's own conclusion, exactly as all-pipelines does. A run
 #        refused at the producer's guard is reported `NOT VERIFIED — refused at its own trigger guard`, never a
 #        bare failure, so a green board cannot disguise an unverifiable dispatch.
 # Never: never merges, never pushes to main, never edits code, never cancels a producer run, never dispatches
 #        for a foreign-head PR, never widens the scope past the engines this change repins.
+# Flow: guard (same-repo head) + actor-guard (owner/collaborator, on a dispatch) -> make engine-build-pr-trigger
+#       BASE= BRANCH= (dispatch push=true for each repinned engine, await every run's verdict; no repin is hermetic).
 name: engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)
 
 on:
@@ -33,6 +41,16 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "containers/engines/params/**"
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: "the git ref (branch or sha) the head's repin diff is measured against (the PR's base)"
+        required: true
+        type: string
+      branch:
+        description: "the head ref (branch or sha) whose params may repin engines — the ref the producer dispatch targets"
+        required: true
+        type: string
 
 permissions:
   actions: write        # to dispatch the engine-build producer and read its run verdicts
@@ -42,10 +60,11 @@ permissions:
 # job mid-wait would leave that run unobserved ("never cancel a live run", #1102 design). Scoping the key to
 # the head SHA (not just the PR number) means a synchronize push onto the same PR (e.g. a rebase) fires a NEW
 # trigger run for the new head instead of being queued behind the old head's build for up to ~90 min with
-# zero jobs and a frozen updated_at (issue #1831). cancel-in-progress: false is still preserved so a stale
-# head never cancels a producer run that is mid-build.
+# zero jobs and a frozen updated_at (issue #1831). A manual dispatch has no PR event, so it keys on the branch
+# input instead. cancel-in-progress: false is still preserved so a stale head never cancels a producer run
+# that is mid-build.
 concurrency:
-  group: engine-build-pr-trigger-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: engine-build-pr-trigger-${{ inputs.branch || github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -61,14 +80,70 @@ jobs:
           set -euo pipefail
           # A fork's PR must never reach a push=true dispatch: a same-repo head is the only head a write-scoped
           # token can produce (issues #510/#1571). engine-build.yml re-verifies actor/permission at dispatch time.
+          # (On a manual dispatch there is no PR head, so this is a no-op — the actor-guard job gates it instead.)
           if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" != "$REPO" ]; then
             echo "Refused: PR head belongs to ${HEAD_REPO}, not $REPO — a foreign-head bump cannot trigger a push=true dispatch."
             exit 1
           fi
           echo "Allowed: same-repo head ${HEAD_REPO:-$REPO} — may trigger a scoped push=true engine-build."
 
+  # The dispatch actor guard (issue #295): a manual workflow_dispatch is started by a person, so only that
+  # path needs the owner/collaborator-with-write check. It is byte-identical to the other dispatchable
+  # workflows, and the bot passes it on a dispatch of this repository (issue #1571) so the all-pipelines
+  # sweep can drive it. `trigger` needs it, so a refused dispatch never reaches the producer.
+  actor-guard:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
   trigger:
-    needs: [guard]
+    needs: [guard, actor-guard]
     runs-on: ubuntu-latest
     timeout-minutes: 250   # a max window that can hold a push=true build+push for a bump PR; producer itself can run 240 min
     steps:
@@ -84,7 +159,21 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_REF: ${{ github.head_ref }}
         run: |
-          # A pull_request checkout is DETACHED: `git rev-parse --abbrev-ref HEAD` is the literal
-          # `HEAD`, and a dispatch at it dies with HTTP 422 `No ref found for: HEAD` — so a repin PR
-          # never actually built (issue #2089, carried from PR #1696). Dispatch at the SOURCE branch.
-          make engine-build-pr-trigger BASE="$PR_BASE_SHA" BRANCH="$PR_HEAD_REF"
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A manual dispatch resolves BOTH refs itself: fetch the head and the base it is measured
+            # against, stand on the head's tree (the params files must be the HEAD's, not the branch the
+            # dispatch happened to target), and let the base resolve for the diff. A branch input that
+            # resolves to nothing is a finding — the make target refuses to dispatch at a ref GitHub
+            # cannot resolve (issue #2089), so this must not hide behind a hermetic green.
+            git fetch --no-tags origin "${{ inputs.branch }}" "${{ inputs.base_ref }}"
+            branch_head=$(git rev-parse --verify "refs/remotes/origin/${{ inputs.branch }}" 2>/dev/null || git rev-parse --verify "${{ inputs.branch }}")
+            git checkout -q --detach "$branch_head"
+            git rev-parse --verify "${{ inputs.base_ref }}" >/dev/null || git rev-parse --verify "refs/remotes/origin/${{ inputs.base_ref }}" >/dev/null
+            make engine-build-pr-trigger BASE="${{ inputs.base_ref }}" BRANCH="${{ inputs.branch }}"
+          else
+            # A pull_request checkout is DETACHED: `git rev-parse --abbrev-ref HEAD` is the literal
+            # `HEAD`, and a dispatch at it dies with HTTP 422 `No ref found for: HEAD` — so a repin PR
+            # never actually built (issue #2089, carried from PR #1696). Dispatch at the SOURCE branch.
+            make engine-build-pr-trigger BASE="$PR_BASE_SHA" BRANCH="$PR_HEAD_REF"
+          fi
