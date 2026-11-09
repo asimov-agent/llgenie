@@ -268,9 +268,9 @@ the peer maintainers do it), and a verified head sha is the only thing your verd
 to. Verify **at the PR head in a worktree**, never from the description:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie fetch origin pull/<n>/head
-git -C /home/asimov/repository/git/llgenie-wt/<name> status -sb   # reuse an existing tree if present
-# else: git -C /home/asimov/repository/git/llgenie worktree add --detach ../llgenie-wt/pr<n> <sha>
+git -C "$HOME/repository/git/llgenie" fetch origin pull/<n>/head
+git -C "$HOME/repository/git/llgenie-wt/<name>" status -sb   # reuse an existing tree if present
+# else: git -C "$HOME/repository/git/llgenie" worktree add --detach ../llgenie-wt/pr<n> <sha>
 ```
 
 `origin` in this clone is the UPSTREAM (`asimov-agent/llgenie`); the fork is `fork`
@@ -354,7 +354,7 @@ completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancel
   A board can show five red PRs that share one broken default branch, and holding each of them parks
   work for a defect it does not carry. Check `main`'s last run first, then reproduce:
   ```bash
-  git -C /home/asimov/repository/git/llgenie worktree add --force --detach ../llgenie-wt/vmain origin/main
+  git -C "$HOME/repository/git/llgenie" worktree add --force --detach ../llgenie-wt/vmain origin/main
   cd ../llgenie-wt/vmain && python -m pytest --noconftest -q <the modules named in the failing job>
   ```
   Same FAILED set ⇒ the red is **not in the diff**: write "not green, for a reason outside the diff",

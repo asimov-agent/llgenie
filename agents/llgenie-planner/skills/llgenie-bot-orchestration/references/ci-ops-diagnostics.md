@@ -26,8 +26,8 @@ Two main clones with **different remote names**:
 
 | clone | canonical remote |
 |---|---|
-| `/home/asimov/repository/git/llgenie` | `origin` = asimov-agent |
-| `/home/asimov/repository/git/ai-repositories/llgenie` | `upstream` = asimov-agent |
+| `$HOME/repository/git/llgenie` | `origin` = asimov-agent |
+| `$HOME/repository/git/ai-repositories/llgenie` | `upstream` = asimov-agent |
 
 Worktrees inherit the clone that created them, so `git fetch origin main` validates **the fork** in one tree and upstream in the other. Check `cat .git | head -1` → `git remote -v` → `git ls-remote <remote> main` before any fetch or push. Quote the sha **and the ref it was measured on**: a log is evidence about the branch it ran on, not about `main`.
 

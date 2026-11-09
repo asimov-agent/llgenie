@@ -168,8 +168,8 @@ is recoverable; one silently dropped mid-gate is not.
   `gh api repos/asimov-agent/llgenie/branches/<branch> --jq .commit.sha` (a 404 there, while
   `git ls-remote origin <branch>` answers happily, is the tell), then push to the correct remote.
 - **This host has TWO main repositories, and they name their remotes differently.**
-  `/home/asimov/repository/git/ai-repositories/llgenie` → `origin` = the owner's fork, `upstream` =
-  `asimov-agent/llgenie`; `/home/asimov/repository/git/llgenie` → `origin` = `asimov-agent/llgenie`,
+  `$HOME/repository/git/ai-repositories/llgenie` → `origin` = the owner's fork, `upstream` =
+  `asimov-agent/llgenie`; `$HOME/repository/git/llgenie` → `origin` = `asimov-agent/llgenie`,
   `fork` = `andyholst/llgenie`. Worktrees inherit whichever main repo created them, so `git fetch
   upstream` can fail with "does not appear to be a git repository" in a worktree where the remote is
   called `origin`. Before any fetch or push: `cat .git | head -1` (which main repo), then
@@ -183,7 +183,7 @@ is recoverable; one silently dropped mid-gate is not.
 - **Push branches to the BASE repository: a fork-headed PR is a different animal, and it costs secrets and approvals.** A `pull_request` run from a fork receives **no repository secrets**, so a token-secret comes back empty and a job can report `success` while doing nothing — that is why the merge gate lives in a `workflow_run` workflow in the base repo at all. A fork head also drags in the fork's own review semantics, and every sweep then needs two remote rules ("push back to the PR's own head" and "never push a fork head to upstream") whose ambiguity produces near-misses. So: push to whichever remote's URL is `asimov-agent/llgenie` (§above), and when a check is added for the existing cross-repository PRs, make it **report with a reason and a concrete remedy, never fail** — those PRs are legitimate and merge as they are, and a gate that reds on them teaches the next reader to skip it. Keep the strict form behind an explicit flag, and give the classifier a single source of truth (`isCrossRepository` from the API; deriving it from the owner login is a second opinion that disagrees later).
 
 ```bash
-cd /home/asimov/repository/git/ai-repositories/llgenie && git fetch upstream --prune -q \
+cd "$HOME/repository/git/ai-repositories/llgenie" && git fetch upstream --prune -q \
   && git worktree add --detach ../llgenie-verify upstream/main
 ```
 

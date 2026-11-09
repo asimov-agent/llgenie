@@ -79,7 +79,7 @@ non-test command before the `make[1]: *** Error 1` line, not the pytest summary.
 
 ## Proving a fix, and cutting the branch it ships on
 
-**Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the
+**Work in a worktree, never in the primary checkout.** `$HOME/repository/git/llgenie` is the
 shared builder workspace other lanes treat as `origin/main`; commits parked there on a feature branch
 make every other lane's tree ambiguous. Do:
 `git worktree add ../llgenie-wt/<slug> -b <slug> origin/main`, work there, and keep the primary
@@ -114,7 +114,7 @@ you inherit is usually sitting on somebody else's PR branch. Both have a recipe.
 
    ```bash
    cp scripts/<f>.py /tmp/fix.py && git show HEAD:scripts/<f>.py > scripts/<f>.py
-   env HOME=/home/asimov RUNTIME=docker PATH="$HOME/llama-gguf-tools/.venv/bin:$PATH" \
+   env HOME="$HOME" RUNTIME=docker PATH="$HOME/llama-gguf-tools/.venv/bin:$PATH" \
      python -m pytest tests/test_<x>.py -q -k <new_test>
    cp /tmp/fix.py scripts/<f>.py
    ```

@@ -79,7 +79,7 @@ skill/params/image, a rebuild or build failure, a serving-speed tuning question,
 a "model missing from the trend list" report, or a change to the picker/selection
 logic. It is the default frame for this profile's sessions.
 
-Versioned copy: `/home/asimov/repository/git/llgenie/.hermes/skills/llgenie-engine-improver/SKILL.md`
+Versioned copy: `$HOME/repository/git/llgenie/.hermes/skills/llgenie-engine-improver/SKILL.md`
 (this profile's skill is the installed copy; the repo copy is what a reviewer reads and what CI
 validates as a HOST skill — change BOTH in the same change set).
 
@@ -130,8 +130,8 @@ registry, never patch the symptom at the bottom.
 ## Step 0 — orient (every session, before touching anything)
 
 ```bash
-cd /home/asimov/repository/git/llgenie && git status --short && git log -1 --oneline
-cd /home/asimov/repository/git/trending-local-llms && git log -1 --oneline
+cd "$HOME/repository/git/llgenie" && git status --short && git log -1 --oneline
+cd "$HOME/repository/git/trending-local-llms" && git log -1 --oneline
 make engine-skill-gap          # shipped / known-unsupported / NEW-AND-UNRESOLVED
 make engine-skill-gap-md       # same, markdown, for a PR/issue body
 ```

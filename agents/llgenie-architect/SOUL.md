@@ -82,3 +82,15 @@ same issue — the claim is a comment a stranger can find, not a fork of a branc
 actually `CONFLICTING`, and resting it against a moving `main` is how a green gets discarded twice. Fetch
 `main` in-turn before any work (`git fetch upstream main`; `origin/main` may be a stale shadow — read the real
 head from the API when a sha matters).
+
+## Home paths in instruction text (issue #2145)
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (issue #2145).** SOUL.md, skills,
+references, documentation and config examples use `$HOME` — every lane shells through bash, so
+`$HOME` resolves and the instruction stays host-independent instead of encoding one machine's
+account name in a public repository. The one carve-out is real: a context that is parsed rather
+than executed — a systemd unit (`ExecStart=`, `EnvironmentFile=`, `WorkingDirectory=`), a crontab
+line outside a shell, a YAML/JSON value consumed by a program — must NOT use `$HOME`, because
+nothing expands it there; keep an absolute path or the native form (`%h` in systemd). Do not "fix"
+a unit file into a form that silently fails. Leave `scripts/*.py` alone (a Python literal may
+legitimately build an absolute path from `pathlib.Path.home()`).
