@@ -851,7 +851,13 @@ close). Since #2187, an unticked box whose PR carries a TRUSTED approve verdict 
 (`acceptance_writeback`/`review_finalize`, #1644/#1808) is verdict-gated and has no CI trigger, so a
 reviewed-green close must not read as unproven. A genuinely unproven box — no verdict, a `changes`
 verdict, or a verdict at another head — still reds `acceptance-unchecked`; the gate exits non-zero only
-when a BLOCKING finding exists. When the canonical `## Acceptance criteria` section is ABSENT but
+when a BLOCKING finding exists. A criterion that demands the acceptance gate's OWN job verdict be green
+(issue #2094) is reported `gate-circular`, a distinct non-red state: the box names `guard` /
+`check-pr-acceptance` / `ci-verdict` / `judge` / `ci-scope-decision` — the very CI that must pass
+before a peer criterion is provable — so the gate cannot pass until the box is ticked and the box cannot
+be proven until the gate passes (measured 2026-11-08: item 2 of #2046 on PR #2051). Classifying it as
+`acceptance-unchecked` would park a finished PR forever and force reviewers into a false tick or waive;
+`gate-circular` names the loop and never holds a close whose other criteria are proven. When the canonical `## Acceptance criteria` section is ABSENT but
 `- [ ]` checkboxes sit under
 another `##` heading (issue #1811), a found-headings canary names those headings and refuses the
 unproven close instead of silently passing. It is VERIFICATION only: it never ticks a box — that stays
