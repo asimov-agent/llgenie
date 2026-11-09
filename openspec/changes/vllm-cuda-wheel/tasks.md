@@ -6,8 +6,10 @@
 - [x] 2. `make generate-engine-params ENGINE=vllm`; commit the regenerated
       `containers/engines/params/vllm.json` and `containers/engines/dockerfiles/vllm/Dockerfile.cuda`
       (now thin `FROM docker.io/vllm/vllm-openai:v0.33.0`, `prebuilt=true`, `install=[]`).
-- [x] 3. `scripts/engine_source_guard.py`: `("vllm", "cuda")` in `KNOWN_NOT_SOURCE` so
-      `make check-engine-source` stays green (thin image pull, not a source build).
+- [x] 3. `scripts/engine_source_guard.py`: vllm/cuda is `prebuilt: true` (thin image over vLLM's
+      official CUDA serving base), so `findings()` skips it (guard line `if row["prebuilt"]: continue`)
+      and `make check-engine-source` stays green with NO `KNOWN_NOT_SOURCE` entry — the old wheel/
+      base-cuda entry was removed.
 - [x] 4. `tests/test_engine_skills.py`: hermetic test that the cuda cell is thin/prebuilt with no
       source step and no install chain; a regression back to `-e .`/`build_rust.sh`/wheel reds.
 - [x] 5. `make check-engine-params` green (0 stale, 0 drift); `make check-docs` green (change->note).

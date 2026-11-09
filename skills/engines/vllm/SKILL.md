@@ -29,18 +29,7 @@ hw_flags:
   rocm:
     gpu_targets: "'{gpu_targets}'"
 install:
-  cuda:
-    # v0.33.0 cuda cell installs the official prebuilt CUDA wheel (cu13, cp38-abi3)
-    # instead of source-compiling the pin — supersedes #937/#615 for the cuda cell
-    # (issue #2386). curl + sha256 hash-check (version AND sha both pinned; the build
-    # fails on any mismatch — never install an unpinned wheel), then uv pip install.
-    - "curl -fSL --retry 3 -o /opt/llgenie/engines/vllm/vllm.whl https://files.pythonhosted.org/packages/8b/a8/92e278093df40fde4c4bfd6572704bb8f398d6a2280d8c82cb5efaf12047/vllm-0.33.0-cp38-abi3-manylinux_2_28_x86_64.whl"
-    - "echo '4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa  /opt/llgenie/engines/vllm/vllm.whl' | sha256sum -c -"
-    # torch cu130 family first from the SAME cu130 index the source build used, so the
-    # wheel's own `torch==2.14.0` pin and the [cu13] extras (nvidia-cutlass-dsl, humming-
-    # kernels, flashinfer-python, xgrammar) resolve against the matching ABI.
-    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision==0.29.0 torchaudio==2.11.0 torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
-    - "uv pip install --system --break-system-packages /opt/llgenie/engines/vllm/vllm.whl && rm -f /opt/llgenie/engines/vllm/vllm.whl"
+  cuda: []   # prebuilt thin image over vLLM's official CUDA serving base — zero install steps (see container.cuda)
   rocm:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # the rocm build file names the amd index and the torch it needs, but pins a BARE

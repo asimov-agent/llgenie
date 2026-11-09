@@ -688,11 +688,15 @@ def test_official_upstream_images_are_used_as_bases(skills):
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     # #1306: sglang/cuda is prebuilt (OOM-safe) — it starts FROM its official image
-    # and runs no install; sglang/rocm and vllm x3 / ollama x4 still compile.
+    # and runs no install; sglang/rocm and ollama x4 still compile.
     assert "FROM lmsysorg/sglang:v0.5.23" in df("sglang", "cuda")
     assert "engine_runner.py install" not in df("sglang", "cuda")
     assert "engine_runner.py install" in df("sglang", "rocm")
-    for b in ("cuda", "rocm", "cpu"):
+    # #2386/#2429: vllm/cuda is THIN over vLLM's official CUDA serving base (prebuilt, zero install);
+    # the rocm + cpu cells still source-compile the pinned sha (mirror of #2274 rocm thin, applied to cuda).
+    assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in df("vllm", "cuda")
+    assert "engine_runner.py install" not in df("vllm", "cuda")
+    for b in ("rocm", "cpu"):
         assert "FROM vllm/vllm-openai" not in df("vllm", b)
         assert "engine_runner.py install" in df("vllm", b)
     # And llama.cpp and ollama compile every variant, never FROM their official images
@@ -1817,23 +1821,23 @@ def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
     assert torch_i < cpu_txt_i
 
 
-def test_vllm_cuda_installs_the_wheel_not_a_source_step():
-    """Issue #2386: the cuda cell installs vLLM's official prebuilt CUDA wheel
-    (curl + sha256 hash-check + uv pip install of cu130 torch family then the wheel)
-    instead of source-compiling the pin. Any regression back to a source step
-    (git clone / build_rust.sh / -r …/build/cuda.txt / -e .) must red the gate."""
+def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
+    """Issue #2386: the cuda cell is a THIN image over vLLM's official CUDA serving base
+    (prebuilt: true, install: [], FROM docker.io/vllm/vllm-openai:v0.33.0) — no source compile
+    AND no wheel-install chain. Any regression back to a source step (git clone / build_rust.sh /
+    -r …/build/cuda.txt / -e .) or to the discarded wheel flow must red the gate."""
     p = json.loads((REPO / "containers/engines/params/vllm.json").read_text())["variants"]
     cuda = p["cuda"]
+    # thin prebuilt: zero install steps, base is vLLM's official serving image
+    assert cuda.get("prebuilt") is True
+    assert cuda.get("install") == []
+    assert cuda.get("base") == "docker.io/vllm/vllm-openai:v0.33.0"
     joined = "\n".join(cuda["install"])
-    # the wheel flow: curl the pinned wheel, hash-check it, install cu130 torch then the wheel
-    assert "https://files.pythonhosted.org/packages/8b/a8" in joined
-    assert ".whl" in joined and "curl" in joined and "sha256sum -c" in joined
-    assert "--index-url https://download.pytorch.org/whl/cu130" in joined
-    assert any("torch==2.14.0" in i for i in cuda["install"])
-    # NO source-compile step on the cuda cell
+    # NO wheel flow and NO source-compile step on the cuda cell
     for bad in ("git clone", "build_rust.sh", "requirements/build/cuda.txt", "-e .",
-                "VLLM_TARGET_DEVICE=cuda uv pip install --no-build-isolation"):
-        assert bad not in joined, f"cuda install must not source-compile: {bad!r} present"
+                "VLLM_TARGET_DEVICE=cuda uv pip install --no-build-isolation",
+                "files.pythonhosted.org", "sha256sum -c", "uv pip install"):
+        assert bad not in joined, f"thin cuda cell must not install: {bad!r} present"
     # rocm and cpu still source-compile the pinned sha (unchanged)
     for b in ("rocm", "cpu"):
         other = "\n".join(p[b]["install"])

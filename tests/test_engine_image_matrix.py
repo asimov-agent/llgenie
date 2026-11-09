@@ -56,6 +56,11 @@ _VARIANT = {"backend": "cpu", "base": "ubuntu:24.04", "prebuilt": False, "runtim
 def _point(monkeypatch, repo: Path):
     monkeypatch.setattr(es, "REPO_ROOT", repo)
     monkeypatch.setattr(es, "CONTAINER_DIR", repo / "containers" / "engines")
+    # engine_image imports the SKILLS module under its bare name (``import engine_skills as es``),
+    # which is a DIFFERENT module object than ``scripts.engine_skills`` when the scripts/ package
+    # is also on the path — so ei.build() would read the REAL committed Dockerfiles/params, not the
+    # tmp repo's. Point ei at the same object the test patches so the synthetic tree is authoritative.
+    monkeypatch.setattr(ei, "es", es)
     monkeypatch.setattr(ei, "CI_VARIANTS", {"cpu"})
     monkeypatch.setattr(ei, "disabled", lambda e, v: "")
 
@@ -607,15 +612,19 @@ def test_combine_base_stage_removes_cross_invocation_base_pull():
 
 
 def test_vllm_cuda_dockerfile_base_stage_is_hermetic():
-    """vllm/cuda's base resolves as an internal stage, never a docker.io pull."""
+    """vllm/cuda is a THIN prebuilt image over vLLM's official serving base — an external
+    docker.io pull exempt from the internal base-stage merge (mirrors sglang/cuda +
+    tensorrt-llm/cuda). It must NOT be aliased to the shared cuda base's internal stage."""
     derived = (REPO / "containers" / "engines" / "dockerfiles" / "vllm" / "Dockerfile.cuda").read_text()
     tag = es.base_tag("cuda")
-    assert f"FROM {tag}" in derived, "the committed cuda Dockerfile must FROM the cuda base"
-    combined = ei._combine_base_stage("cuda", derived, tag)
-    assert "FROM llgenie-base" in combined
-    assert f"FROM {tag}" not in combined.replace("FROM llgenie-base", "")
-    assert "docker.io" not in combined
-    assert combined.count("AS llgenie-base") == 1
+    # exempt: it pulls vLLM's official CUDA serving image by name (prebuilt: true), never the
+    # shared toolchain base, so the internal-stage merge must not be applied to it
+    assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in derived
+    assert f"FROM {tag}" not in derived
+    assert "AS llgenie-base" not in derived
+    # and the prebuilt Dockerfile carries no shared-base alias and no source-build wrap
+    assert "FROM llgenie-base" not in derived
+    assert "engine_runner.py install" not in derived
 
 
 def test_build_push_false_routes_from_base_cell_through_internal_stage(tmp_path, monkeypatch):
