@@ -43,6 +43,7 @@ from scripts.engine_bump_sync import (
     UPSTREAM_SLUG,
     is_engine_bump_pr,
     sync_pr_with_main,
+    upstream_main,
 )
 
 API = f"https://api.github.com/repos/{UPSTREAM_SLUG}"
@@ -135,9 +136,39 @@ def open_engine_bump_prs() -> list:
     return [pr for pr in prs if isinstance(pr, dict) and is_engine_bump_pr(pr)]
 
 
-def pr_is_behind(pr) -> bool:
-    """True if the PR head is BEHIND main / unverifiable (never merge those)."""
-    cmp = api(f"/compare/{pr['base']['sha']}...{pr['head']['sha']}")
+def live_main_head(repo: str) -> str | None:
+    """The sha of the LIVE upstream main head in the checkout, or None when it cannot be read.
+
+    The workflow checks out `main` with `fetch-depth: 0` (`.github/workflows/
+    engine-bump-rebase.yml`), so the `<upstream>/main` ref `upstream_main(repo)` resolves
+    locally. This is the ref a rebuild actually forward-merges a PR onto — issue #2383: GitHub's
+    recorded `pr['base']['sha']` can be a STALE ancestor of it, so comparing against that
+    recorded base wrongly reads a genuinely-behind PR as "ahead" and skips it (#2266).
+    """
+    main_ref = upstream_main(repo)
+    r = run_git(repo, "rev-parse", "--verify", f"{main_ref}^{{commit}}")
+    if r.returncode != 0:
+        return None
+    sha = (r.stdout or "").strip()
+    return sha or None
+
+
+def pr_is_behind(pr, repo: str | None = None) -> bool:
+    """True if the PR head is BEHIND the LIVE upstream main head / unverifiable (never merge those).
+
+    Issue #2383: compares against the LIVE upstream main head (the ref the workflow fetches and
+    rebuilds onto, `live_main_head(repo)`), NOT GitHub's recorded `pr['base']['sha']` — that
+    recorded base can be a stale ancestor of a genuinely-behind engine-bump PR (the #2266 shape),
+    which then reads "ahead" against it and is skipped. A head that does not contain the live
+    main head is behind and must be rebased.
+    """
+    repo = repo or os.getcwd()
+    main_sha = live_main_head(repo)
+    if main_sha is None:
+        # Cannot resolve the live main head: fail closed to "behind" — a PR that may be behind
+        # main must never be skipped just because the local ref could not be read.
+        return True
+    cmp = api(f"/compare/{main_sha}...{pr['head']['sha']}")
     if not isinstance(cmp, dict):
         return True
     return cmp.get("status") not in ("identical", "ahead")
@@ -166,7 +197,7 @@ def main() -> int:
     for pr in prs:
         n = pr["number"]
         ref = pr["head"]["ref"]
-        if not pr_is_behind(pr):
+        if not pr_is_behind(pr, args.repo):
             log(f"  PR#{n} ({ref}): not behind main — skip")
             continue
         held = held_by_another_bot(n)

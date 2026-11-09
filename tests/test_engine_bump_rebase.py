@@ -52,27 +52,61 @@ class TestOpenEngineBumpPrs:
 
 
 class TestPrIsBehind:
+    LIVE_MAIN = "a" * 40  # the live upstream main head `live_main_head` returns
+
+    def _patch_live_main(self, monkeypatch, sha: str | None = LIVE_MAIN):
+        monkeypatch.setattr(ebr, "live_main_head", lambda repo: sha)
+
+    def _pr(self, head, base):
+        p = _pr(1)
+        p["head"]["sha"] = head
+        p["base"]["sha"] = base
+        return p
+
     def test_behind_is_true(self, monkeypatch):
+        self._patch_live_main(monkeypatch)
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "behind"})
         assert ebr.pr_is_behind(_pr(1)) is True
 
     def test_ahead_is_false(self, monkeypatch):
+        self._patch_live_main(monkeypatch)
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "ahead"})
         assert ebr.pr_is_behind(_pr(1)) is False
 
     def test_identical_is_false(self, monkeypatch):
+        self._patch_live_main(monkeypatch)
         monkeypatch.setattr(ebr, "api", lambda path: {"status": "identical"})
         assert ebr.pr_is_behind(_pr(1)) is False
 
     def test_api_error_is_behind(self, monkeypatch):
+        self._patch_live_main(monkeypatch)
         monkeypatch.setattr(ebr, "api", lambda path: None)
+        assert ebr.pr_is_behind(_pr(1)) is True
+
+    def test_compares_against_live_main_head_not_the_recorded_base(self, monkeypatch):
+        """Issue #2383: the compare must use the LIVE main head, never GitHub's recorded
+        `pr['base']['sha']` (which can be a stale ancestor of the live main head)."""
+        self._patch_live_main(monkeypatch)
+        seen = []
+        monkeypatch.setattr(ebr, "api", lambda path: seen.append(path) or {"status": "diverged"})
+        # A PR whose recorded base lags main but whose head is genuinely behind the live main
+        head, stale_base = "h" * 40, "b" * 40
+        assert ebr.pr_is_behind(self._pr(head, stale_base)) is True
+        assert seen == [f"/compare/{self.LIVE_MAIN}...{head}"], (
+            f"compare must use the live main head, not the recorded base: {seen}")
+
+    def test_unresolvable_live_main_is_behind(self, monkeypatch):
+        """A checkout that cannot resolve the live main head must fail closed to 'behind' — a
+        possibly-behind PR is never skipped just because the local ref could not be read."""
+        self._patch_live_main(monkeypatch, sha=None)
+        monkeypatch.setattr(ebr, "api", lambda path: {"status": "identical"})
         assert ebr.pr_is_behind(_pr(1)) is True
 
 
 class TestMain:
     def _patch(self, monkeypatch, prs, sync_result=True, comments=None, post_ok=True, dead=False):
         monkeypatch.setattr(ebr, "open_engine_bump_prs", lambda: prs)
-        monkeypatch.setattr(ebr, "pr_is_behind", lambda pr: pr.get("_behind", True))
+        monkeypatch.setattr(ebr, "pr_is_behind", lambda pr, *a: pr.get("_behind", True))
         synced = []
         monkeypatch.setattr(ebr, "sync_pr_with_main",
                             lambda pr, repo, run_git, log: synced.append(pr["number"]) or sync_result)
