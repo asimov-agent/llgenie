@@ -600,9 +600,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{TAG} check-run payload -> {args.check_run_out} (conclusion={conclusion})")
 
     if code == EXIT_RED:
-        print(f"{TAG} FAILED: run {(run or {}).get('id') or '-'} has no verdict — "
-              f"see the summary line above, which is what a board must quote instead of a failure count",
-              file=sys.stderr)
+        # The final line states WHY the exit is red, never a sentence that contradicts the
+        # verdict it just printed (#2222). A `none` verdict truly has no verdict, so the #1111
+        # wording stays there; a `red` verdict HAS one (it is red — the summary names the failing
+        # jobs), and a green judged run the head's unjudged reds force red names THAT cause.
+        rid = (run or {}).get('id') or '-'
+        if result["verdict"] == ci_scope.RED:
+            print(
+                f"{TAG} FAILED: run {rid} is RED — the summary line above names "
+                f"{result['counts']['failure']} FAILED job(s); a red verdict HAS a verdict, "
+                f"and it is red — never 'no verdict'",
+                file=sys.stderr)
+        elif result["verdict"] == ci_scope.GREEN:
+            print(
+                f"{TAG} FAILED: run {rid} judged green but this head carries {len(unjudged)} "
+                f"blocking unjudged check-run(s) — the UNJUDGED RED lines above name them; a "
+                f"green judged run beside an unjudged red is not a clean head (#2116)",
+                file=sys.stderr)
+        else:
+            print(
+                f"{TAG} FAILED: run {rid} has no verdict — see the summary line above, which is "
+                f"what a board must quote instead of a failure count",
+                file=sys.stderr)
     return code
 
 
