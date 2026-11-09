@@ -548,6 +548,70 @@ def test_every_committed_workflow_has_a_runnable_shape():
 
 
 # ---------------------------------------------------------------------------------------------------
+# issue #798: the ordered agent-leg preflight lives in ONE composite action, and a bot workflow that
+# inlines it (both `make agent-jev-preflight` and `make agent-shell-keys-check` in its steps) instead
+# of calling `.github/actions/agent-leg` is a regression the gate must refuse.
+def _leg_workflow(inline: str) -> str:
+    return (
+        "name: a-leg — does one thing\n"
+        "on:\n"
+        "  workflow_dispatch:\n"
+        "\n"
+        "jobs:\n"
+        "  go:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    timeout-minutes: 120\n"
+        "    steps:\n"
+        "      - run: make agent-image-ref\n"
+        + inline
+        + "      - uses: ./.github/actions/agent-leg\n"
+        "        with:\n"
+        "          phase: upload\n"
+    )
+
+
+def test_a_workflow_inlining_both_preflight_make_calls_is_reported(tmp_path):
+    """The regression #798 exists to end: a bot leg spelling out both `make` calls by hand."""
+    root = _wf(tmp_path, "a-leg.yml", _leg_workflow(
+        "      - run: make agent-jev-preflight NERVE_REQUIRE=1\n"
+        "      - run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=\"NOUS_API_KEY\"\n"))
+
+    items = cw.check_inline_agent_preflight(root)
+
+    assert [i["key"].split("/")[0] for i in items] == ["workflow-inline-agent-leg"], items
+    assert ".github/actions/agent-leg" in items[0]["evidence"], items[0]
+    # `make check-workflows` must exit non-zero on it
+    assert cw.main(["check", "--root", str(root)]) == 1
+
+
+def test_a_workflow_calling_the_composite_action_is_accepted(tmp_path):
+    """The migrated shape: the leg calls the composite action for its preflight and upload."""
+    root = _wf(tmp_path, "a-leg.yml", _leg_workflow(""))
+
+    assert cw.check_inline_agent_preflight(root) == []
+    assert cw.main(["check", "--root", str(root)]) == 0
+
+
+def test_a_lone_single_preflight_call_is_not_the_block(tmp_path):
+    """One of the two alone is a different control (engine-bump's JEV report, search-smoke /
+    issue-dedupe's lone shell-keys proof), not the preflight block #798 reddens."""
+    root = _wf(tmp_path, "a-leg.yml", _leg_workflow(
+        "      - run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY\n"))
+
+    assert cw.check_inline_agent_preflight(root) == []
+
+
+def test_every_migrated_agent_leg_calls_the_composite_action():
+    """The tree itself: after the migration, no `.github/workflows/*.yml` inlines the full
+    agent-leg preflight (both make calls); they call `.github/actions/agent-leg` instead."""
+    assert cw.check_inline_agent_preflight(REPO) == []
+    for name in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml", "rebase-bot.yml",
+                 "architecture-bot.yml", "registry-sync-review.yml"):
+        text = (REPO / cw.WORKFLOWS / name).read_text()
+        assert "./.github/actions/agent-leg" in text, f"{name} no longer calls the agent-leg action"
+
+
+# ---------------------------------------------------------------------------------------------------
 # issue #2317: a job of a schedule-triggered workflow must declare `timeout-minutes`, or a hang
 # inherits GitHub's 360-minute default.
 def test_a_scheduled_job_with_no_timeout_is_reported(tmp_path):

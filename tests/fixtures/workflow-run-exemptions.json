@@ -1,7 +1,10 @@
 {
   "note": "Workflows a `workflow_run` consumer deliberately does NOT watch (issue #349). `make check-workflows` fails when a workflow's completion is routed nowhere and no entry here records why — an omission has to be a dated decision, not an accident. An entry is refused without a `reason` and reported STALE once it names no workflow (the workflow was renamed or deleted), so this file cannot rot either.",
-  "decided_utc": "2026-11-08",
+  "decided_utc": "2026-11-09",
   "workflows": {
+    "agent-leg — the reusable agent leg": {
+      "reason": "workflow_call-only (issue #798): it never runs on an event, only when a caller's job `uses:` it, so a `workflow_run` consumer has nothing to watch — exactly the pipeline precedent (name: `pipeline` below). Its failures surface inside the caller's run, which the caller's own completion routes."
+    },
     "security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
       "reason": "Its red is already a work item with an owner: the scan's `fail_on` gate (critical/high WITH a fix, `data/security-policy.json`) is deliberate (`docs/SCANS.md`), `make security-issues` files the advisory issues, and `security-bot` turns one of them into a green PR. The reactor's Route B would file a SECOND issue per push to `main` (its marker carries the head sha), spending the issue-bot's 3-a-day budget on the same advisories."
     },

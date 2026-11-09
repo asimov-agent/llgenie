@@ -368,7 +368,10 @@ def test_the_recipe_and_the_workflow_run_the_proof():
     # Then  the recipe runs the script with the alias variable, and the workflow calls the target
     assert "scripts/hermes_smoke.py run" in body, body
     assert "--alias $(nous-model)" in body, body
-    assert "make hermes-smoke" in workflow, "issue-bot.yml must still run make hermes-smoke"
+    assert "make hermes-smoke" in (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text(), \
+        "the routing smoke lives in the reusable leg (issue #798)"
+    assert "./.github/actions/agent-leg" in workflow, "issue-bot.yml must call the reusable leg"
+    assert 'routing_smoke: "true"' in workflow, "issue-bot.yml opts into the routing smoke"
     assert re.search(r"(?m)^nous-model := nous-deepseek$", makefile), "one place the alias name lives"
 
 

@@ -138,17 +138,15 @@ jobs:
           [ "$action" = "pick" ] && echo "picked=true" >> "$GITHUB_OUTPUT" || echo "picked=false" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Prove the JEV engine is active — the review does not start without it (issue #238)
+      # The ordered agent-leg preflight (JEV #238, shell-keys #358) — the review does not
+      # start without it, and only a picked issue spends the key. One call, one place
+      # (issue #798).
+      - name: Run the reusable agent-leg preflight (issue #798)
         if: steps.pick.outputs.picked == 'true'
-        run: make agent-jev-preflight NERVE_REQUIRE=1
-
-      # Hermes strips provider credentials from its terminal tool, so `-e NOUS_API_KEY`
-      # reaches the container while the AGENT's shell reads it EMPTY — a bot that then does
-      # nothing while this run stays green (issue #358). Prove the agent can see what this
-      # job forwards, and stop in seconds instead of after a 120-minute run.
-      - name: Prove the agent's shell can see this job's credentials (issue #358)
-        if: steps.pick.outputs.picked == 'true'
-        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY FIRECRAWL_API_KEY"
+        uses: ./.github/actions/agent-leg
+        with:
+          phase: preflight
+          shell_keys: "NOUS_API_KEY TYPESAFE_API_KEY FIRECRAWL_API_KEY"
 
       - name: Review the issue (Hermes reads refine-in.md and writes refine.md)
         id: review
@@ -161,15 +159,13 @@ jobs:
           echo "refine.md:"; sed -n '1,40p' refine.md 2>/dev/null || echo "  (the agent wrote no refine.md)"
           exit 0
 
-      # The whole point of the redaction seam (issue #359): the job publishes the REDACTED
-      # transcript, never the raw capture (which holds the unredacted stream by construction).
-      - name: Upload the REDACTED agent transcript
+      # The whole point of the redaction seam (issue #359): the reusable leg publishes the
+      # REDACTED transcript, never the raw capture.
+      - name: Upload the REDACTED agent transcript (issue #359)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/agent-leg
         with:
-          name: agent-transcript-redacted
-          path: hermes-run.scrubbed.log
-          if-no-files-found: ignore
+          phase: upload
       - name: Apply the review (ONE comment + agent:refined; never a PR)
         id: apply
         if: steps.pick.outputs.picked == 'true'

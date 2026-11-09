@@ -1,0 +1,68 @@
+# The ordered agent-leg preflight every agent bot leg runs — in ONE place
+# (issue #798). Each step below existed inline in `.github/workflows/*.yml`;
+# this is where they live now. A fix to any one of them (issue #238 / #358 /
+# #407 / #359) reaches every leg by construction instead of being pasted six
+# times.
+#
+# Two phases, two invocations per leg:
+#   - phase: preflight  — run BEFORE the leg: JEV active (#238), the agent's
+#                         shell can see the job's credentials (#358), and the
+#                         Hermes routing smoke for a routed leg (#407).
+#   - phase: upload     — run AFTER the leg: publish the REDACTED transcript
+#                         (issue #359), never the raw capture.
+name: agent-leg
+description: >-
+  The reusable agent-leg preflight (JEV #238, shell-keys #358, routing-smoke
+  #407) and REDACTED-transcript upload (#359). phase=preflight runs the checks;
+  phase=upload publishes the redacted transcript.
+inputs:
+  phase:
+    description: '"preflight" runs the ordered checks; "upload" publishes the REDACTED transcript'
+    required: true
+    default: preflight
+  shell_keys:
+    description: >-
+      AGENT_SHELL_CHECK_KEYS for the shell-keys proof — the space-separated KEY
+      NAMES this job forwards (issue #358). Names only, never values; an empty
+      value skips the check.
+    required: false
+    default: ""
+  routing_smoke:
+    description: 'Run "make hermes-smoke" (issue #407). True only for a leg that reaches a routed provider.'
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Prove the JEV engine is active — the leg does not start without it (issue #238)
+      if: inputs.phase == 'preflight'
+      shell: bash
+      run: make agent-jev-preflight NERVE_REQUIRE=1
+
+    # Hermes strips provider credentials from its terminal tool, so `-e KEY`
+    # reaches the container while the AGENT's shell reads it EMPTY — a bot that
+    # then does nothing while this run stays green (issue #358). Prove the agent
+    # can see what the job forwards, and stop in seconds instead of after the
+    # leg's full budget.
+    - name: Prove the agent's shell can see this job's credentials (issue #358)
+      if: inputs.phase == 'preflight' && inputs.shell_keys != ''
+      shell: bash
+      run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="${{ inputs.shell_keys }}"
+
+    # A routing reach dies in seconds here, not after a full leg's budget
+    # (issue #407). Only legs that actually reach a routed provider opt in.
+    - name: Hermes routing smoke — die in seconds, not after 20 min (issue #407)
+      if: inputs.phase == 'preflight' && inputs.routing_smoke == 'true'
+      shell: bash
+      run: make hermes-smoke
+
+    # The whole point of the redaction seam (issue #359): the job publishes the
+    # REDACTED transcript, never the raw capture (which holds the unredacted
+    # stream by construction).
+    - name: Upload the REDACTED agent transcript (issue #359)
+      if: inputs.phase == 'upload'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: agent-transcript-redacted
+        path: hermes-run.scrubbed.log
+        if-no-files-found: ignore

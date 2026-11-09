@@ -271,11 +271,12 @@ def test_the_bot_leg_forwards_the_key_by_name_and_gates_first():
     assert refiner.index("agent-shell-keys-check") < refiner.index("issue-evidence"), \
         "the fetch leg runs before its credential is proven visible"
 
-    # ... and the workflow forwards the key by NAME only
+    # ... and the workflow forwards the key by NAME only, through the reusable leg's shell_keys
+    # input (issue #798) so the one composite check covers the new credential
     wf = (WORKFLOWS / "issue-refiner.yml").read_text()
     assert "FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}" in wf, "the job never sets the key"
-    assert "FIRECRAWL_API_KEY" in wf.split("run: make agent-shell-keys-check", 1)[1][:200], \
-        "the job's keys check does not cover the new credential"
+    assert "FIRECRAWL_API_KEY" in wf.split("shell_keys:", 1)[1][:200], \
+        "the job's keys proof does not cover the new credential"
     assert not re.search(r"-e\s+FIRECRAWL_API_KEY=", wf), "the key travels as a value, not a name"
 
 

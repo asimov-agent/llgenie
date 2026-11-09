@@ -247,12 +247,17 @@ def test_the_internal_hermes_calls_are_inside_a_leg_that_redacts():
 
 
 def test_the_workflows_publish_only_the_redacted_log():
+    # The REDACTED-transcript upload lives in the ONE agent-leg composite action (issue #798):
+    # every agent leg calls it with phase=upload, and no leg inlines the raw capture.
+    leg = (ROOT / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    assert SCRUBBED in leg, "the agent-leg composite action publishes no redacted transcript"
+    assert re.search(rf"(?m)^\s+- name: .*redacted", leg, re.I), "the artifact is not named for what it is"
+
     for workflow in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml", "rebase-bot.yml"):
         text = (WORKFLOWS / workflow).read_text()
 
-        # Then each bot job uploads the REDACTED log …
-        assert SCRUBBED in text, f"{workflow} publishes no redacted transcript"
-        assert re.search(rf"(?m)^\s+name: .*redacted", text, re.I), f"{workflow}: the artifact is not named for what it is"
+        # Then each bot job calls the reusable leg's upload (which publishes the REDACTED log) …
+        assert "./.github/actions/agent-leg" in text, f"{workflow} no longer calls the reusable leg"
 
         # … and never the raw one (which holds the unredacted stream by construction)
         for line in text.splitlines():

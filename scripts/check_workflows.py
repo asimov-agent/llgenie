@@ -85,6 +85,17 @@ MANUAL_ONLY_WORKFLOWS = ("run-failure-reactor.yml", "fix-bot.yml")
 #: `tests/fixtures/docs-exceptions.json` (#257).
 EXEMPTIONS = "tests/fixtures/workflow-run-exemptions.json"
 
+#: The composite action that OWNS the ordered agent-leg preflight (issue #798): JEV #238,
+#: shell-keys #358, routing-smoke #407 and the REDACTED-transcript upload #359. A bot leg calls
+#: this instead of inlining those make invocations, so a fix to any one reaches every leg.
+AGENT_LEG_ACTION = ".github/actions/agent-leg/action.yml"
+#: The two inline `make` invocations that together spell the agent-leg preflight. A workflow whose
+#: steps inline BOTH (instead of calling `AGENT_LEG_ACTION`) has re-introduced the six-copy drift
+#: #798 exists to end. A single one alone is a different control (engine-bump's non-blocking JEV
+#: report, search-smoke / issue-dedupe's lone shell-keys proof) and is not the preflight block.
+JEV_PREFLIGHT_INLINE = re.compile(r"make\s+agent-jev-preflight\b")
+SHELL_KEYS_INLINE = re.compile(r"make\s+agent-shell-keys-check\b")
+
 _WS = " \t\r\n"
 _OPERATORS = ("==", "!=", "<=", ">=", "&&", "||", "<", ">", "!", "*", "/", "%", "+", "-",
               "(", ")", "[", "]", ",", ".")
@@ -686,6 +697,45 @@ def check_scheduled_job_timeouts(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def check_inline_agent_preflight(root: Path = REPO_ROOT) -> list[dict]:
+    """A bot workflow that inlines BOTH agent-leg preflight `make` calls is a regression (#798).
+
+    The ordered preflight — `make agent-jev-preflight` (#238) and
+    `make agent-shell-keys-check` (#358) — MUST live in ONE place,
+    `.github/actions/agent-leg/action.yml`, and every agent leg calls it. A workflow whose
+    steps inline BOTH spellings re-introduces the six-copy drift #798 exists to end: a fix to
+    a preflight stops reaching every leg, and a leg that misses one runs unattended without
+    its JEV check or its credentials proven visible.
+
+    A single one of the two is a DIFFERENT control and is not reddened: engine-bump.yml's JEV
+    call is a non-blocking availability report, and search-smoke.yml / issue-dedupe.yml's lone
+    shell-keys call is that single-key proof. The block is the pair.
+    """
+    out: list[dict] = []
+    for path in workflow_files(root):
+        text = path.read_text()
+        has_jev = JEV_PREFLIGHT_INLINE.search(text) is not None
+        has_keys = SHELL_KEYS_INLINE.search(text) is not None
+        if not (has_jev and has_keys):
+            continue
+        where = str(path.relative_to(root))
+        out.append({
+            "key": f"workflow-inline-agent-leg/{where}",
+            "title": f"ci: {where} inlines the agent-leg preflight instead of calling "
+                     f"`{AGENT_LEG_ACTION}`",
+            "evidence": (
+                f"`{where}` carries both `make agent-jev-preflight` and "
+                f"`make agent-shell-keys-check` in its steps. The ordered agent-leg preflight "
+                f"lives in ONE place — `{AGENT_LEG_ACTION}` (issues #238/#358/#407/#359, "
+                f"#798) — so a fix reaches every leg by construction. Inlining it here is a "
+                f"regression: call `uses: ./.github/actions/agent-leg` with "
+                f"`phase: preflight` (and `phase: upload` for the transcript) instead."
+            ),
+            "where": where,
+        })
+    return out
+
+
 def check_verdict_roster(root: Path = REPO_ROOT) -> list[dict]:
     """Every workflow that can post a check-run at a PR head must carry a judgement decision (#2116).
 
@@ -702,6 +752,7 @@ def findings(root: Path = REPO_ROOT) -> list[dict]:
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
             + check_manual_only(root)
             + check_uses_job_keys(root) + check_scheduled_job_timeouts(root)
+            + check_inline_agent_preflight(root)
             + check_verdict_roster(root))
 
 
@@ -712,8 +763,9 @@ def render(items: list[dict]) -> str:
                 "completion is routed to a consumer, every manual-only workflow is dispatch-only "
                 "(#2293), every `pull_request` workflow carries a "
                 "judgement decision the verdict can name, no `uses:` job carries a job-level "
-                "key GitHub rejects at load time, and every job of a schedule-triggered workflow "
-                "declares a `timeout-minutes` ceiling (#2317)")
+                "key GitHub rejects at load time, every job of a schedule-triggered workflow "
+                "declares a `timeout-minutes` ceiling (#2317), and no agent leg inlines the "
+                "agent-leg preflight instead of calling the reusable composite action (#798)")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
         lines += ["", f"- {f['title']}", f"  where: {f['where']}", f"  {f['evidence']}"]

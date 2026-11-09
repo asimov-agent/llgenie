@@ -525,12 +525,16 @@ def test_a_provider_that_does_not_answer_does_not_stop_the_run(tmp_path):
 
 def test_every_bot_workflow_arms_the_gate_so_no_job_runs_unsupervised():
     """The maintainer's rule, asserted: JEV IS a precondition for a bot run. A job whose image has
-    the engine turned off fails the preflight before it spends a model call - and no bot workflow
-    carries an escape hatch."""
+    the engine turned off fails the preflight before it spends a model call. The composite action
+    arms the gate ONCE (issue #798); every bot workflow calls it — and no bot workflow carries an
+    escape hatch."""
 
+    leg = (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    assert "NERVE_REQUIRE=1" in leg, "the agent-leg composite action does not arm the JEV gate"
+    assert "ALLOW_UNSUPERVISED" not in leg, "the composite must not carry an escape hatch"
     for wf in ("issue-bot.yml", "fix-bot.yml"):
         text = (WORKFLOWS / wf).read_text()
-        assert "NERVE_REQUIRE=1" in text, f"{wf} does not arm the gate: it would run unsupervised"
+        assert "./.github/actions/agent-leg" in text, f"{wf} does not call the reusable agent-leg"
         assert "ALLOW_UNSUPERVISED" not in text, f"{wf} must not carry an escape hatch in CI"
 
 def test_the_preflight_reads_an_existing_home_env_and_never_echoes_it(tmp_path):
@@ -718,13 +722,15 @@ def test_the_workflows_pass_the_key_at_run_time_only():
     for name, text in (("issue-bot.yml", issue_bot), ("fix-bot.yml", fix_bot)):
         assert f"{KEY_VAR}: ${{{{ secrets.{KEY_VAR} }}}}" in text, f"{name} does not wire the secret"
 
-    # And the preflight is a real step of the implementer, before any agent work, named for what
-    # it does (it reports; it does not gate)
-    assert "run: make agent-jev-preflight NERVE_REQUIRE=1" in issue_bot
-    assert "name: Prove the JEV engine is active" in issue_bot
-    assert issue_bot.index("Prove the JEV engine is active") < issue_bot.index(
+    # And the preflight is a real step before any agent work, armed in the ONE composite action
+    # (issue #798): the implementer calls the leg, whose `make agent-jev-preflight NERVE_REQUIRE=1`
+    # runs before the implementer spends model time.
+    leg = (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    assert "run: make agent-jev-preflight NERVE_REQUIRE=1" in leg
+    assert "name: Prove the JEV engine is active" in leg
+    assert issue_bot.index("./.github/actions/agent-leg") < issue_bot.index(
         "Implement the issue (Hermes reads issue.md"), (
-        "the preflight step must come before the implementer spends model time"
+        "the preflight call must come before the implementer spends model time"
     )
 
     # And no file in the image's build context mentions a key value
@@ -814,14 +820,15 @@ def test_the_preflight_is_documented_for_the_reader():
 
 
 def test_every_bot_workflow_arms_the_jev_gate():
-    """The maintainer's rule: a bot job must NOT start when the JEV engine is off. Every workflow
-    that runs the agent calls the preflight with NERVE_REQUIRE=1, so a turned-off engine fails the
-    job before it spends a model call."""
+    """The maintainer's rule: a bot job must NOT start when the JEV engine is off. The composite
+    action runs `make agent-jev-preflight NERVE_REQUIRE=1` once (issue #798); every workflow that
+    runs the agent calls it, so a turned-off engine fails the job before it spends a model call."""
     bots = ["issue-bot.yml", "fix-bot.yml"]
+    leg = (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text()
+    assert "run: make agent-jev-preflight NERVE_REQUIRE=1" in leg
     for name in bots:
         text = (REPO / ".github" / "workflows" / name).read_text()
-        assert "agent-jev-preflight" in text, f"{name} never checks the JEV engine"
-        assert "NERVE_REQUIRE=1" in text, f"{name} checks it but does not ARM it (report only)"
+        assert "./.github/actions/agent-leg" in text, f"{name} never calls the JEV-arming leg"
     assert "never blocks the run" not in (REPO / ".github" / "workflows" / "issue-bot.yml").read_text(), \
         "the gate must not be described as advisory"
 

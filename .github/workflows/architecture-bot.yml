@@ -128,17 +128,15 @@ jobs:
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "agent image: $image"
 
-      - name: Prove the JEV engine is active - the run does not start without it (issue #238)
-        run: make agent-jev-preflight NERVE_REQUIRE=1
-
-      # Hermes strips provider credentials from its terminal tool, so `-e NOUS_API_KEY` reaches the
-      # container while the AGENT's shell reads it EMPTY (issue #358). Prove it in seconds instead
-      # of discovering it after a 90-minute run that changed nothing.
-      - name: Prove the agent's shell can see this job's credentials (issue #358)
-        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY GH_TOKEN TYPESAFE_API_KEY"
-
-      - name: Hermes routing smoke (die in seconds, not after 20 min — issue #407)
-        run: make hermes-smoke
+      # The ordered agent-leg preflight — JEV active (#238), the agent's shell can see the job's
+      # credentials (#358), and the routing smoke for this routed leg (#407). One call, one
+      # place (issue #798).
+      - name: Run the reusable agent-leg preflight (issue #798)
+        uses: ./.github/actions/agent-leg
+        with:
+          phase: preflight
+          shell_keys: "NOUS_API_KEY GH_TOKEN TYPESAFE_API_KEY"
+          routing_smoke: "true"
 
       # The deterministic half: real git decides what changed since the doc's last commit. No model
       # call, no GitHub write, and the only file it produces is the brief.
@@ -153,15 +151,13 @@ jobs:
           AGENT_IMAGE: ${{ steps.agent.outputs.image }}
         run: make architecture-bot-doc DOC="$DOC" AGENT_IMAGE="$AGENT_IMAGE"
 
-      # The whole point of the redaction seam (issue #359): the job publishes the REDACTED transcript,
-      # never the raw capture (which holds the unredacted stream by construction).
-      - name: Upload the REDACTED agent transcript
+      # The whole point of the redaction seam (issue #359): the reusable leg publishes the
+      # REDACTED transcript, never the raw capture.
+      - name: Upload the REDACTED agent transcript (issue #359)
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: ./.github/actions/agent-leg
         with:
-          name: agent-transcript-redacted
-          path: hermes-run.scrubbed.log
-          if-no-files-found: ignore
+          phase: upload
 
       # ONE issue, ONE branch, ONE PR - and nothing at all when the doc matches HEAD or an
       # architecture PR is already open. The publish step is the only writer of issues/branches.
