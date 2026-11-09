@@ -18,6 +18,21 @@ git fetch fork +refs/heads/<branch>:refs/remotes/fork/<branch>
 git rev-parse --short refs/remotes/fork/<branch>   # must equal the PR headRefOid
 ```
 
+### Prove the fork ref exists with `git ls-remote`, never with the API
+
+The REST branch endpoint on a fork frequently answers **404** for a branch that certainly exists (fork
+branch-refs are hidden from unauthenticated/by-default listings), so a 404 is not evidence of deletion
+and must never abort a push. `git ls-remote <fork-url> 'refs/heads/<branch>'` is the authoritative read,
+and it needs no auth for a public fork.
+
+**A single empty `ls-remote` result is a retry, not an abort.** Measured: one targeted
+`git ls-remote <fork-url> refs/heads/<branch>` returned nothing at 07:0xZ, the very next identical call
+seconds later returned the ref, and a full `git ls-remote <fork-url> | grep <n>` returned it both times.
+Transient empty reads happen; when the wire looks absent, re-run against the **full** listing (no refspec
+argument) for a second opinion, and treat only a consistently-empty full listing as "branch gone". A
+script that aborts on the first empty read silently refuses correct work — retry once, print both reads,
+branch on the second.
+
 ## 2. Rebase in a throwaway worktree, base = the main sha you fetched this moment
 
 ```
