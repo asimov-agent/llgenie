@@ -111,4 +111,20 @@ is read-only for you, yet the warning still belongs where that lane reads it.
 The bot-to-bot DM channel is hop-capped (`message_agent` returns `already reached its
 limit of N messages … nothing was sent` after the cap). Once it bounces, do NOT retry —
 post the correction as a PR comment and say in your bookend that the DM bounced, so the
-reader knows the lane was warned via the thread only.
+the reader knows the lane was warned via the thread only.
+
+## 6. A head that ADVANCED with your IDENTICAL change — the owning lane already fixed it
+
+You diagnose a red, write the fix, and on push your PR head has MOVED and the new commit's
+message/subject is exactly the change you just wrote (`test(...): update <x> for <new contract>`)
+with the stale assertion gone. That is the OWNING lane (or the fix-bot) having pushed the same
+fix while you worked — not a conflict to resolve and not a reason to re-push.
+
+- Confirm identity by content, not by subject: `gh pr view <n> --json headRefOid`, then
+  `git fetch origin refs/pull/<n>/head` and `git diff <your-commit> <new-head> -- <the-files>`.
+  Empty diff on the fix files = it is your fix, shipped.
+- Do NOT push your duplicate commit to that branch — it is another lane's branch (read-only), and
+a second copy on a moving fork head is churn that can re-stale the arm.
+- Report the resolution (head sha, what the lane fixed, the fix is upstream) and clean up any
+disposable worktree you made. Verify the new head's checks; only the long `linux / unit` leg is
+normally left pending.

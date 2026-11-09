@@ -26,6 +26,62 @@ old sha is now a claim about a commit nobody will merge. Before reporting the PR
    profile scratch dir, then read it back. “X passed” without a head is a claim about
    time, not about the branch.
 
+### A `--force-with-lease` rejection is not proof the remote moved — and never delete the worktree before the push lands
+
+After a **rebase**, HEAD is no longer a descendant of the old remote tip, so
+`git push --force-with-lease` rewrites history rather than fast-forwarding. A lease
+rejection here usually means your LOCAL remote-tracking ref is stale or your local view of
+the wire tip differs from what the lease expects — NOT that another lane pushed. Before
+concluding the branch moved:
+
+    git fetch origin <branch>                     # refresh the tracking ref FIRST
+    git ls-remote origin refs/heads/<branch>      # the true wire tip, full 40-char
+    git rev-parse FETCH_HEAD
+
+If the wire tip still equals the sha you based your rebase on, the rejection was lease
+bookkeeping — re-push after a fresh `git fetch origin <branch>` using the PLAIN lease form:
+
+    git push --force-with-lease --force-if-includes origin HEAD:refs/heads/<branch>
+
+The explicit `--force-with-lease=<ref>:<sha>` form is a trap here: if `<ref>` is the local
+remote-tracking ref (`refs/remotes/origin/<branch>`) git still rejects with "tip of your
+current branch is behind its remote counterpart" even after you `git update-ref` that
+tracking ref to the true wire sha — the lease ref must name the REMOTE ref, and a tracking
+ref there produces a bogus non-force rejection. Plain `--force-with-lease` reads the
+configured tracking ref itself and succeeds. Only a genuinely-advanced wire tip is
+"another lane pushed"; a rejection that persists after a fresh fetch + tracking-ref update
+is the kwarg shape, not the remote moving.
+
+**Never `git worktree remove` (or `rm -rf` the worktree dir) until the push has landed.**
+A rebased/committed fix that is not yet pushed lives ONLY in the shared object store; delete
+the worktree first and a rejected push leaves you recreating the checkout to recover it.
+Recovery when you did delete early: the commit is not lost — `git worktree add <path> <sha>`
+(or `git branch recover <sha>`) on the parent clone resurrects it from the object store;
+confirm `git cat-file -p <sha>` resolves before assuming it is gone. Confirm
+`git ls-remote` shows your sha BEFORE removing the worktree — that order turns a rejected
+push into a scramble.
+
+### Squash after a rebase: use a LIST rebase then `reset --soft`, never `--onto <oldbase>`
+
+To collapse a multi-commit branch to ONE commit on top of fresh `origin/main`:
+
+    git fetch origin main
+    git rebase origin/main                 # plain list rebase, resolve conflicts once
+    git reset --soft origin/main           # drop all commits, keep the full tree staged
+    git commit -m '<squashed message>'     # one commit on top of main
+    git push --force-with-lease --force-if-includes origin HEAD:refs/heads/<branch>
+
+**Never `git rebase --onto origin/main <oldbase>` where `<oldbase>` is your own
+remote-tracking branch tip** (`origin/<branch>` or a local ref that already contains your
+commits). `--onto` replays only commits in `<oldbase>..HEAD`, so if `<oldbase>` is your
+branch tip with N commits, ONLY the commits you added after it are replayed and every
+prior commit is silently DROPPED — the branch ends up carrying just the last fix, missing
+the whole feature, and every gate still passes because the missing code simply isn't
+referenced. Symptom: after "successful" rebase the feature symbols are gone
+(`grep -c <feature-marker> <file>` returns 0). Recovery: `git reset --hard
+origin/<branch>` (the pre-rebase tip still has the full tree in the object store) and
+redo with the list-rebase form above.
+
 ### Don't chase the head with the PR body — batch, amend once, then patch the body once
 
 A PR body that cites the verification head (`… measured at head <sha>`) goes stale the
@@ -170,7 +226,61 @@ order to arm a specific sha.
   state plainly that you did NOT arm because the head is not gate-green. Skipping the arm on a red
   is correct behaviour, not a missed instruction.
 
-## A docker-daemon blip is not a red gate
+## `check-wiring` scans step NAMES for a literal `make <target>` — prose in a name fakes a red
+
+`make check-wiring` greps every workflow step's `name:` (not only its `run:` block) for the
+literal token `make <target>`, and fails if that token is not a real Makefile target. A step
+NAME written as prose — `name: "… is a host-only make target (make test-engine-serve)"` — makes
+the parser read `make test-engine-serve` from the name and red the gate with a phantom missing
+target. Keep `make …` out of step `name:` strings (word it `make-target` or move the command to
+the `run:` block / a `#` comment, which the checker does not scan); reword the name and re-run
+`make check-wiring` before concluding a target is genuinely missing.
+
+## A workflow `on:` change must rewrite its contract tests in the same PR
+
+A PR that changes a workflow's `on:` triggers — removing `workflow_run`, flipping to
+`workflow_dispatch`-only, adding/removing `schedule` — MUST rewrite the tests that pin that
+trigger contract in the SAME PR. Repository tests read the workflow YAML
+(`run-failure-reactor.yml`, `ci-verdict.yml`, …) and assert its `on:` keys, required inputs and
+the roster that names it. Change the workflow without the test and the test keeps asserting the
+OLD contract, reding `linux / unit` with a `KeyError` or bare `assert` on the removed key — a
+failure in a test your diff never touched by name.
+
+- Before pushing a workflow change, grep the test tree for the workflow filename and the trigger
+  key you removed: `grep -rnE 'workflow_run|<workflow-file>|run_id' tests/`. Rewrite each hit to
+  the new contract (dispatch-only, `required: True` on the input, no `workflow_run`/`schedule`).
+- CI runs the `refs/pull/<n>/merge` ref (the PR merged into base), so the failing test can live on
+  the merged tree even when your bare head looks clean — when a unit red does not reproduce at the
+  head, `git fetch origin refs/pull/<n>/merge` and inspect the test at that ref.
+- Drop any always-true no-op assertion a rewrite leaves behind (`assert {"run_id": {"required":
+  True}}`) — it proves nothing; assert the real shape.
+- Run the sibling modules too (`test_ci_verdict.py`, `test_run_failure_reactor.py`,
+  `test_workflows_valid.py`) so the fix does not leave a second stale assertion behind.
+
+The rule generalises to ANY behaviour change a PR ships, not just workflow `on:` triggers:
+when a Dockerfile flips from source-compile to a prebuilt base, or a builder stops running
+an install step, grep the test tree for assertions pinning the OLD behaviour
+(`assert "engine_runner.py install" in df`, `prebuilt: false`) and rewrite them in the
+SAME PR. A sibling test still asserting the removed step reds `linux / unit` on a file your
+diff never touched by name; the fix is to assert the NEW shape (prebuilt base present,
+install absent), never to widen the old assertion to keep it passing.
+
+## `ci-verdict` re-judges on a rerun's completion — a red verdict is the OLD run's verdict
+
+The `ci-verdict` judge triggers on `workflow_run: [completed]`, i.e. it judges a run only when
+that run finishes. Two consequences to state plainly when asked "why is ci-verdict still red":
+
+- A `gh run rerun <id> --failed` puts the run back to `in_progress` and it must COMPLETE AGAIN —
+  that completion re-fires the judge, so a rerun does re-judge (this is correct, not a gap).
+- The red the user is staring at is usually the verdict from the run's PREVIOUS completion. It is
+  stale the moment a rerun is in flight and flips only when the rerun re-completes; if the rerun's
+  unit leg is still genuinely red, the fresh verdict stays red HONESTLY — chase the underlying
+  test, not the verdict.
+- `UNJUDGED RED` in the verdict message means a check-run at the head still reads
+  `conclusion=failure` (the judge refuses to call a head green while a check is red), not a judge
+  fault. Clear the underlying check and let the run re-complete; do not re-dispatch the judge
+  against a head whose real CI is still red.
+
 
 `make lint` (and any containerised gate) can print
 `docker: Cannot connect to the Docker daemon at unix:///var/run/docker.sock` and exit 125

@@ -1,6 +1,6 @@
-# PR-shape gates: `check-pr-base` and `check-pr-agents-line`
+# PR-shape gates: `check-pr-base`, `check-pr-agents-line` and `check-pr-sync-line`
 
-Two gates wired into the `guard`/`holds` jobs red a PR whose CONTENT is fine. Both read facts outside the diff (git ancestry; the live PR body), so a code push alone never clears them.
+Three gates wired into the `guard`/`holds` jobs red a PR whose CONTENT is fine. All read facts outside the diff (git ancestry; the live PR body), so a code push alone never clears them — the two body gates are fixed by a body edit plus a rerun.
 
 ## `check-pr-base` — the branch must be cut from `origin/main` itself
 
@@ -78,3 +78,22 @@ Re-run `make bot-preflight` AFTER the rebase/amend and after re-rendering `CHANG
 current `origin/main` and worktree, so a pair generated before the base moved names a sha that is no
 longer an ancestor of the new base and reds again. The body edit does not change the tree, so it
 needs no push — but a push that changes the head does require the sha re-measured.
+
+## `check-pr-sync-line` — a body that touches `agents/<profile>` must declare its live re-sync
+
+The #1724 propagation rule: if the PR's diff changes anything under `agents/<profile>/`, the PR body must carry a `SYNC:` line for that profile. The gate reads the LIVE PR body and the changed-file set, so — like `check-pr-agents-line` — a code push does nothing and the fix is a body edit plus a rerun. (This gate reads a DIFFERENT body line from the AGENTS/BASE pair above; a body can pass one and red the other.)
+
+Exact line shape (one per changed profile):
+
+```
+SYNC: llgenie-ci-pipelines-maintainer make sync-agent-profile PROFILE=llgenie-ci-pipelines-maintainer
+```
+
+Derive the profile from the changed paths (`git diff --name-only <base>...<head> | grep '^agents/'`) — the gate names every profile your diff touches and reds on any missing one. Add the line to the PR body (`gh pr edit <n> --body-file <f>`), then trigger a run so the body-reading step re-executes: `gh run rerun <run-id> --failed` re-runs only the failed jobs against the corrected live body (non-destructive — no push, no tree change). Verify locally before claiming the fix:
+
+```
+python3 scripts/check_pr_hygiene.py sync-line --head <head> --base origin/main --body-file <body>
+# → [check-pr-hygiene] OK: every changed agent profile reports its live re-sync (`SYNC:` line)
+```
+
+A body-only fix for a `SYNC:` red needs NO branch push. After rerunning, read the guard job's failing step to confirm the `check-pr-sync-line` row is now SUCCESS — if the guard still reds, it is a DIFFERENT step (commonly `check-pr-acceptance`, verdict-gated, not yours to tick).
