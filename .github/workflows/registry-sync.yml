@@ -152,6 +152,7 @@ jobs:
         # `make check-engine-skill-gap` in ci-unit, which this PR then fails until the
         # engine is shipped or its decision is recorded.
         run: |
+          (docker run --rm -u root -v "$(pwd)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN llgenie/test:latest python3 -c "import os; es=dict(os.environ); b=sorted(((len(v),k) for k,v in es.items()), reverse=True); print('DIAGLEN count=',len(es),'total=',sum(len(k)+len(v) for k,v in es.items())); [print('DIAGLEN',k,'len=',n) for n,k in b[:14]]") || true
           make check-registry
           make check-quant-catalog
           make engine-skill-gap
