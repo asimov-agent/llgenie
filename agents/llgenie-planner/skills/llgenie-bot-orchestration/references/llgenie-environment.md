@@ -3,8 +3,8 @@
 ## Remotes: two clones, two names
 
 ```
-/home/asimov/repository/git/llgenie                  origin   = asimov-agent (canonical upstream)
-/home/asimov/repository/git/ai-repositories/llgenie  upstream = asimov-agent
+$HOME/repository/git/llgenie                  origin   = asimov-agent (canonical upstream)
+$HOME/repository/git/ai-repositories/llgenie  upstream = asimov-agent
 ```
 
 Worktrees inherit the clone that created them, and the **fork's `main` is a different commit** from upstream's. Before any fetch or push: `cat .git | head -1` → `git remote -v` → `git ls-remote <remote> main`. Fetch a cross-repo head from its own remote, rebase onto upstream `main`, push back to that PR's own head remote.
@@ -24,13 +24,13 @@ Every bot PR is authored by `andyholst`, and the local `gh` token **is** `andyho
 
 ## The primary clone's working tree is stale — read content from `origin/main`, not from disk
 
-The checkout at `/home/asimov/repository/git/llgenie` is owner-mediated and can sit **dozens of commits behind
+The checkout at `$HOME/repository/git/llgenie` is owner-mediated and can sit **dozens of commits behind
 upstream `main`** (measured 44 behind in one session). Reading a file with `read_file`/`sed`/`grep` from that tree
 answers what the *clone* has, not what `main` has — and the difference is invisible unless you compare.
 
 ```bash
-git -C /home/asimov/repository/git/llgenie rev-list --left-right --count HEAD...origin/main   # expect 0 0 before trusting any disk read
-git -C /home/asimov/repository/git/llgenie show origin/main:<path>                             # the authoritative content
+git -C "$HOME/repository/git/llgenie" rev-list --left-right --count HEAD...origin/main   # expect 0 0 before trusting any disk read
+git -C "$HOME/repository/git/llgenie" show origin/main:<path>                             # the authoritative content
 ```
 
 - **Before asserting ANY file content, recipe line, or workflow shape, read it via `git show origin/main:<path>`**

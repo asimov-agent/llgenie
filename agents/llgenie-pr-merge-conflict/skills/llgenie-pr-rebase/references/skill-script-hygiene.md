@@ -51,7 +51,7 @@ trap cleanup EXIT
 Prove the fence with a negative control, in the same run that proves the positive path:
 
 ```bash
-bash -c 'p="/home/user/repo"; case "$p" in /tmp/<name>.*) echo "WOULD DELETE (BAD)" ;; *) echo "REFUSED (good)" ;; esac'
+bash -c 'p="/home/<user>/repo"; case "$p" in /tmp/<name>.*) echo "WOULD DELETE (BAD)" ;; *) echo "REFUSED (good)" ;; esac'
 ```
 
 The reply must then show: `REFUSED`, the normal run's numbers unchanged, and **0 leftover temp dirs**.

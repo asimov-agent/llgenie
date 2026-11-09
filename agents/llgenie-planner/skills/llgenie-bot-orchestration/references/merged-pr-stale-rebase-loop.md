@@ -154,7 +154,7 @@ extends to follow-up scope. Correct once on the merged PR's thread naming both f
 ## Profile sync after committing the guide (2026-11-04, #1689)
 
 When the committed guide path changes, the live profile source-of-truth
-(`/home/asimov/.hermes/profiles/<profile>/skills/.../<same path>`) must be re-synced
+(`$HOME/.hermes/profiles/<profile>/skills/.../<same path>`) must be re-synced
 byte-for-byte from the committed repo path so the PR and the running profile stay
 identical (md5 must match). This is the plural "keep behavior versioned" step: the
 implementer's #1689 PR carries the repo path; committing the guide in isolation without

@@ -151,3 +151,15 @@ the release ledger in `CHANGES.md`), and **change-note coverage** (a behavioural
 refined six-section issue tagged `agent:implement`, routed through the normal queue — never implemented
 by the same pass; otherwise record "re-audited at `<sha>`, no findings". One-pass scope, no infinite
 loop; never overrides real reactive work.
+
+## Home paths in instruction text (issue #2145)
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (issue #2145).** SOUL.md, skills,
+references, documentation and config examples use `$HOME` — every lane shells through bash, so
+`$HOME` resolves and the instruction stays host-independent instead of encoding one machine's
+account name in a public repository. The one carve-out is real: a context that is parsed rather
+than executed — a systemd unit (`ExecStart=`, `EnvironmentFile=`, `WorkingDirectory=`), a crontab
+line outside a shell, a YAML/JSON value consumed by a program — must NOT use `$HOME`, because
+nothing expands it there; keep an absolute path or the native form (`%h` in systemd). Do not "fix"
+a unit file into a form that silently fails. Leave `scripts/*.py` alone (a Python literal may
+legitimately build an absolute path from `pathlib.Path.home()`).

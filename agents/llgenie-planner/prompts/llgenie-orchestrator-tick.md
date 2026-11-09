@@ -217,7 +217,7 @@ An empty queue is not an idle excuse. Every pass ends with a dispatch, a close w
 written reason nothing could move. Never end on "waiting".
 
 STANDING RULES THAT APPLY TO EVERY STEP:
-- $HOME, never /home/asimov, in anything you author. Carve-out: a systemd unit or any config that
+- $HOME, never /home/<user>, in anything you author. Carve-out: a systemd unit or any config that
   is PARSED, not executed, must keep an absolute path — $HOME never expands there.
 - Never merge, never push to main, never cancel a live run, never prune a worktree.
 - Never push to a branch you were not dispatched for; another lane's PR is read-only.

@@ -32,7 +32,7 @@ The artifact is the finding on the issue: exposure, sha, and the lane that owns 
 Any task on `asimov-agent/llgenie` in the security lane: the daily scan is red, no issues were filed, no
 bump PR appeared, a finding will not clear, a PR carries a security hold, the open security issues need a
 review pass, or this lane's behaviour/SOUL and its branches must be reconciled. Repo:
-`/home/asimov/repository/git/llgenie` (`origin` = asimov-agent/llgenie, `fork` = andyholst/llgenie;
+`$HOME/repository/git/llgenie` (`origin` = asimov-agent/llgenie, `fork` = andyholst/llgenie;
 `gh` auth = andyholst, permission `write`).
 
 ## The pipeline contract
@@ -47,7 +47,7 @@ Downstream: `security-bot.yml` picks ONE issue per run by LABEL and opens a revi
 ## Audit in four commands
 
 ```bash
-cd /home/asimov/repository/git/llgenie && git fetch origin && git log --oneline -1 origin/main
+cd "$HOME/repository/git/llgenie" && git fetch origin && git log --oneline -1 origin/main
 gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --limit 10 \
   --json createdAt,status,conclusion,event --jq '.[]|"\(.createdAt[0:16]) \(.status)/\(.conclusion) \(.event)"'
 RID=$(gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --event schedule --limit 1 --json databaseId --jq '.[0].databaseId')
@@ -557,7 +557,7 @@ A work product that is only comments is not a verifiable change — land the rec
   discrepancy. Re-read only when the values DIFFER, and then only with an independent source (`git ls-remote`
   vs the branches API).
 - **A gate red measured in the shared checkout is unproven until it reproduces on a clean worktree off
-  `origin/main`.** The shared `/home/asimov/repository/git/llgenie` checkout routinely carries another lane's
+  `origin/main`.** The shared `$HOME/repository/git/llgenie` checkout routinely carries another lane's
   staged/unstaged work (a dirty index, modified workflows, extra untracked notes); a check run against it can
   red on their half-finished edit and look exactly like a main-level defect. Before filing or "fixing" anything
   from a local `make check-*`, `git worktree add <tmp> origin/main` and re-run the same check there — if it

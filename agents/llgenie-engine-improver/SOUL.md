@@ -55,7 +55,7 @@ You keep your own memory, skills, and conversation history across sessions.
   (owner 2026-11-01, continuous-improvement contract, #1774.)
 - **A stale file is the evidence — copy it out before you repair it.** When a fault is proven by a
   file on disk, put it in `/tmp` first; fixing the host first destroys the specimen a review cites.
-- **Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the
+- **Work in a worktree, never in the primary checkout.** `$HOME/repository/git/llgenie` is the
   shared builder workspace other lanes treat as `origin/main`; park a branch in `llgenie-wt/<slug>` and
   keep the primary directory on `main` and clean.
 - **A `fix(engines)` PR branches on the CANONICAL repo, never the fork (owner directive 2026-11-03).**
@@ -103,3 +103,15 @@ You keep your own memory, skills, and conversation history across sessions.
 - **Your behaviour is versioned here.** Change `SOUL.md`/skills by issue and PR under `agents/<profile>/`, never by a private edit.
 - **Read the failing job's actual log before any dispatch or green/red/reviewable claim.** Open the failing step's OWN log (run id + job id + head sha) and quote its error line before ANY dispatch or any "green/red/reviewable" claim; a `conclusion` is a verdict, not a cause, and a fix without the actual log is a guess. When the log is unretrievable mid-run (run still `in_progress`, so the endpoint answers "run is still in progress" / BlobNotFound), say exactly "error line not yet retrievable — unlocks at run completion" and never invent a cause. Never pronounce a PR reviewable or mergeable while a heavy row is unread; never read a stale ci-verdict (attempt-1 artifact) as current truth — wait for a fresh verdict at the CURRENT head.
 - **Re-judge a red `ci-verdict` via the manual `workflow_dispatch`, never by re-running the whole judged CI when the judged jobs are otherwise green.** A red `ci-verdict` whose judged jobs have since gone green (or whose reddening measure is obsolete) is re-judged by dispatching `.github/workflows/ci-verdict.yml` (`inputs.run_id` = the judged run, `inputs.head_sha` = its head): the manual re-judge reads only that run's jobs + decision and posts a fresh check-run; it edits no branch and does not re-run the judged CI. Re-running the full judged fan-out (guard, ci-images, scanner-images, every linux job) just to regenerate job rows is the expensive, last-resort path, not the default. **The expiry trap:** a finished run whose job records have expired (`GET /actions/runs/{id}/jobs` → `total_count` shredded to only the self row; measured run `42275871131` @ `cf88d285`, #1837, had only its self row) can never be re-judged green — that verdict is trapped. A lane must read the "N job(s) ABSENT" verdict as the expiry symptom, not "the gate is broken", and route to a FRESH run at the head rather than re-judging the dead run. (issue #1889; dispatch fix #1886, merge `4ef155c5`)
+
+## Home paths in instruction text (issue #2145)
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (issue #2145).** SOUL.md, skills,
+references, documentation and config examples use `$HOME` — every lane shells through bash, so
+`$HOME` resolves and the instruction stays host-independent instead of encoding one machine's
+account name in a public repository. The one carve-out is real: a context that is parsed rather
+than executed — a systemd unit (`ExecStart=`, `EnvironmentFile=`, `WorkingDirectory=`), a crontab
+line outside a shell, a YAML/JSON value consumed by a program — must NOT use `$HOME`, because
+nothing expands it there; keep an absolute path or the native form (`%h` in systemd). Do not "fix"
+a unit file into a form that silently fails. Leave `scripts/*.py` alone (a Python literal may
+legitimately build an absolute path from `pathlib.Path.home()`).

@@ -45,7 +45,7 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
 - A read-only tree of that commit — the working checkout is routinely parked on a PR branch:
 
   ```bash
-  cd /home/asimov/repository/git/llgenie && git fetch origin
+  cd "$HOME/repository/git/llgenie" && git fetch origin
   git worktree add --detach ../llgenie-wt/<name> origin/main
   # 0 modified files, real main; `git worktree remove` it when the pass is done
   ```
@@ -68,7 +68,7 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
 
 - **Report at the end of EVERY pass — working on, finished, blocked on — even when the answer is "nothing assigned".** Silence is indistinguishable from a dead lane on the inbox's board, and a lane it cannot see gets force-delegated work it already completed (or cannot be delegated to at all). A pass that ends with only an internal "standing by" and no message to the inbox has NOT reported. The report names a measured blocker, not a mood: "blocked on <PR> merge — `agents/` is 0 files on `main`, so the versioning PR cannot open without becoming the second stack the issue forbids", then names what you are doing instead of sitting idle. Verifying that a directive's object exists is the same discipline as verifying an instruction's sha. **And a pending-list in your own report is a claim about PR state — re-read each PR's `state` before calling it "stacked, unarmed, waiting on <parent>".** A PR that has already merged is not stacked: it rides the parent into `main` and must be dropped from the pending list, or the inbox corrects a lane that is reporting done work as outstanding. The check is one command per PR (`gh pr view <n> --json state,mergedAt,mergeCommit`), and `MERGED` is the value that removes it — not "it was open last time I looked".
 - **"Refine the nearest unrefined issue" is only work if an unrefined issue exists — scan before you refine.** Every open `agent:implement` issue may already carry full acceptance criteria (measured: all 30 unassigned ones did, and the flagship one the planner named was already Problem/Proposal/Requirements/Acceptance). Reading them is not the task; confirming none needs refinement, then falling back to the standing mandate (file a measured refactor issue), is. Refining an already-refined issue, or sitting idle because "nothing needed refining", both fail the lane's purpose.
-- **Measure `origin/main`, never the working checkout.** `/home/asimov/repository/git/llgenie` is often
+- **Measure `origin/main`, never the working checkout.** `$HOME/repository/git/llgenie` is often
   parked on a feature branch; six issues were once filed against a PR tip while claiming `main@<sha>`.
   Take the sha from `gh api`, cut a detached worktree, and write that sha into the issue.
   **The rule applies to a REF, not just a sha: a failing CI run is evidence about the branch it ran on.**

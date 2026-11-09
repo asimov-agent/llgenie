@@ -86,6 +86,24 @@ STANDING_RULES = {
     "never-implement": re.compile(r"never\s+implement|do(?:es)?\s+not\s+implement", re.I),
     "never-merge": re.compile(r"never\s+merge", re.I),
 }
+#: Instruction text must use `$HOME`, never `/home/<user>` (issue #2145). A literal home directory
+#: bakes one machine's account name into the versioned behaviour (a public repo) and is not portable
+#: to a lane running on another host. `$HOME` is correct because every lane shells through bash.
+#: The carve-out is deliberate and real: a context that does NOT run through bash — a systemd unit
+#: (`ExecStart=`, `EnvironmentFile=`, `WorkingDirectory=`), a crontab line outside a shell, a
+#: YAML/JSON value consumed by a program — must NOT use `$HOME` (nothing expands it there); those
+#: keep an absolute path or the native form (`%h` in systemd). The tree's instruction surface only
+#: (agents/**/*.md), never `scripts/*.py` (a Python literal needs a real path or pathlib.Path.home()).
+HOME_LITERAL = re.compile(r"/home/(?![<>\s])([A-Za-z0-9])([A-Za-z0-9_.-]*)")
+
+#: The tree's own instruction text may legitimately carry a literal when it is a placeholder for a
+#: config/skill the READER must edit (`/home/<user>`, `/home/user`), or a documented, verifiable
+#: carve-out (`/home/agent` in a container's Dockerfile = the container user's home, not the host's;
+#: systemd `%h` units are named, not matched). This is the allow-list the gate reads; a literal that
+#: names an actual account is not allowed. Exact `{home-path} == allowed` (an allowed word never
+#: blanks a longer, real username), deliberately narrow.
+HOME_LITERAL_ALLOWED = ("<", "user", "agent", "root", "node", "app")
+
 #: The one rule every manifest must keep for at least one profile: the orchestrator is the agent
 #: that can dispatch a merge, and the rule was once a file nobody diffed.
 REQUIRED_RULE = "never-merge"
@@ -157,7 +175,7 @@ KNOWN_KEYS = frozenset({
     "manifest-rule-unknown", "manifest-rule", "profile-directory", "soul-missing",
     "standing-rule-quoted", "standing-rule", "skill-frontmatter", "skill-name", "skill-description",
     "skill-reference-missing", "skill-size", "skill-size-exemptions", "skill-size-exemption-stale",
-    "forbidden-path", "profile-unlisted", "secret", "unreadable",
+    "forbidden-path", "profile-unlisted", "secret", "unreadable", "home-path-literal",
     "live-longer", "live-lines-missing", "unreadable-live-file", "live-edited-not-tree",
     "absent-from-tree", "fleet-block-drift", "fleet-block-source", "fleet-exemption-unknown",
     "fleet-exemption-stale", "fleet-exemptions",
@@ -945,6 +963,52 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
     return items
 
 
+def _home_path_findings(agents: Path, root: Path = REPO_ROOT) -> list[dict]:
+    """No instruction file may embed a literal home path (issue #2145).
+
+    Instruction text must use `$HOME`, never `/home/<user>`. The sweeps this file enforces run
+    against every `agents/**/*.md` (SOUL, skills, references) — the surface a lane reads as prose
+    or as a shell command — and deliberately NOT `scripts/*.py` (a Python literal needs a real path
+    or `pathlib.Path.home()`, and rewriting it to `$HOME` yields a string that never expands).
+
+    The carve-out is stated, not silent: a context that does not expand `$HOME` (a systemd unit's
+    `EnvironmentFile=`, a crontab outside a shell, a YAML/JSON value consumed by a program) keeps an
+    absolute path or the native form (`%h` in systemd). Systemd units are `.service`/`.timer` files,
+    never `*.md`, so this check cannot red the carve-out by construction — an `agents/**/*.md` line
+    that mentions a `%h` form or a literal the tree has documented (placeholder `<user>`, a Docker
+    image's `/home/agent`, `/home/root`) is the allowed list.
+    """
+    items: list[dict] = []
+    for path in sorted(agents.rglob("*.md")):
+        if ".archive" in path.parts:
+            continue  # retired skills are not loaded instructions (issue #2145 orchestration note)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            items.append({"key": "unreadable",
+                          "where": str(path.relative_to(root)),
+                          "detail": "could not read this .md while scanning for literal home paths"})
+            continue
+        if not HOME_LITERAL.search(text):
+            continue
+        for line_no, line in enumerate(text.splitlines(), 1):
+            for m in HOME_LITERAL.finditer(line):
+                home = m.group(0)
+                user = (m.group(1) or "") + (m.group(2) or "")
+                if any(part in (home, user) for part in HOME_LITERAL_ALLOWED):
+                    continue  # documented placeholder / carve-out, read-forward only
+                items.append({
+                    "key": "home-path-literal",
+                    "where": str(path.relative_to(root)),
+                    "detail": f"line {line_no} embeds a literal home path `{home}` — write "
+                              f"`$HOME` (every lane shells through bash) or the `<user>`/`%h` "
+                              f"placeholder; the only carve-out is a context that never expands "
+                              f"`$HOME` (systemd unit, crontab outside a shell, a parsed YAML/JSON "
+                              f"value), which keeps an absolute path (issue #2145)",
+                })
+    return items
+
+
 def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict]:
     """Every way the host agents' tree can be broken. An empty list is the only pass."""
     items: list[dict] = []
@@ -1032,6 +1096,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
             items.extend(_secret_findings(path, root))
 
     items.extend(_fleet_findings(agents, profiles))
+    items.extend(_home_path_findings(agents, root))
     items.extend(_stale_exemption_findings(root, size_exempt))
 
     for entry in sorted(p for p in agents.iterdir() if p.is_dir()):

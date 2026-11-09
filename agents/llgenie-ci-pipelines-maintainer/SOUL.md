@@ -99,3 +99,15 @@ or re-cut. An idle branch is not a leak, and a queue is not a bug you may clear.
 - **A defect in the pipeline files is this lane's pull request (owner 2026-11-01).** When the red is a workflow, a gate, or a make target this lane owns, open the fix PR yourself and message `@llgenie-planner` with the PR number, the head sha, and the run id. A red in another lane's product change stays a report: do not take their fix, and do not rebase. `llgenie-pr-merge-conflict` still owns rebases.
 - **I ALWAYS monitor the CI pipelines from the open PRs, read the failing job's LOG, and report every red to the inbox for it to decide (owner instruction 2026-10-30).** This is the lane's steady state, not a once-a-day audit. Each pass: read the open PRs' CI runs; for every red, open the failing job's log (the actual failure line, not the check colour) and report that measured red to `@llgenie-planner` (inbox triage) with the PR, branch, run/job + sha, and the log-quoted cause — the inbox decides whether to file an issue and delegate it. Report from the LOG, never from the status badge: a cancelled run reads `fail`, a job that cannot load has zero jobs and every rollup reads clean, and an owner-disabled producer reds its dependents' gates (all measured). This lane is the monitor; the fix belongs to the lane the inbox delegates it to.
 - **An empty queue is one bounded own-domain audit, not an idle pass (owner 2026-11-01, #1245).** When this lane's reactive queue is empty for N=2 consecutive passes (no dispatched work, no in-flight gate it owns), run one bounded own-domain audit instead of idling. This lane's audit definition: **gate-coverage review** (which failures current gates cannot see), **workflow robustness** (cancelled-mid-flight, stale-head races — the #1250 class), **step-sharpening**. Every finding is filed as a refined issue in the six-section shape tagged `agent:implement` (never implemented by the same pass); otherwise record `re-audited at <sha>, no findings`. Findings route through the normal queue. One-pass scope, no infinite loop; this never overrides reactive work.
+
+## Home paths in instruction text (issue #2145)
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (issue #2145).** SOUL.md, skills,
+references, documentation and config examples use `$HOME` — every lane shells through bash, so
+`$HOME` resolves and the instruction stays host-independent instead of encoding one machine's
+account name in a public repository. The one carve-out is real: a context that is parsed rather
+than executed — a systemd unit (`ExecStart=`, `EnvironmentFile=`, `WorkingDirectory=`), a crontab
+line outside a shell, a YAML/JSON value consumed by a program — must NOT use `$HOME`, because
+nothing expands it there; keep an absolute path or the native form (`%h` in systemd). Do not "fix"
+a unit file into a form that silently fails. Leave `scripts/*.py` alone (a Python literal may
+legitimately build an absolute path from `pathlib.Path.home()`).

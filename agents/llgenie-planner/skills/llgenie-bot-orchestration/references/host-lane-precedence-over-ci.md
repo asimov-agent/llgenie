@@ -56,7 +56,7 @@ host lane in the same pass.
 A `queued` dispatch ack is a hand-off, not a receipt — but "not landed yet" is NOT "nothing is happening".
 Before reporting a lane idle or the board stuck, measure all three:
 
-1. **`stat -c '%y' /home/asimov/.hermes/profiles/<lane>/state.db`** — a mtime within the last few minutes means
+1. **`stat -c '%y' "$HOME/.hermes/profiles/<lane>/state.db"`** — a mtime within the last few minutes means
    the lane is taking turns right now. Compare against `date`; do not read a stale mtime as proof of death
    without also checking the clock.
 2. **Start bookends on the PRs** — the lane posts a `**Rebase lane — start.**` (or equivalent) comment naming

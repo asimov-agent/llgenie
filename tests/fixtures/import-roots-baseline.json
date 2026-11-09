@@ -1,6 +1,6 @@
 {
   "bare": {
-    "count": 55,
+    "count": 56,
     "sites": [
       "tests/test_agent_nerve.py:44",
       "tests/test_arm_auto_merge.py:19",
@@ -17,6 +17,7 @@
       "tests/test_ci_scope.py:26",
       "tests/test_engine_params_review.py:20",
       "tests/test_engine_params_review.py:21",
+      "tests/test_home_paths_gate.py:14",
       "tests/test_host_bot_capabilities.py:17",
       "tests/test_issue_bot_implement_leg.py:34",
       "tests/test_issue_implementer.py:27",
@@ -60,7 +61,7 @@
     ]
   },
   "sys-path": {
-    "count": 35,
+    "count": 36,
     "sites": [
       "tests/test_agent_nerve.py:43",
       "tests/test_arm_auto_merge.py:17",
@@ -77,6 +78,7 @@
       "tests/test_engine_params_review.py:19",
       "tests/test_engine_runner_failfast.py:21",
       "tests/test_git_identity.py:20",
+      "tests/test_home_paths_gate.py:11",
       "tests/test_host_bot_capabilities.py:15",
       "tests/test_issue_bot_implement_leg.py:33",
       "tests/test_issue_implementer.py:26",

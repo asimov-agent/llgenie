@@ -5,7 +5,7 @@ Depth for the "do the security issues still make sense / could a fix cause a big
 ## Roster, then evidence
 
 ```bash
-cd /home/asimov/repository/git/llgenie && git fetch -q origin && git log --oneline -3 origin/main
+cd "$HOME/repository/git/llgenie" && git fetch -q origin && git log --oneline -3 origin/main
 # every open issue that is security-adjacent (labels OR title words)
 gh issue list --repo asimov-agent/llgenie --state open --limit 100 \
   --json number,title,labels,createdAt \
@@ -136,7 +136,7 @@ label write failed when it did not. Verify the label write by reading the issue 
 Run the pinned scanners yourself on a fresh worktree at the exact sha (never the dirty main checkout):
 
 ```bash
-cd /home/asimov/repository/git/llgenie && git worktree add ../llgenie-wt/scan-<sha> <sha>
+cd "$HOME/repository/git/llgenie" && git worktree add ../llgenie-wt/scan-<sha> <sha>
 cd ../llgenie-wt/scan-<sha>
 make sbom && make security-scan TOOL=trivy        # pinned images from containers/scanners/digests.json
 python3 scripts/security_scan.py verdict --event schedule

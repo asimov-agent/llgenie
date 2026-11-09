@@ -114,9 +114,9 @@ deflection lesson, the empty-queue audit, the propagation-hub rule, the solicite
 Every pass, before measuring anything, and every dispatch, before an implementer starts:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie fetch origin main
-git -C /home/asimov/repository/git/llgenie rev-list --left-right --count HEAD...origin/main   # expect: 0 0
-git -C /home/asimov/repository/git/llgenie log --oneline -1 origin/main                       # the sha to cite
+git -C "$HOME/repository/git/llgenie" fetch origin main
+git -C "$HOME/repository/git/llgenie" rev-list --left-right --count HEAD...origin/main   # expect: 0 0
+git -C "$HOME/repository/git/llgenie" log --oneline -1 origin/main                       # the sha to cite
 ```
 
 Then re-read `AGENTS.md` at that sha — 87 KB, 1,302 lines, and it changes weekly, so a memory of it is not a reading.
@@ -334,8 +334,8 @@ it could reach and left the rest. Only the owner can read what a delete will tak
 Measure, then report, then leave it:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie worktree list --porcelain
-git -C /home/asimov/repository/git/llgenie merge-base --is-ancestor <tip> origin/main; echo $?
+git -C "$HOME/repository/git/llgenie" worktree list --porcelain
+git -C "$HOME/repository/git/llgenie" merge-base --is-ancestor <tip> origin/main; echo $?
 gh pr list --repo asimov-agent/llgenie --state open --json headRefName
 ```
 
@@ -468,7 +468,7 @@ Measured across 70 runs on one repo: **65 rows `cancelled` with `runner_name` em
 
 ## Preflight must name the remote, not just the branch
 
-The repo has been re-laid-out: `origin` can be the fork (`andyholst/llgenie`) while the real repo is `upstream` (`asimov-agent/llgenie`). `git fetch origin main` + `rev-list HEAD...origin/main` then validates the wrong repository and passes while upstream moved. There are **two main clones** and they name remotes differently: `/home/asimov/repository/git/llgenie` (`origin` = `asimov-agent`, `fork` = `andyholst`) and `/home/asimov/repository/git/ai-repositories/llgenie` (`origin` = `andyholst`, `upstream` = `asimov-agent`). Worktrees inherit the clone that created them, so `git fetch origin main` validates the fork in one tree and upstream in the other. Check `cat .git | head -1`, then `git remote -v`, then `git ls-remote <remote> <branch>` before any fetch or push, and resolve which remote URL is `asimov-agent` — never assume `origin` means upstream, and quote the sha you read from that remote. A `git fetch upstream` that dies with "upstream does not appear to be a git repository" is this, not a credential problem: the other clone calls it `origin`.
+The repo has been re-laid-out: `origin` can be the fork (`andyholst/llgenie`) while the real repo is `upstream` (`asimov-agent/llgenie`). `git fetch origin main` + `rev-list HEAD...origin/main` then validates the wrong repository and passes while upstream moved. There are **two main clones** and they name remotes differently: `$HOME/repository/git/llgenie` (`origin` = `asimov-agent`, `fork` = `andyholst`) and `$HOME/repository/git/ai-repositories/llgenie` (`origin` = `andyholst`, `upstream` = `asimov-agent`). Worktrees inherit the clone that created them, so `git fetch origin main` validates the fork in one tree and upstream in the other. Check `cat .git | head -1`, then `git remote -v`, then `git ls-remote <remote> <branch>` before any fetch or push, and resolve which remote URL is `asimov-agent` — never assume `origin` means upstream, and quote the sha you read from that remote. A `git fetch upstream` that dies with "upstream does not appear to be a git repository" is this, not a credential problem: the other clone calls it `origin`.
 
 ## A licence covers what to push, never when
 
