@@ -25,6 +25,27 @@ from the file. Add it under the matching group (structural gates live beside
 `indent=1` matching the file), never a blind text rewrite — the file uses `\u2014` escapes and a
 naive dump churns every unrelated line into the diff.
 
+## `check-wiring` also parses WORKFLOW STEP NAMES for `make <target>`
+
+`check_wiring.py` scans the `name:` of every CI step for the literal token `make <word>`
+and treats `<word>` as a wired make target. A step name written as prose — e.g.
+`Verify the engine is a host-only make target (make test-engine-serve)` — parses
+`test-engine-serve)`, `target`, etc. as unknown targets and reds `check-wiring` naming a
+target that does not exist. Because it only scans `name:` lines (not `#` comments), keep
+any `make <x>` mention out of the step NAME; move the prose to a `#` comment or drop the
+parenthetical. Test the whole workflow with `make check-workflows check-wiring` before push.
+
+## Editing a workflow's `workflow_dispatch` inputs → regenerate `docs/BOTS.md`
+
+`docs/BOTS.md` carries a generated dispatch table of every dispatchable workflow's inputs.
+Adding or REMOVING an `on.workflow_dispatch.inputs` entry leaves that table stale:
+`check-dispatch-forms` reds, and in the `linux / unit` job `test_dispatch_forms.py` +
+`test_issue_bot_manual_pick.py` red (they diff the table against the live workflows).
+Regenerate it in the same commit: `make check-dispatch-forms report` (or
+`python3 scripts/check_dispatch_forms.py report`) prints the table; splice it between the
+`<!-- dispatch-forms:begin -->` and `<!-- dispatch-forms:end -->` markers in `docs/BOTS.md`,
+then `make check-dispatch-forms`. Do not hand-edit rows — the report is the source of truth.
+
 ## `agents/<profile>/cron/` is FORBIDDEN
 
 `test_agent_profiles` treats ANY file under `agents/<profile>/cron/` as committed chat logs /
