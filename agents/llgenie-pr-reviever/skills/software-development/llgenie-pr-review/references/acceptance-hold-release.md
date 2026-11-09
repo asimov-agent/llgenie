@@ -41,8 +41,7 @@ gh api repos/<o>/<r>/pulls/<n> --jq .body > /tmp/prbody.md
 python3 scripts/check_pr_acceptance.py check --body-file /tmp/prbody.md
 ```
 
-For a full tick this must fall to `[check-pr-acceptance] OK — every closed issue's
-## Acceptance criteria is checked or named out of scope` with **rc 0**. Two zero-checks bound the
+For a full tick this must fall to the gate's OK read — `` `[check-pr-acceptance] OK — every closed issue's `## Acceptance criteria` is checked or named out of scope` `` with **rc 0**. Two zero-checks bound the
 claim: **zero `tick-unprovable`** findings AND **zero `acceptance-unchecked`** on the written-back
 body. The only legal remaining row is a deliberately-held out-of-scope criterion — and then the
 gate reads rc 1 naming ONLY that held item, never the criterion you ticked.
