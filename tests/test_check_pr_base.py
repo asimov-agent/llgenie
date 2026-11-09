@@ -384,3 +384,105 @@ def test_a_genuine_leak_cut_from_a_stale_other_pr_still_reds(tmp_path):
                        capture_output=True, text=True, env=ENV)
     assert r.returncode != 0, r.stdout + r.stderr
 
+
+def test_a_merge_ref_behind_branch_passes_when_the_head_branch_is_named(tmp_path):
+    """#2138: a merely-behind branch whose PR head is checked out as its MERGE ref is GREEN.
+
+    `linux / unit` runs `make ci-unit`, which runs `make check-pr-base` with no PR_HEAD, so
+    `--rev HEAD` resolves to the PR's **merge ref** — a synthetic commit whose parents are the
+    head commit and the base. The branch's own remote ref points at the head commit (an ancestor
+    of the merge), so `for-each-ref --contains <merge>` does NOT include it, and the old
+    discriminator read that own ref as a foreign signal and redded an 8-way false positive
+    (issue #2138). The fix names the head's OWN refs from `--head-ref-name` (PR_BRANCH) and
+    `--pr-number`, so the same git facts exit 0 STALE with the branch's own commit listed as own.
+    """
+    work = repo(tmp_path)
+    # a branch cut from the THEN-current main, carrying only its OWN commit
+    git(work, "switch", "-q", "-c", "pr/mine", "main")
+    (work / "mine.txt").write_text("my own work\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "feat(mine): my own work")
+    own = git(work, "rev-parse", "HEAD")
+    git(work, "push", "-q", "origin", "pr/mine")
+    seed = git(work, "rev-parse", "refs/remotes/origin/main")
+    # the PR's /merge ref is created NOW against the THEN-current base (seed), exactly as
+    # GitHub builds refs/pull/N/merge at event time — then origin/main ADVANCES past it
+    git(work, "switch", "-q", "-c", "pr/merge", seed)
+    git(work, "merge", "-q", "--no-ff", "--no-edit", "-m", "Merge pull request", "pr/mine")
+    git(work, "switch", "-q", "main")
+    (work / "adv.txt").write_text("main moves on\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "origin/main advances")
+    git(work, "push", "-q", "origin", "main")
+    # the `linux / unit` checkout leaves HEAD on the PR's MERGE ref (a synthetic
+    # 2-parent commit), not on main — switch back so `--rev HEAD` measures it
+    git(work, "switch", "-q", "pr/merge")
+    # the own commit IN the checked-out base..HEAD — the failure shape from #2078/#2138
+    assert own in git(work, "rev-list", "--no-merges",
+                      "refs/remotes/origin/main..HEAD").splitlines(), "test premise: own commit must be in base..HEAD"
+
+    # WITHOUT the head-ref-name the old bug returns: the own commit reads foreign
+    ok_old, leaked_old = cpb.check(work, cpb.DEFAULT_BASE, "HEAD")
+    assert ok_old is False
+    assert own[:7] in " ".join(leaked_old), "premise: the bug must be reproducible (own commit as foreign)"
+
+    # WITH the head branch named, the same git facts are STALE/own/green
+    ok, leaked = cpb.check(work, cpb.DEFAULT_BASE, "HEAD", "pr/mine", "128")
+    assert ok is True, leaked
+    assert leaked == []
+    lines = cpb.render(True, cpb.DEFAULT_BASE, "HEAD", leaked, work, "pr/mine", "128")
+    text = "\n".join(lines)
+    assert "STALE" in text, text
+    assert "own commits carried (1)" in text, text
+    assert "feat(mine): my own work" in text
+    assert "carries commits from another PR" not in text, text
+    # and the CLI — the exact `make check-pr-base` on `linux / unit` once PR_BRANCH is forwarded — exits 0
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "check_pr_base.py"), "check",
+                        "--base", cpb.DEFAULT_BASE, "--rev", "HEAD",
+                        "--head-ref-name", "pr/mine", "--pr-number", "128",
+                        "--cwd", str(work)],
+                       capture_output=True, text=True, env=ENV)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_a_genuine_leak_still_reds_in_the_merge_ref_shape(tmp_path):
+    """#2138 negative control: naming the head branch must NOT weaken the real #845 detection.
+
+    The same merge-ref checkout that mis-reported a merely-behind branch as foreign must still
+    red a GENUINE leak — a branch that really carries another branch's commit — naming only the
+    foreign commit. The head branch's own refs are OWN; the other branch's ref is not.
+    """
+    work = repo(tmp_path)
+    git(work, "switch", "-q", "-c", "pr/other", "main")
+    (work / "other.txt").write_text("other lane\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "other PR's work")
+    foreign = git(work, "rev-parse", "HEAD")
+    git(work, "push", "-q", "origin", "pr/other")
+    seed = git(work, "rev-parse", "refs/remotes/origin/main")
+    # our branch cut from the other PR's tip
+    git(work, "switch", "-q", "-c", "pr/mine", "pr/other")
+    (work / "mine.txt").write_text("my lane work\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "my work on top")
+    # the PR /merge ref built NOW against the THEN-current base (seed), as GitHub does,
+    # then origin/main ADVANCES past it
+    git(work, "switch", "-q", "-c", "pr/merge", seed)
+    git(work, "merge", "-q", "--no-ff", "--no-edit", "-m", "Merge pull request", "pr/mine")
+    git(work, "switch", "-q", "main")
+    (work / "adv.txt").write_text("main moves on\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "origin/main advances")
+    git(work, "push", "-q", "origin", "main")
+    # the `linux / unit` checkout leaves HEAD on the PR's MERGE ref — switch back
+    git(work, "switch", "-q", "pr/merge")
+
+    ok, leaked = cpb.check(work, cpb.DEFAULT_BASE, "HEAD", "pr/mine", "130")
+    assert ok is False, "a genuine leak in the merge-ref shape must still red"
+    assert leaked, "the foreign commit must be named"
+    assert "other PR's work" in " ".join(leaked)
+    assert foreign[:7] in " ".join(leaked)
+    text = "\n".join(cpb.render(False, cpb.DEFAULT_BASE, "HEAD", leaked, work, "pr/mine", "130"))
+    assert "STALE" not in text, text
+    assert "carries commits from another PR" in text, text
+

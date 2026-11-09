@@ -299,6 +299,11 @@ jobs:
           # way check-pr-closing refreshes origin/main below.
           PR_BASE: origin/main
           PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+          # PR_BRANCH/PR_NUMBER name the head's OWN refs, so a merely-behind branch
+          # whose head is checked out as its MERGE ref is never accused of carrying a
+          # foreign commit (issue #2138); the unit job in pipeline.yml forwards the same.
+          PR_BRANCH: ${{ github.head_ref || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           git fetch --no-tags --prune origin main   # live origin/main, so a stale ref cannot hide a foreign merge-base (issue #1527)
           make check-pr-base
