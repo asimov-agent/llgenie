@@ -35,6 +35,25 @@ direction. Run the byte comparison AND read the differing hunks in both directio
 fix. When each side holds unique content, the versioning fix is a MERGE that keeps both — a plain `cp`
 of live over the tree silently deletes the tree-only lines.
 
+## One issue, two surfaces: two PRs, not one — and never push the second over a live head
+
+A versioning issue can cover more than one surface (e.g. an agent's `SOUL.md` **and** its `skills/<name>/`
+tree). Land each surface as its OWN branch + PR, even when the issue is one: the surfaces are reviewed and
+merge independently, and a blocker on one must not strand the other. Do not "just add" the second surface
+as a commit on the first PR's branch while a run sits at that head — under `cancel-in-progress` a push
+re-triggers and **cancels the live matrix**, so the authorised push destroys the very run that proves the
+first half. Check the head's runs (`gh api "repos/<o>/<r>/actions/runs?head_sha=<sha>" --jq '.workflow_runs[]|.status'`)
+before any push; if a run is `in_progress`/`queued`, cut the fresh branch instead of pushing over it.
+
+## The skill's `references/` set drifts too — sync the union, not just `SKILL.md`
+
+A skill is `SKILL.md` **plus** its `references/*.md` (and `templates/`, `scripts/`). The live profile can
+carry reference files the tree never got (measured: live 19 vs tree 12, with several entirely absent) and
+newer content in files both have. The fix is a union merge into the tree: copy live's files in over the
+tree, keeping any tree-only file that live does not have (`cp` live over same-named; leave tree-only alone).
+Prove it by comparing the file COUNT and every file's hash, not just `SKILL.md`, and re-run `check_docs`
+(the whole `skills/` dir is one behavioural surface).
+
 ## Fix shape (one atomic commit, one vehicle)
 
 1. `git worktree add` a fresh worktree off the merged main sha; check `git rev-parse --abbrev-ref HEAD`

@@ -162,6 +162,54 @@ again (that is how one PR lost three heads in two minutes and its safety argumen
 never ran). Never push "to make CI run". This is the sibling of the cancelled-*scope* forging a ``skipped``
 decision: a cancelled run is neither a pass nor a fail — the absence of a red is not a green.
 
+## 3c-bis. A PENDING run with 0 jobs that CANCELS the same second a newer push lands is a SUPERSEDE, not a stuck queue — and the head it was measured at is STALE
+
+A run that a peer reports as "QUEUED-STUCK for 13 min, jobs total=0" may simply be the design working. Measure before diagnosing it as runner starvation / dispatch gating / a PR-trigger queuing bug:
+
+```bash
+# 1. has it concluded since the report? (peer often saw it mid-flight)
+gh run view <rid> --json status,conclusion,createdAt,updatedAt,headSha \
+  --jq '"\(.status)/\(.conclusion // "pending") created=\(.createdAt) updated=\(.updatedAt) head=\(.headSha[0:8])"'
+# 2. which newer runs landed on the SAME branch, and AT WHAT SECOND?
+gh run list -R O/R --branch <ref> --limit 6 \
+  --json databaseId,createdAt,status,conclusion,headSha,event \
+  --jq '.[]|"\(.databaseId) created=\(.createdAt) \(.status)/\(.conclusion // "pending") head=\(.headSha[0:8]) evt=\(.event)"'
+```
+
+| what the pair shows | verdict |
+|---|---|
+| the run reads `completed/cancelled`, `jobs total_count=0`, and its `updatedAt` (cancel second) equals a NEWER run's `createdAt` on the same branch, at a different head | **concurrency supersede — the guard working.** The `pull_request`/`workflow_dispatch` trigger with a cancelling concurrency key on the branch discards the stale, never-started run the instant the next push queues in. A queued-0-job run that then cancels is NOT a strand. |
+| the run is STILL `pending`, `jobs total_count=0`, and NO newer run exists on the branch at a later second | then it is a genuine queued-0-job candidate — continue to §1/§3b (label vs capacity) |
+
+Consequences to report, not to "fix": (1) the head the peer measured at is **STALE** — the branch has advanced past it, so the criteria the peer wanted to prove cannot be witnessed at that head; name the live head with `gh run list --branch` (a newer `createdAt` at a different `headSha` is the tell). (2) A `pull_request`-event run that the concurrency guard cancels **cannot carry a push=true witness** anyway — that proof only exists at a pushed/merged head, so the peer must capture it at the live head, not re-dispatch the stale one. (3) This is the design (§3d's group shape), never a `#1250`-class gate-coverage gap. Do NOT re-dispatch, do NOT cancel anything to "clear" it, and do NOT open a fix PR — route the measured supersede back to the peer's own dispatch lane and post the wire evidence (run ids, the cancel-vs-push second, both heads) on the PR so their board stops reading it as a stuck queue.
+
+## 3d. The fix for a self-starving scheduled sweep: one group per OUTCOME, repo-wide
+
+`cancel-in-progress: false` does **not** protect a PENDING run: GitHub keeps one running plus one pending
+per group and a newly queued run REPLACES the pending one whatever the flag says — only the executing run
+is protected. A `schedule:` trigger fires whether or not the last run finished, and scheduled runs carry
+no `head_branch`, so a per-branch group collapses them into one empty-name group where they cancel each
+other's pending slot — the victims end `cancelled` with **no job rows at all**, and that churn reads as
+backlog (measured: nine sweeps of one merge bot stacked in 36 min, 12 of 51 queued runs, behind a 4h25m
+queue, while the PRs it exists to merge sat green and `BLOCKED`).
+
+The group shape that works for an idempotent sweeper is **one group per OUTCOME, repo-wide**:
+
+```yaml
+group: <bot>-${{ github.event.workflow_run.conclusion || 'schedule' }}
+cancel-in-progress: true
+```
+
+Not per branch (that is what starved it) and not one bucket for everything either: a run fired by a
+**failing** CI run decides nothing, so under a single group it would cancel the pending run of a PR that
+IS mergeable, turning a harmless extra run into a lost merge. `workflow_run.types` cannot filter by
+conclusion (it offers only `completed`), so the conclusion must be in the group key.
+
+Cancelling the older run is safe only when the sweep RE-READS state before it acts (state, mergeability,
+head SHA, hold label, review decision) and the effect is idempotent (a merge already made reads `MERGED`
+and stops) — write that reasoning in a comment beside the block, or the next reader restores the queueing
+as "safety".
+
 ## 4. Make the stall visible, whatever the verdict
 
 The alarm only helps if its own workflow is enabled:

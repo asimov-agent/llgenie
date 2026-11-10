@@ -16,6 +16,22 @@ Deviation-based rebase: `git fetch <remote> <branch>:refs/remotes/<tmp>` then re
 onto that live ref. Resetting to the earlier sha you remember DROPS the other lane's commits —
 that is a force-push-under-dispute and a coordination failure, not a cleanup.
 
+**A worktree parked on a DETACHED head cannot push its own commit — `git push origin <branch>` sends the
+branch REF, not HEAD.** After another lane advances the branch, your worktree is often detached at a child
+of the new tip while `refs/heads/<branch>` still points at the old tip, so the push is rejected with
+"the pushed branch tip is behind its remote counterpart" even though your commit is a clean fast-forward.
+Move the ref, then push — the ancestor check is what makes it safe:
+
+```bash
+git fetch origin <branch>
+git merge-base --is-ancestor origin/<branch> HEAD; echo "rc=$? (0=fast-forward safe)"
+git update-ref refs/heads/<branch> $(git rev-parse HEAD)
+git push origin <branch>
+```
+
+Read the remote head back after (`git rev-parse --short origin/<branch>`) and state it as the evidence; a
+push line printed by git is not the fact.
+
 ## Grep the live branch before re-adding anything you planned
 
 If your prepared delta adds a mechanism (a guard pin, a make target, a roster row) and the other

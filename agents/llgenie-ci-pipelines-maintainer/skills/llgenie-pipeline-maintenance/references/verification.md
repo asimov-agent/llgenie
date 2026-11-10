@@ -17,6 +17,15 @@ docker run --rm -u root -v "$PWD":/repo:rw -w /repo -e HOME=/root \
 This is the same image and cwd `make test-unit` uses (mirror `TEST_OPTS` from the Makefile if the
 mounts change). Say plainly in the PR that a probe is not the gate.
 
+**A bare `pytest` that exits non-zero with EMPTY stdout is a COLLECTION error, not a test result — read
+stderr and run it in an interpreter that can import `conftest.py`.** Measured on this host: `python -m
+pytest tests/<m>.py` exited `2` printing nothing, because the repo's `conftest.py` imports `scripts.llgenie_serve`
+(which pulls heavy deps like `gguf`+`numpy`); the bare system interpreter lacked them, so collection
+aborted before one test ran. `rc=2` is pytest's *usage/collection* exit code, never "0 failed" and never
+green — so use the repo's own venv (a host option that has the deps) or the `llgenie/test:latest` image,
+and never read an empty-output non-zero as a pass. The tell of a collection abort versus a real red is the
+silence: a genuine failure names its test (`F`/`FAILED`), a collection abort prints nothing to stdout.
+
 **Pass the credentials the gate would have.** Several supposedly-hermetic modules still read GitHub or
 the Hub, and an empty `GH_TOKEN`/`HF_TOKEN` turns them into long retries rather than skips:
 
@@ -197,7 +206,7 @@ not assumed.
 
 **An uncommitted worktree with ZERO commits ahead of the base is one prune from total loss — commit it (not push) the moment you find it.** Work that exists only as an unstaged/staged diff in a worktree directory has no branch, no PR, and no remote that can reconstruct it; a `git worktree remove` / prune deletes it outright. Measured: a real, complete fix sat `MM` in a worktree with `git rev-list --count <base>..HEAD` = 0 — recoverable by nobody. `git add -A && git commit` moves it from "one prune away from gone" to "recoverable by anyone" and is NOT a push, so it does not cross an owner-word/push gate. Verify the content is the genuine fix (`git diff <base> -- <files>`) before committing it as a salvage; state honestly that you found and verified it, not that you authored it, when it is another lane's work.
 
-**A dispatched worktree path can live in the SIBLING repo, so a `ls`/`git worktree list` in the repo you happen to be in shows nothing.** This host has two main checkouts that name their remotes differently (`…/ai-repositories/llgenie*` vs `…/git/llgenie`), and worktrees are created under whichever one spawned them. Measured: `.worktrees/t_<id>` was reported as holding a lane's work, `ai-repositories/llgenie-main` showed no such dir, and the work was real — under `…/git/llgenie/.worktrees/`. Before concluding a named worktree/branch does not exist, search BOTH roots: `find "$HOME/repository/git" -type d -name 't_<id>'` and `git -C <that-repo> worktree list`. "Not in this repo" is usually "in the other checkout", the same shape as the unfetched-commit trap above.
+**A dispatched worktree path can live in the SIBLING repo, so a `ls`/`git worktree list` in the repo you happen to be in shows nothing.** This host has two main checkouts that name their remotes differently (`…/ai-repositories/llgenie*` vs `…/git/llgenie`), and worktrees are created under whichever one spawned them. Measured: `.worktrees/t_<id>` was reported as holding a lane's work, `ai-repositories/llgenie-main` showed no such dir, and the work was real — under `…/git/llgenie/.worktrees/`. Before concluding a named worktree/branch does not exist, search BOTH roots: `find $HOME/repository/git -type d -name 't_<id>'` and `git -C <that-repo> worktree list`. "Not in this repo" is usually "in the other checkout", the same shape as the unfetched-commit trap above.
 
 **An automated completion/integrity probe that keeps asserting "no task-relevant change was made" does not override verified artifacts — answer with read-back evidence once, and do not manufacture throwaway mutations to silence it.** A progress guard can fire repeatedly even after you committed a fix, posted a reviewable diff, or filed an issue, because it reads a signal (a tool-call class, a state version) that does not see your artifact as a mutation. The honest response is to verify the deliverables exist by direct read-back (`git rev-parse --short HEAD` + `rev-list --count <base>..HEAD` for a commit; `gh api repos/<o>/<r>/issues/comments/<id> --jq '.id'` for a comment) and state the measured facts once — then stop. Fabricating an extra commit or a redundant write purely to make a probe go quiet is itself the dishonesty the probe exists to catch; a fixed probe firing against a state the evidence refutes is the probe's defect, not a licence to invent work. (Related: "a control never run is a claim" above — the same discipline, pointed at your own completion claim rather than at a test.)
 
@@ -277,4 +286,9 @@ Two cleanup traps from that recipe, both measured:
   `git -C <main> worktree prune`. Leave no root-owned helper worktree behind.
 - **The shell CWD persists for the session** — after you delete a helper worktree you `cd`'d into, later
   relative commands (and ripgrep-backed searches) die with `getcwd: cannot access parent directories`;
-  switch to absolute paths and `git -C <repo>` from then on.
+  switch to absolute paths and `git -C <repo>` from then on. The tell is precise: EVERY command, even a
+  bare `echo`, comes back prefixed `bash: line N: cd: /tmp/<dead-dir>: No such file or directory` with
+  exit 126, because the tool re-`cd`s to the persisted cwd before your command. Do NOT read that as a
+  broken tool and do NOT fire more bare commands to "test" it — they all fail identically and stack a
+  retry loop. Recover ONCE by passing an absolute `workdir=` on the next call (it resets the persisted
+  cwd), or use `git -C <abs-repo>` / absolute paths throughout.
