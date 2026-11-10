@@ -88,7 +88,8 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report tester-fold-live provision-agent-profiles \
 	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
-	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep bots-restore-health targets-coverage
+	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep bots-restore-health targets-coverage \
+	check-host-space reclaim-tmp-worktrees
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
