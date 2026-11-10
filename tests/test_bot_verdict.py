@@ -103,25 +103,25 @@ def test_only_a_verdict_at_the_named_head_is_returned():
     """The head IN the marker is the whole staleness rule."""
     # Given a thread with a verdict written for an older commit, then one for the current head
     comments = [
-        {"author": {"login": "asimov-agent"}, "body": bv.marker(OLD, RUN, "approve", "asimov-agent")},
-        {"author": {"login": "asimov-agent"}, "body": bv.marker(HEAD, RUN, "approve", "asimov-agent")},
+        {"author": {"login": "andyholst"}, "body": bv.marker(OLD, RUN, "approve", "andyholst")},
+        {"author": {"login": "andyholst"}, "body": bv.marker(HEAD, RUN, "approve", "andyholst")},
     ]
 
     # When  the verdict for HEAD is read
     got = bv.verdict_for_head(comments, HEAD)
 
     # Then  it is the current-head one — and an unknown head answers nothing
-    assert got and got["head"] == HEAD and got["author"] == "asimov-agent", got
+    assert got and got["head"] == HEAD and got["author"] == "andyholst", got
     assert bv.verdict_for_head([comments[0]], HEAD) is None
     assert bv.verdict_for_head(comments, "") is None
 
 
 def test_the_newest_verdict_at_a_head_wins():
     """A reviewer that changes its mind posts again; the thread order decides."""
-    # Given an `approve` followed by a `changes` for the SAME head
+    # Given an `approve` followed by a `changes` for the SAME head from a distinct reviewer
     comments = [
-        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, RUN, "approve", "github-actions[bot]")},
-        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, RUN, "changes", "github-actions[bot]")},
+        {"author": {"login": "andyholst"}, "body": bv.marker(HEAD, RUN, "approve", "andyholst")},
+        {"author": {"login": "andyholst"}, "body": bv.marker(HEAD, RUN, "changes", "andyholst")},
     ]
 
     # When  the verdict is read
@@ -135,6 +135,39 @@ def test_the_verdict_author_allowlist_cannot_drift_from_the_merge_gate():
     """Two lists of "this repo's identities" would rot apart; they must be the same set."""
     assert set(bv.TRUSTED_VERDICT_AUTHORS) == set(am.ALLOWED_AUTHORS)
     assert set(bv.BOT_LOGINS) == set(am.BOT_LOGINS)
+
+
+def test_an_approve_verdict_from_a_merger_identity_is_never_evidence():
+    """Issue #2244 (approver != merger): an ACCEPTING verdict naming a merge-path identity — the owner
+    PAT (`asimov-agent`) or the job/APPROVER token (`github-actions[bot]`) — is the merger approving
+    its own gate evidence, so it counts for nothing, whether the marker is authored directly by that
+    identity or relayed by the review-verdict workflow token.
+    """
+    for merger in ("asimov-agent", "github-actions[bot]", "app/github-actions"):
+        direct = [{"author": {"login": merger}, "body": bv.marker(HEAD, RUN, "approve", merger)}]
+        relayed = [{"author": {"login": "github-actions[bot]"},
+                    "body": bv.marker(HEAD, RUN, "approve", merger)}]
+        assert bv.verdict_for_head(direct, HEAD) is None, merger
+        assert bv.verdict_for_head(relayed, HEAD) is None, merger
+
+
+def test_a_relayed_approve_naming_a_distinct_reviewer_is_valid():
+    """#2244 positive: the review-verdict workflow relays the TRUE review author into `reviewer=`, and
+    a genuinely distinct identity (this repo's human reviewer, `andyholst`) still proves the head."""
+    comments = [{"author": {"login": "github-actions[bot]"},
+                 "body": bv.marker(HEAD, RUN, "approve", "andyholst")}]
+    got = bv.verdict_for_head(comments, HEAD)
+    assert got and got["reviewer"] == "andyholst", got
+    assert got["author"] == "github-actions[bot]", got
+
+
+def test_a_changes_verdict_from_a_merger_identity_still_holds():
+    """A BLOCKING verdict from any trusted reviewer holds the PR (issue #2244's safe direction): the
+    approver!=merger guard applies only to ACCEPTING verdicts, so a merger-identity `changes` marker is
+    still read and the PR stays held."""
+    comments = [{"author": {"login": "asimov-agent"}, "body": bv.marker(HEAD, RUN, "changes", "asimov-agent")}]
+    got = bv.verdict_for_head(comments, HEAD)
+    assert got and got["verdict"] == "changes", got
 
 
 def test_the_marker_is_not_an_approval_and_the_docs_say_so():

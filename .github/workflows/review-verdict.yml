@@ -14,10 +14,14 @@ name: review-verdict — record a submitted review as the bot-verdict marker at 
 # this code lands (#1550 dispatch) and covers the PRs this workflow cannot reach (see below).
 # THIS file is the caller that exists in the pipeline, so the producer is never definition-only.
 #
-# WHY POST THROUGH THE WORKFLOW'S OWN TOKEN: a marker is trusted only when `reviewer=` equals the
-# comment's AUTHOR and that author is a repo identity or a bot login (`trusted()`). A workflow posts
-# as `github-actions[bot]` — a trusted verdict author — so reviewer==author==a bot login holds and
-# the no-impersonation rule is satisfied by construction.
+# WHY POST THROUGH THE WORKFLOW'S OWN TOKEN (and name the TRUE review author): the marker's
+# `reviewer=` must name WHO actually approved, never a constant. This workflow authors the marker
+# as `github-actions[bot]` (its own token, a trusted relay) and the `reviewer=` slot carries the
+# REAL review event's author (`github.event.review.user.login`). The gate trusts a workflow-authored
+# marker only when the named reviewer is a genuinely DISTINCT identity (`bot_verdict.allowed_reviewer`,
+# issue #2244) — and THIS caller drops an approve review authored by a merge-path identity
+# (`asimov-agent` = the owner PAT that merges, `github-actions[bot]` = the job/APPROVER token): the
+# merger approving its own gate evidence is the #1088 class, never an independent verdict.
 #
 # SCOPE (which reviews this workflow may record): an event from a FORK head arrives on a read-only
 # token with no secrets, so it cannot post a marker comment; those PRs are reviewed from the host
@@ -225,11 +229,43 @@ jobs:
             echo "RUN=$run_id" >> "$GITHUB_OUTPUT"
           fi
 
-      # The ONE producer (issue #852). It dedupes per (head, verdict), so a repeated run is quiet.
-      # The marker is posted by this workflow's own token (github-actions[bot], a trusted verdict
-      # author) so reviewer==author and the no-impersonation rule holds. The guard below (verdict AND
-      # run both resolved) lives in the step, not a job `if:`: a skipped job is invisible (issue #107).
+      # The marker's `reviewer=` names the TRUE review author (issue #2244), and an APPROVE review
+      # authored by a merge-path identity — the owner PAT that merges (BUMP_TOKEN=`asimov-agent`) or
+      # the job/APPROVER token (`github-actions[bot]`) — is the merger approving its own gate
+      # evidence, never an independent verdict. So resolve the real event actor, drop that approve,
+      # and pass the survivor's login into the marker. A `changes` review still records from any
+      # reviewer: it blocks, it never seeds acceptance evidence.
+      - name: Resolve the true review author and drop a merger-self approval (issue #2244)
+        id: author
+        if: steps.verdict.outputs.SKIP != 'true'
+        env:
+          AUTHOR: ${{ github.event.review.user.login }}
+          VERDICT: ${{ steps.verdict.outputs.VERDICT }}
+        run: |
+          set -euo pipefail
+          reviewer="${AUTHOR:-}"
+          if [ "$VERDICT" = "approve" ]; then
+            case "$reviewer" in
+              asimov-agent|github-actions[bot]|app/github-actions)
+                echo "::notice title=self-approval=reviewer ${reviewer} is a merge-path identity (issue #2244) - an approve review by the merger is its own gate evidence, never an independent verdict; posting no accept-verdict marker"
+                echo "SKIP=true" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "REVIEWER=${reviewer}" >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+          else
+            echo "REVIEWER=${reviewer}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The ONE producer (issue #852). It dedupes per (head, verdict, reviewer), so a repeated run is
+      # quiet. The marker is posted by this workflow's own token (github-actions[bot], a trusted
+      # relay) and names the TRUE review author; the gate accepts it only when that author is a
+      # distinct identity allowed to review (approver != merger, issue #2244). The guard below
+      # (verdict AND run AND reviewer all resolved) lives in the step, not a job `if:`: a skipped job
+      # is invisible (issue #107).
       - name: Post the bot-verdict marker at the exact head judged (make bot-verdict)
+        if: steps.verdict.outputs.SKIP != 'true' && steps.author.outputs.SKIP != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -237,15 +273,15 @@ jobs:
           VERDICT: ${{ steps.verdict.outputs.VERDICT }}
           HEAD: ${{ steps.resolve.outputs.HEAD }}
           RUN: ${{ steps.run.outputs.RUN }}
-          REVIEWER: "github-actions[bot]"
+          REVIEWER: ${{ steps.author.outputs.REVIEWER }}
         run: |
           set -euo pipefail
-          # only when a verdict AND a run resolved
-          if [ -n "${VERDICT:-}" ] && [ -n "${RUN:-}" ]; then
+          # only when a verdict AND a run AND a reviewer resolved
+          if [ -n "${VERDICT:-}" ] && [ -n "${RUN:-}" ] && [ -n "${REVIEWER:-}" ]; then
             make bot-verdict VERDICT="$VERDICT" HEAD="$HEAD" RUN="$RUN" REPO="$REPO" PR="$PR" \
               REVIEWER="$REVIEWER"
           else
-            echo "no verdict+run to post: verdict=${VERDICT:-none} run=${RUN:-none}"
+            echo "no verdict+run+reviewer to post: verdict=${VERDICT:-none} run=${RUN:-none} reviewer=${REVIEWER:-none}"
           fi
 
       - name: Report

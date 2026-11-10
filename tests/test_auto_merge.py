@@ -1879,9 +1879,13 @@ def test_a_failed_announcement_names_the_merge_it_could_not_record(tmp_path, mon
     assert "no audit line" in err, err
 # ---- a bot verdict is legible to the merge decision, never an approval (issue #852) -----------
 
-def _verdict(head: str = HEAD, verdict: str = "approve", reviewer: str = "github-actions[bot]",
+def _verdict(head: str = HEAD, verdict: str = "approve", reviewer: str = "andyholst",
              author: str = "", run: str = RUN) -> dict:
-    """A PR comment carrying the bot-verdict marker, in the shape `gh pr view --json comments` gives."""
+    """A PR comment carrying the bot-verdict marker, in the shape `gh pr view --json comments` gives.
+
+    The default reviewer is a genuinely DISTINCT identity (`andyholst`) — the repo's human reviewer —
+    because an ACCEPTING verdict must never name a merge-path identity (approver != merger, #2244).
+    """
     who = author or reviewer
     return {"author": {"login": who}, "body": bv.marker(head, run, verdict, reviewer)}
 
@@ -1927,6 +1931,41 @@ def test_a_verdict_at_the_current_head_clears_the_review_block_and_merges(tmp_pa
     assert merges[0][merges[0].index("--match-head-commit") + 1] == HEAD, merges[0]
 
 
+def test_a_merger_identity_approve_verdict_does_not_clear_the_review_block(tmp_path):
+    """Issue #2244 (approver != merger): the merger's OWN approve — reviewer==`asimov-agent` (the owner
+    PAT that merges) or `github-actions[bot]` (the APPROVER/job token) — is the merger approving its
+    own gate evidence, never an independent verdict, so it must NOT clear the review block or merge.
+    """
+    for merger in ("asimov-agent", "github-actions[bot]"):
+        state = _review_blocked(comments=[_verdict(reviewer=merger, author=merger)])
+        gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+        reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+        rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+        assert reason and "BLOCKED" in reason, (merger, reason)
+        assert rc == 0, (merger, rc)
+        assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]], merger
+
+
+def test_a_workflow_relayed_verdict_names_the_distinct_reviewer_and_clears(tmp_path):
+    """#2244 positive: the review-verdict workflow token (`github-actions[bot]`) authors the marker
+    while `reviewer=` names the TRUE, distinct review author (`andyholst`) — and that verdict clears
+    the block and merges, exactly as a genuine independent approval should (#2187's benefit kept)."""
+    comments = [{"author": {"login": "github-actions[bot]"},
+                 "body": bv.marker(HEAD, RUN, "approve", "andyholst")}]
+    state = _review_blocked(comments=comments)
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    assert reason is None, reason
+
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert len(merges) == 1 and "--admin" in merges[0], merges
+
+
 def test_a_verdict_from_an_untrusted_login_does_not_count(tmp_path):
     """Anyone can comment on a public PR, so the marker's author must be a repository identity."""
     # Given a verdict marker written by an account the repository does not own
@@ -1944,9 +1983,10 @@ def test_a_verdict_from_an_untrusted_login_does_not_count(tmp_path):
 
 
 def test_a_stranger_cannot_borrow_a_bot_name_in_the_marker(tmp_path):
-    """`reviewer=` must be the comment's own author, or the marker impersonates an identity."""
-    # Given a stranger's comment whose marker claims the bot wrote it
-    state = _review_blocked(comments=[_verdict(reviewer="github-actions[bot]", author="stranger")])
+    """`reviewer=` must be the comment's own author (or a workflow-relayed distinct identity), or the
+    marker impersonates an identity."""
+    # Given a marker authored by a TRUSTED account that tries to borrow the bot's own name
+    state = _review_blocked(comments=[_verdict(reviewer="github-actions[bot]", author="andyholst")])
 
     # When  the decision reads it
     reason = am.decide(state, HEAD, repo_owner="asimov-agent")
