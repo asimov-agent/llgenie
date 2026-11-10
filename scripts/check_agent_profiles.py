@@ -968,8 +968,11 @@ def _home_path_findings(agents: Path, root: Path = REPO_ROOT) -> list[dict]:
 
     Instruction text must use `$HOME`, never `/home/<user>`. The sweeps this file enforces run
     against every `agents/**/*.md` (SOUL, skills, references) — the surface a lane reads as prose
-    or as a shell command — and deliberately NOT `scripts/*.py` (a Python literal needs a real path
-    or `pathlib.Path.home()`, and rewriting it to `$HOME` yields a string that never expands).
+    or as a shell command — and against executed shell lines in `agents/**/*.sh`, and deliberately
+    NOT `scripts/*.py` (a Python literal needs a real path or `pathlib.Path.home()`, and rewriting
+    it to `$HOME` yields a string that never expands). A `.sh` COMMENT is not an executed line
+    (`skill-script-hygiene.md`: a comment recounting a past defect keeps its absolute path — a
+    comment is not shipped behaviour), so a line whose first non-blank character is `#` is skipped.
 
     The carve-out is stated, not silent: a context that does not expand `$HOME` (a systemd unit's
     `EnvironmentFile=`, a crontab outside a shell, a YAML/JSON value consumed by a program) keeps an
@@ -979,33 +982,37 @@ def _home_path_findings(agents: Path, root: Path = REPO_ROOT) -> list[dict]:
     image's `/home/agent`, `/home/root`) is the allowed list.
     """
     items: list[dict] = []
-    for path in sorted(agents.rglob("*.md")):
-        if ".archive" in path.parts:
-            continue  # retired skills are not loaded instructions (issue #2145 orchestration note)
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            items.append({"key": "unreadable",
-                          "where": str(path.relative_to(root)),
-                          "detail": "could not read this .md while scanning for literal home paths"})
-            continue
-        if not HOME_LITERAL.search(text):
-            continue
-        for line_no, line in enumerate(text.splitlines(), 1):
-            for m in HOME_LITERAL.finditer(line):
-                home = m.group(0)
-                user = (m.group(1) or "") + (m.group(2) or "")
-                if any(part in (home, user) for part in HOME_LITERAL_ALLOWED):
-                    continue  # documented placeholder / carve-out, read-forward only
-                items.append({
-                    "key": "home-path-literal",
-                    "where": str(path.relative_to(root)),
-                    "detail": f"line {line_no} embeds a literal home path `{home}` — write "
-                              f"`$HOME` (every lane shells through bash) or the `<user>`/`%h` "
-                              f"placeholder; the only carve-out is a context that never expands "
-                              f"`$HOME` (systemd unit, crontab outside a shell, a parsed YAML/JSON "
-                              f"value), which keeps an absolute path (issue #2145)",
-                })
+    for suffix in ("*.md", "*.sh"):
+        for path in sorted(agents.rglob(suffix)):
+            is_shell = suffix == "*.sh"
+            if ".archive" in path.parts:
+                continue  # retired skills are not loaded instructions (issue #2145 orchestration note)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                items.append({"key": "unreadable",
+                              "where": str(path.relative_to(root)),
+                              "detail": f"could not read this {suffix} while scanning for literal home paths"})
+                continue
+            if not HOME_LITERAL.search(text):
+                continue
+            for line_no, line in enumerate(text.splitlines(), 1):
+                if is_shell and line.lstrip().startswith("#"):
+                    continue  # a shell comment recounts a past defect, not an executed command
+                for m in HOME_LITERAL.finditer(line):
+                    home = m.group(0)
+                    user = (m.group(1) or "") + (m.group(2) or "")
+                    if any(part in (home, user) for part in HOME_LITERAL_ALLOWED):
+                        continue  # documented placeholder / carve-out, read-forward only
+                    items.append({
+                        "key": "home-path-literal",
+                        "where": str(path.relative_to(root)),
+                        "detail": f"line {line_no} embeds a literal home path `{home}` — write "
+                                  f"`$HOME` (every lane shells through bash) or the `<user>`/`%h` "
+                                  f"placeholder; the only carve-out is a context that never expands "
+                                  f"`$HOME` (systemd unit, crontab outside a shell, a parsed YAML/JSON "
+                                  f"value), which keeps an absolute path (issue #2145)",
+                    })
     return items
 
 

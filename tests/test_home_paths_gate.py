@@ -77,3 +77,32 @@ def test_a_systemd_unit_file_is_not_an_md_surface(tmp_path):
     (agents / "llgenie-test" / "hermes.service").write_text(
         "EnvironmentFile=/home/asimov/.hermes/profiles/hermes.env\n", encoding="utf-8")
     assert guard._home_path_findings(agents, tmp_path) == []
+
+
+def test_an_executed_shell_literal_is_a_finding(tmp_path):
+    """An executed `agents/**/*.sh` line carrying a literal home path must red the gate too —
+    the #2145 gate is no longer .md-only (issue #2436)."""
+    agents = tmp_path / "agents"
+    (agents / "llgenie-test" / "scripts").mkdir(parents=True)
+    script = agents / "llgenie-test" / "scripts" / "replay.sh"
+    script.write_text("#!/usr/bin/env bash\n"
+                      '[ -f "$RESOLVER" ] || RESOLVER=/home/asimov/.hermes/profiles/x/resolve.py\n',
+                      encoding="utf-8")
+    items = guard._home_path_findings(agents, tmp_path)
+    keys = [item["key"] for item in items]
+    assert "home-path-literal" in keys, items
+    hit = next(item for item in items if item["key"] == "home-path-literal")
+    assert "replay.sh" in hit["where"]
+    assert "/home/asimov" in hit["detail"]
+
+
+def test_a_shell_comment_recounting_a_past_defect_does_not_red(tmp_path):
+    """A `.sh` COMMENT keeps its absolute path (skill-script-hygiene.md: a comment recounting a
+    past defect is not shipped behaviour); issue #2436 ensures only executed lines are scanned."""
+    agents = tmp_path / "agents"
+    (agents / "llgenie-test" / "scripts").mkdir(parents=True)
+    script = agents / "llgenie-test" / "scripts" / "salvage.sh"
+    script.write_text("#!/usr/bin/env bash\n"
+                      "#   the sibling pinned /home/asimov/... and would have failed on every runner.\n",
+                      encoding="utf-8")
+    assert guard._home_path_findings(agents, tmp_path) == []
