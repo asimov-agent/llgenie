@@ -323,7 +323,7 @@ presets in ollama's own tree — the CPU one in every image, `cuda_v13` / `rocm_
 backend, #936).
 Still prebuilt today, each with its own linked issue: `vllm` ×3 (build cost unmeasured), and
 `tensorrt-llm` cuda which now carries a dated decision in its skill (#939): a time-boxed source
-build at pin `376f7e1b` in the devel:1.2.4 base
+build at pin `376f7e1b` in the devel:1.2.5 base
 (`scripts/build_wheel.py --trt_root /opt/tensorrt --cuda_architectures 89-real -j 16`) projected to
 >90 min of object compile at -j16 on a 32-core host before wheel/link (a full Git-LFS clone is
 5.2 GB and the tree ~11 GB), which on the 4-vCPU `ubuntu-latest` the engine-build job runs on is
@@ -480,7 +480,7 @@ comes from `entrypoint.sh detect` (CI #106). A CLI whose parser has **no version
 (`binary_probe: help`: mlx cpu — argparse `--help`/`-h` only) must answer the help family,
 and its version likewise comes from `detect`; without that policy the probe would fail an
 engine for a flag it never had (found by the dispatch sweep, issue #614). A CLI whose parser
-has **no help flag at all** (`binary_probe: version`: tensorfold cuda at the 1.2.4 pin —
+has **no help flag at all** (`binary_probe: version`: tensorfold cuda at the 1.2.5 pin —
 `-h`/`--help` are a separate subcommand, cf. #1685) must answer its version family — the
 binary self-proves, and the image's own `detect` re-answers it — while the help family is
 exempt because the binary truthfully has none (issue #1888). When a `detect` has to fall

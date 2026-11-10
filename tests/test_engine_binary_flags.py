@@ -206,12 +206,12 @@ def test_a_help_only_cli_is_not_failed_for_having_no_version_flag():
 
 
 def test_a_version_only_cli_is_not_failed_for_having_no_help_flag():
-    """tensorfold/cuda (1.2.4 pin) answers --version and lets the help family exit 2 (its -h/--help
+    """tensorfold/cuda (1.2.5 pin) answers --version and lets the help family exit 2 (its -h/--help
     is a separate subcommand, cf. #1685). `probe: version` (issue #1888) requires the version family
     to answer (the binary self-proves) and exempts the help family the binary truthfully has none."""
 
     # Given a CLI that answers --version but exits 2 on every help spelling (the measured tensorfold)
-    verdicts = {"--version": {"rc": 0, "bytes": 20, "output": "tensorfold 1.2.4"},
+    verdicts = {"--version": {"rc": 0, "bytes": 20, "output": "tensorfold 1.2.5"},
                 "-V": {"rc": 2, "bytes": 10, "output": ""},
                 "-h": {"rc": 2, "bytes": 10, "output": ""},
                 "--help": {"rc": 2, "bytes": 10, "output": ""}}
@@ -254,7 +254,7 @@ def test_binary_file_works_passes_the_version_cell_with_dead_help_flags(monkeypa
     # Given the exact per-flag probe output the measured tensorfold binary produced:
     probe_stdout = ("binary file: /opt/llgenie/engines/tensorfold/current/bin/tensorfold\n"
                     "LG-FLAG --version 0 19\n"
-                    "LG-OUT-BEGIN --version\ntensorfold 1.2.4\nLG-OUT-END --version\n"
+                    "LG-OUT-BEGIN --version\ntensorfold 1.2.5\nLG-OUT-END --version\n"
                     "LG-FLAG -h 2 0\n"
                     "LG-FLAG --help 2 0\n"
                     "LG-FLAG -V 2 0\n")
