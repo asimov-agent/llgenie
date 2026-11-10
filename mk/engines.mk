@@ -370,6 +370,10 @@ engine-detect: ## Is ENGINE installed? Runs the skill's detect (ENGINE=<id> [BAC
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-detect ENGINE=<id> [BACKEND=cuda]"; exit 1; }
 	python3 scripts/engine_skills.py detect "$(ENGINE)" $(ENGINE_ARGS)
 # ---- helpers ------------------------------------------------------------
+check-engine-capabilities: ## CI: every engine→arch and engine→format claim in the tree (skill backends/formats, params variants, ternary tensor routing) is a docs-cited subset of data/engine-capabilities.json (issue #1214)
+	python3 scripts/check_engine_capabilities.py check
+engine-capabilities-report: ## Print the docs-cited engine capacity census (data/engine-capabilities.json) and every mismatch, never fails
+	python3 scripts/check_engine_capabilities.py report
 engine-capability-serve: ## Does ENGINE declare ARCH in engine-capabilities.json archs (issue #1214)? The serve-vs-flags decision (issue #1748): exit 0 -> the engine may serve on this arch (serve-leg/host-verify run), exit 1 -> binary-flags-only (never serve), exit 2 -> usage (ENGINE/ARCH). The workflow gates its serve legs on this target so every CI command is a make target, not an inline script (AGENTS.md).
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make engine-capability-serve ENGINE=<id> ARCH=<arch>"; exit 2; }
 	@python3 scripts/engine_capability.py serve "$(ENGINE)" "$(ARCH)"

@@ -6,6 +6,10 @@
 # if the recipe shell is not bash 5 (so no stage ever runs under bash 3.2).
 bash-check:
 	@python3 scripts/check_bash.py "$(SHELL)" $(if $(CHECK_BASH_FORCE),--force,)
+check-host-space: ## Host: refuse a /tmp worktree or container build when the shared tmpfs is below the headroom threshold (<20% space OR <50k inodes free) — the planner's preflight before dispatch (issue #1583)
+	python3 scripts/check_host_space.py check
+reclaim-tmp-worktrees: ## Host: reclaim /tmp worktree and probe-tree debris that is provably safe to delete — a tree is removed only when it is clean AND its HEAD is an ancestor of origin/main AND idle >= MIN_IDLE_MIN (issue #2141); DRY=1 by default and deletes/pins NOTHING (DRY=0 to act), FORCE=1 drops the on-main + idle tests but NEVER the dirty refusal and pins every novel head as refs/reclaimed/<name> before forced removal; SCAN_ROOT=/REPO=/MIN_IDLE_MIN=/BASE=/FORCE= override; root-owned leftovers are reported with the `sudo rm -rf <path>` remedy, never retried
+	@REPO="$${REPO:-$$HOME/repository/git/llgenie}" SCAN_ROOT="$${SCAN_ROOT:-/tmp}" MIN_IDLE_MIN="$${MIN_IDLE_MIN:-60}" DRY="$${DRY:-1}" FORCE="$${FORCE:-0}" BASE="$${BASE:-origin/main}" bash scripts/reclaim_tmp_worktrees.sh
 # Put ~/bin on PATH for every recipe so `llama-server` (symlinked there by
 # `make install`) resolves even in non-interactive make subprocesses — not just
 # in an interactive zsh that sourced ~/.zshrc.

@@ -213,10 +213,6 @@ PR_HEAD ?= HEAD
 UNSUPPORTED ?=
 PORT ?= 11434
 ARCH_ARGS = $(if $(ARCH),--variant $(ARCH),$(ENGINE_ARGS))
-check-engine-capabilities: ## CI: every engine→arch and engine→format claim in the tree (skill backends/formats, params variants, ternary tensor routing) is a docs-cited subset of data/engine-capabilities.json (issue #1214)
-	python3 scripts/check_engine_capabilities.py check
-engine-capabilities-report: ## Print the docs-cited engine capacity census (data/engine-capabilities.json) and every mismatch, never fails
-	python3 scripts/check_engine_capabilities.py report
 version: ## Show numpy/gguf versions inside the venv
 	$(MAKE) -C tools version
 OS_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo $(OS_IMG)
@@ -271,13 +267,6 @@ HERMES_AGENT_PIN  := hermes-agent==0.19.0
 AGENTS_READ_STAMP := $(AGENTS_READ_VENV)/.installed-$(HERMES_AGENT_PIN)
 NATIVE_HOST ?= $(shell [ "$$(uname -s)-$$(uname -m)" = "Darwin-arm64" ] && echo metal)
 NATIVE_GUARD = [ "$(NATIVE_HOST)" = "metal" ] || { echo "[$@] native engines are Metal-only: this host ($$(uname -s) $$(uname -m)) has none; its engines are tested in their images (make test-engine)"; exit 0; };
-check-host-space: ## Host: refuse a /tmp worktree or container build when the shared tmpfs is below the headroom threshold (<20% space OR <50k inodes free) — the planner's preflight before dispatch (issue #1583)
-	python3 scripts/check_host_space.py check
-.PHONY: check-host-space
-
-reclaim-tmp-worktrees: ## Host: reclaim /tmp worktree and probe-tree debris that is provably safe to delete — a tree is removed only when it is clean AND its HEAD is an ancestor of origin/main AND idle >= MIN_IDLE_MIN (issue #2141); DRY=1 by default and deletes/pins NOTHING (DRY=0 to act), FORCE=1 drops the on-main + idle tests but NEVER the dirty refusal and pins every novel head as refs/reclaimed/<name> before forced removal; SCAN_ROOT=/REPO=/MIN_IDLE_MIN=/BASE=/FORCE= override; root-owned leftovers are reported with the `sudo rm -rf <path>` remedy, never retried
-	@REPO="$${REPO:-$$HOME/repository/git/llgenie}" SCAN_ROOT="$${SCAN_ROOT:-/tmp}" MIN_IDLE_MIN="$${MIN_IDLE_MIN:-60}" DRY="$${DRY:-1}" FORCE="$${FORCE:-0}" BASE="$${BASE:-origin/main}" bash scripts/reclaim_tmp_worktrees.sh
-.PHONY: reclaim-tmp-worktrees
 help:
 	@echo "Engine images (issue #98, plain make, no LLM):"
 	@echo "  make generate-engine-params      skills -> containers/engines/{params,dockerfiles,base} (the ONLY step that reads skills)"
