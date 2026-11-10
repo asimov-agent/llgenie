@@ -66,6 +66,26 @@ BASE_REPO = "asimov-agent/llgenie"
 #: `## Not covered` bullet that names a `#<n>` reference. The repo issue shape already reserves that
 #: section for exactly this ("out-of-scope work is its own linked issue", issue_body.OPTIONAL_SECTION).
 OUT_OF_SCOPE = re.compile(r"(?im)^-.*\s*#\d+\s*$")
+#: A criterion that requires the acceptance gate's OWN job verdict to be green is UNPROVABLE (issue
+#: #2094): the gate job (`guard` running `make check-pr-acceptance`, and `ci-verdict`'s `judge` job
+#: which the `guard` gates) is exactly the CI that must pass before a peer criterion can be proven, so
+#: a box demanding that job be green cannot be closed by any run — it is a closed loop, not a pending
+#: one (measured 2026-11-08: item 2 of #2046 asked for the `ci-verdict` `judge` job to be green on
+#: PR #2051, `guard` failed `check-pr-acceptance` on item 2 itself, and the PR could never go green).
+#: These tokens are the gate's own footprint: a criterion naming one of them as a requirement is
+#: classified `gate-circular` (a distinct, NON-blocking finding) rather than `acceptance-unchecked`,
+#: so a reviewer is never forced to false-tick or waive a box the gate itself blocks. The PR-body
+#: `## Not covered` + linked `#<n>` seam (`_declared_out_of_scope`) remains the primary escape; this
+#: classification is the gate's own recognition of the loop when no PR-body edit was made.
+#: The gate's unique identifiers (the make target and the verdict workflow/artifact) are unambiguous;
+#: `guard`/`judge` are CI JOB names that share English homonyms, so they only count when written as
+#: the job (`guard job` / `judge job`) — a product "quota guard" is never the acceptance gate's own
+#: job and must not be trapped by the classification.
+GATE_OWN = re.compile(
+    r"\b(?:check-pr-acceptance|check-pr-acceptance-form|ci-verdict|ci-scope-decision)\b"
+    r"|\b(?:guard|judge)\s+job\b",
+    re.IGNORECASE,
+)
 #: A close keyword that a preceding negation makes NON-closing (issue #1815): "does not close #N",
 #: "won't close #N", "can't close #N", "without closing #N" are NOT closes. GitHub's native
 #: close-on-merge is keyword-naive, so our parse must be negation-aware to tell a lane that is
@@ -133,6 +153,19 @@ RUN_ID = re.compile(r"\brun\s*=\s*\d+\b")
 #: with no `rc=` (or no sha) is not re-measurable from the issue thread alone (#1784/#1819 class).
 RC_SHA = re.compile(r"\brc(?:\s*=\s*|[\s(])\s*\S+\b")
 GIT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+
+def _requires_own_gate_verdict(criterion: str) -> bool:
+    """True when `criterion` demands the acceptance gate's OWN job verdict be green (issue #2094).
+
+    A criterion that names the `guard` job (which runs `make check-pr-acceptance`), the
+    `check-pr-acceptance` gate itself, or the `ci-verdict`/`judge`/`ci-scope-decision` chain the gate
+    gates is a closed loop: the gate cannot pass until the criterion is ticked, and the criterion
+    cannot be proven until the gate passes. Proving it by the PR's own CI verdict is impossible by
+    construction, so the gate reports it distinctly (`gate-circular`) instead of holding a finished
+    PR forever.
+    """
+    return bool(GATE_OWN.search(str(criterion or "")))
 
 
 def _is_provable_tick(text: str) -> bool:
@@ -248,7 +281,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                        verdict: "dict | None" = None) -> list[dict]:
     """The findings a merged PR closing `issue_body_text` carries.
 
-    Three states a close can be in (issue #2187's gate half):
+    Three states a close can be in (issue #2187's gate half), plus a fourth for the gate's own loop:
       * `claim-unchecked` — an acceptance criterion in the closed issue is still `- [ ]` and there is
         NO trusted approve verdict at the PR's current head. This is genuinely `unproven`: red, and
         the author (or a re-prover) must tick it via `acceptance_writeback`.
@@ -256,6 +289,11 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
         current head already proves the tree was reviewed. The write-back that would tick the box has
         no CI trigger (#1644/#1808 seam), so this state is NOT a red the author can clear — it is
         reported distinctly (`proven-awaiting-writer`), never as `acceptance-unchecked`.
+      * `gate-circular` — the criterion demands the acceptance gate's OWN job verdict (issue #2094):
+        `guard` runs `make check-pr-acceptance`, and `ci-verdict`'s `judge` gates behind it, so a box
+        asking for that job to be green can never be proven (the gate cannot pass until the box is
+        ticked, and the box cannot be proven until the gate passes). It is a distinct NON-blocking
+        finding, so a finished PR is not parked forever by its own definition of done.
       * a criterion the PR body names out of scope under `## Not covered` with a linked work item is
         not a finding.
     Every finding names the linked `#N` (`issue`) so a multi-issue PR's states are distinguishable
@@ -303,6 +341,31 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
             f"Re-state it as: {DISPATCH_FORM}."
             if LOCAL_BUILD.search(str(text or "")) else ""
         )
+
+        if _requires_own_gate_verdict(text):
+            # issue #2094: a criterion demanding the acceptance gate's OWN job verdict be green is a
+            # closed loop, not a pending box — the gate cannot pass until the criterion is ticked,
+            # and the criterion cannot be proven until the gate passes. Classifying it as
+            # `acceptance-unchecked` parks a finished PR forever (measured: #2046 item 2, PR #2051)
+            # and forces reviewers into a false tick or waive. Report it distinctly and NON-blocking;
+            # proving it is a post-gate judgement, so it never holds a close whose peers are proven.
+            out.append({
+                "key": "gate-circular",
+                "blocking": False,
+                "title": f"ci: the merged PR closes issue #{issue} whose criterion demands the acceptance gate's own job verdict be green — a closed loop",
+                "evidence": (
+                    f"acceptance item {pos} (\u201c{text[:80]}\u201d) names the acceptance gate's "
+                    "own footprint (`guard` / `check-pr-acceptance` / `ci-verdict` / `judge` / "
+                    "`ci-scope-decision`) as something the PR must be green on. That is a closed "
+                    "loop (issue #2094): `guard` runs `make check-pr-acceptance` on this very "
+                    "criterion, so the gate cannot pass until it is ticked and it cannot be proven "
+                    "until the gate passes — the PR can never go green on its own definition of "
+                    "done. Rework the criterion to a run or command it does not itself gate, or name "
+                    "it out of scope under `## Not covered` with a linked work item."
+                ),
+                "where": f"#{issue}",
+            })
+            continue
         if verdict:
             out.append({
                 "key": "acceptance-proven-awaiting-writer",
@@ -549,13 +612,16 @@ def render(items: list[dict]) -> str:
     blocking = [it for it in items if it.get("blocking", True)]
     pending = [it for it in items if not it.get("blocking", True)]
     # A PROVEN-but-unticked box is not a "violation" the author must clear (#2187): it is reported
-    # distinctly, so a board reads `proven-awaiting-writer` instead of `acceptance-unchecked`.
-    lines = [f"[check-pr-acceptance] {len(blocking)} violation(s) · {len(pending)} proven-awaiting-writer"]
+    # distinctly, so a board reads `proven-awaiting-writer` instead of `acceptance-unchecked`. The
+    # `gate-circular` criterion is the same non-red distinct state (issue #2094): a box demanding the
+    # gate's own job verdict is unprovable by construction, reported but never holding the close.
+    lines = [f"[check-pr-acceptance] {len(blocking)} violation(s) · {len(pending)} non-red (proven-awaiting-writer / gate-circular)"]
     for it in blocking:
         lines.append(f"  {it['title']}")
         lines.append(f"    {it['evidence']}")
     for it in pending:
-        lines.append(f"  [proven-awaiting-writer] {it['title']}")
+        tag = "gate-circular" if it.get("key") == "gate-circular" else "proven-awaiting-writer"
+        lines.append(f"  [{tag}] {it['title']}")
         lines.append(f"    {it['evidence']}")
     return "\n".join(lines)
 

@@ -66,7 +66,15 @@ def _numbered(items) -> list[str]:
 
 
 def _criteria(items) -> list[str]:
-    """Acceptance criteria are checkboxes: a criterion a reviewer cannot tick is not one."""
+    """Acceptance criteria are checkboxes: a criterion a reviewer cannot tick is not one.
+
+    A criterion must be PROVABLE by a run or a command it does not itself gate (issue #2094): a box
+    of the shape "the PR that fixes it is green in CI on the same job that failed" is UNPROVABLE when
+    that job is the acceptance gate's own (`guard` / `check-pr-acceptance` / `ci-verdict` / `judge`),
+    because the gate cannot pass until the box is ticked and the box cannot be proven until the gate
+    passes — a closed loop that parks a finished PR forever (measured #2046/PR #2051). Name the run
+    or command that proves the criterion WITHOUT riding on the gate's own verdict.
+    """
     if isinstance(items, str):
         items = [items]
     out: list[str] = []

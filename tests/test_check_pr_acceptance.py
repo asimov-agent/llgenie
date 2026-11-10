@@ -569,6 +569,114 @@ def test_unreadable_reference_never_holds():
     assert True  # RuntimeError path is exercised by the CLI tests above via skip; this documents intent
 
 
+# --- the gate-circular class: a criterion demanding the gate's own job verdict is a loop (#2094) ---
+# issue #2094: a criterion of the shape "the PR that fixes it is green in CI on the same job that
+# failed" is unsatisfiable when that job is the acceptance gate's own (`guard` / `check-pr-acceptance`
+# / `ci-verdict` / `judge` / `ci-scope-decision`) — the gate cannot pass until the box is ticked, and
+# the box cannot be proven until the gate passes. The gate must classify it distinctly
+# (`gate-circular`, NON-blocking) rather than `acceptance-unchecked`, so a finished PR is not parked
+# forever and reviewers are never forced into a false tick or waive.
+
+
+def test_criterion_demanding_the_gate_own_verdict_is_GATE_CIRCULAR_not_unchecked():
+    # issue #2094 AC-1: the issue's only unticked criterion names the guard job's own verdict
+    # (a CI-job requirement). It must classify `gate-circular`, never `acceptance-unchecked`, and be
+    # NON-blocking so the close is not red by it.
+    issue = ("## Problem\n\nx\n\n## Acceptance criteria\n\n"
+             "- [x] criterion 1 is met  (proven: reviewer=llgenie-pr-reviever comment=1 head=abc123 run=42191377162)\n"
+             "- [ ] the guard job that runs check-pr-acceptance is green in the fixing PR's CI run\n"
+             "\n## Technical\n\n- t\n")
+    pr = _pr("closes #1000")
+    findings = g.acceptance_verdict(issue, pr, 1000)
+    assert findings, "the self-gating criterion must be a REPORTED finding"
+    assert [f["key"] for f in findings] == ["gate-circular"], [f["key"] for f in findings]
+    assert not findings[0].get("blocking", True), "gate-circular must not red the close"
+    assert "acceptance-unchecked" not in [f["key"] for f in findings]
+    assert "closed loop" in findings[0]["evidence"] and "#2094" in findings[0]["evidence"]
+
+
+def test_gate_circular_close_is_not_red_once_other_criteria_are_proven():
+    # issue #2094 AC-2: a PR whose only unticked criterion is gate-circular, closing the issue, is
+    # NOT red — the gate reports the loop distinctly but the close passes (the loop is unprovable by
+    # construction, so it must never hold a finished, otherwise-proven PR).
+    issue = ("## Problem\n\nx\n\n## Acceptance criteria\n\n"
+             "- [x] criterion 1 is met  (proven: reviewer=llgenie-pr-reviever comment=1 head=abc123 run=42191377162)\n"
+             "- [x] criterion 2 is met  (proven: reviewer=llgenie-pr-reviever comment=1 head=abc123 run=42191377162)\n"
+             "- [ ] the ci-verdict judge job is green on the fixing PR\n"
+             "\n## Technical\n\n- t\n")
+    pr = _pr("closes #1000")
+    findings = g.acceptance_verdict(issue, pr, 1000)
+    assert [f["key"] for f in findings] == ["gate-circular"], [f["key"] for f in findings]
+    assert all(not f.get("blocking", True) for f in findings), "close must not be red"
+    assert "ci-verdict" in findings[0]["evidence"]
+
+
+def test_gate_circular_render_labels_the_finding_distinctly():
+    # render() must surface `gate-circular` (not the `proven-awaiting-writer` label) so a board reads
+    # the loop as a distinct non-red state, exactly as it distinguishes proven-awaiting-writer.
+    findings = [{
+        "key": "gate-circular",
+        "blocking": False,
+        "title": "ci: closed issue #1000 criterion demands the gate's own verdict",
+        "evidence": "closed loop",
+        "where": "#1000",
+    }]
+    text = g.render(findings)
+    assert "[gate-circular]" in text, text
+    assert "[proven-awaiting-writer]" not in text, text
+    assert "non-red" in text, text
+
+
+def test_a_normal_unchecked_criterion_is_STILL_acceptance_unchecked():
+    # the negative control: a criterion that does NOT name the gate's own job stays `acceptance-unchecked`
+    # (red) — the new classification must not swallow the real, provable-by-a-peer-run case.
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000)
+    assert any(f["key"] == "acceptance-unchecked" for f in findings)
+    assert all(f.get("blocking", True) for f in findings)
+
+
+def test_criterion_about_a_product_guard_is_NOT_gate_circular():
+    # a criterion mentioning "guard" for a PRODUCT/other gate (not the acceptance gate's own job) must
+    # not be misclassified — the classification is scoped to the acceptance gate's own footprint.
+    issue = ("## Problem\n\nx\n\n## Acceptance criteria\n\n- [ ] the new quota guard prevents a second overdraw in the model\n"
+             "\n## Technical\n\n- t\n")
+    pr = _pr("closes #1000")
+    findings = g.acceptance_verdict(issue, pr, 1000)
+    assert [f["key"] for f in findings] == ["acceptance-unchecked"], [f["key"] for f in findings]
+
+
+def test_gate_circular_yields_to_the_out_of_scope_exemption():
+    # The PR-body `## Not covered` + linked `#<n>` seam (the dispatch's primary escape) still wins
+    # over the classification: a gate-circular criterion declared out of scope is not a finding at all.
+    # The `gate-circular` class is the gate's OWN recognition when no PR-body edit was made, and a
+    # lane that does not want to edit the PR body names it out of scope is the sanctioned alternative.
+    issue = ("## Problem\n\nx\n\n## Acceptance criteria\n\n"
+             "- [ ] the ci-verdict judge job is green on the fixing PR\n"
+             "\n## Technical\n\n- t\n")
+    pr = _pr("closes #1000") + "\n## Not covered\n- the ci-verdict judge job is green on the fixing PR is tracked as #1001\n"
+    assert g.acceptance_verdict(issue, pr, 1000) == []
+
+
+def test_cli_gate_circular_close_exits_zero(tmp_path, monkeypatch):
+    # the live CLI: an unticked gate-circular criterion on a closed issue exits 0 (green) and prints
+    # the `gate-circular` label in the check summary — no `acceptance-unchecked`, no red.
+    issue = ("## Problem\n\nx\n\n## Acceptance criteria\n\n"
+             "- [x] criterion 1 is met  (proven: reviewer=llgenie-pr-reviever comment=1 head=abc123 run=42191377162)\n"
+             "- [ ] the ci-verdict judge job is green on the fixing PR\n"
+             "\n## Technical\n\n- t\n")
+    _fake_gh(tmp_path, issue, monkeypatch)
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    out = tmp_path / "out.txt"
+    import contextlib
+    with open(out, "w") as fh, contextlib.redirect_stdout(fh):
+        rc = run_cli(["check", "--body-file", str(body)])
+    assert rc == 0, "a gate-circular close must not red the gate (issue #2094 AC-2)"
+    text = out.read_text()
+    assert "gate-circular" in text, text
+    assert "0 violation" in text, text
+
+
 # --- the three-state gate: unproven red / proven-awaiting-writer green / proven-ticked green (#2187) ---
 # The #1644/#1808 write-back that ticks an acceptance box is verdict-gated and has NO CI trigger, so a
 # criterion the reviewer PROVED (a trusted approve verdict at the current head) but has not yet ticked
