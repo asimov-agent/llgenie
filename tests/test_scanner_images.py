@@ -14,7 +14,10 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import scanner_image as si
@@ -149,3 +152,115 @@ def test_an_unknown_scanner_is_refused():
     # Then  it refused (the SystemExit above) — reaching here means it did not
     else:
         raise AssertionError("an unknown scanner was accepted")
+
+
+# --- publishing is idempotent (issue #2453; failure streams per issue #2452 criterion 4) ---
+
+
+def _fake_docker(monkeypatch, *, platforms=(), probe_rc=0, op_rc=0,
+                 op_stdout="load done", op_stderr=""):
+    """Fake the leg's one policy seam (`si.run_ok`): an `imagetools inspect` answers
+    with the given platforms (or probe_rc when the registry lacks the tag), every
+    other command answers with op_rc and these streams. No real Docker runs — unit
+    CI has none, and the behaviour under test is the leg's decision, not buildkit's."""
+
+    calls = []
+
+    def fake(cmd, **kw):
+        cmd = [str(c) for c in cmd]
+        calls.append(cmd)
+        if "imagetools" in cmd:
+            if probe_rc != 0:
+                return subprocess.CompletedProcess(cmd, probe_rc, "", "not found")
+            out = "".join(f"    Platform: {p}\n" for p in platforms)
+            return subprocess.CompletedProcess(cmd, 0, out, "")
+        return subprocess.CompletedProcess(cmd, op_rc, op_stdout, op_stderr)
+
+    monkeypatch.setattr(si, "run_ok", fake)
+    return calls
+
+
+def test_an_already_published_tag_is_not_re_pushed(tmp_path, monkeypatch, capsys):
+    """The measured incident: the tag run 42751641578 published was re-pushed by run
+    42755279061 and its transient failure reds main. The probe must skip it."""
+
+    # Given the registry already carries the content-hash tag on both platforms
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, platforms=("linux/amd64", "linux/arm64"))
+
+    # When  publish runs
+    rc = si.publish("trivy")
+    out = capsys.readouterr().out
+
+    # Then  it skipped: a skip line naming the ref, no --push command ran, rc 0
+    assert rc == 0
+    assert "skipping re-push" in out and si.ref("trivy") in out
+    assert not any("--push" in cmd for cmd in calls)
+
+
+def test_a_tag_missing_a_required_platform_still_publishes(tmp_path, monkeypatch, capsys):
+    """Negative control: the skip must never suppress an incomplete artifact."""
+
+    # Given the registry carries the tag with only linux/amd64
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, platforms=("linux/amd64",))
+
+    # When  publish runs with PLATFORMS = linux/amd64,linux/arm64
+    rc = si.publish("trivy")
+    out = capsys.readouterr().out
+
+    # Then  the multi-arch push ran unchanged
+    assert rc == 0 and "published" in out
+    pushes = [cmd for cmd in calls if "--push" in cmd]
+    assert pushes and "linux/amd64,linux/arm64" in pushes[0]
+
+
+def test_a_tag_absent_from_the_registry_publishes_as_today(tmp_path, monkeypatch):
+    """A probe that cannot find the tag is an empty answer, never a leg failure."""
+
+    # Given the registry probe exits non-zero (tag does not exist)
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, probe_rc=1)
+
+    # When  publish runs
+    rc = si.publish("trivy")
+
+    # Then  the push ran exactly as before
+    assert rc == 0
+    assert any("--push" in cmd for cmd in calls)
+
+
+def test_a_failed_publish_prints_its_captured_streams(tmp_path, monkeypatch, capsys):
+    """Issue #2452 criterion 4: the streams `run_ok` captured were discarded; a
+    failure that prints nothing is undiagnosable from the job log."""
+
+    # Given a publish whose buildx push exits 1 with a buildkit error in its stderr
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    _fake_docker(monkeypatch, probe_rc=1, op_rc=1,
+                 op_stderr="failed to solve: sentinel-buildkit-error")
+
+    # When  publish handles the failure
+    with pytest.raises(SystemExit) as got:
+        si.publish("trivy")
+    out = capsys.readouterr().out
+
+    # Then  the output names the failure, the exit code, and the captured error —
+    #         and the leg still exits non-zero
+    assert "publish failed: trivy" in str(got.value)
+    assert "exit 1" in out and "sentinel-buildkit-error" in out
+
+
+def test_a_failed_build_prints_its_captured_streams(tmp_path, monkeypatch, capsys):
+    """The same rule for the local build leg."""
+
+    # Given a build whose docker build exits 1 with an error on stderr
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    _fake_docker(monkeypatch, op_rc=1, op_stderr="ERROR: sentinel-build-error")
+
+    # When  build handles the failure
+    with pytest.raises(SystemExit):
+        si.build("trivy")
+    out = capsys.readouterr().out
+
+    # Then  the printed output carries the exit code and the captured error line
+    assert "exit 1" in out and "sentinel-build-error" in out
