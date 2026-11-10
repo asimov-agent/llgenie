@@ -16,7 +16,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from scripts import proc
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # run as `python3 scripts/ci_unit.py`
+
+import proc  # noqa: E402  (the subprocess policy seam, same dir; sibling scripts import it bare)
 
 #: The exact ordered list the old 49-line `ci-unit` recipe ran, one `make <target>` per line.
 STEPS = [
