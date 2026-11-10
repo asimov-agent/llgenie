@@ -15,11 +15,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import makefiles_text
+
 REPO = Path(__file__).resolve().parents[1]
 
 from scripts import check_agent_skills as guard
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 CONTRACT = (REPO / ".hermes" / "skills" / "bot-unattended" / "SKILL.md").read_text()
 WORKFLOW = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
 

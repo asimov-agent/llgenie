@@ -535,7 +535,7 @@ def test_every_matrix_row_is_an_engine_make_build_engine_can_build():
     rows = ei.matrix(ci=True)
 
     # When each row is resolved the way `make build-engine ENGINE=… ARCH=…` does
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     assert "make build-engine ENGINE=<id>" in makefile or "build-engine ENGINE=" in makefile
     for row in rows:
         # Then its params file and its generated Dockerfile exist in the repo

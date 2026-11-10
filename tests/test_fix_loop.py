@@ -14,6 +14,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+from conftest import makefiles_text
+
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
@@ -220,8 +222,7 @@ def test_the_bot_runs_in_the_agent_image_not_on_the_runner():
     same commands are reusable locally and by the pipeline.
     """
     wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
-    mk = (REPO / "Makefile").read_text()
-    assert "make agent-image-ref" in wf, "resolve the agent image from the commit via make"
+    mk = makefiles_text()
     assert "make fix-loop-image" in wf and "AGENT_IMAGE=" in wf, "the loop runs inside the image via make"
     assert "-e NOUS_API_KEY" in mk and "-e GH_TOKEN" in mk, "secrets pass as run-time env (in the fix-loop-image target)"
     assert "install_hermes_ci.sh" not in wf, (
