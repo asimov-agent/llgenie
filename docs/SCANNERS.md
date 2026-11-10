@@ -47,6 +47,15 @@ at a build that no longer matches the tree).
 cannot silently straggle. Renovate also manages the scanner version ARGs, so the engines move with
 `make scanner-digests` + a PR.
 
+**The rule pack has a refresh path** (issue #2283 criterion 2). The recency floor (`make
+check-security-scan` fails when `rules_captured_at` is older than `RULES_BASELINE_DAYS = 30`) would
+be a red with no door out without one. `make semgrep-rules-refresh` (wired to the scheduled
+`.github/workflows/semgrep-rules-refresh.yml`) re-resolves upstream `p/default` through the pinned
+scanner image, re-applies the `\x59` / `\x2e` / `\x2f` credential-shape escapes (a raw fetch would
+red `make secret-scan`), rewrites `default.yml`, and re-stamps `rules_sha` / `rules_captured_at` /
+`rules_count` in `digests.json`. When the pack changed it opens the re-pin PR — whose
+`rules_sha == sha256(rewritten default.yml)` and `rules_captured_at == the refresh date`.
+
 ## Targets
 
 | Target | What it does |
@@ -54,6 +63,7 @@ cannot silently straggle. Renovate also manages the scanner version ARGs, so the
 | `make scanner-image SCANNER=<id>` | Build one scanner image from its Dockerfile. |
 | `make test-scanner-image SCANNER=<id>` | Build it and prove it prints the version its Dockerfile pins. |
 | `make scanner-digests` | Rewrite `containers/scanners/digests.json` from the Dockerfiles. |
+| `make semgrep-rules-refresh` | Re-resolve the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, re-apply the credential-shape escapes, rewrite `default.yml`, and re-stamp `rules_sha`/`rules_captured_at`/`rules_count` (the scheduled refresh, issue #2283). |
 | `make scanner-ref SCANNER=<id>` | Print the published immutable ref. |
 | `make publish-scanner-images SCANNER=<id>` | Build linux/amd64 + linux/arm64 and push the content-hash tag (CI). |
 | `make ci-scanner-images` | The CI job: build + version-test every scanner; publish on a push run only. |

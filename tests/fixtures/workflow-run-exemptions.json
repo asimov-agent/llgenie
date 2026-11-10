@@ -8,6 +8,9 @@
     "security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
       "reason": "Its red is already a work item with an owner: the scan's `fail_on` gate (critical/high WITH a fix, `data/security-policy.json`) is deliberate (`docs/SCANS.md`), `make security-issues` files the advisory issues, and `security-bot` turns one of them into a green PR. The reactor's Route B would file a SECOND issue per push to `main` (its marker carries the head sha), spending the issue-bot's 3-a-day budget on the same advisories."
     },
+    "semgrep-rules-refresh — re-resolves the semgrep rules pack from upstream p/default and opens the re-pin PR (never merges)": {
+      "reason": "Its red is its own named output, not an implementation defect to re-file: a failed re-resolve is a stale-pack finding (issue #2283) that `make check-security-scan` already surfaces as a red when `rules_captured_at` passes the recency floor, and the re-pin PR it opens is the consumed work item. Routing the refresh run's red to the reactor would duplicate the floor gate and file a second issue for the same stale pack."
+    },
     "run-failure-reactor — routes a failed run to a fix or a deduped issue (never merges)": {
       "reason": "It skips its own completion so a self-trigger loop is impossible (#286); listing itself is refused by the `workflow-run-self` rule. Its own red is what `code-review-bot` and `queued-alarm` report, and a red reactor run cannot route itself."
     },

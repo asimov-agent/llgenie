@@ -42,7 +42,8 @@
    "security_bot",
    "security_bumps",
    "security_issues",
-   "security_scan"
+   "security_scan",
+   "semgrep_rules"
   ],
   "Structural gates": [
    "changes_index",
@@ -377,6 +378,11 @@
    "from": "scanner_image",
    "to": "proc",
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "semgrep_rules",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the semgrep-rules refresh runs the pinned scanner image through it by design."
   },
   {
    "from": "scrub_log",

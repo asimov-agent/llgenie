@@ -2062,6 +2062,7 @@ from the pipeline that will run.
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
+| `semgrep-rules-refresh.yml` | re-resolves the semgrep rules pack from upstream p/default and opens the re-pin PR (never merges) | none — the refresh has no modes: it always re-resolves p/default through the pinned scanner image and opens the re-pin PR only when the pack changed. |
 | `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
 <!-- dispatch-forms:end -->
 
