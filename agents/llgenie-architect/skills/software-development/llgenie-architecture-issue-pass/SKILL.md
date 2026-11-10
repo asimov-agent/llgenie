@@ -1,7 +1,7 @@
 ---
 name: llgenie-architecture-issue-pass
 description: "Audit llgenie architecture and file refactor issues."
-version: 1.4.0
+version: 1.4.3
 metadata:
   hermes:
     tags: [llgenie, architecture, github, issues, refactor]
@@ -84,7 +84,12 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
 - **Cite the invariant, not one number.** Two correct measurements can look like a disagreement: `stat`
   bytes vs `len()` characters (multibyte dashes), or a merged-tree sha that changes with merge order.
   Write "byte-identical, 55 lines" and "three conflicted files, no more, no fewer" — each survives the
-  unit or ordering ambiguity that a lone figure does not.
+  unit or ordering ambiguity that a lone figure does not. **Concretely: `gh issue view <n> --json body
+  --jq '.body|length'` returns CHARACTERS (jq counts codepoints), not bytes** — on one body it printed
+  `12539` while `wc -c` on the very file read `12610`, so a comment reporting the char count as "12,610 b"
+  is wrong by its own unit label. Measure the body with `wc -c <body-file>` for bytes and `.length` for
+  chars, quote one with its explicit unit or both ("12,539 chars / 12,610 bytes"), and never assume the
+  two agree — multibyte prose guarantees they will not.
 - Name the population a count is drawn from when two counts share a number. "Eleven wrappers" meant
   three different elevens in one pass (the names, all helpers, and the bodies that never read an exit
   code); the implementer greps the narrowest one and under-scopes the fix.
@@ -154,6 +159,19 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   root` against a `rw` mount), so the first write fails with EACCES — `sudo chown -R $(id -u):$(id -g)` the
   directory, then write. `sudo` needs the terminal tool's tty; a `sudo` inside a non-interactive tool call
   fails with "a terminal is required".
+- **Author `$HOME`, never `/home/<user>`, in any file a shell or bash executes — and keep parsed-not-executed contexts ABSOLUTE (issue #2145, owner instruction 2026-11-08).** Every lane shells through bash, so `$HOME` resolves in commands, prose instructions and doc examples; the absolute form encodes one machine's account name in a public repo and is non-portable. Before converting a path, judge which side of the execution boundary it sits on: a shell line (`cd`, `python3` invocation, an `export`) is EXECUTED and takes `$HOME`; a string inside a quoted heredoc (`<<'PY'`), a Python literal (`sys.path[:0]=['...']`), or a systemd unit / JSON / YAML value is PARSED not executed — nothing expands `$HOME` there, so converting it yields a literal that never resolves and is WORSE than the literal. Never re-sync a live→tree fold to smooth it — the tree copy keeps the literal until the umbrella drift sweep. Full sweep procedure, executed-vs-parsed decision table, carve-out inventory and verification recipe: `references/home-path-migration.md`.
+- **An architecture audit asks whether the DOC STATES THE OLD RULE, not whether a change->note row exists — the `change->note` rule firing is not evidence the rule's own doc was updated.** A merged gate/boundary change almost always satisfies `NOTE_SURFACE_RES` (agent-wiki note + `docs/changes.d/` row), so counting those as "documented" misses the real defect: the prose that states the RULE (`docs/BOTS.md` for a gate's contract, `docs/BOTS.md:425`/`AGENTS.md` for a lane boundary) keeps the pre-change wording and teaches every lane to satisfy a requirement `main` no longer enforces. Method per named merge: `git show --stat --format="" <sha>` to see which files it touched, then grep the candidate doc for the rule it changed (`grep -rniE "<the new exclusion|the new skip>" docs/ AGENTS.md` = 0 means the new clause is written nowhere), then read the doc paragraph and confirm the OLD sentence is now false. File the doc-only fix to `llgenie-documentation-maintainer`. **Verify the placement before routing:** a repo-shape doc may have NO lane/fleet section at all (measured: `docs/ARCHITECTURE.md` has none), so a cross-lane ownership map belongs in `docs/BOTS.md` beside the host-agent section, not in ARCHITECTURE.md. **And do not file a doc that is merely SILENT:** if the doc never stated the old rule and does not contradict the new one, there is no staleness — a hollow issue is the same defect as a hollow PR. Also check non-exhaustive-by-design tables before calling absence staleness: `docs/ARCHITECTURE.md`'s workflow table is bot-scoped and deliberately omits engine-build and gate workflows, so a workflow missing from it is not a finding.
+- **A merge gate that clears a required review must be validated as `approver != merger`, NEVER merely `approver != author` — the #1088 class.** When the tree's own `auto-merge` workflow posts an `APPROVED` to satisfy `REVIEW_REQUIRED`, verify which identity that approval ran under: `scripts/auto_merge.py::try_approve` computes `me = token_login(gh)` = the merge token, and its `APPROVER_TOKEN`/`github-actions[bot]` branch only engages when `author == me`. On a fleet where PRs are authored `andyholst` and the merge account is `asimov-agent`, `author != me` is TRUE so the branch is skipped and the approval is posted by `BUMP_TOKEN` itself — the merging entity clears the review gate it then merges ~seconds later, with zero human/owner `APPROVED` ahead (five measured instances #1632/#1631/#1637/#1640/#1642, all mergedBy `asimov-agent`, each APPROVED→merged in 4–6s). A shutdown cannot be a comment: an armed workflow out-ran a decision comment created the SAME SECOND as the merge (#1642, 02:44:06Z). The guard to demand is: refuse to merge on any approval the workflow posted with the merge token; merge only on a reviewer green from a genuinely distinct identity, with a negative control that the workflow's own approval never clears the gate. Verify a fix actually landed by diffing the approval path, not the PR title: `git diff <old-main>..<new-main> -- scripts/auto_merge.py .github/workflows/auto-merge.yml` empty = the self-approve hole is still live even though "the fix merged".
+- **A continuous-improvement audit closes one of two ways, ENCODED, not narrated: file a refined six-section `agent:implement` issue per distinct finding, OR write the literal line "re-audited at `<sha>`, no findings" on the tracker — nothing between.** When the #1245 continuous-improvement clause dispatches you to audit an idle gap, the deliverable is a set of findings an implementer can take (each a six-section body with sha+dir evidence, acceptance criteria, negative controls and a "not covered" boundary) or an explicit clean line at the measured head. Read each flagged candidate (the referenced PR/issue, the workflow, the script) BEFORE drafting — a class that is already fixed is recorded as covered, never filed as new work; a candidate that is a residual structural gap behind the flag is the finding. Each body says the owning lane implements via the normal queue and this lane does not implement. Record the outcome on the #1245 tracker ("re-audited at `<sha>`, findings filed" with the issue numbers) AND in the durable audit file so a future pass can find it. The planner routes triage; do not assume capacity.
+- **An owner-approved clause that DEPENDS on another lane's input is folded in two steps, never held whole.**
+  When the general clause is this lane's and one sub-definition belongs to a lane (a security-specific
+  audit, a probe only that lane can run), land the general clause in the issue BODY now, mark the
+  lane-specific part `(pending <lane> input)` exactly where it will sit, message that lane with the draft
+  and the specific questions, and post the on-record comment naming the comment id and the body size —
+  then append the concluded definition when the lane replies. Holding the WHOLE clause until every sub-part
+  is answered stalls a decided change behind an async reply; inventing a sub-definition for another lane's
+  domain is the worse error. Scope discipline: the clause is design text in the body, and the folding pass
+  implements nothing.
 - **A refine/restate dispatch targets the issue BODY as the primary artifact — edit the body first, not a
   comment you upgrade later.** When the ask is "restate this issue into the repo's six-section shape", the
   deliverable is the body an implementer reads; a comment is the discussion trail, secondary. Shipping the
@@ -205,6 +223,7 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   same sha with no new commit; a push cancels the requeue and costs the whole matrix again. Confirm the
   rerun took by `run_attempt` incrementing and `status` returning to `queued` — the attempt number, not the
   moment, is the evidence.
+- **A gate whose input is LIVE remote state can be red at run time and green at the SAME head afterwards — rerun, never push.** An acceptance/body gate reads the issue's `## Acceptance criteria` checkboxes, the PR body and labels as they stood when it ran; a verdict-gated write-back that later ticks those boxes changes the answer with NO new commit, so re-running the identical head passes. The discriminator is the log line naming the mismatched state ("item N is still `- [ ]` … yet the PR body closes the issue"). Prove it locally against the LIVE object before deciding: `gh pr view <n> --json body --jq .body > /tmp/b.md` then `PR_BODY=/tmp/b.md PR_BASE=origin/main PR_HEAD=HEAD make <gate>` — a green there means the remedy is `gh run rerun <id>`, and a push would re-cut the matrix for no reason. **And a live `bot-claim` by another bot outranks a dispatch addressed to you**: read the claim's `ttl`/timestamp before touching the branch, and when it is live, hand off the push-free remedy rather than pushing under it — two lanes editing one branch is how a green gets discarded twice.
 - **Before attributing a cancellation to your diff, check whether the head moved.** `cancel-in-progress`
   kills the previous run whenever the branch is re-pushed. `git diff <old-sha> <new-sha>` returning empty
   proves the tree never changed, so the run was superseded rather than broken — say that instead of
@@ -508,7 +527,7 @@ deletions on a vehicle named for a rule the base already has.**
   instruction was reaching for — "cancel the run to free a runner" pointed at a concluded run while a live
   run on the same closed PR still held one — then say which you acted on. **Quote a sha from a fresh API
   call in the same message, never from an earlier turn**; a head that is one commit behind is still wrong,
-  and a report that cites it describes a branch that no longer exists.
+  and a report that cites it describes a branch that no longer exists. **A dispatch can also be already SATISFIED, and the gate it names can be the WRONG gate — prove both at the current head before redoing the work.** A fix task written from an earlier run may describe a failure another lane has since fixed at a head newer than the sha it quotes (measured: a "add the change-note and make check-docs green at <older sha>" dispatch whose artifact was already committed at the branch tip), so first confirm the artifact is absent (`git show <head> --stat`, `grep` the file) and then confirm which gate actually red — take the gate's own name from the failing job's log, because a run whose `check-docs` line reads OK can still fail on a sibling gate (an acceptance/body gate, a closing-link gate). Redoing a satisfied dispatch duplicates another lane's commit; chasing the wrong gate burns the cycle and reports a green you did not produce.
 - **A fix that changes a SHAPE breaks assertions outside its diff — run the wider affected suite, not just
   the named tests.** A PR that corrects N stale assertions (a deleted CI caller, a replaced inline command)
   can leave an N+1th asserting the old shape in a file it never opened, because those assertions describe
@@ -779,6 +798,14 @@ profile, `check_agent_profiles.py check` green in CI mode with `HERMES_PROFILES_
 the two agree so any later sync is a no-op. Never sync DOWN while live is ahead; take the direction from the
 owner when a directive's wording leaves it ambiguous, because the wording does not carry it.
 
+**Measure drift read-only and report the direction PER FILE — `COPY=1`/`FORCE=1` are copies, not merges, and
+delete every tree-only line.** When asked to report parity, run `make tester-fold-live PROFILE=<p>` and
+`make sync-agent-profile PROFILE=<p> CHECK=1` and stop there; never reach for a write mode without a
+line-subset proof that no tree line disappears, and never pipe `CHECK=1` (the pipe masks its exit). A lane
+commonly drifts BOTH ways at once, so a per-file "tree→live would ADD n, LOSE m" table is the answer — one
+verdict for the lane hides the destructive files. `live >> tree` is fixed by versioning live→tree as a PR, never
+by a sync-down. Recipes, the measured 72-line loss, and the subset computation: `references/live-profile-parity.md`.
+
 **The sync tool's own "verified … identical" claims only that it wrote what it copied.** A sync that replaces a
 7,509-byte file with 5,149 bytes and prints `verified: 3 file(s) read back identical` exits 0 and is green in
 every gate, because `check-agent-profiles` counts profiles and rules, not bytes. So when a sync/install tool is
@@ -846,6 +873,20 @@ subset check so a later addition does not red it) **and** that the rule's patter
   **When adding a test to an existing suite, copy the module alias that file already uses** — a new test
   spelling `cap.profiles_from_manifest` in a file that imports `guard.` fails with `NameError` and reads
   as a logic error; `grep -n 'import .*check_agent_profiles' <testfile>` first.
+- **Dropping a declared rule from a manifest is a SHAPE change, and the exact-list test that pinned the
+  OLD contract reds `linux / unit` — not the docs gate and not the profile gate.** A test written as
+  `assert entry["rules"] == ["never-implement", "never-merge"]` plus `assert "you do not implement" in soul`
+  enforces the *previous* contract, so the moment the SOUL and manifest legitimately drop one rule, `make
+  ci-unit` fails while `make check-docs` and `check_agent_profiles.py check` both stay green — and reading
+  those greens as "my change is fine" burns a whole CI cycle. In the same turn you edit the manifest,
+  `grep -rn '<dropped-rule>\|<old soul phrase>' tests/` and rewrite each hit to assert the NEW contract
+  with subset/absence checks (`'never-merge' in rules`, `'never-implement' not in rules`, the old phrase
+  absent from the whitespace-normalised SOUL) rather than a fresh exact list — the list is what will red
+  again on the next legitimate change. Repair it in the SAME PR vehicle (a second PR for a test the first
+  commit broke is the split this lane forbids), and confirm the fixed assertions by replaying the test body
+  in a `python3 -c` harness when pytest is absent from the host env (a body needing only `REPO`, `json`,
+  `Path` replays fine); a harness pass is a check on the tree, and CI's `make ci-unit` at the pushed head
+  remains the verdict.
 - **A negative control demonstrated in a PR body is not enforcement — encode it as a test that operates on a
   throwaway COPY of the real tree.** "Sabotage → gate reds → restore" typed by hand proves the gate today and
   pins nothing: reverting a declaration to `rules: []` passes CI silently. Write the control as a test:
@@ -879,7 +920,10 @@ asks for. Also: `rc=$?` after a pipe reports the LAST command's status, not the 
 
 Rerun legality, the pool-matching decision, step-transition timing, `run.status` lagging its jobs, the
 `--allow-escape-sequences` log recipe and the "cancelled is never evidence" table:
-`references/ci-run-state-triage.md`.
+`references/ci-run-state-triage.md`. **Sections 7–8 there cover the two dispatch traps**: a gate that reads LIVE
+state can be green at a head whose *run* redded (reproduce at the head with the live payload before pushing),
+and a dispatch's named base sha is a claim about time (re-resolve it, and check whether its scope already
+landed under another lane's unexpired `bot-claim:` before writing anything).
 
 ## Reviewing another lane's PR
 

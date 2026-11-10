@@ -104,3 +104,51 @@ need a baseline for a timeout budget, use only the runs that reached a conclusio
 A run killed mid-flight cannot distinguish "this scenario fails" from "this scenario never ran". If a probe's
 control rows were cancelled alongside its test rows, it is not evidence for any hypothesis — restate what it
 does show (nothing) rather than reading the cancellations as a result in the direction you wanted.
+
+## 7. A red run does not prove the HEAD is red — live-state gates
+
+Some gates read **live repository state at merge time**, not only the checked-out tree: the acceptance gate
+fetches the linked issue's `## Acceptance criteria`, the closing gate fetches the live PR body, the hold gate
+reads labels. Those inputs can be edited by a **different lane, outside the branch**, so a run that failed at a
+head can be green at the *same* head once the issue is ticked. The commit never changes; the verdict does.
+
+So before treating `ci-scope failure at <head>` as work — and long before pushing a "fix" commit — reproduce
+the gate yourself at that exact head with the LIVE payload:
+
+```bash
+git worktree add --detach ../<wt>/<name> <head>
+gh pr view <n> --json body --jq .body > /tmp/pr-body.md
+cd ../<wt>/<name> && PR_BODY=/tmp/pr-body.md PR_BASE=origin/main PR_HEAD=HEAD make check-pr-<gate>
+```
+
+Green there means the remaining gap is only a **green run id**, and the two push-free remedies are
+`gh run rerun <id>` (same sha, no new commit, no re-cut matrix) or leaving it to the lane holding the branch's
+live `bot-claim`. A push would re-prove something already true and cancel the matrix doing it.
+
+Corollary — **read which job actually failed before naming the gate.** A run's failing job can be a *different*
+gate from the one in the dispatch: measured, `check-docs` was green inside a run whose `scope` job redded on
+`check-pr-acceptance`. Read `gh run view <id> --json jobs --jq '.jobs[]|"\(.name) \(.conclusion)"'`, then the
+failing job's log — never assume the dispatch named the gate that failed.
+
+## 8. A dispatch names a base sha: it is a claim about time
+
+An instruction is written against an earlier reading, so its sha is usually an **ancestor** of the real head by
+the time you act. Re-resolve in the acting turn and state the relationship rather than silently substituting:
+
+```bash
+gh api repos/<owner>/<repo>/commits/main --jq .sha      # the real head, now
+git merge-base --is-ancestor <named-sha> origin/main && echo "<named> is an ANCESTOR of main"
+```
+
+And check whether the dispatch's scope has **already landed** before writing anything:
+
+```bash
+gh pr view <n> --json comments                          # bot-claim:, auto-merge: deferred, other lanes' repairs
+git show --stat --format="" <head>                      # does this commit's own stat already contain the artifact?
+gh run list --branch <head> --status in_progress --json databaseId --jq length   # 0 = nobody is racing you
+```
+
+Measured once: a dispatch named a stale base AND an artifact (change-note + `docs/changes.d/` row) that a rebase
+lane had already committed at the current head, with a live `bot-claim` still in TTL. The correct answer was a
+comment proving the scope satisfied — "dispatch stale on two counts, no push" — not a duplicate commit. When a
+`bot-claim` with an unexpired TTL names another actor, the branch is theirs: report and hand off, do not race.
