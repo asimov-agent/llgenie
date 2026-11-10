@@ -9,6 +9,20 @@ smallest supported model for that engine → reads real timings. It is also the 
 own supported archs — so a green CI host-verify and a local `test-engine-host` exercise the same
 path. Run it once per cell, SEQUENTIALLY (one GPU), and never substitute `build-engine*`.
 
+## `test-engine-host` red = a SERVE/readiness divergence, not the install-leg
+
+A `test-engine-host` red (Makefile:1378, `[host] --- serve …`) is a DIFFERENT failure class from a
+`test-engine-install` red — classify by the failing STEP name, never the run conclusion. The common shape:
+the published image DOES start and print `[engine-image] READY <id>/<arch> base_url=http://127.0.0.1:<port>/v1`
+(the container came up, model mounted), but the host-verify chat probe — `serve_published` → `_chat`
+(`engine_host_test.py`, `urlopen(req, timeout=…)`, `retries=2`) — raises `TimeoutError: timed out`, so the
+step exits `Makefile:1378: test-engine-host Error 1`. The tell is a READY line followed immediately by a
+`TimeoutError` traceback through `serve_published`/`_chat` — i.e. **READY (port/listen up) and first inference
+that answers are not the same event**, especially for a 4-bit model doing its first load on a CPU-only runner.
+This is a serve/readiness-timing divergence at host-verify, NOT the cuda #1240 install-leg skip bug; give it
+its own tracker and look at a first-token readiness wait or a longer chat probe. Never fold it into the
+CDI/skip fix, and never read `READY` in the log as "the serve verified green" when the probe still timed out.
+
 ## The host arch grid is DERIVED, not a roster
 
 `host_supported_archs()` yields the archs THIS host can run, and it adds `vulkan` ONLY when NO GPU

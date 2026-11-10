@@ -47,6 +47,21 @@ Then read it back (`gh issue view <n> --json number,state,labels`) and post a cl
 `check-*` verdict. Bookend it later with the resolving sha/run — an issue with a start comment and no
 finish comment is an abandoned claim.
 
+### `gh api repos/.../issues` needs `labels` as a REAL JSON array (not `-f`)
+
+If you file the issue through the REST endpoint (`gh api repos/<o>/<r>/issues`) instead of `gh issue
+create`, a string field cannot stand in for the label array: `-f labels=[]` and `-f labels="[]"` both
+422 with `For 'properties/labels', "[]" is not an array` — `-f` always sends a string. Pass the whole
+body as JSON via `--input` so `labels` is a genuine array:
+
+```bash
+python3 -c 'import json;open("/tmp/p.json","w").write(json.dumps({"title":T,"body":open("/tmp/issue-body.md").read(),"labels":["bug"]}))'
+gh api repos/asimov-agent/llgenie/issues --input /tmp/p.json
+```
+
+`gh issue create --label bug,agent:implement` (comma-separated) is simpler and does not hit this — prefer
+it unless you are already scripting the REST call.
+
 ## Never fabricate the number
 
 Fragment filenames, `CHANGES.md` rows and commit subjects embed `#NNN`; if the issue does not exist yet,

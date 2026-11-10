@@ -29,6 +29,29 @@ build on a device-only engine.
   edits the smoke script/Makefile/docs runs only `ci.yml` (unit/lint/openspec, no engine images). Say that
   explicitly when a stop-all-CI order is in force — this PR cannot restart the engine-build storm.
 
+## A readiness timeout is blind unless you dump the engine's own log
+
+`engine_runner.py serve` redirects the engine's real output to `$TMPDIR/engine-runner-serve.log`
+**inside** the container, so `docker logs` carries only the launcher banner. A failed readiness wait
+therefore reports `not ready after Ns` with no reason at all, and the evidence is gone before anyone can
+ask for it: `engine_smoke.py` removes the container in a `finally`.
+
+- **Dump the in-container log on the failure path, before returning.**
+  `docker exec <name> sh -c 'tail -c 4000 "${TMPDIR:-/tmp}/engine-runner-serve.log"'` plus
+  `docker logs --tail 60`, printed ahead of the FAIL line, on BOTH the timeout and the early-exit branch.
+  A best-effort dump that prints `EMPTY/absent` for a genuinely silent engine is still the right verdict —
+  "the engine produced no output" is a finding, not a non-answer.
+- **`[entrypoint] …` and `[engine-runner] serve …` lines in a job log are the failure DUMP, not live
+  output.** They arrive from the harness's `docker logs --tail 20` on the give-up path, so their
+  timestamps sit at the END of the wait, not at container start. Never compute a boot duration from them
+  (a 600 s gap between `docker run -d` and the banner is the poll window, not a slow start), and never
+  read "only two lines" as "it crashed immediately" — the container may have been Running the whole time.
+- **A serve red is not an image red.** The binary tier passing (`--version`/`--help` answered, image
+  `available -> no rebuild`) plus a serve timeout means the artifact runs but never answered the health
+  probe: state that split before blaming params or a pin.
+- **`engine_image.py` is not one of the four tag inputs**, so adding diagnostics there moves no image tag
+  and re-tags no engine — it is the safe place to fix a blind red, unlike params/Dockerfile/`entrypoint.sh`.
+
 ## Hermetic test recipe (no docker, no GPU)
 
 Exercise the tier logic in-process by monkeypatching the module the smoke reads:

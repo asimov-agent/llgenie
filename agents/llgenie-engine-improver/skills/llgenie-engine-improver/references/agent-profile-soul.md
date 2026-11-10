@@ -117,6 +117,16 @@ the **byte order per line**:
   live-only edit is itself a `check_agent_profiles` finding).
 - **tree bytes > live bytes → benign.** Syncing would only *grow* live; that is the expected state on a
   branch that adds rules before the post-merge sync runs. Report it, do not "fix" it.
+- **Never `make tester-fold-live … COPY=1`.** It COPIES (it does not merge): every tree file is replaced
+  with the live copy and every tree-ONLY line is destroyed — measured, one run wiped 72 tree-only lines
+  across 12 files, including SOUL rules the tree carried and live did not. Use it READ-ONLY
+  (`make tester-fold-live PROFILE=<p>`, no COPY) for the per-file `same`/`DRIFT`/`LIVE-ONLY`/
+  `live-missing` picture plus the `N same, M drifted, L live-only, W mid-write` tally, and keep
+  `sync-agent-profile … CHECK=1` for the direction verdict. If `COPY=1` already ran,
+  `git checkout -- agents/<profile>` and confirm the tree is clean vs HEAD before measuring again.
+- **`LIVE-ONLY` rows are a different defect from drift.** A live `references/*.md` the tree lacks means a
+  SKILL that links it reds `skill-reference-missing`; the fix is committing the file (live→tree), never
+  dropping the link and never syncing the tree over it.
 
 Before committing the fuller content, prove it is **additive**: diff live-vs-tree and require **0 lines
 removed** per file (reworded lines appear as delete+insert pairs and are not removals; the insertion count is
@@ -139,6 +149,34 @@ Resume on their word.
 another bot's message. Do not treat a fleet DM as the approval: attempt the write, report the exact
 block the tool returned, and wait — retrying after a teammate says "go" burns a turn and teaches the
 wrong lesson about who can authorise what.
+
+## Rewriting a path convention across your own profile (`$HOME` vs an absolute home)
+
+A fleet-wide convention ("write `$HOME`, never `/home/<user>`, in anything you author") is applied to
+your own `SOUL.md` and skills as a **scoped text edit**, never a repo-wide `sed`/`grep -c` sweep:
+
+1. **Scope the measurement by file class first, or the count is noise.** A profile directory also
+   holds `.curator_ledger.jsonl`, `.curator_state`, `logs/`, `cache/`, `state.db`, and
+   `pytest-of-*/…/site-packages/**/*.pyc`. A whole-directory walk reports thousands of hits and
+   floods the tool output. Count only `SOUL.md` + `skills/**/*.md` (excluding `skills/.archive/`),
+   then bucket each remaining hit as **authored text** (edit) vs **machine/parsed data** (leave
+   absolute: JSON-lines ledgers, `state.db`, logs, caches, `.pyc`).
+2. **`$HOME` does not expand inside a QUOTED heredoc — a path inside `<<'PY'` python code must stay
+   absolute.** Converting `sys.path[:0]=['/home/<user>/.hermes/plugins/nerve', …]` to `$HOME` inside a
+   `<<'PY'`-quoted heredoc ships a literal `$HOME` into python's path list and breaks the command.
+   Only a path on a line the SHELL evaluates (a command word, a `cd`, an argument to an
+   interpreter that is not inside the quoted body) may become `$HOME`. Same rule for an unquoted
+   heredoc feeding python: shell expands it, so the python file path is fine but a `'…'` string
+   inside it is not.
+3. **Quote the substitution as `"$HOME/…"` in bash commands** so a home path with spaces survives;
+   in prose/`Repo:`/`Work in` lines the bare `` `$HOME/repository/git/…` `` form is fine.
+4. **Report the split, not a single number.** State `fixed N (S in SOUL, K in the lane SKILL, …)` /
+   `remaining M, all parse-only: <why each stays>` — a reader must be able to tell a leftover that
+   is *correct* from one you missed. `0` is not the goal; "every remaining hit is a carve-out with a
+   stated mechanism" is.
+5. **Do not sync the tree copy to satisfy the rule.** The `agents/<profile>/` copy still carries the
+   old literal until its own issue+PR; the live-profile edit is not a `make sync-agent-profile`
+   change and running that sync one-way would clobber live.
 
 ## Pitfalls
 

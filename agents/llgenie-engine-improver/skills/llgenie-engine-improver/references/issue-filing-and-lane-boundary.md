@@ -22,6 +22,23 @@ gh issue create --repo asimov-agent/llgenie --title '<type>: <what> — <gate> r
 
 Read the returned number back (`gh issue view <n> --json number,state,labels`) and post the measured evidence as a claim comment on the issue — the numbers in the body must come from a command actually run in this session.
 
+## A dispatch is not automatically a PR — classify the issue first
+
+A planner dispatch whose template says "done = ready-for-review PR that closes #N" does not mean every
+issue in the batch yields a code PR. Classify each before opening a branch:
+
+- **Code vehicle** — the fix is a change THIS lane can make and own → open the PR, arm auto-merge.
+- **Monitor** — the deliverable is the cross-cell / cross-run comparison, posted as an issue comment
+  (it satisfies "collect + compare + classify" ACs); the monitor closes when the root fix lands, so do
+  not open a docs PR just to have one.
+- **Gated** — the fix depends on another lane's build/merge (a pin cannot publish until the build
+  greens, an issue forbids silent re-pin) → post the verification evidence, state **stays OPEN, gated
+  on #X**, and do not self-close or hand-repin.
+
+Forcing a code PR on a monitor/gated issue misrepresents ownership and hands the next lane a stale
+branch. Report per-issue status to the planner (PR # for the vehicle, evidence-comment sha for the
+monitor, "OPEN gated on #X" for the gated one) rather than a blanket "3 PRs".
+
 ## Lane boundary: detect vs publish
 
 - `make check-engine-launchers` reporting `N ok / 1 stale / M missing` — the **`stale`** row is the real red; `missing` rows for an arch (sglang/tensorfold on cuda) are legitimate/informational.

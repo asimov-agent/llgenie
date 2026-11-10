@@ -141,6 +141,18 @@ so GitHub doesn't fail it; the default sweep is one row per engine×arch, run in
   (the classic trap: the install leg "skip" still executed `engine-install`). When the leg must skip if this
   run published nothing (a PR/none row), gate the WHOLE chain with `ifeq ($(PUBLISH),1) … else … endif`
   and pass `PUBLISH` in as a make var — decide the event inside make, not in the workflow step.
+- **The cuda #1240 skip-reason variant of the same trap.** A target that prints a per-arch skip reason
+  (`install_engine_launchers.py --install-leg-skip-reason --arch <arch>`) and then does
+  `if [ -n "$$reason" ]; then echo "$$reason"; exit 0; fi` on its own recipe line has the SAME defect: the
+  reason prints, the guard line "succeeds", make proceeds to the next line `make engine-launchers …`, whose
+  `install()` cuda guard (`arch=="cuda" and not LLGENIE_NO_GPU and not cuda_cdi_ready()`) hard-FAILs with
+  `[install] FAIL cuda host without the NVIDIA CDI spec` → exit 2. The whole install-leg reds on a GPU-less
+  runner precisely because the skip it printed never stopped the chain. Two guards that must agree also
+  diverge here: the skip decision uses `d._has_nvidia_gpu()`, the install guard uses `cuda_cdi_ready()` — on
+  a GPU-less runner the first says SKIP while the second FAILs. Fix: put `make engine-launchers` /
+  `test-built-engine` / `ci-install-uninstall` in the `else` branch of the same shell guard (only when
+  `$$reason` is empty), or skip the whole workflow step — never rely on `exit 0` on a prior recipe line. Do
+  NOT "fix" it by weakening the CDI check.
 - **The step-`if:` is row-gate only — `test_no_ci_step_or_job_is_skipped` enforces it.** A step `if:` may
   only be the row placeholder (`matrix.* != 'none'`), `always()`/`failure()`, a platform Docker gate, or the
   macOS openspec CLI. Putting `github.event_name == 'push'` (or any event gate) directly in a step-`if:` reds

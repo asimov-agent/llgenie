@@ -12,6 +12,12 @@ A CI build cell can run 30–70 min. Two mechanics bite:
 - **`execute_code` cells have a hard ~300 s cap and lose the kernel's state when they time out.** A
   `for _ in range(20): …; sleep(60)` polling loop dies at 300 s and takes your variables with it. Never
   put a multi-minute wait loop in an `execute_code` cell — do one short state read per call instead.
+- **A foreground `terminal` poll loop dies at its own default 180 s timeout, before any `sleep` budget
+  you wrote into the loop.** `for i in 1 2 3; do …; sleep 95; done` is a 285 s loop against a 180 s
+  default and returns exit 124 with the last state line only — that exit is the harness cutting the
+  loop, NOT the run failing. Either pass `timeout=` explicitly when you genuinely want a bounded
+  foreground wait, or (better, for a long matrix) arm a background watcher with `notify: true` and stop
+  foreground-polling altogether.
 - **Wait with a background `terminal` job carrying `notify: true`** (`while :; do gh api …/runs/<id> -q
   '.status+" "+(.conclusion//"none")'; sleep 60; done`, appending to a scratch log), then poll that log
   with a short read. Or `gh run watch <id> --repo OWNER/REPO --exit-status` in the background.
@@ -181,6 +187,75 @@ gh api repos/<owner>/<repo>/actions/runs/<rid>/jobs
   look identical from an alarm; a `pending` confirm behind a real build is simply the queue doing its job.
   Report the measured cell states and keep waiting.
 
+### A push=TRUE dispatch is starved by the GLOBAL group — find the holder before calling it "no sweep"
+
+`engine-build.yml` has two concurrency scopes, and which one your dispatch joins decides whether a
+pending run is "waiting its turn" or genuinely stuck behind something:
+
+- **`push=true` → group `engine-build-push`, ONE global group for the whole repo.** Every publishing run
+  serialises globally (two pushes must not race the same `:<arch>` tag, #917). So a `pending` push
+  dispatch with `total_count: 0` jobs can sit for hours behind ANY other live push run.
+- **`push=false` → group `build-<engine>-<arch>`, per selected cell.** A narrow build-and-verify run never
+  waits behind a global sweep (that was the #621 fix), only behind a same-engine×arch run.
+
+**A second `push=false` dispatch of the SAME engine×arch is NOT an unblock — it enqueues behind the first
+on the identical `build-<engine>-<arch>` group.** When a rocm-only (or any single-cell) `push=false` run
+sits `pending` with `jobs.total_count: 0`, re-dispatching the same cell "to get a runner" just stacks a
+second run behind the same serialised group; it cannot overtake, and you now have two pending runs racing
+the same group. The correct discriminator before any verdict or re-dispatch is the LOCAL matrix check:
+
+    make -s engine-build-matrix ENGINE=<id> ARCH=<arch>     # must emit the exact cell row
+
+- **Row present locally ⇒ the params/matrix/filter are correct; the 0-job pending is queue coupling, not a
+  missing or filtered-out cell.** Do not touch params/Dockerfile/skill and do not re-dispatch the same cell
+  — let the queued run take the group when the prior same-cell run concludes (or, only under an owner
+  go-ahead, cancel the stale queued run). A locally-emitted row that never materializes in CI is a runner's
+  problem, never your diff's.
+- **Row absent locally ⇒ the cell genuinely does not exist** (a filter, a params gap, an `prebuilt`/`install`
+  mis-shape) — that IS a code defect and an immediate fix, not a queue wait. The local make output is the
+  boundary between "my defect" and "the queue".
+- **Do not narrate a same-cell re-dispatch as "clearing saturation".** Several unrelated engine-build runs
+  in-progress on the fleet does not starve a `push=false` per-cell run (that group is not global); the only
+  run that can block your `build-<engine>-<arch>` cell is a SAME engine×arch run. Name the holder by its
+  group, not by a fleet-wide count.
+
+A dispatch that is `event: workflow_dispatch`, `status: pending`, and `jobs.total_count == 0` is
+**concurrency-blocked, not a missing/failed producer** — the producer fired correctly and the run exists at
+the right head. Name the holder before any verdict:
+
+```
+gh api repos/<o>/<r>/actions/runs?status=in_progress --jq '.workflow_runs[]|select(.name|test("engine-build"))|{id,head:.head_sha[0:10],created_at}'
+gh api repos/<o>/<r>/actions/runs/<holder>/jobs --jq '.jobs[]|"\(.name): \(.status)/\(.conclusion//"-")"'
+```
+
+The holder is the in-progress engine-build run whose cell shows a long `in_progress` `make build-engine …`
+step (e.g. a vllm-rocm build that has run ~2 h) — its siblings may already read `failure`/`success` while
+that one cell holds the group. Quote the holder run id + the frozen cell's `started_at`.
+
+**Re-dispatching CANNOT unblock a global-group starvation — a fresh push run enqueues behind the SAME
+holder.** Do not "re-trigger to clear it": that just adds another pending run. The only unblock that
+respects the never-kill default is (a) let the holder's cell conclude (frees the queued run automatically),
+or (b) a **`push=false build-and-verify` dispatch of the specific cell** — it serialises per engine×arch, not
+behind the global push group, so it runs immediately and still emits the build-verify cell. When the lane is
+under an owner "no re-dispatch / never-kill" directive, even (b) is the owner/reviewer's decision: report the
+holder run id + the queued run id + the `push=false` recovery as a recommendation, and dispatch nothing.
+
+**First decide whether the holder is a SLOW build (it will conclude and free the group) or a HUNG job (it
+will never self-conclude — "let it conclude" is then invalid and only an owner cancel frees the group).**
+A frozen run `updated_at` is NOT the discriminator on its own (the section above proves run-level
+`updated_at` lags even for a live build); read the holder's cell LOG and re-read it ~60 s later:
+
+- **Advancing log bytes = slow-but-alive.** `gh api .../actions/jobs/<jid>/logs` content grows (or its tail
+  names later build stages), the `make build-engine …` step is `in_progress`, later steps `pending` — a real
+  cold build. "Let it conclude" holds; keep waiting, cancel nothing.
+- **Log frozen for hours AND no step transition AND `updated_at` stuck = HUNG.** The runner was orphaned
+  mid-step: the job never advances, no log heartbeat, the whole run's `updated_at` sits at the last step
+  boundary (e.g. `make build-engine` started at 09:31 but run `updated_at` frozen at 09:28 for 3+ h with 9
+  later steps `pending`). This job will run until someone cancels it — it is not a slow build. Correct your
+  own "let it conclude" recommendation: the only real unblocks are an owner cancel of the holder, or a
+  `push=false` per-cell dispatch (which does not join the global push group). Say "hung holder, owner
+  cancel required", never "it will conclude and the group frees".
+
 ## A cell killed by its own `timeout-minutes` settles `cancelled`, not `failure`
 
 A job that exceeds the workflow's `timeout-minutes` comes back `status: completed`,
@@ -304,6 +379,39 @@ size, throughput). Only a run whose build/detect/push/serve/install cells ALL co
 fixed head is the measurement. A run with two failed cells plus two in-progress cells proves only the
 defect being fixed, never the fix. Say "in flight", never a fabricated or borrowed number.
 
+## A verify-after-merge re-prove: prove the red cells are UNCHANGED before re-sweeping
+
+When a merged change ticked an "all cells green on a default sweep" criterion and a fresh sweep on main is
+red, the re-prove has two branches: dispatch a NEW full `engine="" arch=""` sweep, or route the residual
+reds to their owning trackers. Do **not** dispatch the sweep by reflex — first prove the red cells' code
+paths are unchanged between the sweep head and the current main head:
+
+```
+git diff --name-only <sweep-head>..origin/main -- \
+  containers/engines/params containers/engines/<engine> .github/workflows/engine-build.yml
+```
+
+An **empty diff** on every path a red cell reads means a fresh sweep would deterministically re-red the
+same cells — a never-kill multi-hour matrix spent reproducing an unchanged result. That is the routing
+branch: post a comment on EACH owning tracker naming the finding issue + the run id + the per-cell job id
+and its log root, and record the per-AC outcome on the finding (routing satisfies "fresh all-green OR
+route the reds"; the all-green witness stays owed until the dependency trackers merge). Only dispatch the
+sweep when the diff is NON-empty on a cell's path — i.e. a fix or drift actually landed there — and pin the
+fresh run to the CURRENT main head (`origin/main`), never a stale sweep sha.
+
+Classify each red from its **own failing-step log** before routing; never copy a sibling cell's root onto
+it because the run-level conclusion is the same `failure`.
+
+## A dispatcher's routing ruling SUPERSEDES your earlier reroute — reconcile on the wire
+
+When you routed a red to tracker A and a later planner/dispatcher ruling assigns the same red to tracker
+B, the ruling wins. Do not silently leave the old routing standing: post a reconciliation comment on the
+item that carried the earlier routing (the PR/finding), naming the superseding ruling and the new tracker
++ comment id. A board that holds two contradicting owners for one cell makes the next reader re-derive
+the routing from scratch. Same rule when the superseding assignment widens a single tracker's scope to a
+pair of related cells (e.g. two cache-class cuda cells under one gating fix) — say so explicitly so the
+narrower earlier note is visibly subsumed.
+
 ## Reading a red install leg on a pre-fix run
 
 When the confirm you dispatched lands on a head that lacks the fix, the install-leg cell reds on the
@@ -337,11 +445,19 @@ conclude "log not retrievable" from a 99-byte file while the job is `completed`.
 
 Map the failing sub-step to its owner:
 
-- **`engine-launchers` + `[install] FAIL cuda host without the NVIDIA CDI spec`** — the runner host has no
-  `nvidia-container-toolkit`/CDI (`nvidia-ctk cdi list` empty), so it cannot docker-run the image with the
-  host driver. This is **workflow/runner provisioning** (`.github/workflows/engine-build.yml` runs on
-  plain `ubuntu-latest`, which ships no CDI), NOT a code or params defect and NOT your install-leg fix.
-  It is the pipeline maintainer's gate; hand it there, do not weaken the (correct) CDI check to go green.
+- **`engine-launchers` + `[install] FAIL cuda host without the NVIDIA CDI spec`** — read the lines JUST
+  BEFORE it to tell two causes apart, because the conclusion and the failing line are identical:
+  - **The `[install-leg] SKIP cuda install-leg: … (issue #1240)` line appears immediately BEFORE, then
+    `make engine-launchers` still runs, then the FAIL.** This is the **skip-not-honored make-seam defect**
+    (see `engine-install-leg.md`): `test-engine-install` printed the documented #1240 skip and should have
+    ended, but its `exit 0` lives on its own recipe line, so make proceeded into `engine-launchers` and hit
+    the CDI guard. Owner is the SAME lane's `Makefile` + `install_engine_launchers.py` (gate the launcher
+    install in the `else`, or skip the step). Classify it as that, not as pure runner provisioning.
+  - **NO preceding SKIP line — the leg intended to run and the host genuinely lacks CDI** (`nvidia-ctk cdi
+    list` empty). That one is workflow/runner provisioning (`.github/workflows/engine-build.yml` on plain
+    `ubuntu-latest`): hand it to the pipeline maintainer.
+  In BOTH cases never weaken the (correct) CDI check to go green; the difference is whether the #1240 skip
+  fired and failed to short-circuit, or never applied. Quote the job id and the SKIP→FAIL line pair.
 - **`ci-install-uninstall` + `touch …/bin/…: No such file`** — the CI fixture HOME has no `~/bin`; that is
   the seam's own `mkdir -p ~/bin` fix, verified when this leg reaches the final step and passes.
 - **an earlier `make build-engine`/`engine_runner.py install` step** — a build/params failure, a different
