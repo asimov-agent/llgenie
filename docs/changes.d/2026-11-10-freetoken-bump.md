@@ -1,0 +1,1 @@
+| 2026-11-10 | engine bump: freetoken re-pinned `ba31db2e` -> `5a73685b` (`v0.2.2`) — frozen cuda/rocm Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only freetoken's images) | [2026-11-10-freetoken-bump.md](agent-wiki/2026-11-10-freetoken-bump.md) | #2438 |

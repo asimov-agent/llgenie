@@ -1850,7 +1850,7 @@ def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
 def test_rocm_source_builds_pin_a_base_their_build_accepts():
     """CI #98: exllamav3 needs ROCm >= 7.2.4 (the shared 7.0 base fails), sglang's
     setup_rocm.py hard-codes c++17 (rocm/pytorch:latest needs c++20 headers),
-    FreeToken's ROCm build exists only after v0.2.1."""
+    FreeToken's ROCm build exists only after v0.2.2."""
     p = lambda e: json.loads((REPO / f"containers/engines/params/{e}.json").read_text())["variants"]["rocm"]  # noqa: E731
     base = "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:"
     assert p("exllamav3-rocm")["base"].startswith(base)

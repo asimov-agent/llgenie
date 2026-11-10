@@ -766,7 +766,7 @@ def test_a_forced_local_build_never_needs_the_container_driver(monkeypatch, tmp_
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
     # When  it builds
-    ei._buildx("llgenie/ft-rocm:ba31db2e-a724f1d8-rocm", str(tmp_path), False,
+    ei._buildx("llgenie/ft-rocm:5a73685b-a724f1d8-rocm", str(tmp_path), False,
                "ghcr.io/asimov-agent/llgenie/ft-rocm:buildcache", force=True)
 
     # Then  it runs on the docker driver and carries no cache flags at all
@@ -791,7 +791,7 @@ def test_a_cell_that_cannot_afford_the_export_builds_on_the_docker_driver(monkey
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
     # When  it builds
-    ei._buildx("llgenie/ft-rocm:ba31db2e-a724f1d8-rocm", str(tmp_path), False,
+    ei._buildx("llgenie/ft-rocm:5a73685b-a724f1d8-rocm", str(tmp_path), False,
                "ghcr.io/asimov-agent/llgenie/ft-rocm:buildcache", no_cache_export=True)
 
     # Then  the docker driver is chosen and neither cache side is touched

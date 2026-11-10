@@ -3,8 +3,8 @@
   "engine": "FreeToken",
   "id": "freetoken",
   "repo": "https://github.com/FlashML-org/FreeToken",
-  "ref": "v0.2.1",
-  "pinned": "ba31db2ea708b61d7313bccb3ee4adf9d11ecb90",
+  "ref": "v0.2.2",
+  "pinned": "5a73685b1a836f523c692c77b70152c01698ed8e",
   "native": {},
   "variants": {
     "cuda": {
@@ -26,7 +26,7 @@
       },
       "install": [
         "test -d /opt/llgenie/engines/freetoken/src/.git || git clone https://github.com/FlashML-org/FreeToken.git /opt/llgenie/engines/freetoken/src",
-        "git -C /opt/llgenie/engines/freetoken/src fetch -q origin v0.2.1 && git -C /opt/llgenie/engines/freetoken/src checkout -q ba31db2ea708b61d7313bccb3ee4adf9d11ecb90",
+        "git -C /opt/llgenie/engines/freetoken/src fetch -q origin v0.2.2 && git -C /opt/llgenie/engines/freetoken/src checkout -q 5a73685b1a836f523c692c77b70152c01698ed8e",
         "uv pip install --system --break-system-packages setuptools wheel 'torch>=2.14,<2.15'",
         "cd /opt/llgenie/engines/freetoken/src && CUDA_HOME=/usr/local/cuda MAX_JOBS=$(nproc) uv pip install --system --break-system-packages --no-cache --no-build-isolation -e '.[accel]'"
       ],
