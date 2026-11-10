@@ -759,3 +759,5 @@ the PR is now yours and that you will not merge it either, so two lanes do not b
   from the POST-refactor measured duration with headroom, not the pre-refactor one — if the PR is
   reached before the refactor, hold the safe interim number and record on the PR that a tighter value
   will come with the refactor.
+
+- **An owner will reject a big-bang refactor PR as too large; decompose into one issue per artifact (issue #800 -> #2456-#2461).** The whole-monolith refactor (a 2,000-line Makefile split) was carried as one PR and the owner closed it immediately ("this pr is to large, you must create many issues each for each mk file and wire it accordingly ... a big bang merge is not good practice"). Each child issue must be independently mergeable: one borrows the proven include-resolving readers and states parity / `make check-wiring` / `make test-unit` / CI-green acceptance. Do NOT re-open or merge the closed PR; leave it closed and cross-link (the source #800 names its children; each child names the source). A green suite does not make an over-wide PR acceptable.
