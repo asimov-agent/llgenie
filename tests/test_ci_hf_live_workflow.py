@@ -18,7 +18,7 @@ Hermetic: pure file reads, no network.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import re
 from pathlib import Path
 
@@ -96,13 +96,12 @@ def test_the_hermetic_unit_gate_never_runs_the_network_set():
     assert re.search(r"^test-unit-network:", mk, re.M), "the seam target must exist"
     assert "--marker" in seam and "network" in seam, \
         "unit_tests.py must expose the --marker network slot (issue #1000)"
-    tail = mk.split("test-unit-network:", 1)[1]
-    seam_body = tail.split("\n\ntest-unit:", 1)[0]
+    seam_body = make_recipe("test-unit-network")
     assert "--marker network" in seam_body, \
         "the seam must select the network set by marker (issue #1000)"
 
     # The hermetic gate region (the test-unit target onward) must never select the network set
-    hermetic = tail.split("\n\ntest-unit:", 1)[1]
+    hermetic = make_recipe("test-unit")
     assert "--marker network" not in hermetic, \
         "ci-unit/test-unit must never select the network set (issue #1000)"
 

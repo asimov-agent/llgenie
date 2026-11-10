@@ -6,7 +6,7 @@ Hermetic: a fake `docker` on PATH logs every call; no registry, no build."""
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import base64
 import http.server
 import importlib
@@ -639,21 +639,21 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     # And ci-install only prepares the environment, then runs make install, the
     # installed llgenie dry run, and make uninstall as separate make targets.
     # macOS never runs those inside a container.
-    recipe = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
+    recipe = make_recipe("ci-install")
     assert "$(MAKE) test-env" in recipe
     # product-only (issue #1027): ci-install installs the llgenie tool, never engine images
     assert "$(MAKE) ci-install-product" in recipe and "$(MAKE) ci-install-dry" in recipe
     assert "ci-wait-engine-images" not in recipe and "ci-install-run" not in recipe
     assert "$(MAKE) ci-install-uninstall" in recipe and "test-install-ci" not in recipe
     # ci-install-product is OS-neutral: pure venv + launcher + smoke, no engine pull, no branch
-    prod = mk.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    prod = make_recipe("ci-install-product")
     assert "$(MAKE) venv-install" in prod and "$(MAKE) link" in prod and "$(MAKE) smoke" in prod
     # product-only: it must NOT pull or version-test any inference engine
     assert "engine-launchers" not in prod and "test-built-engine" not in prod and "ci-wait-engine-images" not in prod
-    dry = mk.split("\nci-install-dry:", 1)[1].split("\n\n", 1)[0]
+    dry = make_recipe("ci-install-dry")
     assert '"$(BIN)/llgenie" --dry' in dry
     assert "$$HOME/bin/llgenie --dry" in dry.split("else", 1)[1]
-    undo = mk.split("\nci-install-uninstall:", 1)[1].split("\n\n", 1)[0]
+    undo = make_recipe("ci-install-uninstall")
     assert "$(MAKE) uninstall" in undo and "Darwin" in undo
     # The in-container Linux branch must create ~/bin before placing the foreign-file witness,
     # because the producer install-leg (@ test-engine-install) never ran `make install` here
@@ -665,7 +665,7 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     # run (issue #236): bare --dry is not the whole CLI, and every grid dry run in the unit
     # stage goes through scripts/llgenie_serve.py, never the wrapper a user runs.
     assert "$(MAKE) ci-install-dry-args" in recipe
-    args = mk.split("\nci-install-dry-args:", 1)[1].split("\n\n", 1)[0]
+    args = make_recipe("ci-install-dry-args")
     assert "tests/test_cli_dry_run_matrix.py" in args
     assert "$(ENGINE_TEST_RUN)" in args.split("else", 1)[1]      # Linux: the same HOME make install wrote
     assert "$(TEST_RUN)" in args.split("else", 1)[0]             # macOS: the 3.11 venv, no container
@@ -758,7 +758,7 @@ def test_no_ci_step_or_job_is_skipped():
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
     mk = makefiles_text()
     assert re.search(r"^ci-free-disk:", mk, re.M) and re.search(r"^test-engine-stage:", mk, re.M)
-    stage = mk.split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
+    stage = make_recipe("test-engine-stage")
     assert "serve)  $(MAKE) test-engine-image " in stage and "detect) $(MAKE) test-engine-image " in stage
     assert "$(MAKE) test-engine ENGINE=" in stage
 

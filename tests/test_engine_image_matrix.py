@@ -17,6 +17,8 @@ import pytest
 import scripts.engine_image as ei
 import scripts.engine_skills as es
 
+from conftest import makefiles_text  # noqa: E402  (the split makefile set, issue #800)
+
 REPO = Path(__file__).resolve().parent.parent
 PLACEHOLDER = {"engine": "none", "backend": "cpu", "variant": "none",
                "smoke": False, "test": "detect", "chat": ""}

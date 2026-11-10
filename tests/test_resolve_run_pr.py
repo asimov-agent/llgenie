@@ -13,7 +13,7 @@ of the product, only the external API is a stand-in), plus the real `auto-merge.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import json
 import sys
 from pathlib import Path
@@ -225,8 +225,8 @@ def test_the_fix_bot_workflow_no_longer_resolves_a_run():
     makefile = makefiles_text()
 
     # When  the workflow and targets are read
-    lenient = makefile.split("fix-bot-resolve:", 1)[1].split(chr(10) * 2, 1)[0]
-    strict = makefile.split("auto-merge-resolve:", 1)[1].split(chr(10) * 2, 1)[0]
+    lenient = make_recipe("fix-bot-resolve")
+    strict = make_recipe("auto-merge-resolve")
 
     # Then  the fix-bot is manual-only (no sweep job, no run resolution step), while the lenient
     # target is NOT the one the merge gate refuses to weaken

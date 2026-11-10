@@ -20,7 +20,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import json
 import os
 import subprocess
@@ -658,7 +658,7 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
     # And the make targets exist, and the gate is a step of the ci-unit job
     assert "render-engine-skill-gap:" in mk and "check-engine-skill-gap:" in mk
     assert "engine-skill-gap:" in mk and "spawn-engine-skill-issues:" in mk
-    assert "$(MAKE) check-engine-skill-gap" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "check-engine-skill-gap" in ci_unit_steps()
 
 
 def test_the_spawn_step_runs_even_when_a_gate_above_is_red():
@@ -755,4 +755,6 @@ def test_skills_validate_uses_the_decisions_file_instead_of_a_global_flag():
 
     # Then it passes the decisions file when asked, and the loosened flag is gone
     assert "--unsupported" in recipe and "ALLOW_UNSKILLED" not in mk
-    assert "UNSUPPORTED=data/unsupported-engines.json" in mk
+    from pathlib import Path
+    ci_battery = (Path(__file__).resolve().parent.parent / "scripts" / "ci_unit.py").read_text()
+    assert "UNSUPPORTED=data/unsupported-engines.json" in ci_battery

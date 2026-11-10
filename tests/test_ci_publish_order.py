@@ -14,7 +14,7 @@ lookup; the last test hits the real registry with no mock.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import re
 import inspect
 import subprocess
@@ -97,7 +97,7 @@ def _publish_after(monkeypatch, clock: "_FakeClock", at_s: float) -> None:
 
 def _recipe(target: str) -> str:
     """One Makefile target's recipe, exactly as `make <target>` runs it."""
-    return makefiles_text().split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+    return make_recipe(target)
 
 
 def _install_ci_targets() -> list[str]:

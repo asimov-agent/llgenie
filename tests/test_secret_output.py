@@ -12,7 +12,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import re
 import sys
 from pathlib import Path
@@ -305,8 +305,7 @@ def test_the_guard_is_wired_into_the_repo():
     assert "check-secret-output:" in mk
     assert "check-secret-output" in mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "make check-secret-output" in mk.split("\nhelp:", 1)[1]
-    ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
-    assert "check-secret-output" in ci_unit, "ci-unit must run the guard"
+    assert "check-secret-output" in ci_unit_steps(), "ci-unit must run the guard (scripts/ci_unit.py STEPS)"
     assert "tests/test_secret_output.py" in ut.select(REPO)
 
 

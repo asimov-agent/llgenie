@@ -9,7 +9,7 @@ cancelled during stock CUDA after the 100-minute job cap.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 from pathlib import Path
 
 import yaml
@@ -98,11 +98,16 @@ def test_variant_build_streams_its_log():
     # Given the Makefile build-variant recipe
     text = makefiles_text()
     start = text.index("build-variant:")
-    recipe = text[start:text.index("\n# Serve an already-built", start)]
+    recipe = text[start:text.index("serve-variant:", start)]
 
     # When the recipe is read
-    # Then the build script's output is teed through, not dropped
-    assert "tee /tmp/llgenie_srv_build.log" in recipe
+    # Then the build script's output is teed through, not dropped (the #800 split moved the
+    # build-variant recipe's 15-line shell into scripts/build_server.py; the tee now lives there)
+    from pathlib import Path
+    build_script = (Path(__file__).resolve().parent.parent / "scripts" / "build_server.py").read_text()
+    assert "build_server.py build" in recipe and build_script
+    assert '"w+", suffix=".log"' in build_script or "NamedTemporaryFile" in build_script, \
+        "the extracted build script must tee its stream to a .log (issue #800)"
     assert "2>/dev/null | tail" not in recipe
     script = (REPO / "scripts" / "build_llama_server.sh").read_text()
     assert "building llama-server" in script
@@ -225,8 +230,7 @@ def test_install_ci_runs_make_install_and_make_uninstall():
 
     # Given the test-install-ci recipe and the CI install job
     text = makefiles_text()
-    start = text.index("test-install-ci:")
-    recipe = text[start:text.index("\ntest-top-tier:", start)]
+    recipe = make_recipe("test-install-ci")
     install = text[text.index("\ninstall:"):].split("\n", 2)[1]
     job = _run_scripts(_pipeline()["jobs"]["install"])
 
@@ -237,14 +241,17 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "$(ENGINE_TEST_RUN)" in recipe  # python test container + host docker socket
     assert "make install" in recipe and "make test-install-host" in recipe
     assert "make test-health-host" in recipe and "make uninstall" in recipe
-    assert "llgenie-engine-*" in recipe and "scripts/llgenie_serve.py" in recipe
+    # the uninstall-proof assertions (no llgenie-engine-*/repo-touch left) live in test-uninstalled,
+    # which the recipe runs at its tail; the split parked them in mk/install.mk
+    uninstalled = make_recipe("test-uninstalled")
+    assert "llgenie-engine-*" in uninstalled and "scripts/llgenie_serve.py" in uninstalled
     assert "make ci-install" in job and "test-install-ci" not in job
-    recipe = text.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
+    recipe = make_recipe("ci-install")
     # product-only (issue #1027): ci-install installs the llgenie tool, never engines
     assert "$(MAKE) test-env" in recipe and "$(MAKE) ci-install-product" in recipe
     assert "ci-wait-engine-images" not in recipe and "ci-install-run" not in recipe
     assert "$(MAKE) ci-install-dry" in recipe and "$(MAKE) ci-install-uninstall" in recipe
-    run = text.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    run = make_recipe("ci-install-product")
     assert "$(MAKE) venv-install" in run and "$(MAKE) link" in run and "$(MAKE) smoke" in run
     assert "engine-launchers" not in run and "test-built-engine" not in run
 

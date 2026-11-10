@@ -30,6 +30,8 @@ WORKFLOW = REPO / ".github" / "workflows" / "issue-bot.yml"
 
 from scripts import hermes_smoke as smoke
 
+from conftest import makefiles_paths, makefiles_text  # noqa: E402  (the split makefile set, issue #800)
+
 #: The value the old recipe asked the model to echo. Built from pieces so THIS file does not carry it
 #: literally — the tree scan below must be able to fail on a real prompt, not on its own assertion.
 OLD_PROMPT = "Reply with " + "exactly: ok"
@@ -348,7 +350,7 @@ def test_the_recipe_and_the_workflow_run_the_proof():
     """The proof runs where the bots run it, through the Makefile."""
 
     # Given the Makefile and the issue-bot workflow
-    makefile = MAKEFILE.read_text()
+    makefile = makefiles_text()
     workflow = WORKFLOW.read_text()
 
     # When  the smoke recipe and the workflow's smoke step are read
@@ -377,7 +379,7 @@ def test_the_recipe_and_the_workflow_run_the_proof():
 
 def _prompt_carriers() -> list[Path]:
     """The files that can carry a bot prompt: recipes, workflows, scripts, image files."""
-    out = [MAKEFILE]
+    out = makefiles_paths()
     out += sorted((REPO / ".github" / "workflows").glob("*.yml"))
     out += sorted((REPO / "scripts").rglob("*.py"))
     out += sorted((REPO / "scripts").rglob("*.sh"))

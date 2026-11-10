@@ -14,7 +14,7 @@ the drift shipped, so these tests pin the exact id and prove each drift is caugh
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import importlib.util
 import re
 import shutil
@@ -156,7 +156,7 @@ def test_ci_unit_runs_the_check_and_the_targets_are_phony():
     assert ci_unit and phony
 
     # Then  ci-unit runs the check, and neither target can be shadowed by a file of its name
-    assert "$(MAKE) check-agent-model" in ci_unit.group(0)
+    assert "check-agent-model" in ci_unit_steps(), "ci-unit must run the check (scripts/ci_unit.py STEPS)"
     for target in ("check-agent-model", "model-pin-report"):
         assert re.search(rf"^{target}:", makefile, re.MULTILINE), f"{target} is not a target"
         assert re.search(rf"\b{target}\b", phony.group(0)), f"{target} is not .PHONY (issue #392)"

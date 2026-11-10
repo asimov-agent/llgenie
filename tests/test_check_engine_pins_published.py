@@ -19,7 +19,7 @@ Mirrors the fake-digest pattern of tests/test_ci_publish_order.py (issue #169).
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import json
 import re
 import subprocess
@@ -135,7 +135,7 @@ def test_the_real_diff_detects_a_repin_and_checks_the_registry():
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
     mk = makefiles_text()
-    assert "$(MAKE) check-engine-pins-published" in mk, "ci-unit must run the gate"
+    assert "check-engine-pins-published" in ci_unit_steps(), "ci-unit must run the gate (scripts/ci_unit.py STEPS)"
     # .PHONY spans backslash-continuation lines (issue #883): read the whole block
     phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
     assert phony and re.search(r"\bcheck-engine-pins-published\b", phony.group(0)), \

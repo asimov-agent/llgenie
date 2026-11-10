@@ -81,6 +81,56 @@ def makefiles_paths(root: Path = REPO_ROOT) -> list[Path]:
     return body
 
 
+#: A top-level make target definition line (`name: prereq ## help`), the boundary a recipe ends at
+#: even when the split dropped the blank line that used to separate target blocks (issue #800).
+_TARGET_LINE = re.compile(r"(?m)^([A-Za-z0-9_.%-][A-Za-z0-9_.%-]*):.*$")
+
+
+def makefile_recipes(root: Path = REPO_ROOT) -> dict[str, str]:
+    """`{target: its recipe text}` over the resolved makefiles (top Makefile + mk/*.mk, in include
+    order, issue #800).
+
+    The split removed the blank line that used to terminate every recipe block, so a recipe is now
+    delimited by the next top-level target line, not by `\\n\\n`. Structural extraction — a recipe is
+    the target's line plus the following lines until the next `^name:` — is what every test that
+    slices a recipe actually wants, and it stays correct whether or not blank lines separate targets.
+    """
+    text = makefiles_text(root)
+    spans = [(m.group(1), m.start(), m.end()) for m in _TARGET_LINE.finditer(text)]
+    if not spans:
+        return {}
+    out: dict[str, str] = {}
+    for i, (name, start, end) in enumerate(spans):
+        nxt = spans[i + 1][1] if i + 1 < len(spans) else len(text)
+        out[name] = text[end:nxt]
+    return out
+
+
+def make_recipe(name: str, root: Path = REPO_ROOT) -> str:
+    """The recipe of one target (its lines after `name:` up to the next target line)."""
+    recipes = makefile_recipes(root)
+    assert name in recipes, f"make target {name} missing from the resolved makefiles"
+    return recipes[name]
+
+
+def ci_unit_steps(root: Path = REPO_ROOT) -> list[str]:
+    """The make targets the ci-unit sequence runs, from `scripts/ci_unit.py` (`STEPS`, issue #800).
+
+    The 49-line `$(MAKE) <gate>` recipe became `@python3 scripts/ci_unit.py` and the sequence moved
+    into that tested module's `STEPS`; the tests that used to read the battery out of the Makefile
+    now read it where it lives. Same parser as `issue_bot_gates._ci_unit_steps`.
+    """
+    text = (root / "scripts" / "ci_unit.py").read_text()
+    block = text.split("STEPS = [", 1)[1].split("]", 1)[0]
+    out: list[str] = []
+    for ln in block.splitlines():
+        tok = ln.strip().replace('"', "").replace("'", "").strip().strip(",").strip()
+        name = tok.split()[0] if tok else ""
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     return REPO_ROOT

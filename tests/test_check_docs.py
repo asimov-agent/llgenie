@@ -16,7 +16,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import json
 import subprocess
 import sys
@@ -562,10 +562,8 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     mk = makefiles_text()
 
     # When the ci-unit job and the unit suite are read
-    ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
-
     # Then ci-unit runs the docs check, and this test file is in the discovered unit suite
-    assert "$(MAKE) check-docs" in ci_unit
+    assert "check-docs" in ci_unit_steps(), "ci-unit must run the docs check (scripts/ci_unit.py STEPS)"
     assert "tests/test_check_docs.py" in ut.select(REPO)
     assert "check-docs:" in mk and "docs-report:" in mk
 

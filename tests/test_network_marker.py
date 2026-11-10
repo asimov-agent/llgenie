@@ -18,7 +18,7 @@ domain is not a call, and a download call aimed at a loopback server is offline 
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import ast
 import re
 import subprocess
@@ -141,7 +141,7 @@ def test_ci_unit_reaches_the_not_network_seam():
 
     ci_unit = target_recipe("ci-unit")
     test_unit = target_recipe("test-unit")
-    assert "test-unit" in ci_unit, f"ci-unit must call test-unit:\n{ci_unit}"
+    assert "test-unit" in ci_unit_steps(), f"ci-unit must call test-unit:\n{ci_unit}"
     assert "unit_tests.py run" in test_unit, f"test-unit must call unit_tests.py run:\n{test_unit}"
     # the default run() carries `-m "not network"` (asserted by test_the_unit_gate_runs_not_network)
     tn = target_recipe("test-unit-network")

@@ -8,7 +8,7 @@ trending-local-llms data/models.json.
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import ci_unit_steps, makefiles_text
 import json
 import os
 import re
@@ -816,11 +816,9 @@ def test_ci_checks_params_are_fresh():
     steps = " ".join(str(st.get("run", "")) for st in yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]["steps"])
     mk = makefiles_text()
 
-    # When its steps and its make target are read
-    recipe = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
-
+    # When its steps are read
     # Then check-engine-params runs
-    assert "make ci-unit" in steps and "$(MAKE) check-engine-params" in recipe
+    assert "make ci-unit" in steps and "check-engine-params" in ci_unit_steps()
 
 
 def test_every_smoked_engine_has_a_tiny_test_model(skills):

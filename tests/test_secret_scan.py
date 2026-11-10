@@ -13,7 +13,7 @@ three targets real, and the scan itself runs in CI's linux job (`make secret-sca
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import re
 import subprocess
 import sys
@@ -215,15 +215,18 @@ def test_the_wrapper_separates_a_finding_from_a_scan_that_could_not_run():
     present", and never as clean (issue #382 — the exit code is the signal)."""
 
     mk = makefiles_text()
-    recipe = mk.split("\nsecret-scan:", 1)[1].split("\n\n", 1)[0]
+    recipe = make_recipe("secret-scan")
+    script = (REPO / "scripts" / "secret_scan.py").read_text()
 
-    # Then the finding case is exit 1, named as a credential ...
-    assert "if [ $$rc -eq 1 ]" in recipe, recipe
-    assert "SECRET SCAN FAILED: a credential shape is present in the working tree." in recipe
+    # Then the finding case is exit 1, named as a credential ... (the exit-code handling folded
+    # into the script in the #800 split: the recipe is a one-line call, the contract lives there)
+    assert "if result.returncode == 1:" in script, script
+    assert "SECRET SCAN FAILED: a credential shape is present in the working tree." in script
     # ... and every other non-zero exit says the scan could NOT run, and never claims a clean tree
-    assert "elif [ $$rc -ne 0 ]" in recipe, recipe
-    assert "COULD NOT RUN" in recipe and "NO verdict" in recipe
-    assert "not a finding" in recipe
+    assert "elif result.returncode != 0:" in script, script
+    assert "COULD NOT RUN" in script and "NO" in script
+    assert "never read as a clean tree" in script
+    assert "@python3 scripts/secret_scan.py --runtime $(RUNTIME)" in recipe
 
 
 def test_ci_runs_the_scan_and_its_self_test_on_linux():

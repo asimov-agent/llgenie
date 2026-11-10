@@ -943,7 +943,7 @@ def test_the_bot_image_runs_the_hosts_nerve_profile_and_gate():
         "the checker must be in the agent image's build context (ci_images.IMAGES['agent'])"
 
     # And  `make nerve-profile-check` exercises the rule without an install
-    makefile = MAKEFILE.read_text()
+    makefile = makefiles_text()
     assert re.search(r"^nerve-profile-check:.*\n\tpython3 scripts/nerve_profile_check\.py --self-test",
                      makefile, re.M)
 

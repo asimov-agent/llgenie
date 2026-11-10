@@ -9,7 +9,7 @@ version line (recorded on the Mac host and on Linux CI).
 from __future__ import annotations
 
 
-from conftest import makefiles_text
+from conftest import make_recipe, makefiles_text
 import importlib
 import os
 import re
@@ -341,12 +341,12 @@ def test_linux_and_macos_run_the_same_pipeline():
     install = "\n".join(st.get("run", "") for st in pipeline["install"]["steps"])
     assert "make ci-install" in install and "make install\n" not in install
     assert "test-install-ci" not in install
-    ci_install = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
+    ci_install = make_recipe("ci-install")
     # product-only (issue #1027): ci-install installs the llgenie tool, never engine images
     assert "$(MAKE) test-env" in ci_install and "$(MAKE) ci-install-product" in ci_install
     assert "ci-wait-engine-images" not in ci_install and "ci-install-run" not in ci_install
     assert "$(MAKE) ci-install-dry" in ci_install and "test-install-ci" not in ci_install
-    prod = mk.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    prod = make_recipe("ci-install-product")
     assert "$(MAKE) venv-install" in prod and "$(MAKE) link" in prod and "$(MAKE) smoke" in prod
     assert "engine-launchers" not in prod and "test-built-engine" not in prod
 
@@ -597,7 +597,7 @@ def test_agents_read_builds_its_own_python312_venv():
     # And the CI job runs no pip or pytest itself, only make (one ci-<job> target, issue #117)
     runs = [st["run"] for st in jobs["agents-read"]["steps"] if "run" in st]
     assert runs == ["make ci-agents-read"]
-    ci_recipe = mk.split("\nci-agents-read:", 1)[1].split("\n\n", 1)[0]
+    ci_recipe = make_recipe("ci-agents-read")
     assert "$(MAKE) test-agents-read" in ci_recipe
     # And the job sets up python3.12 before that step (the same job runs on macOS: one pipeline file)
     steps = jobs["agents-read"]["steps"]
@@ -792,10 +792,11 @@ def test_engine_stage_is_one_make_target():
     assert eb.index("run: make push-engine") < eb.index("run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}")
 
     # And the target is a thin entrypoint over the python script
-    recipe = mk.split("\nci-engines:", 1)[1].split("\n\n", 1)[0]
-    assert "python3 scripts/ci_engines.py $(BACKEND)" in recipe and "bash-check" in recipe.splitlines()[0]
+    recipe = make_recipe("ci-engines")
+    assert "python3 scripts/ci_engines.py $(BACKEND)" in recipe
+    assert re.search(r"^ci-engines: bash-check", mk, re.M), "ci-engines must carry the bash-check prereq"
     assert re.search(r"^test-native-engines:", mk, re.M)
-    assert "tests/test_native_engines.py" in mk.split("\ntest-native-engines:", 1)[1].split("\n\n", 1)[0]
+    assert "tests/test_native_engines.py" in make_recipe("test-native-engines")
 
 
 @pytest.mark.parametrize("backend, want", [
@@ -902,7 +903,7 @@ def test_macos_ci_does_not_run_docker_github_actions():
         ("ci-cpu-health", "$(MAKE) test-health"),
         ("ci-top-tier", "$(MAKE) test-top-tier-ci "),
     ):
-        recipe = mk.split("\n" + target + ":", 1)[1].split("\n\n", 1)[0]
+        recipe = make_recipe(target)
         assert same in recipe and "Darwin" not in recipe, target
 
     # And every macOS job and every Linux job must succeed for the run to be green
@@ -1001,7 +1002,7 @@ def test_macos_make_test_stages_run_in_the_311_venv_not_a_container():
     blocks = re.findall(r"ifeq \(\$\(HOST_OS\),Darwin\)\n(.*?)\nendif", mk, re.S)
     runner = next(b for b in blocks if "TEST_RUN :=" in b)
     darwin, linux = runner.split("\nelse\n", 1)
-    env = mk.split("\ntest-env:", 1)[1].split("\n\n", 1)[0]
+    env = make_recipe("test-env")
 
     # Then macOS uses the venv python (no docker run, no test image) and Linux the 3.11 test image
     assert '$(VENV)/bin' in darwin and "$(RUNTIME) run" not in darwin and "$(TEST_IMG)" not in darwin
@@ -1021,7 +1022,7 @@ def test_macos_test_env_installs_uv_before_make_install():
 
     # Given the Makefile test-env recipe
     mk = makefiles_text()
-    env = mk.split("\ntest-env:", 1)[1].split("\n\n", 1)[0]
+    env = make_recipe("test-env")
     darwin, linux = env.split("ifeq ($(HOST_OS),Darwin)\n", 1)[1].split("\nelse\n", 1)
     linux = linux.split("\nendif", 1)[0]
 

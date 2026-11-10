@@ -44,13 +44,24 @@ WF = REPO / ".github" / "workflows" / "issue-bot.yml"
 
 
 def _real_tree(tmp_path: Path, workflow: str | None = None) -> Path:
-    """A copy of the real Makefile (optionally edited) and workflow, as a scratch checkout."""
+    """A copy of the real Makefile, scripts/ci_unit.py and workflow, as a scratch checkout."""
     root = tmp_path / "tree"
     (root / ".github" / "workflows").mkdir(parents=True)
+    (root / "scripts").mkdir(parents=True)
     (root / "Makefile").write_text(makefiles_text())
+    (root / "scripts" / "ci_unit.py").write_text((REPO / "scripts" / "ci_unit.py").read_text())
     (root / ".github" / "workflows" / "issue-bot.yml").write_text(
         workflow if workflow is not None else WF.read_text())
     return root
+
+
+def _drop_steps(root: Path, *names: str) -> None:
+    """Remove `name` entries from the fake checkout's ci_unit.py `STEPS` (issue #800)."""
+    p = root / "scripts" / "ci_unit.py"
+    text = p.read_text()
+    for name in names:
+        text = text.replace(f'    "{name}",\n', "")
+    p.write_text(text)
 
 
 def test_the_fast_gates_are_exactly_the_six_the_issue_names():
@@ -118,9 +129,8 @@ def test_a_runner_ci_unit_stopped_calling_is_a_finding(tmp_path):
     """The runner and its own check must be reached from `ci-unit`, or they are dead code."""
     # Given checkouts whose ci-unit no longer calls one of the guard's own targets
     for target in ("issue-bot-gates", "issue-bot-gates-check"):
-        text = makefiles_text().replace(f"\t$(MAKE) {target}\n", "", 1)
         root = _real_tree(tmp_path / target)
-        (root / "Makefile").write_text(text)
+        _drop_steps(root, target)
 
         # When  the static check runs
         errors = issue_bot_gates.check(root)
@@ -132,11 +142,10 @@ def test_a_runner_ci_unit_stopped_calling_is_a_finding(tmp_path):
 def test_a_new_ci_unit_gate_nobody_classified_reds_the_check(tmp_path):
     """The requested lock: adding a gate to ci-unit must force a fast/deferred decision."""
     # Given a checkout whose ci-unit runs one more gate than the guard classifies
-    text = makefiles_text().replace(
-        "\t$(MAKE) issue-bot-gates-check\n",
-        "\t$(MAKE) issue-bot-gates-check\n\t$(MAKE) brand-new-gate\n", 1)
     root = _real_tree(tmp_path)
-    (root / "Makefile").write_text(text)
+    p = root / "scripts" / "ci_unit.py"
+    p.write_text(p.read_text().replace('    "issue-bot-gates-check",\n',
+                                       '    "issue-bot-gates-check",\n    "brand-new-gate",\n', 1))
 
     # When  the static check runs
     errors = issue_bot_gates.check(root)
@@ -150,9 +159,8 @@ def test_a_new_ci_unit_gate_nobody_classified_reds_the_check(tmp_path):
 def test_a_stale_deferred_entry_is_named(tmp_path):
     """A classification for a gate ci-unit no longer runs has to be deleted, not left to rot."""
     # Given a checkout whose ci-unit dropped a gate DEFERRED still records
-    text = makefiles_text().replace("\t$(MAKE) check-strata-models\n", "", 1)
     root = _real_tree(tmp_path)
-    (root / "Makefile").write_text(text)
+    _drop_steps(root, "check-strata-models")
 
     # When  the static check runs
     errors = issue_bot_gates.check(root)
