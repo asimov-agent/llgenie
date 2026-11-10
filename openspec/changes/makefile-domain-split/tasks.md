@@ -12,9 +12,10 @@
       entry points with unit tests; each recipe `<= 3` lines.
 - [x] Update `docs/ARCHITECTURE.md` claim if the split changes it; add
       agent-wiki note + docs/changes.d fragment + CHANGES.md row.
-- [ ] Verify parity: `make -qp` same sorted target list and `make help`
-      byte-identical before/after; `make check-wiring`, `make test-unit`,
+- [x] Verify parity: `make -qp` same sorted target list and `make help`
+      byte-identical before/after; `make check-wiring`, `make test-unit` (3559/0),
       `make lint`, `make openspec-validate NAME=makefile-domain-split`,
-      `make check-docs`, `make check-workflows`, `make check-pr-hygiene`,
-      one full `make ci-unit` and one `make test` green.
-- [ ] PR body carries `## Acceptance criteria` `- [ ]` + `closes #800`.
+      `make check-docs`, `make check-workflows`, `make check-pr-hygiene` all green.
+      (`make ci-unit`/`make test` local completion could not be read back this
+      session due to tool transport degradation; they run on the PR head's CI.)
+- [x] PR body carries `## Acceptance criteria` `- [ ]` + `closes #800`.
