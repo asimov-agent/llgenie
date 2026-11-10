@@ -587,12 +587,17 @@ def failing_step(job: dict) -> str:
 
 
 def issue_body(run: dict, job: dict, log_tail: str, marker: str,
-               lane: Lane | None = None) -> str:
+               lane: Lane | None = None, run_id: "int | None" = None) -> str:
     """The issue body: the shape every issue in this repository carries (issue #745).
 
     Names the owning lane and the failure class (issue #2076) so a reader sees the routing without
     re-deriving it: the lane is the label the issue carries (or `unclassified` when None, meaning
     the issue was filed with no implementation label), and the class is the failing step.
+
+    The `**run:**` field carries the numeric run id (threaded `run_id`, issue #2072), NOT
+    `displayTitle` — the commit title the run tested — which stays in its own `**commit title:**`
+    field, and the body's reproduction command cites that same id so `gh run view <id>
+    --log-failed` is directly runnable.
     """
     step = failing_step(job)
     workflow = run.get("workflowName") or "?"
@@ -605,6 +610,10 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
     # failing cell is green in a real RUN (the single-cell `engine-build` dispatch CI owns), with
     # the cell's own log recorded (issue #2109).
     is_engine = lane == ENGINE_LANE
+    # The body's id is the thread-`run_id` taken by the route (the run dict from `run_detail()`
+    # carries `displayTitle` but not `id`), with the dict's own id/databaseId as a fallback so a
+    # direct caller can render without threading it (issue #2072).
+    run_id_disp = f"{run_id if run_id is not None else (run.get('id') or run.get('databaseId') or '?')}"
     # The registry-liveness / engine-pins publish class: the failing step is a liveness GATE naming a
     # committed tag whose manifest is missing — the remedy is a PUBLISH (`engine-build push=true`),
     # not a code PR (issue #2259). The "no PR this bot can repair" truth is useless on its own; name
@@ -684,12 +693,13 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
             f"**owned by lane:** `{owned}`",
             f"**failure class:** `{workflow}/{step or job_name}`",
             f"**workflow:** `{workflow}`",
-            f"**run:** `{run.get('displayTitle') or '?'}`",
+            f"**commit title:** `{run.get('displayTitle') or '?'}`",
+            f"**run:** `{run_id_disp}`",
             f"**event:** `{run.get('event') or '?'}`",
             f"**head sha:** `{(run.get('headSha') or '')[:12]}`",
             f"**failing job:** `{job_name}`",
             f"**failing step:** `{step or '(none named)'}`",
-            "Failing log tail (`gh run view <id> --log-failed`):",
+            f"Failing log tail (`gh run view {run_id_disp} --log-failed`):",
             "",
             "```",
             log_tail,
@@ -733,7 +743,7 @@ def filed(repo: str, marker: str) -> bool:
 
 
 def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
-               lane: Lane | None = None, dry: bool = False) -> str | None:
+               lane: Lane | None = None, dry: bool = False, run_id: "int | None" = None) -> str | None:
     """File ONE issue for this failure; return its URL, or None when already filed / dry.
 
     Labels the issue with the OWNING LANE's label (issue #2076): a pipeline failure carries
@@ -749,7 +759,7 @@ def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
         print(f"[run-fixer] would file: {title} ({marker})", flush=True)
         return None
     cmd = ["issue", "create", "--repo", repo, "--title", title,
-           "--body", issue_body(run, job, log_tail, marker, lane)]
+           "--body", issue_body(run, job, log_tail, marker, lane, run_id)]
     if lane and lane.label:
         cmd += ["--label", lane.label]
     out = _gh(cmd)
@@ -861,7 +871,7 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
               flush=True)
     step = failing_step(job) or (job.get("name") or "?")
     m = marker(run.get("workflowName") or "?", step)
-    file_issue(repo, run, job, log_tail, m, lane=lane, dry=dry)
+    file_issue(repo, run, job, log_tail, m, lane=lane, dry=dry, run_id=run_id)
     return 0
 
 
