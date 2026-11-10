@@ -907,6 +907,22 @@ never a #1088 merge-blocker, never a tick (that stays #1644). Both `ci.yml`'s `g
 `gh api` (issue #1589); a push to main has no body and prints a `nothing to validate` note instead of
 failing. Implemented as issue #1796.
 
+`make check-pr-acceptance-body` is the #2352 PR-body acceptance gate mounted in CI: it refuses a PR
+whose OWN `## Acceptance criteria` checklist is the SOLE vehicle for its acceptance record — an
+engine-bump PR that closes no issue — when a box is unticked at the current head, or a `- [x]` tick
+names no re-producible run id / command+rc+sha (`acceptance-body-unchecked` / `acceptance-body-tick-unprovable`).
+The #1644 write-back seam and the #1792 issue-side check only read the ISSUE body, so an engine-bump
+PR's body checklist was read by no gate: measured #2267 merged via armed auto-merge with all four
+boxes unticked, `ci-verdict` SUCCESS, and the published-pin criterion FALSE at the merge head, the
+manifest appearing only after the post-merge `engine-build push=true`. It fires ONLY in the sole-vehicle
+scope: a PR that closes an issue stays with the issue-side `check-pr-acceptance` (#1644/#1792), and a
+body with no checklist with `check-pr-acceptance-form` — neither is weakened. It is VERIFICATION only,
+ticks nothing. Both `ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside
+`check-pr-acceptance` with the LIVE PR body (`gh api`, issue #1589); `guard` is a row of the judged
+`ci_scope.JOBS` table, so a red box reds the judged run → `ci-verdict` → auto-merge cannot arm. A push
+to main has no PR number and prints a `nothing to validate` note instead of failing. Implemented as
+issue #2352.
+
 #### Each write uses the token that can perform it (issue #430)
 
 The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`
