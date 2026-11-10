@@ -13,6 +13,8 @@ the drift shipped, so these tests pin the exact id and prove each drift is caugh
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import importlib.util
 import re
 import shutil
@@ -146,7 +148,7 @@ def test_the_context_window_matches_the_published_length():
 def test_ci_unit_runs_the_check_and_the_targets_are_phony():
     """A gate no CI job executes is a defect: `ci-unit` must run it, and both targets are .PHONY."""
     # Given the Makefile
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When  the ci-unit recipe and the .PHONY block are read
     ci_unit = re.search(r"^ci-unit:.*?(?=^\S)", makefile, re.MULTILINE | re.DOTALL)
@@ -163,7 +165,7 @@ def test_ci_unit_runs_the_check_and_the_targets_are_phony():
 def test_the_pin_module_is_wired_to_its_target():
     """The module is not dead code: a make target runs `check`, and the same file is the source."""
     # Given the Makefile and the module
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When  the recipe behind the gate is read
     # Then  it runs this exact script's `check`, and `report` mirrors it

@@ -15,6 +15,8 @@ The last one is asserted against the workflow file itself, so the two cannot dri
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import sys
 from pathlib import Path
 
@@ -205,7 +207,7 @@ def test_an_engine_pin_change_is_held_to_the_security_gate_set_in_ci_unit():
     """
     # Assert the named gate targets still live under the `ci-unit` body — if the battery moves, the
     # unit-reinclusion test must move with it, not silently guard a target that no longer exists.
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     body = makefile.split("ci-unit:")[1].split("\n\n")[0]
     for target in ("check-engine-pins-published", "check-secret-output", "check-proc-gate",
                    "check-security-scan", "check-actions"):

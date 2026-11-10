@@ -12,6 +12,8 @@ These tests are wired into `make test-unit`.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import copy
 import io
 import json
@@ -378,7 +380,7 @@ def test_rules_and_wiring_are_documented():
 
     # Given  the repo rulebook and Makefile
     agents = (ROOT / "AGENTS.md").read_text()
-    makefile = (ROOT / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When   the additive-only rule is looked up
     # Then   AGENTS.md states it and points at the guard

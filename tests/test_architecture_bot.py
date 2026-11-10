@@ -9,6 +9,8 @@ Scenarios map one-to-one onto `openspec/changes/feat-architecture-bot/specs/arch
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import stat
@@ -401,7 +403,7 @@ def test_doc_leg_is_one_scrubbed_container_call():
     """The only model leg is one container call, credential-forwarded, and scrubbed."""
 
     # Given the Makefile's doc recipe and its internal prompt
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     recipe = mk.split("architecture-bot-doc:", 1)[1].split("_architecture-bot-doc:", 1)[0]
     prompt = mk.split("_architecture-bot-doc:", 1)[1].split("architecture-bot-publish:", 1)[0]
 
@@ -426,7 +428,7 @@ def test_targets_and_doc_are_wired_into_the_gates():
     """The new targets are real `##` targets, in `.PHONY`, documented, and the doc exists."""
 
     # Given the Makefile, README and the architecture doc
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     readme = (REPO / "README.md").read_text()
     bots = (REPO / "docs" / "BOTS.md").read_text()
     doc = (REPO / DOC).read_text()

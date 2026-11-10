@@ -19,6 +19,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import subprocess
@@ -627,7 +629,7 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
     # Given the registry-sync workflow and the Makefile
     steps = _sync_steps()
     runs = [s.get("run", "") for s in steps]
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     doc = yaml.safe_load(WORKFLOW.read_text())
 
     # When its steps are read
@@ -746,7 +748,7 @@ def test_skills_validate_uses_the_decisions_file_instead_of_a_global_flag():
     """One path: the manifest decides what is tolerable, not a loose global flag."""
 
     # Given the Makefile and the CI job that validates the vendored registry
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When the skills-validate recipe and its call sites are read
     recipe = mk.split("\nskills-validate:", 1)[1].split("\n\n", 1)[0]

@@ -12,19 +12,19 @@ the assertions in the gate without pretending a container holds a host install.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = REPO / "Makefile"
-
 #: `$(TEST_RUN)` is the containerized command on Linux and the venv python on macOS.
 CONTAINERIZED = "TEST_RUN"
 
 
 def _recipe(target: str) -> str:
     """The recipe lines of `target:`, without the target line itself."""
-    text = MAKEFILE.read_text()
+    text = makefiles_text()
     match = re.search(rf"^{re.escape(target)}:[^\n]*\n((?:\t[^\n]*\n|\n(?=\t))*)", text, re.M)
     assert match, f"no recipe for `{target}:` in the Makefile"
     return match.group(1)
@@ -74,7 +74,7 @@ def test_install_assertions_are_still_in_some_gate():
     """Removing them from the containerized command must not remove them from every gate."""
     reachable = ["test", "test-install-host", "test-install-ci", "ci-install"]
     for target in reachable:
-        recipe = _recipe(target) if re.search(rf"^{re.escape(target)}:", MAKEFILE.read_text(), re.M) else ""
+        recipe = _recipe(target) if re.search(rf"^{re.escape(target)}:", makefiles_text(), re.M) else ""
         if "tests/test_install.py" in recipe:
             return
     raise AssertionError(

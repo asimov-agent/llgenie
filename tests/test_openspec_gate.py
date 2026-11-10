@@ -8,6 +8,8 @@ is given.
 
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 from pathlib import Path
 
@@ -25,7 +27,7 @@ def test_ci_validates_every_active_change():
     """`ci-openspec` runs the all-changes gate, and names no single change."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When  its ci-openspec and openspec-validate-all recipes are read
     ci = _recipe(mk, "ci-openspec")

@@ -21,6 +21,8 @@ engine); what is provable here is the recipe and the step ORDER, which is what w
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import os
 import subprocess
 import sys
@@ -33,7 +35,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import issue_implementer as ii  # noqa: E402
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 WORKFLOW = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
 STEPS = {s.get("name"): s for s in yaml.safe_load(WORKFLOW)["jobs"]["implement"]["steps"] if s.get("name")}
 

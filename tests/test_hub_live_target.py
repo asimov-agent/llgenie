@@ -15,13 +15,15 @@ NO-SKIP POLICY: every case reads the real roster and the real recipe; none is sk
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import unit_tests as ut
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 
 LIVE_NODES = (
     "tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer",

@@ -17,6 +17,8 @@ Hermetic: pure file reads, no network.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 from pathlib import Path
 
@@ -87,7 +89,7 @@ def test_the_hermetic_unit_gate_never_runs_the_network_set():
     one-expression boundary at the Makefile/seam level so neither side can drift into the other.
     """
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     seam = (REPO / "scripts" / "unit_tests.py").read_text()
 
     # The seam target exists (the workflow depends on it) and selects the network set

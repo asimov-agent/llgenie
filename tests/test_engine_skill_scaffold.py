@@ -16,6 +16,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import subprocess
 import sys
@@ -248,7 +250,7 @@ def test_the_make_target_hands_engine_id_backends_out_and_dry_to_the_script():
     """The target is the entry point a bot uses: no flag may be silently dropped."""
 
     # Given the Makefile and the scaffold script
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     script = (REPO / "scripts" / "engine_skill_scaffold.py").read_text()
 
     # When the engine-skill-scaffold recipe is read

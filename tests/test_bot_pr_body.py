@@ -18,6 +18,8 @@ NO-SKIP POLICY: every case runs the real functions; none is skipped.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import subprocess
 from pathlib import Path
 
@@ -28,7 +30,7 @@ REPO = Path(__file__).resolve().parent.parent
 from scripts import bot_preflight as bp
 from scripts import issue_implementer as ii
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 
 #: The rulebook measurement the `AGENTS:`/`BASE:` stamp is written from (issues #792/#845/#2050).
 RECORD = {

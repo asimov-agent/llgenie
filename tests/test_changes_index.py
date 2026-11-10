@@ -11,6 +11,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import os
 import subprocess
 import sys
@@ -208,7 +210,7 @@ def test_make_changes_index_renders_and_the_gate_runs_it_in_ci():
     """The renderer is a make target, and `check-docs` (which `ci-unit` runs) gates the fragments."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When the check-docs recipe and the phony block are read
     check_docs = mk.split("\ncheck-docs:", 1)[1].split("\ndocs-report:", 1)[0]
@@ -304,7 +306,7 @@ def test_resolve_is_wired_as_make_changes_resolve_and_documented():
     """`make changes-resolve` runs exactly the issue's recipe (`git checkout <base> -- CHANGES.md
     && make changes-index`) and is documented in docs/BOTS.md (issue #1103)."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     bots = (REPO / "docs/BOTS.md").read_text()
 

@@ -18,6 +18,8 @@ Mirrors the fake-digest pattern of tests/test_ci_publish_order.py (issue #169).
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import re
 import subprocess
@@ -132,7 +134,7 @@ def test_the_real_diff_detects_a_repin_and_checks_the_registry():
 
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "$(MAKE) check-engine-pins-published" in mk, "ci-unit must run the gate"
     # .PHONY spans backslash-continuation lines (issue #883): read the whole block
     phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
@@ -198,7 +200,7 @@ def test_committed_sweeps_every_non_disabled_cell(monkeypatch):
 
 def test_committed_wired_into_make_and_phony():
     """The committed-set sweep has its own runnable make target and is .PHONY."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     target = re.search(r"^check-engine-pins-valid:.*(?=^\S)", mk, re.MULTILINE | re.DOTALL)
     assert target and "check --all" in target.group(0), \
         "check-engine-pins-valid must invoke the committed-set sweep"

@@ -15,6 +15,8 @@ Each test builds a tiny real git repo (the gate reads `git ls-files`/`git diff`)
 
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 import subprocess
 from pathlib import Path
@@ -22,7 +24,7 @@ from pathlib import Path
 from scripts import check_empty_files as gate
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 
 
 def _git(root: Path, *args: str) -> None:

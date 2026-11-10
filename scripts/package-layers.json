@@ -2,6 +2,7 @@
  "note": "The layering of scripts/ as data (issue #795). The five groups are the \u00a7Scripts groups of docs/ARCHITECTURE.md; every module of scripts/ belongs to exactly one. A cross-group import is refused unless it is listed in allowed_edges with its reason, a cycle is always refused, and a listed edge that no longer exists is refused too, so this file cannot rot into fiction. Read by scripts/check_package_layers.py (`make check-package-layers`, wired into `make ci-unit`).",
  "groups": {
   "Product path": [
+   "build_server",
    "detect_server",
    "download_test_model",
    "engine_bump",
@@ -112,11 +113,13 @@
    "ci_images",
    "ci_scope",
    "ci_slow_rows",
+   "ci_unit",
    "ci_verdict",
    "engine_build_trigger",
    "engine_capability",
    "lane_preflight",
-   "loop_harness"
+   "loop_harness",
+   "test_clean"
   ],
   "Bots and automation": [
    "acceptance_writeback",
@@ -361,7 +364,7 @@
   {
    "from": "rebase_bot_sweep",
    "to": "check_pr_base",
-   "reason": "check_pr_base holds the ONE definition of staleness — the merge-base-is-not-the-base-tip rule of issue #845 — and the sweep measures a PR's staleness through it (staleness_from_compare) instead of restating the rule, so the gate that reds a stale branch and the sweep that rebases it cannot drift (issue #2071)."
+   "reason": "check_pr_base holds the ONE definition of staleness \u2014 the merge-base-is-not-the-base-tip rule of issue #845 \u2014 and the sweep measures a PR's staleness through it (staleness_from_compare) instead of restating the rule, so the gate that reds a stale branch and the sweep that rebases it cannot drift (issue #2071)."
   },
   {
    "from": "registry_review",

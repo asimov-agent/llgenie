@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import os
 import subprocess
 from pathlib import Path
@@ -573,7 +575,7 @@ def test_the_make_recipe_passes_the_commit_range():
     """The recipe reads PR_BASE and names the branch PR_BRANCH, not PR_HEAD."""
 
     # Given the Makefile
-    recipe = (REPO / "Makefile").read_text().split("check-pr-closing:", 1)[1].split("\n", 2)[1]
+    recipe = makefiles_text().split("check-pr-closing:", 1)[1].split("\n", 2)[1]
 
     # When the recipe is read
     # Then it passes the base and the branch variable the author gate does not use as a rev

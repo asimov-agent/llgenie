@@ -11,6 +11,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 import sys
 from pathlib import Path
@@ -299,7 +301,7 @@ def test_check_exits_non_zero_on_a_violation(tmp_path, capsys):
 
 def test_the_guard_is_wired_into_the_repo():
     """A guard no target names runs nowhere: the make target, .PHONY, help, CI job and the test."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "check-secret-output:" in mk
     assert "check-secret-output" in mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "make check-secret-output" in mk.split("\nhelp:", 1)[1]
@@ -332,7 +334,7 @@ def test_the_secret_list_matches_the_repo_secrets():
 
     # ... and every credential the Makefile FORWARDS to the agent is too: the forwarded list is what
     # the agent's shell receives, and the guard/redactor are the only thing that scans it.
-    mk = "\n".join(line for line in (REPO / "Makefile").read_text().splitlines()
+    mk = "\n".join(line for line in makefiles_text().splitlines()
                    if not line.strip().startswith("#"))
     m = re.search(r"^AGENT_SHELL_KEYS\s*:?=\s*(.+)$", mk, re.MULTILINE)
     assert m, "AGENT_SHELL_KEYS is gone from the Makefile — the forwarding seam expects it"

@@ -45,7 +45,7 @@ import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 INSTALL = REPO / "scripts" / "install_nerve_ci.sh"
 PREFLIGHT = REPO / "scripts" / "agent_jev_preflight.sh"
 DOCKERFILE = REPO / "containers" / "agent" / "Dockerfile"
-MAKEFILE = REPO / "Makefile"
+from conftest import makefiles_text  # noqa: E402  (the split makefile set, issue #800)
 CI_IMAGES = REPO / "scripts" / "ci_images.py"
 WORKFLOWS = REPO / ".github" / "workflows"
 
@@ -743,7 +743,7 @@ def test_the_key_reaches_the_container_through_make_targets():
     """The make targets are the only path into the image, so they carry the `-e`."""
 
     # Given the Makefile
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text()
 
     # When each bot target's docker run is read
     # Then each passes the provider key by NAME (never a value), and the preflight is reachable
@@ -793,16 +793,17 @@ def test_a_changed_nerve_script_moves_the_agent_image_tag():
         assert f"COPY {Path(name).name} " in DOCKERFILE.read_text(), f"{name} is not COPYed by the Dockerfile"
 
     # And nothing still points at the old gate name
-    for path in (MAKEFILE, DOCKERFILE, CI_IMAGES, INSTALL, PREFLIGHT,
+    for path in (DOCKERFILE, CI_IMAGES, INSTALL, PREFLIGHT,
                  WORKFLOWS / "issue-bot.yml", WORKFLOWS / "fix-bot.yml"):
         assert "agent_nerve_gate" not in path.read_text(), f"{path.name} still names the old gate script"
+    assert "agent_nerve_gate" not in makefiles_text(), "the split Makefile still names the old gate script"
 
 
 def test_the_preflight_is_documented_for_the_reader():
     """`make help` and the README say what it is, and it is a declared phony target."""
 
     # Given the Makefile and the README
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text()
     readme = (REPO / "README.md").read_text() + "\n" + (REPO / "docs" / "BOTS.md").read_text()
 
     # When the target's documentation is read

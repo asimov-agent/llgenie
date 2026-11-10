@@ -13,6 +13,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import subprocess
 import sys
@@ -90,7 +92,7 @@ def test_every_test_file_in_the_real_tree_is_in_the_suite_or_recorded():
         for field in ("reason", "issue", "decided", "target"):
             assert e.get(field), f"{doc} lacks {field}"
         assert len(e["reason"]) > 40, doc
-        assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
+        assert f"{e['target']}:" in makefiles_text(), doc
 
     # And the roster's own consistency check reports nothing
     assert ut.check(REPO) == []

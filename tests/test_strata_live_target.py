@@ -20,13 +20,15 @@ skipped.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import unit_tests as ut
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 DOC = "tests/test_strata_download.py"
 TARGET = "test-strata-live"
 

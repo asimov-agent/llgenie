@@ -18,6 +18,8 @@ run where no profile exists; it is recorded in `agent-wiki/2026-10-28-agent-prof
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import shutil
@@ -1837,7 +1839,7 @@ def test_the_make_sync_recipe_wires_FORCE_to_the_force_flag(tmp_path):
     passed on the recipe line — `$(if $(CHECK),--check,)` had a sibling, `$(if $(FORCE),--force,)` did
     not. The recipe is what the gate's own callers use, so it gets pinned here, not just the script flag.
     """
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     # the recipe line is the one containing scripts/agent_profile_sync.py
     line = next(l for l in makefile.splitlines() if "scripts/agent_profile_sync.py" in l)
 

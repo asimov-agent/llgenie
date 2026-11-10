@@ -15,6 +15,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import subprocess
 import sys
@@ -557,7 +559,7 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     """The guard is only real when the pipeline runs it."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When the ci-unit job and the unit suite are read
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]

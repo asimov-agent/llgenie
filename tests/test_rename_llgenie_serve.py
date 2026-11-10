@@ -13,6 +13,8 @@ Two things this pins:
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import importlib.util
 import os
 import re
@@ -100,7 +102,7 @@ def test_the_shim_is_gone_and_the_real_cli_still_runs():
 
 
 def test_the_installed_artifacts_point_at_the_new_module():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "scripts/llgenie_serve.py" in mk
     assert OLD_MODULE.search(mk) is None, "the Makefile must name the module by its new name"
 

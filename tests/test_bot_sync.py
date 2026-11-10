@@ -9,6 +9,8 @@ reported and left to the rebase-bot (issue #246).
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import os
 import subprocess
 from pathlib import Path
@@ -122,7 +124,7 @@ def test_the_bots_wire_the_sync_into_their_workflows():
     fix_bot = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
     assert "bot-sync-main" in issue_bot, "the implementer must sync before opening a PR"
     assert "bot-sync-branch" in fix_bot, "the fix-bot must sync the PR before repairing it"
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     for target in ("bot-sync-main:", "bot-sync-branch:"):
         assert target in mk, f"{target} is not a make target"
 

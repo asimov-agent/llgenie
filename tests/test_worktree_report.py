@@ -15,6 +15,8 @@ logic runs against controlled API answers while every measurement happens on dis
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import re
@@ -318,7 +320,7 @@ def test_the_makefile_wires_the_report_and_guards_the_prune(tmp_path):
     """Both targets carry help + .PHONY, and the guard runs before the prune script."""
 
     # Given the repository's Makefile
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text()
 
     # When  the worktree targets are read
     report_line = next((l for l in text.splitlines() if l.startswith("worktree-report:")), "")
@@ -344,7 +346,7 @@ def test_every_agent_leg_forwards_the_bot_marker(tmp_path):
     """The guard is only real if a bot leg can receive a marker: every agent-image run forwards BOT=1."""
 
     # Given the repository's Makefile, one logical line per command
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text()
     lines = _logical_lines(text)
 
     # When  every command that boots the agent image is collected
@@ -362,7 +364,7 @@ def test_the_guard_reads_every_marker_a_lane_can_carry(tmp_path):
 
     # Given the guard's source and the Makefile's marker
     guard = (REPO / "scripts" / "worktree_prune_guard.py").read_text()
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When  both are read
     forwarded = re.search(r"^AGENT_BOT_MARKER := -e (\w+)=1$", makefile, re.M)

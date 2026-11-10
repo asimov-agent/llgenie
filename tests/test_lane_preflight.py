@@ -18,6 +18,8 @@ a PR cannot open on a gate its own head fails. This file keeps it honest:
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import subprocess
 import sys
 import textwrap
@@ -216,7 +218,7 @@ def test_real_gate_outside_fast_gates_reds_the_preflight(tmp_path, capsys):
 # --------------------------------------------------------------------------
 
 def test_make_target_exists_is_phony_and_runs_the_script():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "\nlane-preflight:" in mk, "make lane-preflight must exist"
     # runs the script (a target naming nothing is a no-op)
     recipe_block = mk.split("\nlane-preflight:", 1)[1].split("\n\n", 1)[0]

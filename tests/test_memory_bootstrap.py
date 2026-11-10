@@ -32,6 +32,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import re
@@ -332,7 +334,7 @@ def test_verify_reports_the_daemon_pid_port_and_connection_line(tmp_path):
 def test_make_targets_wire_install_bootstrap_verify_and_memory_check():
     """The vehicle's scripts are named by make targets CI runs, and are .PHONY."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
 
     # Each public target is a WORKING recipe that runs the script, and is phony-declared

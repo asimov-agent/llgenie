@@ -17,6 +17,8 @@ domain is not a call, and a download call aimed at a loopback server is offline 
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import ast
 import re
 import subprocess
@@ -130,7 +132,7 @@ def test_ci_unit_reaches_the_not_network_seam():
     Makefile, ci.yml and unit_tests.py: `ci-unit` -> `test-unit` -> `unit_tests.py run` (default
     `-m "not network"`), and `test-unit-network` -> `--marker network`. The hermetic gate excludes
     network-marked tests only if this chain holds end-to-end, not just in unit_tests.py alone."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     def target_recipe(t):
         m = re.search(r"(?m)^%s:.+\n((?:\t[^\n]*\n)+)" % t, mk)

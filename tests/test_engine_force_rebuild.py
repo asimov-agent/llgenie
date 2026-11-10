@@ -7,6 +7,8 @@ nothing — which is exactly what it did before this change.
 
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import subprocess
 
 from pathlib import Path
@@ -653,7 +655,7 @@ def test_build_engines_forwards_force_to_every_row():
     """The whole sweep can be forced: each row's make build-engine carries FORCE=1."""
 
     # Given the build-engines recipe
-    recipe = (REPO / "Makefile").read_text().split("\nbuild-engines:", 1)[1].split("\n\n", 1)[0]
+    recipe = makefiles_text().split("\nbuild-engines:", 1)[1].split("\n\n", 1)[0]
 
     # When  its per-row invocation is read
     # Then  FORCE is forwarded next to PUSH and VERIFY

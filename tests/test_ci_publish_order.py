@@ -13,6 +13,8 @@ lookup; the last test hits the real registry with no mock.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 import inspect
 import subprocess
@@ -95,7 +97,7 @@ def _publish_after(monkeypatch, clock: "_FakeClock", at_s: float) -> None:
 
 def _recipe(target: str) -> str:
     """One Makefile target's recipe, exactly as `make <target>` runs it."""
-    return (REPO / "Makefile").read_text().split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+    return makefiles_text().split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
 
 
 def _install_ci_targets() -> list[str]:
@@ -156,7 +158,7 @@ def test_the_install_target_keeps_its_darwin_branch_for_host_use():
     # And the gate is defined AFTER `HOST_OS := $(shell uname -s)`: make evaluates ifeq
     # while it parses the file, so a conditional placed earlier sees an empty HOST_OS and
     # would take the Linux branch on macOS too
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert mk.find("HOST_OS := $(shell uname -s)") < mk.find("\nci-wait-engine-images:")
 
 

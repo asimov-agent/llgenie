@@ -9,6 +9,8 @@ The two rules this file exists to protect: the refiner runs on the implementer's
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import datetime as dt
 import json
 import subprocess
@@ -358,7 +360,7 @@ def test_the_refiner_recipe_forwards_only_defined_keys():
     repo does not define; the run then carried a blank value into the container."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When every agent recipe is read
     # Then none forwards a key the repo does not define ...

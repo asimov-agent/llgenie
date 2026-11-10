@@ -229,8 +229,9 @@ class TestWorkflowYaml:
     def test_workflow_runs_the_rebase_entrypoint(self):
         # Given the workflow file and the make target behind its step
         root = Path(__file__).resolve().parent.parent
+        from conftest import makefiles_text
         text = (root / ".github/workflows/engine-bump-rebase.yml").read_text()
-        makefile = (root / "Makefile").read_text()
+        makefile = makefiles_text()
         # Then it runs on its OWN daily minute (the minute moved with issue #275: every bot owns a
         # slot, and pinning one here would just go stale again), checks out with BUMP_TOKEN, and
         # reaches the entrypoint through `make` (a workflow step calls a make target and nothing

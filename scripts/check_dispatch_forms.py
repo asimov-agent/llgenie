@@ -215,11 +215,33 @@ def flow_lines(text: str) -> list[str]:
 
 
 def makefile_targets(root: Path = REPO_ROOT) -> set[str]:
-    """Every target name the Makefile defines (a bare `name:` at the start of a line)."""
-    mk = root / "Makefile"
-    if not mk.exists():
-        return set()
-    return {m.group(1) for m in re.finditer(r"^([A-Za-z0-9_.-]+):(?!=)", mk.read_text(), re.M)}
+    """Every target name the Makefile defines (a bare `name:` at the start of a line).
+
+    Issue #800: the 2,083-line Makefile split its targets into `mk/{engines,gates,ci,security,
+    bots,install}.mk`, so a workflow header's `Flow:` target may live behind an `include`. Resolve
+    the top makefile's `include mk/*.mk` directives first (wildcard + trailing comment), the same
+    way `check_wiring` builds its graph, so the split cannot make this gate go blind.
+    """
+    seen: list[Path] = []
+    pending: list[Path] = [root / "Makefile"]
+    while pending:
+        p = pending.pop(0)
+        if p in seen:
+            continue
+        if not p.is_file():
+            continue
+        seen.append(p)
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(root.glob(inc)))
+            else:
+                pending.append(root / inc)
+    out: set[str] = set()
+    for p in seen:
+        for m in re.finditer(r"^([A-Za-z0-9_.-]+):(?!=)", p.read_text(), re.M):
+            out.add(m.group(1))
+    return out
 
 
 def violations(root: Path = REPO_ROOT) -> list[str]:

@@ -18,6 +18,8 @@ This file pins the contract behaviourally over real `CHANGES.md`/`docs/changes.d
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 from pathlib import Path
 
 from scripts import check_pr_hygiene  # noqa: E402  (the module under test)
@@ -116,7 +118,7 @@ def test_missing_changes_md_is_not_a_crash(tmp_path):
 # --------------------------------------------------------------------------
 
 def test_changes_index_subcommand_is_wired_into_the_gate():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     recipe = mk.split("\ncheck-pr-hygiene:", 1)[1].split("\npr-hygiene-report:", 1)[0]
     assert "check_pr_hygiene.py changes-index" in recipe, (
         "the check-pr-hygiene recipe must run the changes-index subcommand "

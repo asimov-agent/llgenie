@@ -19,6 +19,8 @@ NO-SKIP POLICY: every case runs the real functions; none is skipped.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import subprocess
 from pathlib import Path
 
@@ -30,7 +32,7 @@ from scripts import bot_preflight as bp
 from scripts import check_pr_hygiene as hygiene
 from scripts import issue_implementer as ii
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 WORKFLOWS = {p.name: p.read_text() for p in (REPO / ".github" / "workflows").glob("*.yml")}
 
 RECORD = {

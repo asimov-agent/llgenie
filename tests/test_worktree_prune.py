@@ -22,6 +22,8 @@ The cases that matter are the ones a naive prune gets wrong:
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import os
 import stat
@@ -682,7 +684,7 @@ def test_the_make_target_is_phony_documented_and_forwards_dry():
     """The target is a phony make target, carries a help line, is in the README, and forwards DRY."""
 
     # Given the real checkout's Makefile and README
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     readme = (REPO / "README.md").read_text()
 
     # When  the target and the .PHONY block (a `\`-continued block, not one line) are read

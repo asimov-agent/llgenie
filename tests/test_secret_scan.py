@@ -12,6 +12,8 @@ three targets real, and the scan itself runs in CI's linux job (`make secret-sca
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import re
 import subprocess
 import sys
@@ -87,7 +89,7 @@ def test_gitleaks_is_pinned_by_digest_in_every_site_and_the_guard_reds_on_a_widt
     sys.path.insert(0, str(REPO / "scripts"))
     import check_gitleaks_pin as gp
 
-    make = (REPO / "Makefile").read_text()
+    make = makefiles_text()
     scanner = (REPO / "scripts" / "secret_scan.py").read_text()
     selftest = SELF_TEST.read_text()
 
@@ -105,7 +107,7 @@ def test_gitleaks_is_pinned_by_digest_in_every_site_and_the_guard_reds_on_a_widt
     assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", selftest) is None
 
     # And reverting the Makefile to a bare tag reds the guard's structural checks
-    bad_make = (REPO / "Makefile").read_text().replace(
+    bad_make = makefiles_text().replace(
         "GITLEAKS_IMAGE := " + pinned, "GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1")
     assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", bad_make), "the red fixture must carry the tag"
 
@@ -132,7 +134,7 @@ def test_gitleaks_is_pinned_by_digest_in_every_site_and_the_guard_reds_on_a_widt
 # the wiring: three targets, and the job that runs them
 # ---------------------------------------------------------------------------
 def test_the_three_targets_exist_and_name_real_inputs():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     scanner = (REPO / "scripts" / "secret_scan.py").read_text()
 
     # Then a working-tree scan, a history scan and a self-test exist
@@ -212,7 +214,7 @@ def test_the_wrapper_separates_a_finding_from_a_scan_that_could_not_run():
     """A scanner that cannot run produced NO verdict: it must never be reported as "a credential is
     present", and never as clean (issue #382 — the exit code is the signal)."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     recipe = mk.split("\nsecret-scan:", 1)[1].split("\n\n", 1)[0]
 
     # Then the finding case is exit 1, named as a credential ...

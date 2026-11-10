@@ -13,6 +13,8 @@ product, only the external API is a stand-in), plus the real `ci.yml`, `Makefile
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import json
 import re
 import sys
@@ -25,7 +27,7 @@ from scripts import verify_closure as vc
 
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text()
 MERGE_WF = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 README = (REPO / "README.md").read_text()
 #: The documentation surface (issue #678): the user guide plus the reference pages it links.
 DOCS = README + "\n" + "\n".join(

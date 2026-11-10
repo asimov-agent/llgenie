@@ -13,6 +13,8 @@ mutate one file, prove `--check` reddens, re-provision, prove it greenns.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 import os
 import subprocess
 import sys
@@ -65,7 +67,7 @@ def test_make_seam_provisions_and_gates(tmp_path):
 
 def test_install_invokes_provisioning(tmp_path):
     # The real wiring: `make install` depends on `provision-agent-profiles`.
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "install: bash-check venv-install engine-launchers link test-built-engine smoke provision-agent-profiles" in mk
 
 

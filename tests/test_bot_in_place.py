@@ -15,10 +15,12 @@ NO-SKIP POLICY: both cases read the real recipe; none is skipped.
 """
 from __future__ import annotations
 
+
+from conftest import makefiles_text
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text()
 
 
 def _target_body(name: str) -> str:
