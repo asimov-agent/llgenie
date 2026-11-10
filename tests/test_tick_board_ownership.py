@@ -163,6 +163,39 @@ def test_rewriting_a_lane_created_ready_card_to_planner_goes_red(tmp_path):
     assert re.search(r"lanes_with_ready=2", line), line
 
 
+def test_single_card_edit_leaves_other_assignees_unchanged_and_zero_violations(tmp_path):
+    # Req.1 positive regression: a benign single-card edit must (a) leave every
+    # OTHER card's assignee byte-identical and (b) keep the invariant check at
+    # zero violations. This is the read-path contact of the host-only write-path
+    # proof in test_kanban_single_card_reassign.py: it re-runs the REAL
+    # tick_board.sh against a fixture board, reassigns exactly one READY card
+    # between two non-planner lanes (planner_owned_ready stays 0, so the line
+    # stays OK), and proves the check neither alters nor flags the untouched
+    # cards. The byte-identically test bites here because the REASSIGNED card
+    # must be the ONLY diff in the fixture after a legitimate peer-to-peer edit.
+    board = _board()
+    for t in board:
+        if t["assignee"] in ("llgenie-tester", "llgenie-security", "llgenie-business-analyst"):
+            t["status"] = "ready"
+    before = {t["id"]: t["assignee"] for t in board}
+    # baseline: no planner-owned ready, two lanes hold ready work -> OK, zero red
+    base_line = _ownership_line(_run(board))
+    assert _ownership_line(_run(board)).endswith("OK"), base_line
+    assert _mismatch_line(_run(board)).startswith("profiled_mismatch=0")
+    # reassign exactly ONE ready card from llgenie-security into llgenie-tester
+    target = next(t["id"] for t in board if t["assignee"] == "llgenie-security")
+    for t in board:
+        if t["id"] == target:
+            t["assignee"] = "llgenie-tester"
+    after_map = {t["id"]: t["assignee"] for t in board}
+    changed = [k for k in before if before[k] != after_map.get(k)]
+    assert changed == [target], f"more than the one edited card changed: {changed}"
+    # re-run the check on the edited board: still OK, zero violations
+    line = _ownership_line(_run(board))
+    assert line.endswith("OK"), line
+    assert "planner_owned_ready=0" in line, line
+
+
 def test_ownership_line_prints_even_with_empty_board(tmp_path):
     # A check that cannot fail is decoration; an empty board still prints the
     # line (0 <= max(1,0) -> OK), and the section header stays present.
