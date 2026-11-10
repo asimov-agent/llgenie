@@ -2210,6 +2210,7 @@ make test-interactive-tensorfold-ci                       # macOS CI runner vari
 # has no native engine and exit 0; Linux engines are tested in their images (make test-engine).
 make test-health       # Linux: 0.5B answers "hi" through the llama.cpp image. macOS: refuses --arch cpu, no image
 make test-health-host  # after make install: the same through ~/bin/llama-server (on the host, no container)
+make test-board-ownership-host  # HOST-ONLY proof of the tick board-ownership invariant (issue #2353 AC3): runs the REAL hermes kanban CLI (create/reassign/read-back) against a throwaway HERMES_KANBAN_DB — no CI job reaches it (a runner has no live board and no hermes in the hermetic image), so it is recorded host-only-wiring.json + unit-suite.json and run on the tick host
 make test-top-tier     # REAL acceptance (no mocks): live HF trending + fit gate + real download
 make test-top-tier-serve  # Linux: lightweight model through the llama.cpp image, "hi". macOS: no engine image
 make test-top-tier-ci        # REAL top-tier acceptance inside the test container (CI/CPU; hf + gguf are bundled)
