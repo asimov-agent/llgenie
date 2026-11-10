@@ -49,6 +49,7 @@ def _run(prs, main_override=None):
             "REPO": str(tmp),
             "MAIN_OVERRIDE": main_override or "aaaaaaaa",
             "PR_LIST_JSON": str(prf),
+            "KANBAN_DB": str(tmp / "absent.db"),
             "HERMES_BIN": "/bin/true",
         },
         timeout=120,
