@@ -113,10 +113,40 @@ def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return run_ok(cmd, **kw)
 
 
+# How many stream lines a failure prints (issue #2452 criterion 4): a bounded tail,
+# never the discarded-entirety of the old `publish failed: <scanner>` one-liner.
+FAILURE_TAIL_LINES = 25
+
+
+def _report_failure(scanner: str, res: subprocess.CompletedProcess, action: str) -> None:
+    """A failed command prints its exit code and a tail of what it actually said.
+    The streams were already captured by `run_ok`; the defect was discarding them."""
+    print(f"[scanner-image] {action} failed: {scanner} (exit {res.returncode})")
+    lines = [ln for ln in f"{res.stdout or ''}\n{res.stderr or ''}".splitlines() if ln.strip()]
+    for line in lines[-FAILURE_TAIL_LINES:]:
+        print(f"[scanner-image] | {line}")
+
+
+def _published_platforms(ref: str) -> set[str]:
+    """Which platforms the registry ALREADY carries for this ref (issue #2453).
+
+    `docker buildx imagetools inspect` needs no build and no layer pull; a tag the
+    registry does not have exits non-zero, which `run_ok` returns as a value. That is
+    a question about the registry, not a failure of the leg: rc != 0 is an empty
+    answer — never an exception, never a red.
+    """
+    res = _run([RUNTIME, "buildx", "imagetools", "inspect", ref])
+    if res.returncode != 0:
+        return set()
+    text = f"{res.stdout or ''}\n{res.stderr or ''}"
+    return set(re.findall(r"Platform:\s*(linux/\S+)", text))
+
+
 def build(scanner: str, tag: str | None = None) -> str:
     tag = tag or f"llgenie/scanner-{scanner}:{content_hash(scanner)}"
     res = _run([RUNTIME, "build", "-t", tag, str(dockerfile(scanner).parent)])
     if res.returncode != 0:
+        _report_failure(scanner, res, "build")
         raise SystemExit(f"[scanner-image] build failed: {scanner}")
     return tag
 
@@ -144,11 +174,29 @@ def test(scanner: str) -> int:
 
 
 def publish(scanner: str) -> int:
-    """Build both platforms and push the content-hash tag."""
+    """Publish the content-hash tag, unless the registry already carries it.
+
+    GHCR cannot hold a multi-arch image as a plain `docker build -t …` + push, so
+    this leg uses `docker buildx build --platform … --push` like the engine legs.
+
+    A content-hash tag is immutable, so the registry is asked FIRST (issue #2453):
+    when it already carries every platform in `PLATFORMS`, the re-push is skipped —
+    a transient multi-arch failure on an artifact that already exists must not red
+    main (measured: run 42755279061 reds main re-pushing the tag run 42751641578
+    published 40 minutes earlier). A tag absent, or present without a required
+    platform, publishes exactly as before; the skip never suppresses a real publish.
+    """
     target = ref(scanner)
+    wanted = {p.strip() for p in PLATFORMS.split(",") if p.strip()}
+    already = _published_platforms(target)
+    if wanted and wanted <= already:
+        print(f"[scanner-image] already published ({', '.join(sorted(wanted))}), "
+              f"skipping re-push: {target}")
+        return 0
     res = _run([RUNTIME, "buildx", "build", "--platform", PLATFORMS, "--push",
                 "-t", target, str(dockerfile(scanner).parent)])
     if res.returncode != 0:
+        _report_failure(scanner, res, "publish")
         raise SystemExit(f"[scanner-image] publish failed: {scanner}")
     print(f"[scanner-image] published {target}")
     return 0
