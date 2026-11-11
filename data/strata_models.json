@@ -1,8 +1,8 @@
 {
   "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
-  "source": "https://github.com/Niko1221/Strata/blob/d94bac6aa33065f5e6a65cca111846627599e318/setup.py",
-  "ref": "v0.2.9",
-  "pinned": "d94bac6aa33065f5e6a65cca111846627599e318",
+  "source": "https://github.com/Niko1221/Strata/blob/4a4160162e4a402e082f41aa0a88e6eed629d913/setup.py",
+  "ref": "v0.2.11",
+  "pinned": "4a4160162e4a402e082f41aa0a88e6eed629d913",
   "hf_revisions": {
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
     "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "99bb8f7f95c7aa7b24a36a7786a4f657b30f5d3d",
@@ -11,7 +11,8 @@
     "unsloth/Qwen3.6-35B-A3B-MTP-GGUF": "5bc3e238d916f48a861bac2f8a1990a0e9b7e98d",
     "agentionai/Qwen3.8-Flash-Next-Gyro-GGUF": "1ada08422e404aca51ab9df665f089f34c419c6b",
     "unsloth/DeepSeek-V4.1-Flash-1017-GGUF": "8a6ec9cf118e785a362ea94ee123c61c70553be6",
-    "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF": "cb02422c900df489cea5833e8a92171224059b3c"
+    "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF": "cb02422c900df489cea5833e8a92171224059b3c",
+    "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-Coder-GGUF": "0b1d5da5734d76375bdad4e72af85a420fde7af7"
   },
   "families": {
     "qwen": {
@@ -158,6 +159,76 @@
       "experimental": false,
       "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00006.gguf",
       "shards": 6
+    },
+    "UD-IQ1_M": {
+      "download_gb": 68.0,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf",
+      "shards": 3
+    },
+    "UD-Q2_0": {
+      "download_gb": 70.5,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf",
+      "shards": 3
+    },
+    "UD-IQ2_XS": {
+      "download_gb": 75.8,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf",
+      "shards": 3
+    },
+    "UD-Q2_K_XL": {
+      "download_gb": 79.6,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
+      "shards": 4
+    },
+    "UD-IQ3_XXS": {
+      "download_gb": 83.6,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
+      "shards": 4
+    },
+    "UD-Q3_K_XL": {
+      "download_gb": 89.5,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
+      "shards": 4
+    },
+    "UD-IQ4_XS-v31": {
+      "download_gb": 93.7,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
+      "shards": 4
     },
     "Gyro-S": {
       "download_gb": 58.5,
