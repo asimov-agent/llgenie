@@ -34,5 +34,5 @@ hermes kanban dispatch --max 1
 `--workspace default` is rejected (scratch | worktree | dir only). Verify spawn: `running` count +1,
 and the brief must state one-vehicle-per-issue (do not touch sibling PRs with distinct reds, e.g.
 a separate engine-build-pr-trigger failure), reuse `--workspace <worktree>` only when the issue
-already has a worktree holding it, and require `--force-if-includes` not `--force-with-lease` on
+already has a worktree holding it, and require `--force-with-lease` with a fresh fetch before every push (never `--force-if-includes` on a rebased head: the remote tip is a non-ancestor there) on
 any push.

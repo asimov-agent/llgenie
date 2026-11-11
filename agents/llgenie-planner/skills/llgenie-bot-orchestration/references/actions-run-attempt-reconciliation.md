@@ -108,7 +108,7 @@ A rendered **index file** (e.g. `CHANGES.md` / a change-notes index) is the rout
 PR and the merges since it branched append a row. Resolve by **keeping both entries** — main's rows are
 immutable, the PR's row is appended — and tell the lane explicitly not to re-author the PR's own payload
 files (byte-identity folds, generated docs) while rebasing; a rebase that rewrites the payload destroys
-the property the PR was verified for. Then require `--force-if-includes` after a fresh fetch, and a
+the property the PR was verified for. Then require a plain `--force-with-lease` after a fresh fetch, and a
 re-run at the NEW head (a green at the pre-rebase head binds to that head only).
 
 (Genuinely merge-ref-dependent reds still want a fresh head — but prefer the narrowest route: if the red

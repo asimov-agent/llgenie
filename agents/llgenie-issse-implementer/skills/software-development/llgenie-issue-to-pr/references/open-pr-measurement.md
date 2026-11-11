@@ -250,7 +250,7 @@ nothing (tree identical), then `make check-pr-closing` rc 0 locally, then force-
 
 ## Force-push the amended head
 
-`git push --force-with-lease --force-if-includes <remote> <branch>` after fetching that branch
+`git push --force-with-lease --force-if-includes <remote> <branch>` after fetching that branch (the amended head keeps the remote tip an ancestor — the sanctioned integrate case)
 into its tracking ref immediately before the push. The explicit-lease form
 (`--force-with-lease=<ref>:<sha>`) can be rejected on a refspec mismatch even when the lease is
 genuinely fresh; if it bounces, re-fetch the branch and use the plain `--force-with-lease` (the

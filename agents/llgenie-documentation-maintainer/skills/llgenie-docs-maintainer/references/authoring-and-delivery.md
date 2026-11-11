@@ -88,7 +88,7 @@ git fetch origin <branch>
 git log --oneline -1 origin/<branch>     # is this your own last push, or a stranger?
 ```
 
-If the wire head is your own previous push, re-push with `--force-with-lease --force-if-includes`. A
+If the wire head is your own previous push, re-push with `--force-with-lease --force-if-includes` (the wire head is your own last push — an ancestor of an amended head; after a rebase use the plain lease instead). A
 plain `--force` here is how a repair another lane made gets silently discarded. After the push, read
 the PR's `headRefOid` and `mergeable` back — a push that exits 0 has not necessarily moved the PR.
 

@@ -37,7 +37,7 @@ on disk, so measure the on-disk file the linter actually read.
 
 ```
 python scripts/lint_linefeeds.py --fix
-# amend the existing commit, force-push with --force-if-includes
+# amend the existing commit (remote tip stays an ancestor), then git push --force-with-lease --force-if-includes
 git show <new-head>:<path> | tail -c1 | od -An -c   # expect a newline
 ```
 

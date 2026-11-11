@@ -31,7 +31,7 @@ tree→live and silently truncates the live file.
    re-render `CHANGES.md`. Fragments must end with a newline or lint fails.
 6. **Rebase onto a freshly fetched `origin/main` before pushing**, and redo steps 3–5 after every
    rebase: new fragments land on main, so a `CHANGES.md` rendered from the older base is stale.
-7. **Push with `--force-with-lease --force-if-includes`** on your own branch only.
+7. **Push with a plain `--force-with-lease` after a fresh fetch** on your own branch only — the fold rebase made the old remote tip a non-ancestor.
 
 ## Required body lines for an `agents/` PR
 

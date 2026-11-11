@@ -317,7 +317,7 @@ pinned-scanner evidence (0 at head / control finding pre-fix) carries over uncha
 in the rebase comment. If `CHANGES.md` is auto-generated and the base move appended fragments, **regenerate it
 from the fragment set** (`python3 scripts/changes_index.py write`, expect no residual diff against the committed
 file) rather than hand-merging the generated table, then re-run the four gates on the rebased head. Push the
-rebased branch with `git fetch origin <branch>` first, then `git push --force-with-lease --force-if-includes
+rebased branch with `git fetch origin <branch>` first, then `git push --force-with-lease
 origin <branch>` against that true fetched sha.
 
 **`gh run list` has no `--head` flag** — to find the run(s) for a PR's head sha, use `gh pr checks <n>` (parse

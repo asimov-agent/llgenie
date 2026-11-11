@@ -47,7 +47,7 @@ source rather than arguing the badge:
 2. `git add` the fix and `git commit --amend --no-edit` — keep the one atomic
    commit; do not stack a second 'fix lint' commit.
 3. `git fetch origin <branch>` first, confirm the remote head equals your
-   pre-amend head, then `git push --force-if-includes --force-with-lease`.
+   pre-amend head, then `git push --force-if-includes --force-with-lease` (the amend case: the remote tip is an ancestor).
 4. Confirm the new head landed and a **fresh** run of the failing workflow is
    queued on it (the old failed run sits on the dead sha and does not clear).
 

@@ -109,7 +109,7 @@ T+0, readiness poll expires at T+600s, `vllm serve` LAUNCH LINE only reaches T+6
 BEFORE the server process starts, on a shared runner). Read the timestamps of the poll-expiry line vs the
 serve-launch line before classifying. Rerun the failed engine-build run at the SAME head (a CI
 verification, no branch mutation) as the flake-probe: green on rerun = flake confirmed; red again =
-real defect -> the owning lane fixes on the same branch via `--force-with-lease --force-if-includes`.
+real defect -> the owning lane fixes on the same branch via a plain `--force-with-lease` after a fresh fetch.
 
 ## When the OWNER is merging bot PRs themselves, the board is a live rebase TREADMILL — not a frozen owner-gate
 
@@ -125,7 +125,7 @@ Per-pass routine while merges are landing:
 1. `git fetch origin main`; read the live tip. If it moved since your last pass, EVERY open PR is a candidate.
 2. Re-sweep all open PRs against the new tip — measure each head's containment (`git merge-base --is-ancestor
    origin/main <head>`), not a cached DIRTY flag, and prove any real conflict with `merge-tree --write-tree`.
-3. Dispatch ONE batch rebase (all affected PRs, one branch-per-PR, `--force-with-lease --force-if-includes`,
+3. Dispatch ONE batch rebase (all affected PRs, one branch-per-PR, a plain `--force-with-lease` after a fresh fetch,
    one message/anchors) to the lane that owns force-pushes — a single merge re-stales the whole set, so this is
    one class, not N defects.
 4. **Read `autoMergeRequest` back after the rebase, every time.** An already-armed PR commonly keeps its arm

@@ -61,7 +61,7 @@ later container edit, so keep the copy step idempotent rather than hand-chowning
 - Fetch the branch, then `git reset --hard <remote>/<branch>` so you move the ACTUAL PR head, not a
   stale local commit that diverged while the remote was force-pushed by another lane.
 - Untracked unrelated files survive reset and rebase — leave them, never tidy another lane's residue.
-- Push with `--force-with-lease --force-if-includes` after fetching.
+- Push with a plain `--force-with-lease` after fetching — a rebased head does not contain the old remote tip, so `--force-if-includes` would justifiably reject it.
 - If a commit lands with a damaged file (an interrupted in-place edit), repair rather than stack:
   stage the good file, prove the committed blob is the good one (`git show :<path> | wc -l`), amend,
   force-push, and read the remote ref back (`remote == local`) before calling it done.

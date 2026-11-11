@@ -29,7 +29,7 @@ for each branch:
   # 1 content: add the owed artifacts (trio / docs row) with correct stems
   # 2 message: git commit --amend  (drop the claim line; keep the descriptive body)
   # 3 gates:  make check-pr-closing check-docs changes-index lint   -> rc 0 each
-  # 4 push:   git push --force-with-lease --force-if-includes <remote> <branch>
+  # 4 push:   git push --force-with-lease <remote> <branch>
   # 5 record: echo "<branch> $(git rev-parse --short HEAD)"
 ```
 

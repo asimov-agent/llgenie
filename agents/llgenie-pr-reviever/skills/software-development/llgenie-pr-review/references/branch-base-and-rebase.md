@@ -9,7 +9,7 @@ The remedy is a **rebase onto the live tip** — not an argument with the gate, 
 ```
 git fetch origin refs/heads/main:refs/remotes/live/main --force
 git rebase --onto refs/remotes/live/main <old-parent-of-your-commit> <branch>
-git push --force-with-lease --force-if-includes origin <branch>
+git push --force-with-lease origin <branch>
 ```
 
 `--force` on the fetch is required (a bare fetch is silently rejected as non-fast-forward once `live/main` exists and has moved — see `base-and-merge-integrity.md`), and the explicit `--onto` form is the safe one: it cannot mis-compute the fork point. A plain `git rebase <tip>` lets git pick the fork point, and can flatten your commit — see below.

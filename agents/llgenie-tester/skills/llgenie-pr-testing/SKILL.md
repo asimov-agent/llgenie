@@ -689,7 +689,7 @@ is a red row that is not a defect. Before promising or measuring rows:
   git fetch origin <branch>; R=$(git ls-remote origin <branch> | cut -f1)
   git rebase origin/<branch>                      # your commit on top of THEIR latest
   ... re-run the changed tests (their push landed under you) ...
-  git push origin HEAD:<branch> --force-if-includes --force-with-lease=<branch>:$R
+  git push origin HEAD:<branch> --force-with-lease=<branch>:$R
   ```
 
   The lease pinned to the fetched sha makes a concurrent push between your fetch and push REJECT

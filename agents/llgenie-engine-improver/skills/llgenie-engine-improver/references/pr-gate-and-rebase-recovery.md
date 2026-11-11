@@ -155,7 +155,7 @@ An agent PR body AND the squash commit text must adjacently close the SAME issue
 
 ## A rebase rewrites history, so the push needs a measured-lease force
 
-After a rebase the branch tip is not an ancestor of the remote tip, so a plain push is rejected. Push with `--force-with-lease=<branch>:<sha read from ls-remote seconds ago>` plus `--force-if-includes`.
+After a rebase the branch tip is not an ancestor of the remote tip, so a plain push is rejected. Push with `--force-with-lease=<branch>:<sha read from ls-remote seconds ago>`.
 
 **`git rebase --onto <newbase> <upstream>` replays `<upstream>..<branch>` — pass the MERGE-BASE (the branch's old base), never the branch tip.** Passing the tip as `<upstream>` makes the range empty: git happily reports `Successfully rebased` and resets the branch to `<newbase>`, SILENTLY DELETING every commit on the branch. This is the exact form that bites: `git rebase --onto origin/main <current-head> <branch>` prints success and leaves the branch at `origin/main` with your work gone. Read `<upstream>` from `git merge-base origin/main <branch>` (or the base the commits sit on) and confirm afterwards that `git log --oneline` still shows your commits and `git rev-parse <branch>` is NOT `origin/main`. Recovery if you already ran it: the old tip is in `git reflog`/`git cat-file -t <old-sha>` (still a live object) — `git branch -f <branch> <old-sha>` then redo with the correct upstream.
 

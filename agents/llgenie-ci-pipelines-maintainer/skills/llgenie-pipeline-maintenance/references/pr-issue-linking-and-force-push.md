@@ -23,8 +23,8 @@ surfaces must name the new issue; neither may name the old one as closed.
    closes #NEW
    EOF
    ```
-2. **Push the amended head.** After an amend, `git push --force-if-includes` can be **rejected**
-   with a generic "non-fast-forward / use `git pull`" hint. Retry with lease:
+2. **Push the amended head.** Fetch the branch first, then push with lease: an amend keeps the remote tip an ancestor
+   of the new head; a `non-fast-forward` hint is a stale-lease signal — re-fetch and retry:
    ```
    git push --force-with-lease origin <branch>
    ```

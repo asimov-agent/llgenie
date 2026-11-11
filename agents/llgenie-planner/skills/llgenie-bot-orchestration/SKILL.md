@@ -785,7 +785,7 @@ git -C <repo> config user.email "<allowed email>"   # repeat per worktree; `-c` 
 **A force-push from a stale worktree overwrites another lane's repair.** `--force-with-lease` is only as fresh as the
 ref you fetched: it protects against strangers, not against your own older knowledge, so a push from a tree cut before
 someone else repaired the branch passes the lease and silently discards their commit — including a corrected author and
-the lines that made the branch green. Fetch immediately before any force, use `--force-if-includes`, and **never
+the lines that made the branch green. Fetch immediately before any force, use a plain `--force-with-lease` (`--force-if-includes` is not used after a rebase: the new head does not contain the remote tip — the flag applies only when that tip is an ancestor), and **never
 force-push a branch another lane repaired**. When it has already happened: compare trees (`gh api
 repos/<o>/<r>/commits/<sha> --jq .commit.tree.sha`) to say what the greens still describe, name the lost content from
 `git diff --stat <discarded> <tip>`, and if the PR is closed leave it dead rather than spending another matrix to

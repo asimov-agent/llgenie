@@ -41,7 +41,7 @@ ci-unit`. Quote both, and rewrite only your own range:
 git -c 'user.name="Asimov Agent"' -c user.email=support@docondee.com rebase <base> --exec \
   'git -c "user.name=Asimov Agent" -c user.email=support@docondee.com commit --amend --no-edit \
    --author="Asimov Agent <support@docondee.com>" -q'
-git push --force-with-lease=<branch>:<old-sha> --force-if-includes origin HEAD:<branch>
+git push --force-with-lease=<branch>:<old-sha> origin HEAD:<branch>
 ```
 
 - Force-push only after a fetch and only when `statusCheckRollup` shows **0 in-progress runs** at the old head.

@@ -26,7 +26,7 @@ The branch was cut from `dea3dcab`, but main advanced (by other merges) while CI
 `check-pr-base` red (`HEAD NOT cut from origin/main`, merge-base != origin/main) surfaced as the `linux / unit`
 step failing — the run read FAILED even though every unit test passed. Fix: rebase onto the CURRENT
 `origin/main` tip, `make bot-preflight`, regenerate AGENTS/BASE into the body, re-push
-(`--force-with-lease --force-if-includes`). Verify the deliverable files are byte-identical across the rebase
+(a plain `--force-with-lease` after the fresh fetch). Verify the deliverable files are byte-identical across the rebase
 (sha256 per file) so earlier AC/review evidence still binds.
 
 ## The re-anchor loop
