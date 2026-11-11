@@ -57,6 +57,11 @@ Not a code task. Use it on every pass that measures or repairs llgenie's CI pipe
 doc and the gate disagree, a workflow's failure reaches nobody, or a claim needs a sha and a run id
 behind it. It ends in a measured finding routed to its owner, or a pipeline-file PR — never in a guess.
 
+> Hygiene: `references/repo-artifact-conventions.md`
+>
+> Live-only skill lessons folded from the private profile under #2062 — 30+ named rules (body-only reruns, docker-driver cache export, acceptance rewriteback, check-post 422, force-push lag, workflow_run consumer freeze, …) that survived the reload and are now versioned: `references/live-only-skill-lessons.md`
+
+
 **A pipeline is "documented" only when the doc and the measurement agree**, and **every red needs a
 consumer** (a `workflow_run.workflows` roster is matched verbatim, so it rots silently).
 

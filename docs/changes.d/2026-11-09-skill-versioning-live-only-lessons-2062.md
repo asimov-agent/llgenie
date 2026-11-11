@@ -1,0 +1,1 @@
+| 2026-11-09 | agents(ci-pipelines-maintainer) version the 38 live-only earned skill lessons into `agents/` so a sync can never destroy them (issue #2062) | [skill-versioning-live-only-lessons-2062](agent-wiki/2026-11-09-skill-versioning-live-only-lessons-2062.md) | #2062 |
