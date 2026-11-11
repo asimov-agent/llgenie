@@ -24,6 +24,16 @@ So this guard reads every YAML file in the repository and reports:
                          = the file path, no log. Measured on run-failure-reactor.yml, whose two
                          push runs (`38881240747`, `38881791437`) were refused exactly that way while
                          this guard passed — the gap this rule closes.
+* `workflow-cron`          a `schedule: - cron:` value outside GitHub's cron grammar. GitHub REFUSES
+                         the whole file for it: measured on `.github/workflows/semgrep-rules-refresh.yml`,
+                         whose `1 6 * * 15` put `15` in the DAY-OF-WEEK field (max 7), and GitHub's own
+                         dispatch call answers `422 Invalid Argument - failed to parse workflow: invalid
+                         cron attribute "1 6 * * 15"`. Every event then produced a 0-job `startup_failure`
+                         run named for the file PATH (186 ghosts, issue #2472), while PyYAML and the
+                         expression parser above both accept the file — only GitHub's cron parser rejects
+                         it. Grammar (GitHub's own table): 5 whitespace-separated fields — minute 0-59,
+                         hour 0-23, day-of-month 1-31, month 1-12, day-of-week 0-7 or SUN..SAT — each a
+                         comma-list of `*`, a value, or a `lo-hi` range, each optionally `/`-stepped.
 
 The expression check is a real recursive-descent parser over GitHub's expression grammar (`||`, `&&`,
 comparisons, `+ - * / %`, unary `! -`, property access `.x` / `.*` / `[...]`, function calls, numbers,
@@ -73,6 +83,61 @@ NAME_KEY = re.compile(r"^name:\s*(?P<value>.+?)\s*$", re.M)
 DISPATCH_KEY = re.compile(r"^(?P<indent>[ \t]*)workflow_dispatch:\s*$")
 #: A top-level trigger key under `on:` — a schedule, a `workflow_run`, a push, a PR event …
 ON_TRIGGER_KEY = re.compile(r"^(?P<indent>[ \t]*)([A-Za-z_][\w-]*?):\s*(#.*)?$")
+#: A `- cron:` entry inside an `on.schedule:` list — GitHub reads the quoted value literally, and a
+#: value its cron parser rejects makes GitHub refuse the WHOLE file (issue #2472; see `workflow-cron`).
+CRON_LINE = re.compile(r"^\s*-\s*cron:\s*['\"]?(?P<cron>[^'\"\n#]+?)['\"]?\s*(?:#.*)?$", re.M)
+#: GitHub's cron table (workflow-syntax `on.schedule`): five fields, in this order, with these bounds;
+#: day-of-week also takes SUN..SAT names. Each field is a comma-list of entries; an entry is `*`, one
+#: value, or a `lo-hi` range — each optionally stepped with `/N`.
+CRON_FIELDS: tuple[tuple[str, int, int, dict[str, int] | None], ...] = (
+    ("minute", 0, 59, None),
+    ("hour", 0, 23, None),
+    ("day-of-month", 1, 31, None),
+    ("month", 1, 12, None),
+    ("day-of-week", 0, 7, {"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, "THU": 4, "FRI": 5, "SAT": 6}),
+)
+CRON_ENTRY = re.compile(
+    r"^(?P<lo>\*|\d{1,3}|[A-Za-z]{3})(?:-(?P<hi>\d{1,3}|[A-Za-z]{3}))?(?:/(?P<step>\d{1,3}))?$"
+)
+
+
+def _cron_num(tok: str, names: dict[str, int] | None) -> int | None:
+    if names and tok.upper() in names:
+        return names[tok.upper()]
+    return int(tok) if tok.isdigit() else None
+
+
+def _cron_field_ok(field: str, lo_lim: int, hi_lim: int, names: dict[str, int] | None) -> bool:
+    if not field:
+        return False
+    for entry in field.split(","):
+        m = CRON_ENTRY.match(entry)
+        if not m:
+            return False
+        step = int(m.group("step")) if m.group("step") else 1
+        if step < 1:
+            return False
+        if m.group("lo") == "*":
+            continue
+        lo = _cron_num(m.group("lo"), names)
+        if lo is None or lo < lo_lim or lo > hi_lim:
+            return False
+        if m.group("hi") is not None:
+            hi = _cron_num(m.group("hi"), names)
+            if hi is None or hi < lo_lim or hi > hi_lim or hi < lo:
+                return False
+    return True
+
+
+def cron_ok(cron: str) -> bool:
+    """True when `cron` fits GitHub's five-field grammar (bounds inclusive)."""
+    fields = cron.split()
+    if len(fields) != 5:
+        return False
+    return all(_cron_field_ok(f, lo, hi, names)
+               for f, (_name, lo, hi, names) in zip(fields, CRON_FIELDS))
+
+
 #: Workflows that must be MANUAL-ONLY (owner directive 2026-11-08, #2293): a red PR is no longer an
 #: automatic issue factory, so the run-failure-reactor and the fix-bot may start only on a human
 #: `workflow_dispatch`. Re-adding ANY other trigger to either file is the exact regression this rule
@@ -366,6 +431,39 @@ def check_workflow_names(root: Path = REPO_ROOT) -> list[dict]:
             ),
             "where": where,
         })
+    return out
+
+
+def check_scheduled_crons(root: Path = REPO_ROOT) -> list[dict]:
+    """Every `on.schedule: - cron:` value must fit GitHub's cron grammar (issue #2472).
+
+    GitHub compiles the WHOLE file before it routes any event; a cron it cannot parse fails the
+    compile, and every event routed to the file becomes a 0-job `startup_failure` run labeled with
+    the file PATH — the same silent class as `workflow-expression` and `workflow-run-refs`. Measured:
+    `1 6 * * 15` (15 in day-of-week, max 7) made GitHub answer every dispatch with
+    `422 failed to parse workflow: invalid cron attribute`, and every push/PR in the repo ghosted it.
+    """
+    out: list[dict] = []
+    for path in workflow_files(root):
+        text = path.read_text()
+        for m in CRON_LINE.finditer(text):
+            cron = m.group("cron").strip()
+            if cron_ok(cron):
+                continue
+            where = str(path.relative_to(root))
+            out.append({
+                "key": f"workflow-cron/{where}",
+                "title": f"ci: {where} has a `cron` GitHub will refuse: `{cron}`",
+                "evidence": (
+                    f"`{where}` schedules `- cron: \"{cron}\"`. GitHub's cron grammar wants five fields "
+                    f"(minute 0-59, hour 0-23, day-of-month 1-31, month 1-12, day-of-week 0-7 or SUN-SAT); "
+                    f"`{cron}` does not fit it, and GitHub refuses the WHOLE file — every event routed to "
+                    f"it then arrives as a 0-job `startup_failure` run named for the file PATH (issue "
+                    f"#2472 measured 186 such runs from one `1 6 * * 15`; GitHub's own API says "
+                    f"`failed to parse workflow: invalid cron attribute`)."
+                ),
+                "where": where,
+            })
     return out
 
 
@@ -752,7 +850,7 @@ def findings(root: Path = REPO_ROOT) -> list[dict]:
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
             + check_manual_only(root)
             + check_uses_job_keys(root) + check_scheduled_job_timeouts(root)
-            + check_inline_agent_preflight(root)
+            + check_inline_agent_preflight(root) + check_scheduled_crons(root)
             + check_verdict_roster(root))
 
 
@@ -764,7 +862,8 @@ def render(items: list[dict]) -> str:
                 "(#2293), every `pull_request` workflow carries a "
                 "judgement decision the verdict can name, no `uses:` job carries a job-level "
                 "key GitHub rejects at load time, every job of a schedule-triggered workflow "
-                "declares a `timeout-minutes` ceiling (#2317), and no agent leg inlines the "
+                "declares a `timeout-minutes` ceiling (#2317), every `on.schedule` cron fits "
+                "GitHub's grammar (#2472), and no agent leg inlines the "
                 "agent-leg preflight instead of calling the reusable composite action (#798)")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
