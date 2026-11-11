@@ -8,3 +8,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/
 LABEL llgenie.base="vulkan" llgenie.from="ubuntu:24.04"
+USER 65532:65532

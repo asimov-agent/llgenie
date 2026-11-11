@@ -2101,3 +2101,120 @@ def test_missing_binary_whose_path_contains_the_version_is_missing(tmp_path):
     assert status["state"] == "missing"
     assert status["installed"] is None
 
+
+def _nonroot_last_user(text: str) -> bool:
+    """True when the FINAL effective stage ends on the non-root user.
+
+    The shared base (and some engine cell types) may carry `USER root` in a
+    build/install stage; what DS-0002 cares about is the final stage's declared
+    user, so we split stages on `FROM` and check the LAST stage's own directives.
+    """
+    stages = re.split(r"(?m)^FROM ", text)
+    last_stage = "FROM " + stages[-1]
+    users = [u.strip().split() for u in re.findall(r"(?m)^USER\s+(\S+)", last_stage)]
+    assert users, f"no USER directive in the final stage:\n{last_stage}"
+    last = users[-1][0]
+    return last not in ("root", "0")
+
+
+def test_every_generated_engine_dockerfile_declares_a_nonroot_user():
+    """trivy DS-0002: every shipped engine/base/test Dockerfile runs non-root.
+
+    Locks openspec/changes/security-nonroot-engine-images/spec-md requirement 1.
+    """
+    # Given every committed shared base and generated engine Dockerfile, plus the test image
+    files = list((es.BASE_DIR).glob("Dockerfile.*"))
+    files += list(es.DOCKERFILES_DIR.glob("*/Dockerfile.*"))
+    files += [REPO / "containers" / "test" / "Dockerfile"]
+
+    # When each is read and its final stage's effective user is resolved
+    for df in sorted(files):
+        text = df.read_text()
+
+        # Then it ends its final stage on a non-root user
+        assert _nonroot_last_user(text), f"{df} does not serve as a non-root user"
+
+
+def test_compiled_engine_build_stage_resets_root_and_serves_nonroot(skills):
+    """A base-using build stage compiles as root, then the web server runs non-root.
+
+    Locks openspec/changes/security-nonroot-engine-images/spec.md requirement 2.
+    """
+    # Given a compiled engine built on the shared base
+    text = es.dockerfile_path("llama.cpp", "cuda").read_text()
+    stages = text.split("FROM ")
+
+    # When its stages are read
+    build = "FROM " + stages[1]   # the compile stage starts on the shared base
+    runtime = "FROM " + stages[-1]  # the final (slim) runtime stage
+
+    # Then the build stage resets to root right after the base, and the final stage ends non-root
+    assert re.search(r"FROM llgenie/base-cuda:[0-9a-f]+ AS build\nUSER root", build), build
+    assert _nonroot_last_user(runtime), runtime
+
+
+def test_engine_runner_hf_cache_mkdir_tolerates_read_only_models(tmp_path):
+    """Best-effort HF mkdir must not raise for a read-only mounted /models.
+
+    Locks openspec/changes/security-nonroot-engine-images/spec.md requirement 2.
+    """
+    # Given a read-only HF_HOME (mimicking a host-mounted /models) and a frozen params fixture
+    ro = tmp_path / "models"
+    ro.mkdir()
+    os.chmod(ro, 0o555)
+    p = {"id": "x", "backend": "cpu", "env": {}, "pre_launch": "",
+         "launch": "sleep 0.01", "health": "GET /health"}
+
+    # When serve_plan reaches the HF-cache mkdir (child exits, no /health to probe)
+    import scripts.engine_runner as er
+    before = os.environ.get("HF_HOME")
+    os.environ["HF_HOME"] = str(ro)
+    try:
+        rc = er.serve_plan(p, model="/m/q.gguf", host="127.0.0.1", port=1,
+                           ready_timeout=2)
+        # Then it does not raise on the unwritable directory (it just fails readiness)
+        assert isinstance(rc, int)
+    finally:
+        if before is None:
+            os.environ.pop("HF_HOME", None)
+        else:
+            os.environ["HF_HOME"] = before
+        os.chmod(ro, 0o755)
+
+
+def test_test_image_defaults_nonroot_and_harness_runs_root():
+    """The test image ships non-root; every Makefile runner overrides to root.
+
+    Locks openspec/changes/security-nonroot-engine-images/spec.md requirement 3.
+    """
+    # Given the test image and the Makefile test runners
+    dockerfile = (REPO / "containers" / "test" / "Dockerfile").read_text()
+    makefile = (REPO / "Makefile").read_text()
+
+    # When they are read
+    # Then the image declares the non-root default and every runner passes -u root
+    assert re.search(r"USER\s+65532:65532\s*$", dockerfile.split("CMD")[0], re.M)
+    m_test = re.search(r"TEST_OPTS := .*", makefile)
+    m_eng = re.search(r"ENGINE_TEST_ARGS := .*", makefile)
+    # the containerized Linux branch (macOS runs CI_HOME_CLEAN natively, no -u)
+    m_clean = re.search(r"CI_HOME_CLEAN := .*\(RUNTIME\) run --rm [^\n]*", makefile)
+    assert m_test and "-u root" in m_test.group(0)
+    assert m_eng and "-u root" in m_eng.group(0)
+    assert m_clean and "-u root" in m_clean.group(0)
+
+
+def test_nonroot_last_user_helper_rejects_a_root_final_stage():
+    """The helper's contract: a final stage ending on root must fail."""
+
+    # Given a Dockerfile whose final stage ends on root
+    text = ("FROM ubuntu\nUSER root\nENTRYPOINT []\n")
+
+    # When the helper resolves the final user
+    # Then it reports not-non-root
+    assert not _nonroot_last_user(text)
+
+    # And a stage that re-drops to the non-root user after a root build passes
+    t2 = "FROM base AS build\nUSER root\nRUN make\nFROM ubuntu\nUSER 65532:65532\nENTRYPOINT []\n"
+    assert _nonroot_last_user(t2)
+
+

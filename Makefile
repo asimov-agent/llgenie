@@ -1384,7 +1384,7 @@ ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
 engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
 ENGINE_TEST_RUN := $(call engine_test,)
 # .ci-home is written by root inside the container: remove it from a container too.
-CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
+CI_HOME_CLEAN := $(RUNTIME) run --rm -u root -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 endif
 

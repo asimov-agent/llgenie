@@ -106,7 +106,13 @@ def serve_plan(p: dict, model: str, host: str, port: int, drafter: str = "",
             cmd = cmd.replace(k, v)
         return cmd
 
-    os.makedirs(os.environ.get("HF_HOME", "/tmp/hf") + "/hub", exist_ok=True)  # HF libs expect it
+    try:
+        os.makedirs(os.environ.get("HF_HOME", "/tmp/hf") + "/hub", exist_ok=True)  # HF libs expect it
+    except OSError:
+        # A host-mounted read-only /models must not block non-root serving
+        # (DS-0002): the mkdir is a convenience for HF-library downloads only;
+        # serving a local model path never needs it.
+        pass
     if p.get("pre_launch"):
         _bash(pre + r(p["pre_launch"]), check=True)
     launch = r(p["launch"])

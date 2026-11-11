@@ -36,4 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && git config --global --add safe.directory '*'
 
 WORKDIR /repo
+# Security (trivy DS-0002): ship the image defaulting to a non-root user. Every
+# verification stage explicitly overrides back to root (`-u root` in the
+# Makefile TEST_OPTS / ENGINE_TEST_ARGS) because the harness mounts the rw repo,
+# the host docker socket, and writes build artifacts — so no test stage runs as
+# this default user.
+USER 65532:65532
 CMD ["--help"]

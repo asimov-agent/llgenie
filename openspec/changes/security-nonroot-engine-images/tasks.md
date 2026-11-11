@@ -1,0 +1,10 @@
+# Tasks
+
+- [x] 1. `openspec/changes/security-nonroot-engine-images` — proposal + `specs/security-nonroot-engine-images/spec.md` (G/W/T, a `- **Test:**` line per scenario) + this checklist
+- [x] 2. `scripts/engine_skills.py` — `render_base_dockerfile` ends each shared base with `USER 65532:65532`; `render_dockerfile` resets `USER root` for a base-using build stage and ends the final runtime stage with `chown -R 65532:65532 /opt/llgenie/app`, `ENV HOME=...` and `USER 65532:65532` before `HEALTHCHECK`/`ENTRYPOINT`
+- [x] 3. `scripts/engine_runner.py` — HF-cache `mkdir` in `serve_plan` is best-effort (`try/except OSError`) so a read-only mounted `/models` can't crash non-root serving
+- [x] 4. `containers/test/Dockerfile` + Makefile — test image declares `USER 65532:65532`; `CI_HOME_CLEAN` passes `-u root` (test harness already runs `-u root` via `TEST_OPTS`/`ENGINE_TEST_ARGS`)
+- [x] 5. `make generate-engine-params` — regenerate the 4 base + 32 engine Dockerfiles so every one declared a non-root `USER` and `make check-engine-params` stays green
+- [x] 6. `tests/test_engine_skills.py` — hermetic tests locking the non-root guarantee (every generated/base Dockerfile declares the user; compile stage resets root; test image + harness contract)
+- [x] 7. `agent-wiki/2026-11-11-security-nonroot-engine-images.md` + `CHANGES.md` row — the work record referencing the umbrella and its per-file issues
+- [x] 8. Verified in this docker-less environment (engine builds/serve run in CI): `make lint` (script), `make check-engine-params`, `make check-wiring`, `make check-docs`, `make openspec-tasks-check NAME=security-nonroot-engine-images` all exit 0; `tests/test_engine_skills.py` (107), `tests/test_engine_runner_failfast.py` + `tests/test_security_scan.py` (45) pass. The one failure in `tests/test_engine_bump.py::test_changed_engines_scopes_matrix` is the uncommitted-tree artifact (this leg must leave the tree dirty, so `_tag_at("HEAD")` — origin/main — differs from the working tree; it passes once the job commits the change). The Dockerized `openspec-validate` could not run here and runs in CI.

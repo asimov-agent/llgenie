@@ -953,6 +953,12 @@ def render_base_dockerfile(backend: str) -> str:
         "    && rm -rf /var/lib/apt/lists/*",
         "COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/",
         f'LABEL llgenie.base="{backend}" llgenie.from="{DEFAULT_BASE[backend]}"',
+        # Security (trivy DS-0002: "Specify at least 1 USER command in Dockerfile
+        # with non-root user as argument"). The shared toolchain ships defaulting
+        # to a non-root runtime user. Engine Dockerfiles that build `FROM` this
+        # base reset `USER root` for their compile stage and re-drop to the same
+        # non-root user just before serving.
+        "USER 65532:65532",
         "",
     ])
 
@@ -995,6 +1001,9 @@ def render_dockerfile(params: dict, variant: str) -> str:
     elif v["base"] == DEFAULT_BASE[v["backend"]]:
         # shared, published toolchain base: no per-engine apt layer for the common tools
         lines[5] = f"FROM {base_tag(v['backend'])}" + (" AS build" if v.get("runtime_base") else "")
+        # The shared base ships `USER 65532` (DS-0002); the compile/install steps
+        # below need root, so the build stage resets back to root for the build.
+        lines.insert(6, "USER root")
         extra = [a for a in (v.get("apt") or []) if a not in BUILD_TOOLS + DEFAULT_APT.get(v["backend"], [])]
         if extra:
             lines += ["RUN apt-get update && apt-get install -y --no-install-recommends \\",
@@ -1039,6 +1048,13 @@ def render_dockerfile(params: dict, variant: str) -> str:
         '      llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"',
         "EXPOSE 11434",
         'VOLUME ["/models"]',
+        # Security (trivy DS-0002): serve as a non-root user. The app dir is
+        # re-owned so the entrypoint (and any tool it launches) can write
+        # beside the binary and HOME is usable; a read-only host-mounted
+        # /models is tolerated by engine_runner (HF cache mkdir is best-effort).
+        "RUN chown -R 65532:65532 /opt/llgenie/app",
+        "ENV HOME=/opt/llgenie/app",
+        "USER 65532:65532",
         "HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \\",
         "    CMD /opt/llgenie/app/entrypoint.sh health",
         'ENTRYPOINT ["/opt/llgenie/app/entrypoint.sh"]',

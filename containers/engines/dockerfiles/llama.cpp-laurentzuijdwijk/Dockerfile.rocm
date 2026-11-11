@@ -3,7 +3,8 @@
 # Build: make build-engine ENGINE=llama.cpp-laurentzuijdwijk ARCH=rocm
 # Run:   make run-engine ENGINE=llama.cpp-laurentzuijdwijk ARCH=rocm MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM llgenie/base-rocm:17779d5326 AS build
+FROM llgenie/base-rocm:c41dbbe3ef AS build
+USER root
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
@@ -30,6 +31,9 @@ LABEL org.opencontainers.image.title="llgenie-llama.cpp-laurentzuijdwijk:rocm" l
       llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"
 EXPOSE 11434
 VOLUME ["/models"]
+RUN chown -R 65532:65532 /opt/llgenie/app
+ENV HOME=/opt/llgenie/app
+USER 65532:65532
 HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \
     CMD /opt/llgenie/app/entrypoint.sh health
 ENTRYPOINT ["/opt/llgenie/app/entrypoint.sh"]
