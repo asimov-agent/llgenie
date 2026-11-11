@@ -691,3 +691,68 @@ def test_every_scheduled_job_in_this_repository_declares_a_ceiling():
     `timeout-minutes`, so a future edit that drops one (or adds a new unbounded scheduled job) reds
     `make check-workflows`."""
     assert cw.check_scheduled_job_timeouts(REPO) == [], cw.render(cw.findings(REPO))
+
+
+def test_the_shipped_bad_cron_is_a_violation(tmp_path):
+    """The exact defect (issue #2472): `1 6 * * 15` puts 15 in the DAY-OF-WEEK field (max 7) and
+    GitHub refuses the whole file — every event then ghosts a 0-job `startup_failure` run named for
+    the file PATH (186 measured), while PyYAML accepts it. GitHub's own dispatch call answered
+    `422 failed to parse workflow: invalid cron attribute "1 6 * * 15"`."""
+    root = _wf(tmp_path, "refresh.yml", """
+name: a-refresh
+on:
+  schedule:
+    - cron: "1 6 * * 15"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: echo hi
+""")
+
+    items = cw.check_scheduled_crons(root)
+
+    assert [i["key"].split("/")[0] for i in items] == ["workflow-cron"], items
+    assert "1 6 * * 15" in items[0]["title"], items[0]
+    assert items[0]["where"] == f"{cw.WORKFLOWS}/refresh.yml", items[0]
+
+
+def test_the_intended_monthly_cron_is_accepted(tmp_path):
+    """The fix shape: `17 6 15 * *` (06:17 UTC on the 15th) is the same intent in the field GitHub
+    actually reads, and passes the rule — the free odd minute, because minute 1 is already owned
+    daily by registry-liveness and the slot test ignores the hour (#275)."""
+    root = _wf(tmp_path, "refresh.yml", """
+name: a-refresh
+on:
+  schedule:
+    - cron: "17 6 15 * *"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - run: echo hi
+""")
+
+    assert cw.check_scheduled_crons(root) == []
+
+
+def test_githubs_whole_cron_grammar_is_accepted_or_rejected():
+    """Every entry form GitHub's `on.schedule` table documents is accepted, and every classic
+    out-of-bounds / wrong-field-count value is rejected. Day-of-week names are valid only in the
+    day-of-week field."""
+    for cron in ["1 6 15 * *", "47 */6 * * *", "3,33 * * * *", "19 */2 * * 0,2,3,4,5,6",
+                 "53 6 * * 1", "1-5 * * * MON-FRI", "0 0 1 1 *", "25,57 * * * *",
+                 "15,45 * * * *", "5 4 * * *"]:
+        assert cw.cron_ok(cron), cron
+    for cron in ["1 6 * * 15", "60 6 * * *", "1 24 * * *", "1 6 32 * *", "1 6 * 13 *",
+                 "1 6 * *", "1 6 * * 15 2", "1 6 * * FOO", "SUN 0 * * SUN", "1 6 * * 8"]:
+        assert not cw.cron_ok(cron), cron
+
+
+def test_every_cron_in_this_repository_fits_githubs_grammar():
+    """The tree itself: after #2472 every `- cron:` this repo ships must parse under the SAME
+    grammar GitHub uses — a future edit that writes an out-of-grammar cron (or re-ships the 15th
+    in the day-of-week field) reds `make check-workflows` instead of ghost-firing on every event."""
+    assert cw.check_scheduled_crons(REPO) == [], cw.render(cw.findings(REPO))

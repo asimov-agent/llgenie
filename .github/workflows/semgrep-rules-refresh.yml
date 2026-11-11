@@ -10,7 +10,7 @@ name: semgrep-rules-refresh — re-resolves the semgrep rules pack from upstream
 # something changed does it commit and open or update `chore/semgrep-rules-refresh` — a re-pin PR
 # whose `rules_sha == sha256(rewritten default.yml)` and `rules_captured_at == the refresh date`.
 #
-# Trigger surface: schedule monthly (`1 6 * * 15`: 06:01 UTC on the 15th, its own odd minute —
+# Trigger surface: schedule monthly (`17 6 15 * *`: 06:17 UTC on the 15th, its own odd minute —
 #                  issue #275, no other workflow owns it) and workflow_dispatch (owner / repository
 #                  bot / collaborator with write). NOTHING else — the pack must never be touched by
 #                  a PR or push (issue #738).
@@ -22,7 +22,7 @@ name: semgrep-rules-refresh — re-resolves the semgrep rules pack from upstream
 #       refreshed tree -> commit + open / edit the `chore/semgrep-rules-refresh` PR.
 on:
   schedule:
-    - cron: "1 6 * * 15"   # monthly on the 15th 06:01 UTC — its own odd minute (issue #275)
+    - cron: "17 6 15 * *"   # monthly on the 15th 06:17 UTC — its own odd minute (issue #275; #2472: `1 6 * * 15` put 15 in the DAY-OF-WEEK field, max 7 — GitHub refuses the whole file for it)
   workflow_dispatch:
 # dispatch: no inputs — the refresh has no modes: it always re-resolves p/default through the pinned scanner image and opens the re-pin PR only when the pack changed.
 

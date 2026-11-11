@@ -495,7 +495,7 @@ committed file, or when a scanner version is older than the declared current-rel
 (`RELEASE_BASELINE` in `scanner_image.py`, issue #1284).
 
 The pack has a working refresh path, not just a red-only floor (issue #2283 criterion 2):
-`.github/workflows/semgrep-rules-refresh.yml` (cron `1 6 * * 15`, its own odd minute) runs
+`.github/workflows/semgrep-rules-refresh.yml` (cron `17 6 15 * *`, its own odd minute) runs
 `make semgrep-rules-refresh` (`scripts/semgrep_rules.py`), which re-resolves upstream
 `p/default` THROUGH the pinned scanner image (`semgrep --config p/default --validate`), fetches
 the YAML, re-applies the `\x59` / `\x2e` / `\x2f` escapes so the committed rule bodies are never
@@ -1006,7 +1006,7 @@ in the git-ignored `security-reports/`.
 | `registry-sync-review.yml` | `55 * * * *` | reviews a **green** sync PR into ONE work item (issue #709): `make registry-review-brief` checks out the sync PR's head and, offline, decides `action=review|skip` from the PR's own check buckets and renders the VRAM selection table — per `(arch, vram, ram)`, the models the trend list shows and the server `rank_engines()` puts first with its t/s, with `slower-than-class` / `no-engine` / `unmeasured` / `empty-tier` findings. Only on `review` does it build the agent image, prove the shell keys and run the `registry-sync-review` leg (`make registry-sync-review` -> `registry-review.md`), then `make registry-review-publish` files ONE issue labelled `agent:implement` keyed by the store's `generated_utc`; an hourly run with no green PR costs nothing |
 | `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release (carrying the dependency delta's `DEPS` line and any hard-fail into the PR body), then reviews the derived build params against that engine's own documentation at the new pin (`make engine-params-review-brief` -> `make engine-params-review` -> `make engine-params-review-apply`) and appends the review section to the PR body; the review is `continue-on-error`, so a failed or empty review still opens the PR and says so (issues #583, #186) |
 | `engine-bump-rebase.yml` | `41 5 * * *` | keeps the engine-bump PRs current |
-| `semgrep-rules-refresh.yml` | `1 6 * * 15` | re-resolves the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, rewrites `containers/scanners/semgrep/rules/default.yml` + re-stamps `digests.json`, and opens a `chore/semgrep-rules-refresh` re-pin PR only when the pack changed (`make semgrep-rules-refresh`, `scripts/semgrep_rules.py`; issue #2283 criterion 2) — never merges, never touched by a PR or push (issue #738) |
+| `semgrep-rules-refresh.yml` | `17 6 15 * *` | re-resolves the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, rewrites `containers/scanners/semgrep/rules/default.yml` + re-stamps `digests.json`, and opens a `chore/semgrep-rules-refresh` re-pin PR only when the pack changed (`make semgrep-rules-refresh`, `scripts/semgrep_rules.py`; issue #2283 criterion 2) — never merges, never touched by a PR or push (issue #738) |
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` (`scripts/queued_run_alarm.py`) |
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works (`scripts/fetch_smoke.py`) |
 | `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR (`scripts/architecture_bot.py`) |
