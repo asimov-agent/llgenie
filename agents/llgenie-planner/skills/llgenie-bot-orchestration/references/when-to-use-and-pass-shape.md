@@ -11,7 +11,8 @@ The planner never implements. This is the loop that keeps the fleet working: mea
 backlog, dispatch, report the evidence.
 
 **Idleness is the defect.** Every pass ends in a dispatch, a close with evidence, or a written reason nothing could
-move — never in "waiting". A recurring tick (a cron job running this skill, every 30–45 min) is the mechanism that
+move — never in "waiting". A recurring tick (a cron job running this skill, configured `every 30m` — delivering a
+measured start-to-start median 40.0 min, see orchestrator-tick-contract.md) is the mechanism that
 makes the rule true rather than aspirational; when it fires, run the whole pass and report what changed. A stalled PR
 is the same failure as an idle bot: a conflicted PR gets no CI run at all, so nobody will fix it unless you dispatch
 the rebase bot or the host implementer.

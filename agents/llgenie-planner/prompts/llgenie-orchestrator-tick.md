@@ -9,9 +9,14 @@ SETUP — set these once, use them in every step below:
     export SW="$HOME/.hermes/profiles/llgenie-planner/bin/stall_reclaim.sh"
     export HERMES_BIN="$HOME/.hermes/hermes-agent/.hermes/bin/hermes"
 
-STEP 1 — PREFLIGHT. One command, and it is the sha for the whole pass:
+STEP 1 — PREFLIGHT. Explicit fetch FIRST — this is the step that puts `origin/main` under the
+pass, and it runs ahead of every precedence step (4 onward). A sha the board printed without this
+fetch ran is a remembered sha, not a measured one:
+    git -C "$REPO" fetch origin main
+    git -C "$REPO" rev-list --left-right --count HEAD...origin/main   # expect: 0 0
     bash "$TB" | sed -n '/A. PREFLIGHT/,/^$/p'
-Quote: `main_sha:` and `agents_md:` bytes+lines. Every brief you write carries that sha and size.
+Quote: the `fetch` + the `0 0` count line + `main_sha:` and `agents_md:` bytes+lines. Every brief
+you write carries that sha and size.
 Never quote a sha from an earlier turn — main moves about every 26 minutes here.
     STATUS SELF-AUDIT — this tick is the fleet's ONLY scheduler, so its own silence is an OUTAGE, not lane idleness. In your pass record, report as a fleet outage (never as a lane's idleness): (a) this tick firing late, i.e. its next_run had been >1 interval overdue when it ran; (b) this tick or a sibling planner tick found disabled or never-run (last_run absent); (c) no tick has fired for >1 interval. A late or missing tick starves all 13 turn-based lanes — name it in the report's opening line ("FLEET OUTAGE: tick overdue/disabled") when it applies.
 
@@ -34,6 +39,10 @@ diagnose it yourself, `hindsight_retain` the class→cause→owning-lane mapping
 STEP 3 — MEASURE THE WHOLE BOARD, once:
     bash "$TB"
 Quote: the `TOTAL open=… stale=… dirty=…` line from section B, and `idle_non_planner=…` from C.
+A dirty primary checkout is REPORTED, never cleaned by the planner: when `dirty=` is non-zero,
+run `git -C "$REPO" status --porcelain` and quote the blocking paths, measured beside the
+`origin/main` sha fetched in step 1 — the planner reports the dirt and its sha, it does not reset,
+stash, or clean the checkout another lane owns.
 Sections are: A preflight, B open PRs, C lanes, D queue, E stalls, F CI at tip, G drift.
 Satisfy steps 4-9 by reading the section they name. Do not re-invent these queries in prose.
 
