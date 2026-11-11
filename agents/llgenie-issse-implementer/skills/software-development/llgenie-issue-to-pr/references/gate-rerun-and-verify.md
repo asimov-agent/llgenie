@@ -41,7 +41,7 @@ concluding the branch moved:
 If the wire tip still equals the sha you based your rebase on, the rejection was lease
 bookkeeping — re-push after a fresh `git fetch origin <branch>` using the PLAIN lease form:
 
-    git push --force-with-lease --force-if-includes origin HEAD:refs/heads/<branch>
+    git push --force-with-lease origin HEAD:refs/heads/<branch>
 
 The explicit `--force-with-lease=<ref>:<sha>` form is a trap here: if `<ref>` is the local
 remote-tracking ref (`refs/remotes/origin/<branch>`) git still rejects with "tip of your
@@ -69,7 +69,7 @@ To collapse a multi-commit branch to ONE commit on top of fresh `origin/main`:
     git rebase origin/main                 # plain list rebase, resolve conflicts once
     git reset --soft origin/main           # drop all commits, keep the full tree staged
     git commit -m '<squashed message>'     # one commit on top of main
-    git push --force-with-lease --force-if-includes origin HEAD:refs/heads/<branch>
+    git push --force-with-lease origin HEAD:refs/heads/<branch>
 
 **Never `git rebase --onto origin/main <oldbase>` where `<oldbase>` is your own
 remote-tracking branch tip** (`origin/<branch>` or a local ref that already contains your

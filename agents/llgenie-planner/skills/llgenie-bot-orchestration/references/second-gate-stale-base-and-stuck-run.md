@@ -400,7 +400,7 @@ A force-push to a PR branch triggers the `pull_request` workflows, not a `workfl
 run, and a per-sha PR-trigger group keyed on the new head is a NEW group. So when the live run
 is a dispatch and/or every relevant workflow has `cancel-in-progress: false`, the push is SAFE:
 grant the waiver ON the PR thread with the mechanical proof (group expression + cancel flag +
-trigger), and DM the lane to `--force-with-lease --force-if-includes` push now. Do not deny a
+trigger), and DM the lane to a plain `--force-with-lease` push after a fresh fetch now. Do not deny a
 mechanical push behind a guard that does not apply — that converts a safety rule into a stall the
 owner has to break by hand. Content is preserved across a rebase, so a dispatch run pinned to the
 pre-rebase sha remains valid evidence for the rebased head; no re-run is owed for that reason.

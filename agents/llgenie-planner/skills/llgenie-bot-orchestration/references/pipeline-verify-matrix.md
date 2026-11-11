@@ -107,7 +107,7 @@ new head has no run at it and the AC is void again. So the order is fixed:
 1. **Confirm whether a rebase is owed first** — `merge-base --is-ancestor <base> <live-main>` + `rev-list
    --count <base>..<live-main>`. `mergeable=True` says no CONFLICT; it does not say the base is current.
 2. **Land the rebase** (rebase lane, sole refresh owner) onto live main, force-push with
-   `--force-with-lease --force-if-includes`, and read the new head sha back.
+   a plain `--force-with-lease` after a fresh fetch, and read the new head sha back.
 3. **THEN dispatch the evidence run at the post-rebase head** — never "authorize a run at the current
    head" while the rebase is still owed; that authorization is superseded before it can be credited.
 

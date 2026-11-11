@@ -27,7 +27,7 @@ merge-base with `origin/main` is no longer `origin/main` itself (issue #845).
 
 - Rebase **onto the live canonical `upstream/main` tip** (`git fetch upstream main; git rebase --onto
   upstream/main <old-base>`), and confirm `git merge-base upstream/main HEAD == upstream/main`.
-- Push with `--force-if-includes --force-with-lease origin <branch>` after fetching the remote tip — a
+- Push with `--force-with-lease origin <branch>` after fetching the remote tip (the rebase above made the old remote tip a non-ancestor, so `--force-if-includes` is not used) — a
   same-vehicle force-push on your own branch is the authorised correction.
 - The fresh `synchronize` event also carries the corrected PR body, which is how the #1589 event-snapshot
   stale-body red clears.

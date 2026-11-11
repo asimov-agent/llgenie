@@ -18,14 +18,14 @@ judge the new head. Do not argue with the red or rerun the old head.
 4. Regenerate the body metadata at the NEW base: `make bot-preflight`, then rewrite AGENTS:/BASE:/
    SYNC: lines from its output. A BASE: line naming the old cut sha is stale by construction.
 5. Push the rewritten history with lease protection:
-   `git push --force-with-lease --force-if-includes origin HEAD:<branch>`
+   `git push --force-with-lease origin HEAD:<branch>`
    The lease notation is `--force-with-lease`, never a refspec argument
    (`--force-with-lease origin/refs/heads/main` is an invalid push refspec).
    **Never put a commit SHA on the DESTINATION side of the refspec.** `git push origin HEAD:<sha>`
    (or `<branch>:<sha>`) does not move your branch — it creates a stray ref literally named `<sha>`
    under `refs/heads/`, the hook rejects it, and the PR head stays put while the output reads
    `[new branch]`. A SHA belongs only as the *lease value*, never after the colon; the destination is
-   always the branch name: `git push --force-with-lease --force-if-includes origin HEAD:<branch>`. If
+   always the branch name: `git push --force-with-lease origin HEAD:<branch>`. If
    you already created the stray ref, `git push origin --delete <sha>` then re-push the branch.
 6. Update the PR body to the fresh AGENTS:/BASE:/SYNC: block. A body-only edit does not re-trigger
    CI; the force-push to a new head sha does. Re-read the checks at the new head before claiming green.

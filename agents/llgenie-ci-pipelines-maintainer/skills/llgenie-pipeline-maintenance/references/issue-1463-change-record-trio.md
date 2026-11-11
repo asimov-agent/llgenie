@@ -21,8 +21,8 @@ drops-trailing-newline trap surfacing as a CI lint red, distinct from the change
 - `origin` = fork `andyholst/llgenie` (where PR-head branches push). `upstream` = canonical
   `asimov-agent/llgenie`. `git remote -v` before any force-push.
 - Force-pushing the WORK branch to `upstream` creates a stray canonical branch AND does NOT move the
-  PR (the PR head reads the fork). If done: re-push to `origin` (`--force-if-includes
-  --force-with-lease`), and `git push upstream --delete <branch>` the stray.
+  PR (the PR head reads the fork). If done: re-push to `origin` (`--force-with-lease` after a fresh fetch
+  ), and `git push upstream --delete <branch>` the stray.
 
 ## Acceptance (planner reroute 6564149046)
 

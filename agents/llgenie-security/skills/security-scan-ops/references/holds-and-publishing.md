@@ -36,7 +36,7 @@ comment. Never hold to say "I am not confident": that is a review comment, not a
 ```bash
 git fetch origin && git log --oneline origin/main -1          # base the condition is judged against
 git rebase origin/main                                        # continue an interrupted one
-git push --force-with-lease=<branch>:<old-sha> --force-if-includes origin HEAD:<branch>
+git push --force-with-lease=<branch>:<old-sha> origin HEAD:<branch>
 
 # prove closure with the real scanner, not the checks summary
 make sbom && make security-scan TOOL=trivy

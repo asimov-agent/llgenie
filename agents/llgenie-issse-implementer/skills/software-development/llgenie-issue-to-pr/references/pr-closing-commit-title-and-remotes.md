@@ -14,7 +14,7 @@ Fix is a **message-only amend**:
 2. Confirm the tree is unchanged — `git diff --stat <old-sha> HEAD` must be empty.
 3. Run `make check-pr-closing` and require rc 0 BEFORE pushing.
 4. `git fetch` the remote immediately before the force, then
-   `git push --force-with-lease --force-if-includes` (lease held old→new; report the
+   `git push --force-with-lease` after a fresh fetch (lease held old→new; report the
    forced update).
 
 A plain `--force-with-lease=<ref>:<sha>` can fail on a refspec quirk; the

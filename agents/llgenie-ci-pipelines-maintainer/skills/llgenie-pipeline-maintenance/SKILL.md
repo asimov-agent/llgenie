@@ -273,7 +273,7 @@ to write) and then close yours with that comparison, or fold your one missing ca
   The working form is `git fetch <remote> <branch>:refs/remotes/<tmp>` followed by
   `git push --force-with-lease=<branch>:<the sha the remote ACTUALLY had> --force-if-includes <remote>
   HEAD:<branch>` — putting the sha you are PUSHING into the lease is the mistake, since the lease asserts
-  what you expect to replace. Read the resulting `git ls-remote <remote> refs/heads/<branch>` back before
+  what you expect to replace — and this is the amended-head case: the remote tip stays an ancestor of the new head, the only sanctioned `--force-if-includes` push. Read the resulting `git ls-remote <remote> refs/heads/<branch>` back before
   reporting the push; `remote=<sha>` equal to `git rev-parse --short HEAD` is the evidence.
 - **A MERGED PR's branch ref is gone, and a lingering local amend is silently not what merged — read the PR
   STATE before debugging a missing ref.** For an auto-merged (squashed) PR the branch is usually deleted on

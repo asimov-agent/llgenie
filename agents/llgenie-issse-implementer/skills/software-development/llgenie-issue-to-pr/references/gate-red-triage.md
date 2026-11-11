@@ -92,7 +92,7 @@ branch's merge-base is now one commit behind the new tip.
   `gh pr view <n> --json mergeable` reads `MERGEABLE` (not `CONFLICTING`).
 - Remedy: `git fetch origin main` (explicit refspec `+refs/heads/main:refs/remotes/origin/main`),
   `git rebase origin/main`, re-run the file's tests, then
-  `git push --force-with-lease --force-if-includes`. A fresh CI run starts on the new head.
+  `git push --force-with-lease` (plain lease after the fresh fetch — the rebase made the remote tip a non-ancestor). A fresh CI run starts on the new head.
 - Do **not** merely re-run the red job — it fails again on the same stale base. The rebase
   is warranted here precisely because the gate itself fails, which is the exception to
   "rebase only when CONFLICTING".

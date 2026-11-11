@@ -27,7 +27,7 @@ conflict-driven) in the report.
    head: `git rev-parse --short origin/<branch>`.
 7. **Report planned base/head shas and the push-license condition.** The push is
    licensed by EITHER the in-flight run concluding OR explicit owner go. After the
-   run concludes: force-push `--force-with-lease --force-if-includes`, then **NO
+   run concludes: force-push a plain `--force-with-lease` after a fresh fetch, then **NO
    re-dispatch** (two-vehicle rule — a second dispatch races the same files).
 8. **Restore stashed working-tree edits only when their own decision lands**
    (post-run), never as part of this rebase.

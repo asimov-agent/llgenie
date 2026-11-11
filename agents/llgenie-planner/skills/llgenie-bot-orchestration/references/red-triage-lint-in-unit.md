@@ -39,7 +39,7 @@ the per-check `status`/`conclusion` at the head (see `gh-api-measurement-traps.m
 older `main` (merge-base must be the base itself). A lane reporting "unit test
 broken" while the run died that fast is describing the wrong job. Fix is a
 rebase onto freshly fetched `origin/main` — branch from the sha fetched in that
-moment, `--force-with-lease` + `--force-if-includes` — never a fresh PR, never a
+moment, a plain `--force-with-lease` after a fresh fetch — never a fresh PR, never a
 push while a run at the head is in progress.
 
 ## Read the steps, not the names

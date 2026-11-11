@@ -45,7 +45,7 @@ sha you actually rebased:
 ```bash
 git fetch origin '+refs/heads/<branch>:refs/remotes/origin/<branch>'
 git rev-parse origin/<branch>        # must equal the sha you rebased from
-git push --force-with-lease --force-if-includes
+git push --force-with-lease
 ```
 
 If the head was **replaced** rather than appended (`git merge-base --is-ancestor <old> <new>` is non-zero), abort and

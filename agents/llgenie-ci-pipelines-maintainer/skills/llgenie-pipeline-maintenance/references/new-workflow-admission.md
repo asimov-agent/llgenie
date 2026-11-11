@@ -68,11 +68,11 @@ The lane delivers one atomic commit per vehicle. A correction to a pushed branch
 ```bash
 git add <files>
 git commit -q --amend --no-edit
-git push --force-if-includes --force-with-lease origin <branch>
+git push --force-with-lease origin <branch>  # fetch the branch first; --force-if-includes is only for an amend/integrate push whose remote tip is an ancestor
 ```
 
-`--force-with-lease` alone protects against strangers, not against your own stale knowledge: fetch or
-let `--force-if-includes` do it. Then prove the push landed — read all three back, because the PR's
+`--force-with-lease` alone protects against strangers, not against your own stale knowledge: fetch
+immediately before the push (`--force-if-includes` applies only to an amend/integrate push whose remote tip is an ancestor of the new head). Then prove the push landed — read all three back, because the PR's
 `headRefOid` lags a forced update by seconds and a single read will show the old sha:
 
 ```bash

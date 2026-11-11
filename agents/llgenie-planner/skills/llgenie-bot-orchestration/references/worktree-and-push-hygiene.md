@@ -52,7 +52,7 @@ re-declare it in the same command or inline the value.
 
 `concurrency: <workflow>-${{ github.ref }}` with `cancel-in-progress: true` means a push destroys the verdict the previous head was earning. Trigger a push on *the run concluding*, never on the licence arriving. A run that is **queued and has never acquired a runner** owes no verdict, so superseding it is legitimate where superseding a running one is not.
 
-An amended or re-cut head needs `--force-with-lease=<ref>:<value actually on the remote> --force-if-includes` after a fresh `git fetch` — the lease value is the remote's, never the value being pushed.
+An amended head needs `--force-with-lease=<ref>:<value actually on the remote>` after a fresh `git fetch` (the remote tip is an ancestor — the only sanctioned `--force-if-includes` case, optional here); a re-cut (rebased or squashed) head goes with a plain `--force-with-lease` after a fresh fetch — `--force-if-includes` would justifiably reject it — the lease value is the remote's, never the value being pushed.
 
 ## There are two clones and two `main`s
 

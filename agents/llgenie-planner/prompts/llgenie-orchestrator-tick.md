@@ -246,7 +246,7 @@ STANDING RULES THAT APPLY TO EVERY STEP:
   is PARSED, not executed, must keep an absolute path — $HOME never expands there.
 - Never merge, never push to main, never cancel a live run, never prune a worktree.
 - Never push to a branch you were not dispatched for; another lane's PR is read-only.
-- `--force-with-lease --force-if-includes` after a fresh fetch, own branch only.
+- a plain `--force-with-lease` after a fresh fetch, own branch only (`--force-if-includes` only when the remote tip is an ancestor: an amend/integrate push).
 - Every finding carries the sha it was measured at.
 - Host lanes take precedence over CI: a red CI job is evidence, never a repair target.
 - Never edit the live jobs.json prompt from inside a pass; propose the change via an issue.
