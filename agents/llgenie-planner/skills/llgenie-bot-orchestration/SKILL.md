@@ -1,6 +1,6 @@
 ---
 name: llgenie-bot-orchestration
-description: Use when an llgenie bot is idle and issues are waiting.
+description: Use when routing llgenie work to lanes or a bot looks idle.
 version: 1.0.0
 author: Hermes Agent
 license: CC-BY-4.0
@@ -12,33 +12,34 @@ metadata:
 
 # llgenie bot orchestration: idle bot → waiting issue
 
-> A merge can land with a RED head-instance check-set (merge re-run may clear it) — verify on `commits/{sha}/check-runs`, never `mergeStateStatus`: `references/merged-over-red-gate.md`. Lane CI reports & 60m cancellations: `references/actions-run-attempt-reconciliation.md`. Any lane claim (sha, head, duration, file set, workflow names): `references/verifying-lane-claims.md`. Gate vs live pipeline, 1h-cancelled unit row = CEILING verdict on base: `references/ci-gate-vs-live-pipeline.md`, `references/ceiling-config-verdict-vs-defect.md`. Frozen lane, dispatch delivery (queue_full, out-of-order report), census pins: `references/stalled-lane-and-dispatch-delivery.md`. Batch dispatch mechanical→implementer, domain-verify→owner lane: `references/domain-ownership-dispatch.md` (the bump batch's verification is the domain lane's QUEUED duty, never "fill-in when queue empty"). **Stale-reroute misread**: a lane that stands down "per your dispatch" may be citing the superseded one — before accepting a stand-down or a "leaving it to the other lane", read the issue's own comment trail and confirm whether the newest routing comment (post its id and the time) names it as owner and whether any PR already carries the issue. Correct with the reroute comment id in hand; a stand-down is only valid against the newest routing, never against a bot's memory of an older one. Reading a run's job log mid-flight (302 blob redirect, failed-step surfacing): `references/actions-job-log-reading-midrun.md`. A lane blocked on an already-settled run, or circling a void vehicle (head not on any remote ref / PR already merged / PR CLOSED as a duplicate while a different PR closed the issue): `references/settled-run-void-vehicle.md`. Verifying a "byte-identical copy" claim (tree==live via md5, trailing-newline trap, anchor updates, the cap-on-LIVE-file trap): `references/byte-identity-verification.md`. Behavioural change owes an `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md`: `references/change-note-gate.md`. A PR that reads `BLOCKED` with `mergeable: true` is not a conflict — triage stale-base vs review vs red-gate, then read the red job's own error line: `references/actions-job-log-reading-midrun.md`.
+Making a CI workflow manual-only (find the red-PR auto-bot, strip its auto triggers): `references/ci-workflow-trigger-taxonomy.md`.
+
+GH issues→kanban cards ("load N to triage"), both dirs + `kanban create` traps: `references/gh-issue-to-kanban-triage.md`. Live tick-prompt editing: `references/tick-prompt-editing.md`.
+
+**"Why is this PR not merged?" has one wrong answer: "waiting on the owner."** Before you ever say that,
+prove the merge machinery fires (find a recent `APPROVED` review plus its merge commit) and measure the
+sweep's real cron rate, its cancelled share, and its per-run cap against the open-PR count. A green, armed
+PR that sits unmerged is a **starved or blind retry path**, owned by the CI-pipelines lane — not an approval
+gate. Reporting it as an owner gate both misleads the owner and hides a defect for hours. The measurement
+commands live in `references/auto-merge-approve-and-handle-throttle.md`. Before believing or re-dispatching any run verdict, follow `references/ci-run-verdict-triage.md` (a `cancelled` dispatch is usually a concurrency casualty — find the surviving run; quote the run's real `head_sha`). Inbound lane reports are handled by `references/lane-message-handling.md` (verify on the wire before acking; a `[no reply needed]` or repeated-state FYI gets intentional silence, not a re-ack).
+
+**A procedure you author must be executable by the runner that will read it — and a green you did not cause is not a green.** A cron turn carries no agent tool surface (no `hindsight_recall`, no `message_agent`), so a step written as "call tool X" silently degrades into whatever substitute the model reaches for, defaults and all: a recall step ran a CLI that defaulted to port 8888, nothing listened, and the pass reported a healthy daemon as down on every run. Give every tool-dependent step a shell fallback with the host, port and path **pinned from the config that owns them**, plus a probe that separates "service down" from "command wrong" (`curl /health` succeeding while the call fails means the caller is wrong), and forbid the false negative in the step's own text. The same discipline applies to your own reporting: asserting the *absence* of text is not measuring a behaviour — pick a metric false before the work and true after it, and check the before state first, or a no-op reads as a delivered fix. Full rules in `references/orchestrator-tick-contract.md`.
+
+**Red PRs outrank the backlog, and an idle lane is a defect while one is unowned.** Measure every open PR's
+`baseRefOid` against the freshly-fetched tip *before* reading the issue backlog, and put every lane showing
+0 running tasks onto a specific red PR and a specific failing check — with the failing check's OWN log line
+quoted, never a status label. Dispatch onto a new issue only when no red PR lacks an owner, and correct a lane
+parked on backlog while an unowned red PR sits in its own domain in the same pass. A stale base is **one
+board-wide sweep against the sha fetched in this turn**, never N tasks and never a sha quoted in an older
+task title. The full ordered procedure is `references/orchestrator-tick-contract.md`.
+
+> Pointers: `references/board-work-cadence.md`, `references/merged-pr-stale-rebase-loop.md`, `references/merged-over-red-gate.md`, `references/actions-run-attempt-reconciliation.md`, `references/verifying-lane-claims.md`+`references/false-green-claim-check.md`+`references/red-signal-triage.md`, `references/board-binding-assignees-field.md`, `references/protected-instruction-write-approval.md`, `references/ci-gate-vs-live-pipeline.md`+`references/ceiling-config-verdict-vs-defect.md`, `references/pr-closing-gate.md`, `references/pr-body-hygiene.md`, `references/pr-head-location-and-base-gates.md`, `references/domain-ownership-dispatch.md` (mechanical-hygiene vs domain-verification split for automation batches; AND a "bump" workflow bumps existing items only — new-item discovery is `registry-sync` + gap-spawn + scaffold, owned by the specialist lane, never the bump workflow), `references/incident-closure-and-board-mutation.md`, `references/actions-job-log-reading-midrun.md`, `references/second-gate-stale-base-and-stuck-run.md`, `references/pipeline-verify-matrix.md`, `references/settled-run-void-vehicle.md`, `references/byte-identity-verification.md`, `references/auto-merge-approve-and-handle-throttle.md`, `references/orchestrator-tick-contract.md` (the tick is the fleet's only scheduler: probe a disabled tick / overdue `next_run` FIRST, the ordered pass, the failure-class table, stale-base treadmill), `references/host-lane-precedence-over-ci.md` (host lanes first; red CI is evidence, never a repair target), `references/lane-gap-audit.md` (silent no-ops, unrunnable output, un-retryable aborts), `references/pass-contract-and-sweep.md` (12+12 sweep, triggering is the act of the pass, loop-escape, empty-queue audit, propagation hub), `references/change-note-gate.md`, `references/change-proposal-task-gates.md`, `references/nerve-guard-ghost-loop.md`, `references/measurement-hygiene.md`, `references/never-pushed-lane-audit.md`, `references/concurrent-red-classification.md` (before dispatching a second vehicle, `comm -12` the open PRs' file
+sets — an all-`agents/*/SOUL.md` rule mirror collides with every open per-profile SOUL change; post a land order,
+never cancel), `references/write-verification.md` (read back by exact id; never re-POST — dedupe by body prefix, DELETE extras), `references/engine-verification-binary-not-serving.md`, `references/acceptance-form-rule.md` (every issue AND every PR carries `## Acceptance criteria` as markdown checkboxes; CI validates both — owner directive 2026-11-05, carriers #1796/#1792), `references/rebase-at-worktree-start.md` (mandatory lane pre-flight: fetch canonical upstream main + rebase origin/main the worktree before first edit of every task, new issue/PR or update of existing, no exceptions — #1891; and re-judge-a-red-ci-verdict via workflow_dispatch vs the expired-job-record trap — #1886/#1889).
 >
-> Tick contract (a disabled tick or an overdue `next_run` FIRST, then the ordered pass, and the failure-class
-> table): `references/orchestrator-tick-contract.md`. Pass contract (12+12 sweep, triggering, loop-escape,
-> empty-queue audit, propagation hub) and the pass shape: `references/pass-contract-and-sweep.md`,
-> `references/when-to-use-and-pass-shape.md`. Host lanes first, red CI is evidence not a repair target:
-> `references/host-lane-precedence-over-ci.md` (the #2073 canonical write-up of the same rule is
-> `references/host-lane-precedence.md`, and the quiet-fleet diagnostic order it cites is
-> `references/fleet-quiet-diagnosis.md`). Lane gap audit (silent no-ops, unrunnable output, un-retryable
-> aborts): `references/lane-gap-audit.md`.
+> A pass hands out the **open PRs** as well as the issues; a queued item is claimed with its place in line: `references/dispatch-and-handoff.md`. A freshly pushed head shows only its first wave of checks, and a red at a fixed sha flips on a re-run: `references/ci-state-and-queue.md`.
 >
-> The owner files a dedicated issue after a PR is already open against the umbrella one:
-> see `references/closes-target-repointing.md` — the PR closes the dedicated issue, the original
-> stays open, same branch amended, verify at the new head.
->
-> Before you publish any pass report (and before trusting one a cron job generated): see
-> `references/report-integrity.md` — a report is a claim, including your own; ids must be re-fetched with
-> the output pasted, and a tool call that "ran" may have aborted atomically.
->
-> Fleet-integrity meta-audit (enumerate lanes → SOUL+SKILL presence gate → role-split overlap/gap
-> via `agents/manifest.json` → operational-lane idle-audit-encoding grep → one refined issue per gap →
-> route to the OWNING lane, never self-implement): `references/lane-role-audit.md`.
->
-> Host-lane working takes precedence over CI machinery, always (owner 2026-11-08): a pass reaches
-> for the owning host lane FIRST — a declined or blind in-repo bot is a dispatch trigger for that
-> host lane plus one issue in its code lane, never a reason the planner repairs the CI itself:
-> `references/host-lane-precedence.md` (ownership map + two-trail rule; planner authors no code).
+> Dedicated-issue repoint: `references/closes-target-repointing.md`. Report integrity: `references/report-integrity.md` — ids re-fetched, output pasted. Branch state: `references/branch-state-classification.md`.
 
 <!-- host-bot-tools:begin -->
 
@@ -96,18 +97,17 @@ work with no PR. It ends in a dispatch with evidence, never in an implementation
 The planner never implements. This is the loop that keeps the fleet working: measure quiescence, measure the
 backlog, dispatch, report the evidence.
 
+**Idleness is the defect.** Every pass ends in a dispatch, a close with evidence, or a written reason nothing could
+move — never in "waiting".
+
 **Check the tick itself FIRST.** Lanes are turn-based: they act on a dispatch then exit, so a disabled tick or an
 overdue `next_run` on a live scheduler means the whole fleet is silent and looks identical to laziness. Probe it
-before concluding any lane is idle — `references/orchestrator-tick-contract.md`.
+before concluding any lane is idle — `orchestrator-tick-contract.md`.
 
 The full pass contract lives in `references/pass-contract-and-sweep.md`: the 12-issue/12-PR sweep size, "triggering
 is the act of the pass", the same-correction-twice loop escape, the empty-queue continuous-improvement audit, the
 propagation-hub rule (a lane finish routes dependents in the SAME pass), and the solicited security/architect
 advisory. Read it on any pass where the board looks quiet.
-
-The verbatim `## When to Use` text this replaced — idleness-is-the-defect, the 12+12 sweep size, the loop-escape and
-deflection lesson, the empty-queue audit, the propagation-hub rule, the solicited advisory — is
-`references/when-to-use-and-pass-shape.md`.
 
 ## 0. Preflight: bring the tree to upstream main and re-read AGENTS.md
 
@@ -119,7 +119,7 @@ git -C "$HOME/repository/git/llgenie" rev-list --left-right --count HEAD...origi
 git -C "$HOME/repository/git/llgenie" log --oneline -1 origin/main                       # the sha to cite
 ```
 
-Then re-read `AGENTS.md` at that sha — 87 KB, 1,302 lines, and it changes weekly, so a memory of it is not a reading.
+Then re-read `AGENTS.md` at that sha — ~90 KB / ~1,360 lines and growing; take the count from `git show origin/main:AGENTS.md | wc -c`, never from memory.
 The dispatch brief names the sha (`main@<short>`); the implementer opens its worktree off `origin/main` and reads
 `AGENTS.md` there before its first edit. A `HEAD...origin/main` count that is not `0 0` on a clean checkout is a
 finding: fetch, fast-forward, and say which paths moved. Issue #792 makes this a gate (`make bot-preflight`, an
@@ -223,10 +223,25 @@ dispatch while a `bot-claim:` TTL is live.
   branch off main — a second vehicle for an issue that already has one. Verify with
   `git -C .worktrees/<task> rev-parse --abbrev-ref HEAD` immediately after dispatch, not after the lane reports.
 - **There is a global worker cap (5 observed).** `Spawned: 0` with a task left `ready` is a capacity answer, not a
-  failure: `hermes kanban stats` shows the running count and the per-assignee split. Report the queued task and its
-  unblock condition ("spawns when one of the five finishes") rather than re-dispatching.
+  failure: `hermes kanban stats` shows the running count and the per-assignee split. But `Spawned: 0` is ALSO
+  not proof nothing happened — workers can claim the ready cards in the interval between a `--dry-run` (which
+  reported `Spawned: N (dry)`) and the real `dispatch`, leaving the cards `running` while the execute call returns 0.
+  Confirm by re-reading `hermes kanban list --json` and watching `ready`→`running`; report the status transition,
+  never the dispatch return. Report a still-`ready` card with its unblock condition ("spawns when a running card
+  finishes"); do not re-dispatch. Full board-revival procedure: `references/kanban-board-revival.md`.
+- **A board full of `blocked` cards is often capacity parked behind gates that no longer exist.** Before reporting
+  any lane idle, resolve each blocked card's target issue (`gh issue view <n> --json state`); `MERGED`/`CLOSED`
+  means the work landed — `hermes kanban complete <task> --result "issue merged on main; card stale"` to free the
+  lane. Count statuses from `kanban list --json`, never a text grep (titles contain "ready-for-review"). Procedure:
+  `references/kanban-board-revival.md`.
 - **A delivery is landed when the task's worktree shows edits**, `git -C <worktree> status --porcelain`, not when the
   task reads `running`.
+- **Dispatch a homogeneous auto-generated PR batch as ONE assignment.** When a generator (engine pin bump,
+  registry sync, image refresh) opens N PRs sharing one failure class at one head, hand the whole batch to the domain
+  lane in a single message that names every PR id, the shared class and the proof line — N per-PR dispatches serialise
+  behind the worker cap and re-derive the same diagnosis N times. Such PRs legitimately carry **no linked issue**
+  (`closesIssues: []`, empty label set) because the generator's umbrella issue is the tracker: an empty close target
+  is not orphan work, and inventing a `closes #` for it is a fabricated link, not a fix.
 
 - **When `message_agent` is not in the toolset (every cron pass), the host-bot channel is the kanban board**:
   `hermes kanban boards set-default-workdir default <repo>` once (a `worktree` task without it auto-blocks after
@@ -235,9 +250,6 @@ dispatch while a `bot-claim:` TTL is live.
   `--parent <task>` to gate a dependent issue, and `hermes kanban dispatch --max 5`. A delivery is landing only
   when the task reads `running` *and* its worktree shows edits: `git -C <repo>/.worktrees/<task> status --porcelain`.
   `kanban runs <task>` tails the *first* attempt, so a stale `spawn_failed` diagnostic sits above a healthy run.
-- **GH issues→kanban cards** ("load N to triage"), both directions (no-PR issues AND open PRs' closing
-  issues) plus the `kanban create` traps (`--title` positional, `--json` id, dedupe, archive-not-delete):
-  `references/gh-issue-to-kanban-triage.md`.
 - **Every dispatch starts with the preflight**: the `main` sha you measured, plus "open a fresh worktree off
   `origin/main` and re-read `AGENTS.md` there before the first edit". A brief with no sha is a brief the implementer
   cannot check itself against.
@@ -246,6 +258,13 @@ dispatch while a `bot-claim:` TTL is live.
   verdict, the measured state, the required direction, the constraints (fresh worktree off `origin/main`, one
   ready-for-review PR, `closes #<n>`, gates through make, never merge) and what to report back. It has no cron — it
   only works when messaged. Queue several items in one message only if you say which goes first.
+- **"No vehicle after N dispatches" usually means the vehicle exists and is red, not that the lane is dead.** Before
+  dispatching a fix issue a fourth time, search for the branch/PR (`gh pr list --search '<issue-keyword>' --state all`,
+  `gh pr list --limit 100 --json number,headRefName,title`) — a PR opened late under a differently-worded branch
+  (`fix/<symptom-phrase>`) is the vehicle, and it is nearly always blocked on a cheap body/change-note gate rather than
+  on the substantive code. The productive move is then an **attribution pass on that PR's head** (`ci-failure-attribution.md`
+  §1/§1.5: step-list attribution, cheap-gate-skips-matrix) followed by one precise amend dispatch — not another
+  issue-level dispatch that produces the same red a second time.
 
 ## 3b. Accepting issues another agent filed
 
@@ -266,7 +285,7 @@ advice, never as measured fact:
 
 ## 3c. A starved runner queue is a finding, not a reason to push harder
 
-See `references/push-and-rerun-discipline.md`. First pre-flight of ANY task — new or update — fetch the canonical upstream and rebase the worktree onto the just-fetched tip before editing (`references/rebase-at-worktree-start.md`, fleet rule #1891).
+See `references/push-and-rerun-discipline.md`.
 
 ## 3d. Two PRs, one seam: prove the merge before you pick an order
 
@@ -323,13 +342,11 @@ while you rephrase. Full recipe in `references/fleet-failure-modes.md`.
 ## Never prune: report worktrees instead
 
 `make worktree-prune`, `git worktree prune` and `git worktree remove` are **owner-only** — **including a lane's own
-worktrees.** "They were mine" is not an exemption: the lane cannot know what a delete takes either. Two of the most
-dangerous trees look exactly like housekeeping — one that needed `sudo` (root-owned artifacts, so the delete half-ran
-and left debris) and one whose PR is **closed** ("PR closed" is not "tree empty"; that is where uncommitted repair
-work lives). Say which paths are stale and stop there. The prune deletes
-directories, and its "already merged" test reads the branch REF, so a worktree with uncommitted work looks stale — a
-bot that prunes destroys the run it is standing in, and root-owned debris makes it exit non-zero having deleted what
-it could reach and left the rest. Only the owner can read what a delete will take.
+worktrees.** "They were mine" is not an exemption: a lane cannot read what a delete takes. Its "already merged" test
+reads the branch REF, so a tree holding uncommitted work looks stale and the bot destroys the run it is standing in;
+root-owned debris makes it exit non-zero having deleted only what it could reach. Two dangerous trees look like
+housekeeping — one that needed `sudo`, one whose PR is **closed** ("PR closed" is not "tree empty"). Say which paths
+are stale and stop there.
 
 Measure, then report, then leave it:
 
@@ -515,6 +532,14 @@ See `references/push-and-rerun-discipline.md`.
 ## A mechanism change ships with a verification issue
 When a change alters which work CI does (path filters, class gates, skip lists), the accompanying issue must prove it with **one real change per file class**, each row backed by a run id, and the architect / implementer / tester split the work. Shape, row set, negative controls and probe hygiene: `references/verification-issue-design.md`. The one always-on rule from it: **expectations are derived from the classifier code, never from the workflow YAML** — if both sides come from the same file, the test agrees with the bug.
 
+## Resolving a `ci(verify)` ticket is a dispatch proof, not a code PR
+A `ci(verify): prove <workflow> works as intended via manual dispatch` ticket (the 31 in umbrella #1505) is disposed by **dispatching the workflow, reading the completed run, and posting a `verify` comment** — never by inventing a code PR that "closes" it. The issue's own scope forbids altering the workflow or weakening a gate. Procedure:
+1. **Confirm the workflow is `active`, not `disabled_manually`** — a stale `gated: disabled_manually` ledger row is a claim about an old sha; re-measure with `gh workflow list` (owner may have re-enabled since). A disabled workflow requires the owner's takedown, recorded as blocked — never an edit to re-enable it.
+2. **Dispatch fresh at the just-fetched `origin/main`**: `gh workflow run <name>.yml --ref main` (actor must be owner/write-collaborator for the guard to pass). Record the run id + `headSha` — the head must equal `origin/main` at dispatch.
+3. **Verify per acceptance criterion, not just "green"**: the run did `guard -> pick -> decide -> apply`. Read the actual log lines: the pick must leave every claimed (`agent:*`-labelled) issue alone, the agent must write the named `.md` output, and the apply must act on the verdict with evidence (a genuinely-distinct pair kept open is the *correct* no-op, not a silent skip). Only a `completed / success` that reached the apply step counts; a red apply ("nothing to apply") is evidence, not a pass.
+4. **A red run at an older head is a finding at that head, not at current main.** Compare the failing run's `headSha` to `origin/main`; if it's an ancestor and a fresh dispatch on the same pair at the tip succeeds, record the older red as an observation ("did not reproduce at <tip>") and do not file a defect. If it recurs at the tip, then file a NEW issue for the lane owning the workflow (run id + log line).
+5. **Bid:** post the `verify` evidence comment on the ticket, update the umbrella #1505 ledger row (drop stale `gated:`), and close the ticket `COMPLETED` with a one-line close comment (precedent #1474/`#1489`). The ticket stays closed — reopening would re-dispatch a finished verification.
+
 ## Interrogating a filter: every subcommand must agree
 
 A classifier with more than one entry point (`classify` for humans, `jobs` for the pipeline) can disagree with itself, and whichever one a workflow happens to call then decides whether a missing case is visible. Before accepting "it fails closed", run **each** entry point against the same bad input and compare **exit codes**, not messages:
@@ -618,11 +643,16 @@ Polling turns into narration fast: `18 success · 2 running` is not news, and a 
 
 **Quote a completed run's total, never a snapshot.** Rows gated by `needs:` are created as their dependencies resolve, so an in-flight job count is a **lower bound that grows under you** — a run can show 19 rows while `engine-matrix` is queued and 25 by the time it completes. Any argument about cost ("this two-file diff still paid for four base toolchains") has to be made against the completed total, with the run id attached; a mid-flight number makes a true claim look inflated and hands the other side a free rebuttal.
 
+## A \"verdict=failure\" check-run on a main commit is not the main tip
+When a commit's check-run list shows `verdict = failure` (or any bare check name), resolve the run's `details_url`/`HEAD_SHA` before treating it as a main-tip gate red. The `verdict`/`ci-verdict` workflow posts its check-run at the head it validates, which can be an **open PR's head whose base is that main commit** — not main itself. In the #1810 post-merge pass, three `verdict=failure` check-runs at tip `dde5c9ec` were ci-verdict reds on PR #1804's own head `91bc978` (a rebased vehicle), while the tip's push matrices (`42097055492`/`42097055412`) and its own ci-verdict (`42099122153`) were green. Attribute any verdict failure by reading the run's `pull_requests`/`head_sha` first, never conclude "main is red" from a bare check name in the commit list.
+
 ## A filter, its twin and the classifier are one set
 
 A workflow filter must match the classifier's **class**, not a file extension. `**/*.md` in `paths-ignore` silently skips `ci.yml` for `data/trending-README.md`, `.hermes/skills/**/SKILL.md` and `tests/fixtures/**/*.md`, none of which are docs. Prove a filter with the case that catches it (a markdown-data-only PR must still schedule the matrix), not with a docs PR, where the bug is invisible.
 
 **Read the parsed list, never grep for the string.** A branch that documents its own bug will match the grep: `grep -c '**/*.md' ci.yml` returns 2 on a file whose `paths-ignore` is the correct five paths, because both hits are the comment explaining why a bare glob is wrong. Verify the way GitHub evaluates it — load the `on:` block (or the list under `paths`/`paths-ignore`) and test the paths you care about against it — and treat a string hit inside a `#` comment as evidence of nothing. The same trap applies to any "is X present" check on a file that discusses X.
+
+**A zero-count is a scan failure, not a fact — on contested attribution, read the full comment bodies.** At least once a grep/gh count returned `0`/empty on bodies that visibly contained the word, and the durable correction built on that zero was itself wrong (posted "no planner comment used phantom|fabricat" when the planner's *own* 23:45Z refutation had done exactly that a minute before withdrawing it). Attribution between two lanes posting under the same `andyholst` login cannot be settled by the author field — read the body verbatim and trust the self-identification inside it ("(planner, re-measured)"). Never post a correction that proves the *absence* of a thing from a probe that also returned empty for a thing that exists. **A correction against a lane's report is itself a claim and owes the same evidence bar: before flagging a reported fact as wrong, re-measure the *same fact* the lane names — on the surface that actually populates it, not merely a second surface.** A field that is null on one API while the fact is live on another is the same trap: REST `.auto_merge_request` reads null for an *armed-and-waiting* PR (it populates only as a merge fires), so "arm null ⇒ not armed" flags a healthy state; read the GraphQL `autoMergeRequest` before contradicting an "armed" report.
 
 **Assert the three sets are ONE set, not that they are compatible.** The trigger's ignore list, the companion workflow's `paths:` and the classifier's class must be equal three ways — `set(CLASSES[cls]) == set(ci.yml paths-ignore) == set(docs.yml paths)`. A classifier still matching `*.md` while the trigger holds five literal paths makes the *printed selection* lie about the trigger, and the printed selection is the only place a human sees the truth; a pin that only checks one pair leaves the third free to drift.
 
@@ -703,21 +733,8 @@ the merge date.
 
 ## Verify what you wrote, not that the write succeeded
 
-A successful API call is not a landed document. Two ways this bites:
-
-- **`gh issue create --body -` stores a literal `-`.** stdin is consumed only by `--body-file -` (or `-F body=@file`
-on `gh api`). The issue is created, the command exits 0, and the body is one character.
-- **A comment posted while another lane edits the same body can be overwritten** by their next PATCH.
-
-So after every programmatic write, read the artifact back and check **shape and length**, not the exit code:
-
-```bash
-gh issue view <n> --repo <o>/<r> --json body --jq '{len:(.body|length), sections:[.body|split("\n")[]|select(startswith("## "))]}'
-gh api repos/<o>/<r>/issues/<n>/comments --jq '.[-1]|{at:.created_at,len:(.body|length)}'
-```
-
-A six-section issue body reads ~2–9 KB; a comment reads ~1 KB. A body of length 1 is a missing document, and a
-planner who reports "issue filed" on a 1-byte body has reported a title.
+A successful API call is not a landed document: check shape and length, and never trust `.[-1]` as "the newest
+comment". Recipes, the exact commands, and the failure modes: `references/write-verification.md`.
 
 ## An owner grant outranks a generic rule — including the no-merging rule
 
@@ -739,70 +756,7 @@ say the limit next to the number, or the report invents a 35-issue cleanup that 
 
 ## One builder per file, and prove no duplicate before you dispatch
 
-When a change needs several lanes (classifier + workflow + tests), **assign by file ownership** and say who owns which
-file out loud: the lane that owns the pipeline file edits the pipeline file, the design lane refines and reviews, the
-test lane owns the checklist. Three lanes half-working one issue produces a design note, a library and no change.
-
-Before dispatching anything, spend the two commands that catch an existing implementation:
-
-```bash
-gh pr list --repo <o>/<r> --state open --limit 100 --json number,title,files \
-  --jq '.[]|select(.title+" \([.files[].path]|join(" "))"|test("<keyword>|<path>";"i"))|"\(.number) \(.title)"'
-gh api repos/<o>/<r>/branches --paginate --jq '.[].name' | grep -i '<keyword>'
-```
-
-A second implementation of the same issue is worse than a late one: it manufactures the very file collision the lanes
-were sequenced around. When one lands anyway, **close it as a duplicate with a file-by-file comparison table** (files,
-+/−, which behaviours each covers), name the canonical PR, and say explicitly that the diagnosis was correct and
-independently reached — a duplicate decision, not a rejection of the work.
-
-**A rewrite is a push; a new PR is a decision.** When a branch needs a fix, the lane force-pushes the branch it already owns — one trail, one review thread. Opening a *fresh* PR for an issue that already has an open one is a decision for the planner, and a lane that does it has manufactured a duplicate by another route. Three vehicles for one issue in a single evening cost more reviewer attention than the change did, and each new branch re-cut the same tree. State it in every brief: *fix the branch you have; do not open a second*.
-
-**Before authorising a fold, check the content is not already in the tree.** "Cherry-pick this commit onto the live branch" is a common ask and often moot: if the assertion or fix already exists under a different name, the authorisation buys a second test of one property plus a push to another lane's branch. Two commands decide it:
-
-```bash
-git -C <repo> merge-base --is-ancestor <sha> origin/<branch>; echo $?     # 0 ⇒ already an ancestor
-git -C <repo> show origin/<branch>:<path> | grep -c '<the property>'
-```
-
-Write authorisations that survive that check — name the **property** to end up on the branch, not a commit to apply — so a lane that finds the property present can return the licence unused. Returning an unused licence with the reason is the correct outcome, not a missed opportunity: it costs nothing, and spending it on a no-op costs a run.
-
-**When both drafts are the same infrastructure, the survivor is the one others stack on.** Two lanes implementing one
-issue produce near-identical PRs (same skeleton, same scripts, one file count apart). The tie-break is not merit and not
-diff size: count how many open PRs already base on each branch
-(`gh pr view <n> --json baseRefName` across the board). Closing the branch four PRs stack on orphans all four and forces
-four rebases against a differently shaped manifest — the divergence pattern again — so the stack wins and the duplicate
-is closed, with its genuinely better halves (live-profile proof output, an extra make target, disclosed skill texts)
-carried over as comments and a small follow-up rather than as a bigger duplicate.
-
-**Pick the survivor by the regression test, not by diff size.** Two PRs that both fix a bug are not equal: the one
-whose test *fails when the bug is reintroduced* survives, because the other one's fix lasts until someone tidies the
-YAML. Check the guard directly before choosing — grep the new test file for the offending pattern and for the two or
-three real paths that were silently skipped — and say which row decided it. Same file count and near-identical diffs
-are the normal case; the guard is the only discriminator that matters after merge.
-
-**A lane told to review that ships an implementation is a process finding, not a gift.** Name it in the same message
-that accepts the better artifact: the correct move was "this branch cannot meet the criterion, here is why, hand it to
-me", not opening a competitor. Otherwise the next pass gets two of everything again.
-
-**But read your own dispatch before you say "unrequested".** Before calling a branch a rival, find the message that
-started it: an earlier instruction to *implement* one issue at all costs is an assignment, and a second lane opening a
-similar branch later does not retroactively turn the first into a rogue. **And check the authorisation record before
-saying a licence never existed** — the grant may be a comment you wrote on that very PR an hour earlier while its inbox
-was `queue_full`:
-
-```bash
-gh api repos/<o>/<r>/issues/comments/<id> --jq '"\(.issue_url|split("/")|last) \(.user.login) \(.created_at)"'
-gh api repos/<o>/<r>/issues/<pr>/comments --jq '.[]|select(.body|test("AUTHORIS|authoris|authoriz";"i"))|"\(.created_at) \(.body[0:80])"'
-```
-
-A licence written to a branch by name, hours before a freeze conversation moved on, is exactly the kind of grant a
-planner forgets owning — and "you were never authorised" when the comment exists inverts the incident and lets the
-real overstep (pushing content other than the authorised commit) go unnamed. Check the ordering — which existed first, the
-dispatch or the other PR — and if you got it wrong, correct it **in the PR trail**, not only in a DM: a wrong accusation
-left in the record teaches every future lane to ignore a real one. The fair criticism, when it applies, is narrow and
-forward-looking ("once the other branch appeared this should have switched to review-only"), never a characterisation of
-the whole run.
+See `references/one-builder-per-file.md` — the duplicate-vehicle check, the evidence that a claim is live, and the one-vehicle-per-issue rule with its measured failures.
 
 ## The commit identity is part of the artifact
 
@@ -855,6 +809,8 @@ So the brief carries two checks before the first edit, and the planner carries t
 git -C <worktree> rev-parse --abbrev-ref HEAD        # the branch the task owns, not someone else's
 git -C <worktree> log --oneline -1                     # parent should be origin/main, not another PR's tip
 ```
+
+**Preflight shared-space before dispatch, every time — not reactively.** `df -h /tmp` + `df -i /tmp` before dispatching or placing a heavy worktree; below ~20% space OR ~50k free inodes, refuse to spawn a /tmp consumer and escalate to the owner with the df figures. Heavy worktrees go on real disk not /tmp; a large probe tree is its owner's to clean, never hostage the shared tmpfs. Cleanup of /tmp is an OWNER decision (educate via `du -sh /tmp/*` + df), but identifying the occupant is the planner's job. See `references/host-space-hygiene.md`. The lesson dropped the implementer's wedge + reviewer ENOSPC on 2026-11-02 — this is a real, gated-less hazard.
 
 Keep the primary checkout on `main` and clean, and say so in every brief: it is the workspace other lanes read as `origin/main`. **Re-measure at dispatch time, not once:** a concurrent session re-takes that checkout, so `git rev-parse --abbrev-ref HEAD` immediately before you create the tasks — measured this pass, a checkout returned to `main` twenty minutes earlier was already parked on a 19-commit PR branch, and three queued worktrees were about to inherit it as their parent. The same two commands find the other half of the hazard: `git rev-list --count origin/<branch>..<branch>` > 0 means a lane's work exists only on the local branch — report it to that branch's author and never push it yourself. **One worktree per PR.** Reusing a worktree for a second branch is how a one-file change becomes an unrelated diff: the
 second edit lands on the first branch's tree, and only `git rev-parse --abbrev-ref HEAD` before the first edit catches
@@ -1019,6 +975,10 @@ Deferring is a decision you make and record; a PR left open under the old premis
 
 `references/orchestration-pitfalls.md` — the pitfalls checklist lives verbatim in the reference.
 
-## ci-verdict re-judge vs expiry trap
+## Stalled workers: a corpse looks exactly like a busy lane
 
-A red `ci-verdict` whose judged jobs are otherwise green is RE-JUDGED via `workflow_dispatch` (`references/ci-verdict-rejudge-and-expiry.md`); an expired run (shredded `total_count`) is trapped and needs a FRESH run at the head, never a re-judge of the dead run.
+`running` means the pid is alive, nothing more. `last_heartbeat_at`, and the `state.db` mtime, both read fresh for a worker idle for hours — the heartbeat write touches them whether or not any work exists; `max_runtime_seconds` is only printed into the worker's prompt and nothing enforces it. Measure **log-mtime** age + CPU delta + process age together, and act with `kanban reclaim` (which frees the slot **and** kills the worker) — never a raw signal, which the gateway lifecycle guard refuses and which is unsafe from inside its own process tree. A churn cap is mandatory. And before reclaiming in a loop, decide whether it is **one stuck task** or **a saturated runtime**: a single gateway pegged at ~97 % CPU with hundreds of threads makes every lane turn stall, and reclaiming then only wins a ~30-minute window before the same turns re-stall — report that as a capacity finding for the owner, not as a fix. Full procedure: `references/stalled-worker-detection.md`.
+
+## Never claim a fleet-wide change landed off a metric that was already true
+
+A dispatch "to all lanes" looks successful while nothing has happened. Before you report it as done, measure the baseline **before** the action and quote `before → after`; check the target's **mtime** (content can be accidentally correct, an mtime cannot be accidentally recent); and grep for the **replacement** as well as the absence of the bad string (zero bad and zero good means the file never had either). A fan-out that exits non-zero is **unconfirmed, not delivered** — its receipt may hold a delivery id and no outcome, and filling that gap with a coincidentally-zero metric is the same error wearing a different hat. Fleet-wide conventions also live in shared skills copied per profile, so fix source **and** every copy, exclude `.archive/`, and leave `scripts/*.py` alone. Full procedure: `references/fleet-change-verification.md`.

@@ -133,6 +133,26 @@ def test_check_allows_agent_lane_site_with_proc_allow(tmp_root):
     assert pg.bare_sites(root) == []
 
 
+def test_check_skips_archived_fold_snapshots(tmp_root):
+    # #2262: agents/llgenie-planner/skills/.archive/** holds byte-parity snapshots of past live
+    # skill states; they are history, not runners, so the scan does not enforce them.
+    root = _tree_with(
+        "agents/llgenie-planner/skills/.archive/a-skill/scripts/probe.py",
+        "import subprocess\n"
+        "subprocess.run(['gh', 'api', 'repos/x'])\n",
+        tmp_root,
+    )
+    assert pg.bare_sites(root) == []
+    # the live copy of the same skill IS still enforced
+    live = _tree_with(
+        "agents/llgenie-planner/skills/a-skill/scripts/probe.py",
+        "import subprocess\n"
+        "subprocess.run(['gh', 'api', 'repos/x'])\n",
+        tmp_root,
+    )
+    assert len(pg.bare_sites(live)) == 1
+
+
 def test_check_does_not_red_on_bare_test_subprocess(tmp_root):
     # #2229: the tests/ population is SCANNED (surfaced in the census, never invisible) but NOT
     # event-gated — a test spawning subprocess is the harness, and hard-gating it would force a

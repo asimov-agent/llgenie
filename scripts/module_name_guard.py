@@ -3,7 +3,9 @@
 
 The CLI is `scripts/llgenie_serve.py`. The deprecated alias that once carried the old name was
 retired by issue #816, so the old spelling may appear only in the dated history (`agent-wiki/`,
-`openspec/changes/`) and this module (which has to spell the name it forbids). Every other live
+`openspec/changes/`, and the archived skill snapshots under `agents/llgenie-planner/skills/.archive/`
+that the live→tree fold carries byte-identically, issue #2262) and this module (which has to spell
+the name it forbids). Every other live
 text file is refused, `docs/ARCHITECTURE.md` included — and a `scripts/llama_serve.py` that comes
 back is an ordinary offender, not an exemption.
 
@@ -44,7 +46,11 @@ SKIP_DIRS = {".git", "__pycache__", "node_modules", ".ci-home", ".venv"}
 #: forbids. The shim's own exemption was retired with the shim (issue #816): a file at that path is
 #: now an offender like any other live file.
 ALLOWED_PREFIXES = ("scripts/module_name_guard.py", "agent-wiki/",
-                    "openspec/changes/")
+                    "openspec/changes/",
+                    # Archived skill snapshots the live→tree fold moves in (issue #2262):
+                    # they record what was true in the profile at fold time, and the fold's
+                    # byte-parity rule forbids editing them — same class as the dated history.
+                    "agents/llgenie-planner/skills/.archive/")
 
 #: Binary/media files are not text to a reader.
 SKIP_SUFFIXES = {".pyc", ".png", ".jpg", ".gif", ".woff", ".woff2", ".gz", ".bin"}

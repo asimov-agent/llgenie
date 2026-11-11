@@ -84,3 +84,53 @@ def test_mutation_broken_symbol_reds(tmp_path):
     root = _root(tmp_path, ref)
     out = g.check(root)
     assert any("this_script_does_not_exist.py" in f for f in out)
+
+
+def _fake_root(tmp_path: Path, rel_md: str, text: str, name: str = "root") -> Path:
+    """A fake repo root: one skill markdown at `rel_md` plus the real scripts/tests trees."""
+    import shutil
+    root = tmp_path / name
+    root.mkdir()
+    shutil.copytree(REPO / "tests", root / "tests")
+    shutil.copytree(REPO / "scripts", root / "scripts")
+    md = root / rel_md
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(text)
+    return root
+
+
+DEAD = "`scripts/this_script_does_not_exist.py` and `tests/test_never_wrote_this.py::test_zzz` "
+
+
+def test_archived_fold_snapshot_is_skipped(tmp_path):
+    """A FROZEN fold snapshot (.archive/, issue #2262 fold) is not the gate's subject: its
+    citations are historical and rewriting them would break the byte-identical fold parity."""
+    root = _fake_root(tmp_path, "agents/llgenie-planner/skills/.archive/s/SKILL.md", DEAD)
+    assert g.check(root) == [], "a frozen fold snapshot must not be held to living citations"
+
+
+def test_external_skill_mirror_is_skipped(tmp_path):
+    """Tree copies of UPSTREAM Hermes skill docs cite the Hermes repository's tests/scripts —
+    external tokens, not claims this repo owns (issue #2262 fold)."""
+    root = _fake_root(tmp_path,
+                      "agents/llgenie-planner/skills/autonomous-ai-agents/hermes-agent/references/x.md",
+                      DEAD)
+    assert g.check(root) == []
+    root2 = _fake_root(tmp_path,
+                       "agents/llgenie-planner/skills/software-development/hermes-agent-skill-authoring/references/x.md",
+                       DEAD, name="root2")
+    assert g.check(root2) == []
+
+
+def test_skips_do_not_leak_to_ordinary_skills(tmp_path):
+    """The same dead citation in an ordinary (non-mirror, non-archived) skill reference stays RED."""
+    root = _fake_root(tmp_path, "agents/llgenie-planner/skills/ordinary-skill/references/x.md", DEAD)
+    out = g.check(root)
+    assert out, "the fold skips must not become a global exemption"
+
+
+def test_template_family_symbols_are_never_anchors(tmp_path):
+    """`tests/test_x.py::test_y` and a bare `tests/test_x.py` are the generic template family."""
+    root = _fake_root(tmp_path, "agents/p/skills/s/references/r.md",
+                      "proven: `tests/test_x.py::test_y` and the file `tests/test_x.py` ")
+    assert g.check(root) == []

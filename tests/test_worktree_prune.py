@@ -51,20 +51,41 @@ def _git(cwd: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def _gh_stub(tmp_path: Path, prs: list[dict], *, fails: bool = False) -> Path:
-    """A `gh` on PATH that answers `pr list` from a JSON file (or fails, loudly)."""
+def _gh_stub(tmp_path: Path, prs: list[dict], *, fails: bool = False, issues: dict[str, str] | None = None) -> Path:
+    """A `gh` on PATH that answers `pr list`/`issue view` from JSON files (or fails, loudly).
+
+    `issues` maps an issue number to its GitHub state ("OPEN"/"CLOSED"), so the owner's
+    no-open-issue gate is driven without a live API. A missing issue answers like gh does — exits 1,
+    `Could not resolve...` — which the gate reads as not-open.
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    (tmp_path / "prs.json").write_text(json.dumps(prs))
+    prs_path = tmp_path / "prs.json"
+    issues_path = tmp_path / "issues.json"
+    prs_path.write_text(json.dumps(prs or []))
+    issues_path.write_text(json.dumps(issues or {}))
     script = bin_dir / "gh"
     if fails:
         body = '#!/bin/sh\necho "HTTP 502: bad gateway" >&2\nexit 1\n'
     else:
-        body = f'#!/bin/sh\ncat "{tmp_path / "prs.json"}"\n'
+        body = f'''#!/usr/bin/env python3
+import json, sys
+PRS = {str(prs_path)!r}
+ISSUES = {str(issues_path)!r}
+args = sys.argv[1:]
+if len(args) >= 2 and args[0] == "issue" and args[1] == "view":
+    n = args[2]
+    st = json.load(open(ISSUES)).get(n)
+    if st is None:
+        print("gh: Could not resolve to an Issue or PullRequest with the number of " + str(n) + ".", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({{"number": int(n), "state": st}}))
+else:
+    sys.stdout.write(open(PRS).read())
+'''
     script.write_text(body)
     script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return bin_dir
-
 
 def _runtime_stub(tmp_path: Path, *, cleans: bool) -> Path:
     """A `docker` on PATH for the debris step — it deletes what the mount names, or refuses.
@@ -148,14 +169,16 @@ def _run(
     *args: str,
     fails: bool = False,
     runtime: str | None = None,
+    issues: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     """Run the prune for real, with the stubbed `gh` (and optionally a stubbed runtime) first on PATH.
 
-    `runtime` is `"cleans"`/`"refuses"` to control the debris step; `None` names a runtime that is not
+    `runtime` is "cleans"/"refuses" to control the debris step; `None` names a runtime that is not
     installed at all (`RUNTIME=llgenie-no-such-engine`), so the sweep must report a leftover rather than
-    drive whatever engine the host happens to have.
+    drive whatever engine the host happens to have. `issues` maps an issue number to its GitHub state
+    for the no-open-issue gate (issue #2262).
     """
-    bin_dir = _gh_stub(tmp_path, prs, fails=fails)
+    bin_dir = _gh_stub(tmp_path, prs, fails=fails, issues=issues)
     if runtime is not None:
         _runtime_stub(tmp_path, cleans=runtime == "cleans")
     env = {
@@ -741,3 +764,170 @@ def test_an_override_reaches_the_clearing_command_verbatim(monkeypatch):
 
     assert "registry.example/alpine:3.21.4" in command, command
     assert command.startswith("docker run --rm -v "), command
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #2262 — the owner's widened rule: prune ALSO a branch with no open PR and no open issue whose
+# head is an ancestor of the base (proven merged by ancestry), keep a head AHEAD of the base, keep a
+# branch that names an OPEN PR or an OPEN issue, and delete the merged remote branch.
+def _ancestor_branch(work: Path, branch: str) -> str:
+    """Create `branch`, commit on it, and fast-forward it into `main` so the head BECOMES an ancestor.
+
+    Unlike `_merged_branch` (which squash-merges so the tip is NOT an ancestor), this merges the branch
+    into main WITHOUT a new squash commit, so the branch's head IS reachable from `origin/main` — the
+    state only the ancestry rule can prove dead (issue #2262).
+    """
+    _git(work, "switch", "-c", branch, "main")
+    name = branch.replace("/", "-")
+    (work / f"{name}.txt").write_text("landed\n")
+    _git(work, "add", f"{name}.txt")
+    _git(work, "commit", "-m", f"feat: {branch}")
+    tip = _git(work, "rev-parse", "HEAD")
+    _git(work, "switch", "main")
+    _git(work, "merge", "--ff-only", branch)
+    _git(work, "push", "origin", "main")
+    assert subprocess.run(
+        ["git", "merge-base", "--is-ancestor", tip, "origin/main"], cwd=work
+    ).returncode == 0, "the fixture must fast-forward so the branch head IS an ancestor"
+    return tip
+
+
+def test_an_ancestor_branch_with_no_pr_and_no_issue_is_pruned(tmp_path):
+    """The owner's widened rule (#2262): a no-PR branch whose head is an ancestor of main is dead work."""
+    work = _repo(tmp_path)
+    _ancestor_branch(work, "feat/ancestor")
+    tree = tmp_path / "wt-anc"
+    _git(work, "worktree", "add", str(tree), "feat/ancestor")
+    assert tree.is_dir()
+
+    # no PR, no issue token
+    result = _run(tmp_path, work, [])
+
+    assert result.returncode == 0, result.stderr
+    assert not tree.exists()
+    assert "feat/ancestor" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "is an ancestor of origin/main" in result.stdout
+
+
+def test_a_branch_ahead_of_main_is_never_pruned(tmp_path):
+    """Negative control (issue #2262 AC #8): a head AHEAD of the base is reported, never deleted."""
+    work = _repo(tmp_path)
+    _git(work, "switch", "-c", "rb/scratch-ahead", "main")
+    (work / "ahead.txt").write_text("novel\n")
+    _git(work, "add", "ahead.txt")
+    _git(work, "commit", "-m", "feat: novel unmerged work")
+    _git(work, "switch", "main")
+
+    result = _run(tmp_path, work, [])
+
+    assert result.returncode == 0, result.stderr
+    assert "rb/scratch-ahead" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "keep rb/scratch-ahead" in result.stdout
+    assert "not an ancestor of origin/main" in result.stdout
+
+
+def test_an_ancestor_branch_naming_an_open_issue_is_kept(tmp_path):
+    """An OPEN issue keeps a merged branch, however dead the merge looks (#2262 AC #2 conjunctive)."""
+    work = _repo(tmp_path)
+    _ancestor_branch(work, "fix/1234-publish-gap")   # token: 1234
+    tree = tmp_path / "wt-open"
+    _git(work, "worktree", "add", str(tree), "fix/1234-publish-gap")
+
+    result = _run(tmp_path, work, [], issues={"1234": "OPEN"})
+
+    assert result.returncode == 0, result.stderr
+    assert tree.is_dir()
+    assert "fix/1234-publish-gap" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "names open issue #1234" in result.stdout
+
+
+def test_an_ancestor_branch_naming_a_closed_issue_is_pruned(tmp_path):
+    """A CLOSED issue does not protect a merged branch (#2262: closed and absent both = not open)."""
+    work = _repo(tmp_path)
+    _ancestor_branch(work, "fix/1234-publish-gap")
+    tree = tmp_path / "wt-closed"
+    _git(work, "worktree", "add", str(tree), "fix/1234-publish-gap")
+
+    result = _run(tmp_path, work, [], issues={"1234": "CLOSED"})
+
+    assert result.returncode == 0, result.stderr
+    assert not tree.exists()
+    assert "fix/1234-publish-gap" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+
+
+def test_an_ancestor_branch_naming_an_absent_issue_is_pruned(tmp_path):
+    """An absent issue (`Could not resolve…`) reads as not-open, so the merged branch goes (#2262)."""
+    work = _repo(tmp_path)
+    _ancestor_branch(work, "fix/1234-promo")
+    tree = tmp_path / "wt-absent"
+    _git(work, "worktree", "add", str(tree), "fix/1234-promo")
+
+    result = _run(tmp_path, work, [], issues={})
+
+    assert result.returncode == 0, result.stderr
+    assert not tree.exists(), "an absent issue is not a reason to keep merged work"
+
+
+def test_an_open_pr_keeps_a_branch_even_when_its_head_is_an_ancestor(tmp_path):
+    """An OPEN PR names the branch -> never pruned, whatever the head says (#2262 AC #2)."""
+    work = _repo(tmp_path)
+    _ancestor_branch(work, "feat/live-pr")
+    tree = tmp_path / "wt-live"
+    _git(work, "worktree", "add", str(tree), "feat/live-pr")
+
+    result = _run(tmp_path, work, [_pr(20, "feat/live-pr", "OPEN")])
+
+    assert result.returncode == 0, result.stderr
+    assert tree.is_dir()
+    assert "feat/live-pr" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "PR #20 is OPEN" in result.stdout
+
+
+def test_the_merged_remote_branch_is_deleted_when_no_open_pr(tmp_path):
+    """Remote hygiene (#2262 AC #6): after the local branch lands, origin/<branch> is deleted too."""
+    work = _repo(tmp_path)
+    squash = _merged_branch(work, "feat/remote")
+    _git(work, "push", "origin", "feat/remote")   # the remote still carries the merged branch
+    assert "origin/feat/remote" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/remotes")
+
+    result = _run(tmp_path, work, [_pr(21, "feat/remote", "MERGED", squash)])
+
+    assert result.returncode == 0, result.stderr
+    assert "feat/remote" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "origin/feat/remote" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/remotes")
+    assert "removed origin/feat/remote" in result.stdout
+
+
+def test_a_live_open_pr_keeps_the_remote_branch(tmp_path):
+    """AC #6 gate: a live OPEN PR always keeps origin/<branch> — remote deletion is refused.
+
+    The plan never reaches `delete_remote_branch` while an OPEN PR names the branch: the open-PR gate
+    fires first and keeps it, so its remote stays behind. This is the live-PR half of AC #6's
+    "merged + no open PR" conjunction.
+    """
+    work = _repo(tmp_path)
+    _merged_branch(work, "feat/live-remote")
+    _git(work, "push", "origin", "feat/live-remote")
+    assert "origin/feat/live-remote" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/remotes")
+
+    result = _run(tmp_path, work, [_pr(22, "feat/live-remote", "OPEN")])
+
+    assert result.returncode == 0, result.stderr
+    assert "feat/live-remote" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "origin/feat/live-remote" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/remotes")
+    assert "PR #22 is OPEN" in result.stdout
+    assert "removed origin/feat/" not in result.stdout
+
+
+def test_the_issue_token_helper_reads_issue_numbers_out_of_branch_names(tmp_path):
+    """The no-open-issue gate token: `issue-NNN` or a `<NNNN>-` run, never a stray digit."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import worktree_prune as wp
+
+    assert wp.issue_token("llgenie-wt/2259-publish-gap") == 2259
+    assert wp.issue_token("agent/issue-2112-fix") == 2112
+    assert wp.issue_token("docs/1645-fix") == 1645
+    assert wp.issue_token("wt/t-2111-review") == 2111
+    assert wp.issue_token("feat/x") is None
+    assert wp.issue_token("update-readme") is None
+    assert wp.issue_token("main") is None

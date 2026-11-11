@@ -21,7 +21,7 @@ CLAIM_RE = re.compile(r"\b(claim|bot-claim|claimed for implementation)\b", re.I)
 
 
 def api(path):
-    p = subprocess.run(["gh", "api", path], capture_output=True, text=True)  # proc-allow: p.returncode inspected below (returns {} on rc!=0), #797; tracked remainder for #2229 migration
+    p = subprocess.run(["gh", "api", path], capture_output=True, text=True)  # proc-allow: vendored skill script folded live->tree (issue #2262 fold parity; not a bot-lane runner)
     if p.returncode != 0:
         return {}
     try:

@@ -51,6 +51,18 @@ for f in (prof/'skills').rglob('*'):                 # skip .archive/ and cache/
 
 Report `live-only` and `differs` separately. **Live-only is the dangerous one** (the tree has never had the file); `differs` is usually a lane's own unpushed branch and is benign — but say which, because a reader cannot tell an in-flight branch from a permanent divergence by the number alone.
 
+### Count occurrences only inside instruction-bearing files
+
+A whole-directory `grep -ro '<literal>' <profile>/skills` reports thousands of hits that are not instructions at all. One lane's `.curator_ledger.jsonl` alone held 2,253 matches, and `.archive/` held retired skills no turn ever loads. The honest count — active `SOUL.md` plus `skills/**/*.md` excluding `.archive/` — was **70 across twelve lanes**, where the unscoped count said thousands.
+
+```bash
+# scoped, honest residual
+find "$d/skills" -name '*.md' -not -path '*/.archive/*' -exec grep -o '<literal>' {} + | wc -l
+grep -o '<literal>' "$d/SOUL.md" | wc -l
+```
+
+Two things break if you publish the unscoped number: a reader dismisses it as noise, and a gate built on it reds on a curator ledger nobody should edit — teaching the next person to ignore the check. Report the residual as a bounded count and say which paths were excluded.
+
 ## An audit tool that lives only in a profile is not evidence
 
 If the script that produced the audit is not in the tree, nobody without that lane's profile can regenerate the result — so the report is a claim, not a measurement. The self-referential failure is real: a lane auditing others for unversioned work was itself running an unversioned tool, and the tree held no copy of it. Two rules follow: an audit script is committed under `agents/<lane>/skills/<skill>/scripts/` (mode `100755`) and **executed from the tree**, not from the profile; and when you receive such an audit, ask for the path before quoting its numbers. `git ls-tree <sha> <path>` plus an execution from an extracted copy are the checks — a script verified only in its profile is unverified as a shipped artifact.

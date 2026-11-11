@@ -22,6 +22,13 @@ not for PR review (see the `github` skill for the gh surface itself).
 
 ## Status sweep: what is already in flight (do this first)
 
+**Resolve the `gh` binary before the sweep.** When `gh` is installed through mise the shim may be missing from a
+non-interactive shell's PATH; the real binary lives at
+`~/.local/share/mise/installs/gh/<ver>/gh_<ver>_linux_amd64/bin/gh`
+(`find ~/.local/share/mise/installs/gh -maxdepth 3 -name gh -type f`). Export it as `GH=` and call `$GH api …`
+instead of treating the install as broken — and take `gh auth status` (not `~/.config/gh/hosts.yml`, which can
+show no token while the keyring holds the session) as the proof of auth.
+
 When the ask is "go over the issues" / "what is being worked on", do not read issue text — enumerate state
 three ways and join it in code:
 
@@ -57,22 +64,35 @@ read, not a verdict per issue.
    | verdict | test | action |
    |---|---|---|
    | obsolete | the guard/test/commit that fixes it is on `main` | close, citing `path:line`, the commit and the guard test |
+   | obsolete (superseded system) | the SPECIFIC subsystem the ticket indicts now demonstrably works — an artifact it produces is shipped on `main` | close, citing that shipped artifact (the PR/branch authored by that bot, the green step that actually RAN — not just a run colour); a chronic-failure tracker that is merely OLD stays live until its own workflow shows success |
    | duplicate | another open issue owns the class | close, naming the canonical issue and why this instance is not separate |
    | superseded | a later run of the same workflow went green, or the run's PR merged/closed | close; cite the green run or merged PR |
+   | fold-into-parent | a sibling family of the same shape, each valid, but one umbrella owns the single vehicle | keep the umbrella as the one vehicle; comment a pointer to it on each sibling and do NOT dispatch the siblings individually (a generated family of "prove $X works" / per-run reactor tickets is the common tell) |
    | by design | the failure is what the repo mandates | close quoting the rule, plus the filing defect if any |
    | still valid | the claim still reproduces on `main` | refine the body (scope delta) or implement it |
 
    Verify the claim instead of trusting it: `grep -n '<symbol>' scripts/`, `git show <sha> --stat`, and
    `gh run list --workflow <wf> --limit 6` — green runs after the reported failure are supersede evidence.
+   **But age is not obsolescence, and a green run colour is not the step running.** A ticket that indicts one
+   subsystem ("X bot's implement leg failed") is superseded only when THAT subsystem produces a real artifact
+   on `main` — a PR/branch authored by that bot — or when the named step actually ran `success` in a later
+   run (a triage leg that skips `Implement the issue` exits green while proving nothing). A chronically
+   failing workflow's month-old failure ticket is still a LIVE defect, not history: re-read the workflow's
+   latest conclusion before calling it obsolete, and if it is still `failure`, keep it open and route it.
 4. **Close only with evidence.** A close whose comment does not point at the code, commit or green run that
    made the issue moot is noise the next reader has to re-derive.
 5. **Refine is a body EDIT, and entangled defects split into separate vehicles.** A refinement the
    implementer can act on is an edit to the issue BODY (`gh issue edit <n> --body-file <refined.md>`), never
    a restating comment — the body is what the implementer opens, so a comment leaves the unshaped original
    standing. When the issue packs two defects with different root causes, fixes and refs into one body (a
-   tell: "fix direction to be decided"), split it into two explicit vehicles IN the refined body — one
-   acceptance list each plus a hard "never one PR for both" clause — because one vehicle for two root
-   causes yields a PR nobody can review and a gate neither fix owns. Prove the shape landed by reading the
+   tell: "fix direction to be decided"), the split must be **two ISSUES, not two vehicles in one body**,
+   whenever a label routes the issue to a bot that claims it: the claim lands seconds after the create, and
+   the claimant implements everything the body asks for in one branch. Decide the split before the first
+   POST — title, labels and acceptance list each belong to ONE vehicle — and if a combined issue already
+   exists, do all three immediately: PATCH its body down to vehicle A, create the sibling issue for vehicle
+   B with a cross-link, and comment on the original naming the claimant's narrowed scope and telling it not
+   to touch the sibling's files. Also PATCH the title; a body narrowed under a two-vehicle title still reads
+   as one job. One vehicle for two root causes yields a PR nobody can review and a gate neither fix owns. Prove the shape landed by reading the
    body back as a BOOLEAN ARRAY: `gh issue view <n> --json body --jq '[(.body|contains("## Acceptance
    criteria"))]'` — do not concatenate a string and a number with `+`, jq throws "cannot add: string and
    number" and the verify step reads as a failed edit. When most of an issue has already landed (one flag
@@ -90,7 +110,9 @@ read, not a verdict per issue.
    `closes #<n>` only when the PR implements the whole issue.
 
 ## Pitfalls
-- **`gh issue create` can SUCCEED while printing a label error — verify before retrying, or you file a duplicate of your own report.** An invalid label (one not present in the repo) makes the command exit non-zero with `could not add label: '<x>' not found`, but the issue is ALREADY created; retrying with valid labels then files a second, identical issue alongside it. After any failed-looking create, confirm nothing landed (`gh issue list --state open --limit 5 --json number,title,createdAt`, or search your exact title) BEFORE re-running. If a duplicate already exists, close the newer number with `state_reason: not_planned` and a comment naming the canonical (lower/older) number, and keep the older one as the single vehicle. Dry-run the label first: `gh label list --limit 200 --json name --jq '.[].name' | grep -x '<label>'`.
+- **Before calling a `no space left on device` build failure a runner-full flake, read the pre-build disk read-back, and split one run's reds by class.** The ENOSPC error text is identical whether the runner was full before the build or the build itself is oversized, so the verdict turns on the job's own `df -h /` line: when the "Free disk"-style step shows large headroom (e.g. `/dev/root 145G 41G 104G 28%`) and the build still exhausts it, the defect is the build's footprint/export policy — fileable and owner-lane, not a "retry". A single `workflow_dispatch` run commonly carries several unrelated reds (an oversized-footprint build cell AND a host-verify cell that served READY but whose `/v1/chat/completions` timed out); each is a separate six-section issue with its own "Not covered" cross-reference, never one combined vehicle. Engine-build (`engine-build-*`) workflow reds route to the `agent:ci-pipelines-maintainer` lane — the repo exposes no `agent:engine-improver` label, so route by the `agent:` labels the tree actually carries, not a lane name you infer from the roster.
+- **A relative path passed to `write_file`/`patch` lands under the session cwd (`$HOME`), not the repo worktree you `cd`'d into in a terminal call.** The terminal's `cd` does not move the file tools' root, so `write_file path="docs/changes.d/x.md"` silently creates `$HOME/docs/changes.d/x.md` while the tracked repo file is untouched — a "written" success that leaves the intended edit un-landed and the next commit empty. Always pass ABSOLUTE paths for repo edits (`/home/<user>/repository/git/<repo>/docs/changes.d/x.md`), then confirm with `git -C <repo> status --porcelain` that the tracked path actually changed before committing; `write_file` also refuses to overwrite an existing file you have not read this task, so read it first.
+- **`gh issue create` with an invalid label MAY create the issue or MAY abort atomically — verify by exact title, never by assumption.** An invalid label (not present in the repo) makes the command exit non-zero with `could not add label: '<x>' not found`. Whether the issue object landed anyway varies by gh release and by which of the labels were valid: measured BOTH an atomic abort (nothing created, a clean retry lands at the next number) and a create-then-error (retrying files a duplicate). So after any failed-looking create, confirm by EXACT TITLE — not by a predicted number — and only then re-run (`gh issue list --state open --limit 5 --json number,title,createdAt`, or search your exact title) BEFORE re-running. If a duplicate already exists, close the newer number with `state_reason: not_planned` and a comment naming the canonical (lower/older) number, and keep the older one as the single vehicle. Dry-run the label first: `gh label list --limit 200 --json name --jq '.[].name' | grep -x '<label>'`. Issue and PR numbers are ONE shared sequence and other actors (bots, other lanes) claim numbers between your attempts, so a successful create lands wherever the counter is — read `.number` from the response, never predict N+1. Pass only labels that exist on THIS repo (it may expose just `agent:implement`, `bug`, `security`, `severity:*`; a descriptive one like `data-contract` is not a label, and requesting it drops the whole label set or aborts the create).
 - **The reach pin scans only `ut.select()` — `unit-suite.json` exclusions decide what is under the gate.** Before calling any "carve-out" or "unmarked reach" gap in tests/test_network_marker.py a real hole, check tests/fixtures/unit-suite.json: a file listed under `excluded` (e.g. → test-strata-live, test-install-trend) runs in the network seam and is NEVER scanned by the pin, so zero marks there are expected, not a defect. Reusing that premise twice (2026-10-31, #1000 carve-out) produced a wrong architect dispatch.
 - **A "NOT X called DIRECTLY" comment in a gated test is often a deliberate, merged decision — diff the merge commit before proposing to close it.** d86c43bd's 272-line rewrite of test_network_marker.py introduced the plan_download carve-out so ~8 hermetic callers don't false-red; closing it would revert merged work, not fix a gap. A carve-out close is only a real delta if it surfaces an actual unmarked in-unit offender.
 
@@ -131,13 +153,10 @@ read, not a verdict per issue.
 
 - **A committed-but-EMPTY fixture stub passes every earlier gate and reds only at the gate that READS it.** A branch adding a snapshot fixture (`tests/fixtures/*-hub-snapshot.json`) containing `{trees:{},searches:{},errors:{}}` looks green until the gate that replays it (`make check-quant-catalog`) runs — and `linux/unit` reaches that gate only after `make test-unit` (cron+check-docs) passes, so the failure appears late and mimics a fresh regression (`HubSnapshotMissing` on the Qwen mlx search). Diagnose by diffing the fixture, not by re-reading logs: `git show <head>:<path> | wc -c` versus the same path on `origin/main` (absent there ⇒ the branch introduced the empty stub). The fix is the owner-approved one-shot live regen (`make sync-quant-catalog`, CI hermetic afterwards), never hand-editing the stub — and the populated snapshot moves the head, so the pre-fix sha must not be armed.
 
-- **A bot claim is a lease with a TTL AND a run — the run releases it first.** The claim comment reads
-  `bot-claim: <actor> <ISO> ttl=<N>m run=<id>`; when the marker names a run, `bot_claims.run_is_live`
-  (the one reader, issue #799) releases the subject the moment that run concludes — a dead run is free
-  NOW regardless of the TTL, and the reader says so (`its run <id> is no longer running`, issue #1959).
-  Only a claim with no `run=` (or an unverifiable one) is aged purely by `now < stamp + ttl`. Compute the
-  run and the TTL against the measured time instead of eyeballing the timestamp; an expired claim with a
-  pushed branch and no PR is STALLED work nobody owns — report it as such, never as "in progress".
+- **A bot claim is a lease with a TTL, not a status.** The claim comment reads `bot-claim: <actor> <ISO>
+ttl=<N>m`; it is live only while `now < stamp + ttl`. Compute it against `date -u` instead of eyeballing
+the timestamp. An expired claim with a pushed branch and no PR is STALLED work nobody owns — report it as
+such, never as "in progress".
 - **"changed=true, PR: none opened" in a bot's run summary is a failure mode, not a detail.** The run
   wrote a branch and left no PR, which is exactly what keeps the queue re-offering the issue every hour.
   Sweep those branches together with the ones belonging to closed issues.
@@ -160,7 +179,7 @@ read, not a verdict per issue.
   workflow files "`<workflow>` / `<step>` failed", so a job red for eight runs leaves eight issues with
   byte-identical titles and the same failing step. Close the older ones as duplicates of the NEWEST
   (it carries the run that is still reproducing), and say in each close which duplicate group it
-  joined so the group is countable. Do not keep one tracker per run, and do not close the class onto
+  joined so the group is countable. Prove same-class from the wire before closing: grep the duplicate's failing run id inside the canonical issue's own body — `gh api repos/<o>/<r>/issues/<canonical> --jq .body | grep -c '<runid>'` — a non-zero hit is the evidence the close comment quotes (the canonical already names the same run), and it is what separates a genuine duplicate from a similar-looking neighbour whose premise is still its own. Do not keep one tracker per run, and do not close the class onto
   a root-cause issue the failure was never filed against. When the tracker's failing steps belong to several
   open issues, KEEP it as the live tracker and answer it with a step → owning-issue table (the step names
   come from `gh run view <id> --json jobs`), so it reads as "these gates are red, each already owned"
@@ -215,6 +234,14 @@ read, not a verdict per issue.
 
 ## In llgenie specifically
 
+**A lane reporting "nothing has been dispatched to me / I'm parked" is claiming from memory — re-measure the
+board before relaying it.** The dispatch record lives in `bot-claim:` comments on the OPEN issues, and an idle
+lane often holds a live chain the planner wrote itself. Scan the open `agent:implement` set for claims authored
+for that lane, read the newest queue-correction comment (it spells the ordered queue out), and take the first
+entry that is not MERGED/CLOSED as the frontier; dispatch that id with its merged predecessors as evidence, the
+`origin/main` sha, and a "do not park" fallback. An empty-PR board is not an empty lane. Commands and the jq
+quoting trap: `references/false-park-idle-lane.md`.
+
 **The planner refines; it never implements.** Verdicts and rescoped bodies are the deliverable here, then the
 work is handed to a bot: the in-repo CI bots by label/claim comment (`agent:implement` for issue-bot), or a host
 profile via `message_agent` with the issue number, the verdict and the constraints. Check for a live
@@ -248,22 +275,34 @@ direction with its anti-goal, and the constraints that keep the result reviewabl
 `origin/main`, one ready-for-review PR with `closes #<n>`, gates through make, never merge, report the PR
 URL).
 
+**Sweep the WHOLE board, then dispatch as ordered per-lane queues.** A "go over the issues and the PRs" ask means full enumeration in one call — `gh pr list --state open --json number,title,headRefName,author,mergeStateStatus,reviewDecision` plus `gh issue list --state open --limit 200 --json number,title,labels` — never only the items that arrived in notifications or that the last tick happened to name; a partial inventory is precisely what "there is more work" means. Then batch by lane: one `bot-claim` comment per issue on the board, and ONE DM per lane carrying its ordered queue (live item first, then queued ids in sequence, each naming the predecessor that must resolve first) so the lane's queue depth is honest rather than a stack of parallel vehicles. Report the number dispatched against the number enumerated. A family of PRs from one generator with identical failing check names across heads is root-caused once and fixed by ONE batch tracker issue plus a pointer comment on each PR — never one lane run per PR: recipe in the `llgenie-bot-orchestration` skill, reference file `batch-pr-family-triage`.
+
 **When you file or restate a body yourself**, the repo's shape gate makes this a writing task with traps: use the
 repo's own renderer where one exists (`scripts/issue_body.py`'s six sections, `Technical` last). The EXACT
 `SECTIONS` tuple (read it from the source, never guess from memory) is `Problem / Why it matters / How we fix it /
 Benefit / Acceptance criteria / Technical` plus optional `Not covered` — do NOT brief lanes with a spoken list like
 `Goal/Test/Evidence/Notes`; that is wrong and lanes must override it to the real tuple. The `Acceptance criteria`
-section must contain a checkbox (`CHECKBOX`), and every other `##` heading inside a pasted document (a SOUL.md or
+section must exist AS ITS OWN `##` HEADING and contain a checkbox (`CHECKBOX`), and every other `##` heading inside a pasted document (a SOUL.md or
 SKILL.md dropped into `## Technical`) must be demoted to one more `#` level — a top-level `## Technical` otherwise
 parses as extra sections and displaces `Technical` from last (the shape gate `missing()` reds on `## ` headings
 already given or unknown ones). Verify the body after the POST with the gate itself
-(`scripts/issue_body.py missing() == OK`, `has_accept=True`), not by counting `[ ]` in the whole body (raw
-`[ ]` count includes prose; what matters is `Acceptance criteria` present + tickable). `issue_body.py` is a
+(`scripts/issue_body.py missing() == []` — an empty list means all six sections present and `Acceptance
+`criteria` tickable; the module exposes `missing()`, NOT a `has_accept` attribute, so do not call
+`ib.has_accept`), not by counting `[ ]` in the whole body (raw `[ ]` count includes prose). The most
+common miss is a `- [ ]` list parked at the END of `## Technical`: the boxes look right and the unchecked
+count is non-zero, so an eyeball check passes while `missing()` reds on `Acceptance criteria` — the list
+must sit under its own `##` heading, placed after `## Not covered`/`## Benefit` and before `## Technical`,
+which stays last.
 LIBRARY, not a CLI: `python3 scripts/issue_body.py check ..` reports nothing and exits 0 on ANY body (mine
-did for a deliberately malformed control), which silently "passes" an un-shaped filing. Invoke it as a
+did for a deliberately malformed control), which silently "passes" an un-shaped filing. Its sibling `scripts/check_issue_body.py` is the gate CLI, and it takes `check --root <dir>` — it scans PRODUCER SOURCES, not a body path, so passing a body file errors `unrecognized arguments: <path>` and it cannot validate a hand-written body either. For a body you wrote by hand, either call `missing()` as above or check the headings and the unchecked-criterion count directly (`grep -n '^## '`, `grep -c '^- \[ \]'`), confirming `Technical` is last. Invoke it as a
 function — `python3 -c 'import sys;sys.path.insert(0,"scripts");import issue_body as ib;print(ib.missing(open("b.md").read()))'`
 — and run that against the LIVE body re-fetched from GitHub (`gh api repos/o/r/issues/<n> --jq .body`),
-never a local copy overwritten by `gh issue view > file`, which degraded output can truncate. Filings that
+never a local copy overwritten by `gh issue view > file`, which degraded output can truncate. When the
+working checkout may be behind, do not trust its `scripts/` copy: `git show origin/main:scripts/issue_body.py >
+<scratch>/issue_body.py` and import THAT, so the renderer you gate with is the one on main. Build the body
+with `ib.render(problem=…, why=…, how=[…], benefit=…, acceptance=[…], technical=[…], marker=…)` — it enforces
+the section order and the checkbox form for you — assert `ib.missing(body) == []`, then POST the file and
+re-assert `missing()` on the body read back from the API. Filings that
 invent their own headings (`## Goal`, `## Implementation route`) instead of the six-section tuple are
 un-ready even when they read fine — re-gate every body you file BEFORE dispatch, and again after the POST. Verify with a
 fence-aware scan — walk the lines tracking ``` parity and only count `^## ` outside a fence — because a bare

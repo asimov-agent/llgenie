@@ -1,0 +1,5 @@
+# Issue-body PATCH gotcha: a nonexistent @-file becomes the literal body
+
+When PATCHing an issue body with `gh api -X PATCH issues/N -F body=@f` (or `-f body=@f`), gh reads the file ONLY if it exists. If the path is missing, gh sends the **literal text `@/tmp/....md`** as the body (no API error), silently replacing the real body. A later `-F body="$(cat ...)"` then overwrites again with whatever that file holds.
+
+Guard (learned 2026-11-03 on #1649): BEFORE any body PATCH, `ls -la` + `wc -c` the source file and confirm the byte count; read the body BACK via the API after and script-check the six canonical sections + `## Technical` last using the repo's SUBSTRING semantics (`## How we fix it` inside a longer heading is fine; `^## How we fix it$` is too strict and false-negatives). SECTIONS=("Problem","Why it matters","How we fix it","Benefit","Acceptance criteria","Technical") with Technical LAST (#745; `scripts/check_issue_body.py`). Rebuild corrupted bodies from the last-known-good body file, never from memory.

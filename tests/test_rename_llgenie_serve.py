@@ -5,7 +5,9 @@ Two things this pins:
 1. **The rename guard.** The CLI module is `scripts/llgenie_serve.py`; no live file
    may mention the old module name again. `llama-server` (upstream's binary), its
    shim, `build_llama_server.sh`, `LLAMA_SERVER*`/`LLAMA_CUBLAS`/`LLAMA_HOST` and
-   the dated history under `agent-wiki/` and merged `openspec/changes/` are NOT
+   the dated history under `agent-wiki/`, merged `openspec/changes/`, and the archived
+   skill snapshots under `agents/llgenie-planner/skills/.archive/` (byte-identical fold copies,
+   issue #2262) are NOT
    what this guards — they are upstream's names and the record of what happened.
 2. **The seam split.** llgenie's own knobs carry llgenie's name
    (`LLGENIE_BACKEND`, `LLGENIE_RAM_BYTES`, …) and the old `LLAMA_*` names keep
