@@ -47,7 +47,11 @@ runs:
     - name: Prove the agent's shell can see this job's credentials (issue #358)
       if: inputs.phase == 'preflight' && inputs.shell_keys != ''
       shell: bash
-      run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="${{ inputs.shell_keys }}"
+      # The value crosses as env, never as shell text (issue #2505): the Makefile's
+      # `AGENT_SHELL_CHECK_KEYS ?=` reads the exported name directly.
+      env:
+        AGENT_SHELL_CHECK_KEYS: ${{ inputs.shell_keys }}
+      run: make agent-shell-keys-check
 
     # A routing reach dies in seconds here, not after a full leg's budget
     # (issue #407). Only legs that actually reach a routed provider opt in.

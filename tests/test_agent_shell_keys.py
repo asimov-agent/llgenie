@@ -201,7 +201,14 @@ def test_every_bot_job_proves_the_agent_shell():
     steps = [l for l in leg.splitlines()
              if "make agent-shell-keys-check" in l and not l.lstrip().startswith("#")]
     assert len(steps) == 1, f"agent-leg does not prove the agent's shell exactly once: {steps}"
-    assert 'AGENT_SHELL_CHECK_KEYS="${{ inputs.shell_keys }}"' in steps[0], steps[0]
+    # The keys cross into the check as the step's env, never as shell text on the make line
+    # (issue #2505: interpolated values are passed as env, not composed into a shell command).
+    # Accept either sanctioned shape, but the value must come from `inputs.shell_keys`.
+    leg_lines = leg.splitlines()
+    idx = [i for i, l in enumerate(leg_lines) if l in steps][0]
+    step_block = "\n".join(leg_lines[max(0, idx - 8):idx + 1])
+    assert ("AGENT_SHELL_CHECK_KEYS: ${{ inputs.shell_keys }}" in step_block
+            or 'AGENT_SHELL_CHECK_KEYS="${{ inputs.shell_keys }}"' in steps[0]), step_block
 
     for workflow, keys in BOT_JOBS.items():
         text = (WORKFLOWS / workflow).read_text()

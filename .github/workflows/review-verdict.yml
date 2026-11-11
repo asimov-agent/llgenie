@@ -286,9 +286,15 @@ jobs:
 
       - name: Report
         if: always()
+        env:
+          # PR id and step outputs cross as env, never as shell text (issue #2505).
+          REPORT_PR: ${{ inputs.pr_number || github.event.pull_request.number }}
+          REPORT_VERDICT: ${{ steps.verdict.outputs.VERDICT || 'nothing' }}
+          REPORT_HEAD: ${{ steps.resolve.outputs.HEAD }}
         run: |
+          set -euo pipefail
           echo "### review-verdict" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "PR #${{ inputs.pr_number || github.event.pull_request.number }}: " \
-               "recorded ${{ steps.verdict.outputs.VERDICT || 'nothing' }} at head ${{ steps.resolve.outputs.HEAD }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "PR #$REPORT_PR: " \
+               "recorded $REPORT_VERDICT at head $REPORT_HEAD" >> "$GITHUB_STEP_SUMMARY"
           echo "The bot never merges and never pushes; it records the verdict the merge decision reads." >> "$GITHUB_STEP_SUMMARY"
