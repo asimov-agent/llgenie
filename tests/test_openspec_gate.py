@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 
 def _recipe(text: str, target: str) -> str:
@@ -24,8 +25,8 @@ def _recipe(text: str, target: str) -> str:
 def test_ci_validates_every_active_change():
     """`ci-openspec` runs the all-changes gate, and names no single change."""
 
-    # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    # Given the Makefile (the top + its mk/*.mk includes — openspec-validate-all lives behind one)
+    mk = makefiles_text()
 
     # When  its ci-openspec and openspec-validate-all recipes are read
     ci = _recipe(mk, "ci-openspec")

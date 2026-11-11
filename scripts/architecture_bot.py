@@ -195,11 +195,42 @@ def module_summary(path: Path) -> str:
     return "(no docstring)"
 
 
+def _makefile_text(root: Path) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800, #2457).
+
+    The census counts the user-facing make surface (`make help`); after the split the targets live
+    in `mk/*.mk`, so a reader that stops at the top `Makefile` sees only the includes and reports an
+    empty surface while the doc still names every target (issue #800).
+    """
+    top = root / "Makefile"
+    if not top.exists():
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = ["Makefile"]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        parts.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return "\n\n".join(parts)
+
+
 def public_targets(root: Path = REPO_ROOT) -> list[tuple[str, str]]:
     mk = root / "Makefile"
     if not mk.exists():
         return []
-    return [(name, text.strip()) for name, text in PUBLIC_TARGET.findall(mk.read_text())]
+    return [(name, text.strip()) for name, text in PUBLIC_TARGET.findall(_makefile_text(root))]
 
 
 def workflows(root: Path = REPO_ROOT) -> list[dict]:

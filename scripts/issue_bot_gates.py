@@ -197,13 +197,44 @@ def _step_name(block: str) -> str:
     return ""
 
 
+def _makefile_text(root: Path) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800, #2457).
+
+    FAST_GATES are all gate-domain targets that live behind `include mk/*.mk` after the split
+    (lint, check-wiring, check-docs, check-* ); reading only the top Makefile would report every
+    fast gate as "not a target in Makefile" — the split must not blind its own guard.
+    """
+    top = root / MAKEFILE
+    if not top.exists():
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = [MAKEFILE]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        parts.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return "\n\n".join(parts)
+
+
 def check(root: Path = REPO) -> list[str]:
     """Every finding about the gate's own wiring, from the real files (empty means wired)."""
     errors: list[str] = []
     makefile = root / MAKEFILE
     if not makefile.exists():
         return [f"{MAKEFILE} is missing: the gate has nothing to read"]
-    text = makefile.read_text()
+    text = _makefile_text(root)
     recipes = _recipes(text)
     calls = {t: _make_calls(r) for t, r in recipes.items()}
 

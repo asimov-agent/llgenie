@@ -215,11 +215,32 @@ def flow_lines(text: str) -> list[str]:
 
 
 def makefile_targets(root: Path = REPO_ROOT) -> set[str]:
-    """Every target name the Makefile defines (a bare `name:` at the start of a line)."""
-    mk = root / "Makefile"
-    if not mk.exists():
-        return set()
-    return {m.group(1) for m in re.finditer(r"^([A-Za-z0-9_.-]+):(?!=)", mk.read_text(), re.M)}
+    """Every target name the makefiles define (a bare `name:` at the start of a line).
+
+    The top Makefile keeps only the environment + includes and the targets live in `mk/*.mk`
+    (issue #800, #2457), so a `Flow:` header naming `make lint` must resolve through the includes
+    or it is falsely reported missing the moment the target moves behind `include mk/*.mk`.
+    """
+    bodies: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = ["Makefile"]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        bodies.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    text = "\n\n".join(bodies)
+    return {m.group(1) for m in re.finditer(r"^([A-Za-z0-9_.-]+):(?!=)", text, re.M)}
 
 
 def violations(root: Path = REPO_ROOT) -> list[str]:

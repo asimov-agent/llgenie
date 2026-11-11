@@ -48,6 +48,37 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = "Makefile"
+
+
+def _makefile_text(root: Path) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800, #2457).
+
+    The top Makefile keeps only the environment + includes; the targets live in `mk/*.mk`. A
+    target `make help` prints must be seen wherever it was split to, or every user-facing target
+    would silently drop out of the documentation gate.
+    """
+    top = root / MAKEFILE
+    if not top.exists():
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = [MAKEFILE]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        parts.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return "\n\n".join(parts)
 README = "README.md"
 CHANGES = "CHANGES.md"
 FRAGMENTS = "docs/changes.d"
@@ -114,7 +145,7 @@ APPEND_WINDOW = 160
 
 def _targets(root: Path) -> dict[str, str]:
     """`{target: its help text}` for every target `make help` would print."""
-    text = (root / MAKEFILE).read_text()
+    text = _makefile_text(root)
     out: dict[str, str] = {}
     for m in TARGET_RE.finditer(text):
         name = m.group(1)

@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 from scripts import check_agent_skills as guard
 
@@ -404,8 +405,8 @@ def test_agents_md_must_state_the_rule(tmp_path):
 def test_the_gate_is_wired_into_ci_unit_and_make():
     """A guard no CI job runs is a defect, not a spare part."""
 
-    # Given the Makefile and the CI stage
-    makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+    # Given the Makefile (the top + its mk/*.mk includes — check-agent-skills lives behind the include)
+    makefile = makefiles_text()
 
     # When  the gate's target, its help line, its .PHONY entry and its CI stage are read
     # Then  all four exist and `make -n` prints the real command

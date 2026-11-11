@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 from scripts import check_wiring as cw
 from scripts import unit_tests as ut
 
@@ -451,8 +452,8 @@ def test_the_real_tree_declares_no_phony_entry_it_cannot_run():
 def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     """The guard is only real when the pipeline runs it."""
 
-    # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    # Given the Makefile (the top + its mk/*.mk includes — the gates targets live behind the include)
+    mk = makefiles_text()
 
     # When the ci-unit job and the unit suite are read
     # Then ci-unit runs the wiring check, and this test file is in the discovered suite

@@ -8,6 +8,7 @@ from scripts import check_pr_closing as cpc
 from scripts.check_pr_closing import main as run_cli
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 FIXTURES = REPO / "tests" / "fixtures"
 PR1328 = FIXTURES / "pr-1328-body.md"   # the no-keyword defect: left #1327 open
@@ -572,8 +573,8 @@ def test_the_unit_job_reads_the_body_live_not_from_the_event_snapshot():
 def test_the_make_recipe_passes_the_commit_range():
     """The recipe reads PR_BASE and names the branch PR_BRANCH, not PR_HEAD."""
 
-    # Given the Makefile
-    recipe = (REPO / "Makefile").read_text().split("check-pr-closing:", 1)[1].split("\n", 2)[1]
+    # Given the Makefile (the top + its mk/*.mk includes — check-pr-closing lives behind the include)
+    recipe = makefiles_text().split("check-pr-closing:", 1)[1].split("\n", 2)[1]
 
     # When the recipe is read
     # Then it passes the base and the branch variable the author gate does not use as a rev

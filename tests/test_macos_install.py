@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 import scripts.engine_image as ei  # noqa: E402
 import scripts.install_engine_launchers as il  # noqa: E402
@@ -761,9 +762,11 @@ def test_pure_make_surface_runs_the_python_script():
     """The bash-check make target is a thin entrypoint that runs scripts/check_bash.py
     (the single source of truth), not a second shell implementation."""
 
-    # Given the Makefile's bash-check recipe
-    mk = (REPO / "Makefile").read_text()
-    recipe = mk[mk.index("\nbash-check:"):mk.index("\n# Put ~/bin on PATH", mk.index("\nbash-check:"))]
+    # Given the Makefile's bash-check recipe (gates domain lives behind include mk/gates.mk)
+    mk = makefiles_text()
+    m = re.search(r"\nbash-check:[^\n]*\n(\t[^\n]*\n?)", mk)
+    assert m, "bash-check recipe not found"
+    recipe = m.group(0)
 
     # When the recipe is read
     # Then it runs the python script with the resolved SHELL, and no shell logic is duplicated
