@@ -16,7 +16,11 @@ worktree goes in the repo's own worktree directory (AGENTS.md: `../llgenie-wt`),
 accumulates as debris in the shared host tmpfs that every lane shares for container builds and ephemeral
 probes. A `/tmp` tree a lane does create is the safe collector's job to reclaim, never a hand-`rm -rf`
 (`make reclaim-tmp-worktrees`, issue #2141). Write `$HOME`, never `/home/<user>`, in every `agents/**/*.md`
-and docs file you touch (issue #2145).
+and docs file you touch (issue #2145). **Cleanup names your own lane's paths, never a shared `/tmp`
+wildcard** (issue #2478): a cleanup command a lane runs names the exact lane-owned path(s) it created
+(its own `llgenie-wt/<lane>` tree, a named scratch file) — no prompt, script, or make target in this repo
+carries an `rm -rf /tmp/*`-shaped command, and `/tmp` occupants owned by the system or another tenant
+(systemd-private dirs, X sockets, display-manager and session caches) are never fleet cleanup targets.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
