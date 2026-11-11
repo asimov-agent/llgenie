@@ -61,7 +61,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
-	test test-unit test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host test-recall-step test-board-ownership-host download-test-model \
+	test test-unit env-diag test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host test-recall-step test-board-ownership-host download-test-model \
 	test-image test-image-pull openspec-image-pull publish-ci-images publish-agent-image agent-image-push-check agent-image agent-image-pull ci-image-refs test-clean lint lint-fix loop loop-harness chained sweep-concurrency-report \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
@@ -1650,6 +1650,16 @@ test-unit-network: bash-check
 
 test-unit: ## Hermetic unit tests (containerized) — the suite is DISCOVERED, not enumerated: scripts/unit_tests.py selects every tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json (issue #393)
 	$(TEST_RUN) python scripts/unit_tests.py run
+
+# Temporary diagnostic for issue #2395 (NOT user-facing on purpose: no `##` help line,
+# so check-docs needs no docs entry). It measures env-string sizes on the runner and
+# inside the test image, then runs the three formerly-red gh-spawn suites in isolation.
+# Removed together with the diagnosis.
+env-diag:
+	@echo "[env-diag] runner env strings >4096:"; env | awk 'length($$0)>4096 {split($$0,a,"="); print "  ", a[1], length($$0)}'; true
+	@echo "[env-diag] runner env total:"; env | awk '{n+=length($$0)} END {print "  ", n, "chars"}'
+	$(TEST_RUN) python -c 'import os; big=[(k,len(v)) for k,v in os.environ.items() if len(v)>4096]; print("[env-diag] container big:", big, "total:", sum(len(v) for v in os.environ.values()))'
+	$(TEST_RUN) python -m pytest tests/test_bot_pr_tokens.py tests/test_issue_implementer.py -p no:cacheprovider -q
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.

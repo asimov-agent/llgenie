@@ -127,6 +127,9 @@ jobs:
       - name: Build test image
         if: steps.diff.outputs.changed
         run: make test-image
+      - name: Diagnose oversized env (issue #2395, temporary — removed with the diagnosis)
+        if: steps.diff.outputs.changed
+        run: make env-diag
       - name: make check-registry + check-quant-catalog + engine-skill-gap report + test-unit against the new registry
         if: steps.diff.outputs.changed
         # #2395: do NOT forward the job's HF_TOKEN/GITHUB_TOKEN secret VALUES into this
