@@ -17,5 +17,5 @@ stale (the #1878→#1877 and #1887→#1886 shape) and CI reds `DIRTY` with no ow
 - Never disturb a **shared** worktree owned by the progressive sweep (e.g. `/tmp/wts-1696`) — use a
   fresh worktree for owner-shared tree.
 - The rebase is on **your own branch only**, force-pushed/pushed to your own PR branch with
-  `--force-with-lease`/`--force-if-includes` after a fresh fetch, preserving commit authors (#840),
+  plain `--force-with-lease` after a fresh fetch (#1960: a rebased head does NOT contain the old remote tip, so the stricter includes-guarded lease would rightly refuse it), preserving commit authors (#840),
   and never opening a second vehicle (#824). A branch another lane repaired is read-only.
