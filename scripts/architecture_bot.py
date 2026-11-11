@@ -195,11 +195,44 @@ def module_summary(path: Path) -> str:
     return "(no docstring)"
 
 
+
+def _makefile_text(root: Path) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800).
+
+    The top Makefile keeps only the environment + includes; the targets live in `mk/*.mk`. A
+    target `make help` prints must be seen wherever it was split to, or every user-facing target
+    would silently drop out of the documentation gate.
+    """
+    top = root / "Makefile"
+    if not top.exists():
+        return ""
+    parts: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = ["Makefile"]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        parts.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return "\n\n".join(parts)
+
+
+
 def public_targets(root: Path = REPO_ROOT) -> list[tuple[str, str]]:
     mk = root / "Makefile"
     if not mk.exists():
         return []
-    return [(name, text.strip()) for name, text in PUBLIC_TARGET.findall(mk.read_text())]
+    return [(name, text.strip()) for name, text in PUBLIC_TARGET.findall(_makefile_text(root))]
 
 
 def workflows(root: Path = REPO_ROOT) -> list[dict]:

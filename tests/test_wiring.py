@@ -74,10 +74,12 @@ def test_the_real_tree_has_no_unwired_document():
         assert not (graph["ci_reachable"][doc] and doc in recorded), doc
 
     # And each recorded decision carries the reason and the target a human runs
+    # the split makefiles (top + mk/*.mk includes, issue #800) — a host-only target may live in any
+    all_mk = "\n".join((REPO / rel).read_text() for rel in cw._makefile_list(REPO))
     for doc, e in exceptions["documents"].items():
         assert (doc.startswith("tests/") or doc.startswith("scripts/")) and (REPO / doc).exists(), doc
         assert len(e["reason"]) > 40 and e["decided"] and e["target"], doc
-        assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
+        assert f"{e['target']}:" in all_mk, doc
 
 
 def test_the_report_names_every_document_and_the_host_only_decisions():

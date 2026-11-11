@@ -80,10 +80,45 @@ MAKE_RE = re.compile(r"(?:\$\(MAKE\)|make)(?:\s+-(?!C\s)[^\s$]+)*\s+(?:-C\s+\S+\
                      r"([a-z0-9][a-z0-9._-]*)(?=\s|$)")
 
 
+
+def _makefile_list(root: Path) -> list[str]:
+    """The makefiles that together define the graph, read in include order (issue #800).
+
+    The top `Makefile` is first; then every `mk/*.mk` it `include`s, in the order the directives
+    name them; then `tools/Makefile`. A target that moves out of the top makefile is still
+    discovered because its file is part of the resolved set — the split cannot make the gate blind.
+    GNU make expands a wildcard in an `include mk/*.mk` directive to every matching file, sorted;
+    the resolver mirrors that (one pattern per directive).
+    """
+    out: list[str] = []
+    pending = ["Makefile"]
+    seen: set[str] = set()
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        path = root / rel
+        if not path.exists():
+            continue
+        out.append(rel)
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", path.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(p.relative_to(root).as_posix()
+                                      for p in root.glob(inc)))
+            else:
+                pending.append(inc)
+    for extra in ("tools/Makefile",):
+        if extra not in seen and (root / extra).exists():
+            out.append(extra)
+    return out
+
+
 def _recipes(root: Path) -> tuple[dict[str, str], dict[str, set]]:
     """(target -> recipe text, target -> prerequisites). A prerequisite is a real edge:
     `ci-lint: bash-check` means CI running ci-lint runs bash-check."""
-    text = "\n\n".join((root / rel).read_text() for rel in MAKEFILES if (root / rel).exists())
+    text = "\n\n".join((root / rel).read_text() for rel in _makefile_list(root))
     spans = [(m.group(1), m.start()) for m in TARGET_RE.finditer(text)]
     out, prereqs = {}, {}
     for i, (name, start) in enumerate(spans):
@@ -104,7 +139,7 @@ def _phony_targets(root: Path) -> set[str]:
     a target is harmless to make, so only the targets are compared against it.
     """
     out: set[str] = set()
-    for rel in MAKEFILES:
+    for rel in _makefile_list(root):
         path = root / rel
         if not path.exists():
             continue
@@ -275,14 +310,15 @@ def _close(root: Path, docs: list[str], recipes: dict[str, str], calls: dict[str
 
 def _help_lines(root: Path = REPO) -> dict[str, str]:
     """Every target's `##` help line — the text a human reads at `make help` time."""
-    mk = root / "Makefile"
-    if not mk.exists():
-        return {}
-    out = {}
-    for line in mk.read_text().splitlines():
-        m = re.match(r"^([A-Za-z0-9_.-]+):[^#]*##\s*(.+)$", line)
-        if m:
-            out[m.group(1)] = m.group(2).strip()
+    out: dict[str, str] = {}
+    for rel in _makefile_list(root):
+        mk = root / rel
+        if not mk.exists():
+            continue
+        for line in mk.read_text().splitlines():
+            m = re.match(r"^([A-Za-z0-9_.-]+):[^#]*##\s*(.+)$", line)
+            if m:
+                out[m.group(1)] = m.group(2).strip()
     return out
 
 
@@ -445,8 +481,9 @@ def check(g: dict, exceptions: dict) -> list[str]:
     # gate, because only the called -> exists direction was checked. Both shapes are reported in
     # ONE pass so a single edit fixes the whole set.
     for target in sorted(g.get("phony_no_target") or ()):
-        errors.append(f".PHONY declares `{target}`, but no target of that name exists in "
-                      f"{' or '.join(MAKEFILES)}: because the name is declared phony, "
+        mfs = " or ".join(_makefile_list(g.get("root") and Path(g["root"]) or REPO))
+        errors.append(f".PHONY declares `{target}`, but no target of that name exists in {mfs}: "
+                      f"because the name is declared phony, "
                       f"`make {target}` prints \"Nothing to be done\" and exits 0 — a green no-op "
                       f"that verifies nothing. Add the recipe back, or delete the stale "
                       f"declaration (a key outlives its recipe when a union resolution drops one "

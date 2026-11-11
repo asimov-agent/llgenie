@@ -6,6 +6,7 @@ expose the repo root so tests can locate scripts/llgenie_serve.py / Makefile / t
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -24,6 +25,61 @@ import scripts.llgenie_serve as llgenie_serve  # noqa: E402  (importable: gguf+n
 HOME = Path.home()
 MODELS_ROOT = HOME / "models"
 BIN = HOME / "bin"
+
+
+def makefiles_text(root: Path = REPO_ROOT) -> str:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800).
+
+    The Makefile split its targets into `mk/*.mk`, so a test that regexes or slices the Makefile
+    text for a target must see the concatenation the build itself resolves — the split must not
+    make a reader go blind. Same resolver contract as `scripts/check_wiring.py`; GNU make expands
+    a wildcard `include mk/*.mk` to every matching file, sorted, and we mirror that (one pattern
+    per directive).
+    """
+    body: list[str] = []
+    seen: set[str] = set()
+    pending: list[str] = ["Makefile"]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        body.append(p.read_text())
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return "\n\n".join(body)
+
+
+def makefiles_paths(root: Path = REPO_ROOT) -> list[Path]:
+    """The top Makefile + every `mk/*.mk` it `include`s, in include order (issue #800)."""
+    body: list[Path] = []
+    seen: set[str] = set()
+    pending: list[str] = ["Makefile"]
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        p = root / rel
+        if not p.is_file():
+            continue
+        body.append(p)
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", p.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(q.relative_to(root).as_posix() for q in root.glob(inc)))
+            else:
+                pending.append(inc)
+    return body
+
+
 
 
 @pytest.fixture(scope="session")
