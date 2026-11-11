@@ -62,6 +62,114 @@ def env_df(tmp_path, monkeypatch) -> None:
                                         inodes=_INODES_ROW) + ":" + os.environ["PATH"])
 
 
+class _Stv:
+    """Minimal stand-in for the statvfs result the module reads (f_files/f_favail)."""
+
+    def __init__(self, files: int, favail: int) -> None:
+        self.f_files = files
+        self.f_favail = favail
+
+
+def _mounts(tmp_path, line: str) -> str:
+    """Write a /proc/mounts-style table and return its path for chs._MOUNTS_PATH."""
+    p = tmp_path / "mounts"
+    p.write_text(line + "\n")
+    return str(p)
+
+
+@pytest.fixture(autouse=True)
+def hermetic_probe(tmp_path, monkeypatch) -> None:
+    """Keep the inode-usage probe hermetic in EVERY test: /tmp is a tmpfs at low usage.
+
+    Without this, `report()` would read the real host's /proc/mounts + statvfs and the suite would
+    pass/fail on the host's inode pressure. Inode-specific tests override _statvfs/_MOUNTS_PATH.
+    """
+    monkeypatch.setattr(chs, "_MOUNTS_PATH", _mounts(tmp_path, "tmpfs /tmp tmpfs rw,nosuid 0 0"))
+    monkeypatch.setattr(chs, "_statvfs", lambda m: _Stv(1_000_000, 1_000_000))
+
+
+def test_inode_usage_below_threshold_no_warning(tmp_path, monkeypatch, capsys) -> None:
+    """At 84% inode usage (below the 85% default) the probe prints INFO, not WARNING."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    monkeypatch.setattr(chs, "_statvfs", lambda m: _Stv(1_000_000, 160_000))  # 84% used
+    code = chs.main(["check", "--mount", "/tmp"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "WARNING" not in out
+    assert "84% inode utilisation (below 85% threshold)" in out
+
+
+def test_inode_usage_at_threshold_warns(tmp_path, monkeypatch, capsys) -> None:
+    """At exactly 85% used the probe WARNINGs naming mount, percentage and threshold."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    monkeypatch.setattr(chs, "_statvfs", lambda m: _Stv(1_000_000, 150_000))  # 85% used
+    code = chs.main(["check", "--mount", "/tmp"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "WARNING" in out
+    assert "/tmp" in out and "85%" in out and "85%" in out
+    assert "OWNER DECISION POINT" in out
+
+
+def test_inode_usage_above_threshold_warns_and_names_fields(tmp_path, monkeypatch, capsys) -> None:
+    """Above threshold the WARNING names the mount, the measured % and the configured threshold."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    monkeypatch.setattr(chs, "_statvfs", lambda m: _Stv(1_000_000, 90_000))  # 91% used
+    code = chs.main(["check", "--mount", "/tmp", "--inodes-use-max", "90"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "WARNING" in out
+    assert "/tmp" in out
+    assert "91%" in out   # measured percentage
+    assert "90%" in out   # threshold (--inodes-use-max)
+    assert "this check never deletes or prunes" in out
+
+
+def test_inode_usage_warns_with_owner_decision_update_pct(tmp_path, monkeypatch, capsys) -> None:
+    """The threshold is tunable via --inodes-use-max: lower it and a below-default run warns."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    monkeypatch.setattr(chs, "_statvfs", lambda m: _Stv(1_000_000, 700_000))  # 30% used
+    code = chs.main(["check", "--mount", "/tmp", "--inodes-use-max", "25"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "WARNING" in out and "/tmp" in out and "30%" in out
+
+
+def test_inode_usage_statvfs_failure_on_tmpfs_raises(tmp_path, monkeypatch) -> None:
+    """A statvfs failure on a tmpfs-identified real mount surfaces as an error, not a silent skip."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    # _MOUNTS_PATH from the autouse fixture says /tmp is a tmpfs; now statvfs fails on it.
+    def boom(_m):
+        raise OSError("statvfs denied")
+    monkeypatch.setattr(chs, "_statvfs", boom)
+    with pytest.raises(chs.HostSpaceError):
+        chs.main(["check", "--mount", "/tmp"])
+
+
+def test_inode_usage_non_tmpfs_and_missing_mount_skip(tmp_path, monkeypatch, capsys) -> None:
+    """A non-tmpfs /tmp (or one absent from the mount table) must not abort the preflight."""
+    monkeypatch.setenv("PATH", _stub_df(tmp_path / "bin",
+                                        space=_SPACE_ROW,
+                                        inodes=_INODES_ROW) + ":" + os.environ["PATH"])
+    # /tmp on ext4 (not the shared tmpfs): the probe is skipped with an INFO line.
+    monkeypatch.setattr(chs, "_MOUNTS_PATH", _mounts(tmp_path, "/dev/sda1 /tmp ext4 rw 0 0"))
+    code = chs.main(["check", "--mount", "/tmp"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "WARNING" not in out
+    assert "skipped (not a tmpfs mount" in out
+
+
 def test_healthy_tmpfs_exits_0_and_reports_both_axes(env_df, capsys) -> None:
     """A tmpfs above both thresholds is green and names both axes."""
     code = chs.main(["check", "--mount", "/tmp"])

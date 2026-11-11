@@ -27,6 +27,7 @@ the tests drive it with a fake `df` on PATH, so the gate runs hermetically on CI
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -43,6 +44,17 @@ DEFAULT_MOUNT = "/tmp"
 DEFAULT_SPACE_MIN_PCT = 20
 #: …OR fewer than this many inodes are free.
 DEFAULT_INODES_MIN = 50_000
+
+#: Issue #1624: inode-UTILISATION warning threshold (percent of inodes USED). This is deliberately a
+#: WARNING that hands the decision to the owner, not a refuse threshold — the check never remediates.
+DEFAULT_INODES_USE_MAX_PCT = 85
+
+#: os.statvfs seam: injected in tests so the inode-usage probe runs hermetically, mirroring the
+#: fake-`df`-on-PATH seam used for the df-based axes (issue #797).
+_statvfs = os.statvfs
+
+#: The kernel mount table the probe reads to confirm the mount is a tmpfs; injected in tests.
+_MOUNTS_PATH = "/proc/mounts"
 
 #: df -h header and a data row: `Filesystem  Size  Used Avail Use% Mounted on`
 _SPACE_RE = re.compile(
@@ -92,6 +104,46 @@ def inodes_free(mount: str = DEFAULT_MOUNT) -> int:
     return int(m.group(1))
 
 
+def mount_fstype(mount: str = DEFAULT_MOUNT) -> str | None:
+    """Filesystem type backing `mount`, read from the mount table (`/proc/mounts` on Linux).
+
+    Returns ``None`` when the mount table cannot be read or the mount is absent — the caller treats
+    that as \"not the shared tmpfs\" and skips the inode-usage probe, never as a measurement failure.
+    The mount-table path is ``_MOUNTS_PATH`` so tests can inject a fixture (same seam spirit as the
+    fake `df` on PATH).
+    """
+    try:
+        with open(_MOUNTS_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 3 and parts[1] == mount:
+                    return parts[2]
+    except OSError:
+        return None
+    return None
+
+
+def inode_usage_pct(mount: str = DEFAULT_MOUNT) -> int | None:
+    """Percent of `mount`'s inodes USED (statvfs f_files/f_favail), or None if not applicable.
+
+    Returns None — the caller skips/INFOs, never a WARNING — when the mount is absent or not a
+    tmpfs (from the mount table), or statvfs reports zero capacity, so a missing/non-tmpfs /tmp never
+    aborts the preflight. A statvfs failure on a tmpfs-identified real mount is raised as
+    HostSpaceError: a real measurement that cannot be read must surface, not silently pass (the #1583
+    module treats an unreadable `df` the same way).
+    """
+    if mount_fstype(mount) != "tmpfs":
+        return None
+    try:
+        st = _statvfs(mount)
+    except OSError as e:
+        raise HostSpaceError(f"[host-space] statvfs({mount}) failed: {e}")
+    if not st.f_files:
+        return None
+    used = st.f_files - st.f_favail
+    return round(100 * used / st.f_files)
+
+
 def measure(mount: str = DEFAULT_MOUNT) -> dict[str, int]:
     """Measure both axes; raise HostSpaceError if either measurement fails."""
     return {
@@ -102,11 +154,26 @@ def measure(mount: str = DEFAULT_MOUNT) -> dict[str, int]:
 
 def report(mount: str = DEFAULT_MOUNT,
            space_min: int = DEFAULT_SPACE_MIN_PCT,
-           inodes_min: int = DEFAULT_INODES_MIN) -> int:
-    """Measure, print the verdict, and return the exit code (0 ok, 1 below threshold)."""
+           inodes_min: int = DEFAULT_INODES_MIN,
+           inodes_use_max: int = DEFAULT_INODES_USE_MAX_PCT) -> int:
+    """Measure, print the verdict + inode-usage warning, return the exit code (0 ok, 1 below threshold).
+
+    The inode-UTILISATION probe (issue #1624) is a WARNING + owner decision point, never a remediation
+    and never a refuse: >= ``inodes_use_max``% of inodes used prints the mount, the measured percentage
+    and the threshold, and hands cleanup to the owner. A missing/non-tmpfs mount INFO-skips it.
+    """
     m = measure(mount)
     print(f"[host-space] {mount}: {m['space_free_pct']}% space free, "
           f"{m['inodes_free']:,} inodes free (thresholds: <{space_min}% OR <{inodes_min:,} inodes -> refuse)")
+    inodes_used = inode_usage_pct(mount)
+    if inodes_used is None:
+        print(f"[host-space] INFO: {mount} inode-usage probe skipped (not a tmpfs mount / unreadable)")
+    elif inodes_used >= inodes_use_max:
+        print(f"[host-space] WARNING: {mount} at {inodes_used}% inode utilisation "
+              f"(threshold {inodes_use_max}%) — OWNER DECISION POINT: inode pressure on the shared "
+              f"tmpfs; the owner decides whether/which files to clear — this check never deletes or prunes")
+    else:
+        print(f"[host-space] INFO: {mount} at {inodes_used}% inode utilisation (below {inodes_use_max}% threshold)")
     if m["space_free_pct"] < space_min:
         print(f"[host-space] FAIL: {mount} below {space_min}% space free "
               f"(got {m['space_free_pct']}%) — a build/dispatch will wedge the shared tmpfs")
@@ -128,8 +195,10 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"minimum % space free (default {DEFAULT_SPACE_MIN_PCT})")
     p.add_argument("--inodes-min", type=int, default=DEFAULT_INODES_MIN,
                    help=f"minimum free inodes (default {DEFAULT_INODES_MIN:,})")
+    p.add_argument("--inodes-use-max", type=int, default=DEFAULT_INODES_USE_MAX_PCT,
+                   help=f"WARNING when inode utilisation >= {DEFAULT_INODES_USE_MAX_PCT}%% (default {DEFAULT_INODES_USE_MAX_PCT})")
     a = p.parse_args(argv)
-    code = report(a.mount, a.space_min, a.inodes_min)
+    code = report(a.mount, a.space_min, a.inodes_min, a.inodes_use_max)
     if a.mode == "report":
         return 0
     return code
