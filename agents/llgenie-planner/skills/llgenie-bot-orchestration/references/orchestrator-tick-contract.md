@@ -5,7 +5,10 @@ Lanes are **turn-based** — they act on a dispatch then exit — so if the tick
 and the fleet looks lazy when it is in fact never being triggered.
 
 **Schedule: `every 30m`** (owner directive 2026-11-08; it was 10m before, and that setting never delivered
-10m — median 21.0 min measured). Read the schedule from `jobs.json`'s `schedule.display`, never from a
+10m — median 21.0 min measured). `every 30m` is the **configured** value; what it actually **delivered**, measured
+start-to-start over 34 fires (30m era, executions.db), is a **median 40.0 min** because Hermes re-arms `next_run`
+from completion — delivered cycle = interval + run duration (#2340). Do not quote 30 as the cycle time. Read the
+schedule from `jobs.json`'s `schedule.display`, never from a
 sentence in a document: this file said "every 10 minutes" for a day after the change.
 
 **First thing to check whenever the board looks stuck: is the tick actually firing?**
@@ -52,11 +55,12 @@ could be satisfied by *asserting* it happened. Measured 2026-11-08, a pass satis
 while dispatching three lanes onto new backlog issues with **12 of 14 open PRs on a stale base** and
 **7 lanes idle**. A step that cannot be executed is a step that can be hallucinated.
 
-It is now `STEP 1 … STEP 13`, read top to bottom, **no forward references** (the old "READ 6a FIRST" from
+It is now `STEP 0 … STEP 13`, read top to bottom, **no forward references** (the old "READ 6a FIRST" from
 step 3 was precisely why order drifted), and every step names its command plus the line to quote as evidence:
 
 | # | step | command |
 |---|---|---|
+| 0 | PREFLIGHT FETCH | `git -C "$REPO" fetch origin main` + `git -C "$REPO" rev-list --left-right --count HEAD...origin/main` — the explicit fetch that puts `origin/main` under the pass, ahead of the precedence step |
 | 1 | PREFLIGHT | `bash "$TB"` section A — the sha for the whole pass |
 | 2 | RECALL | agent tool if the turn has it, else the pinned `curl` on **127.0.0.1:9177** (see below) |
 | 3 | MEASURE | `bash "$TB"` — sections A–G, once |
@@ -219,7 +223,12 @@ measure the sweep's real cron rate and cancellation share — commands in
   `log-mtime age + CPU delta + process age` together (`stalled-worker-detection.md`).
 - **A red check-run attached to `main` may describe a PR's head.** Compare `headSha` to the fetched tip
   before reporting a main red.
-- **Configured interval ≠ delivered interval.** `every 30m` has delivered gaps of 15–46 min.
+- **Configured interval ≠ delivered interval.** `every 30m` is the configured value; what it delivers, measured
+  start-to-start over 34 fires in the 30m era (2026-11-08 06:25 → 2026-11-09 04:42, executions.db), is a **median
+  40.0 min** (min/max 37.0/43.0, 0 of 33 gaps under 35 min), because Hermes re-arms `next_run` from **completion**:
+  `_advance_after_run()` sets `next_run_at = finish + interval`, so delivered cycle = interval + run duration
+  (median run duration 10.1 min: 30 + 10.1 ≈ 40). Same single cause explains the old 10m setting's 21.0 min
+  median (10 + ~11 min run). Root-cause and fix tracked in #2340; the executions.db query is recorded on #2126.
 - **A reclaimed kanban task returns to `ready` and is dispatched before newer work.** All tasks sit at
   `prio=0`, so order is arbitrary; raise the priority of what matters with `kanban edit --priority`.
 - **Stale-base treadmill.** Every merge re-stales every open PR. Expect rounds, not one fix; a stale base is
