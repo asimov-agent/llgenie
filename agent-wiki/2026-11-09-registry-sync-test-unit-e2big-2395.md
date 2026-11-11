@@ -40,5 +40,13 @@ relaxed; the gh-spawning tests still run and still spawn the real fake `gh` bina
   `OSError: [Errno 7] Argument list too long`, and with the env scoped small they pass
   (`3 passed`) — matching push CI's green.
 - `scripts/check_workflows.py check` passes at the head.
+- 2026-11-11: the temporary diagnostic (target `env-diag`, added for dispatch
+  42956020030) was reverted at head `5fb4c7f63` — the dispatch ran `ref: main`, not the
+  branch tree, so the diag never executed. The post-merge dispatch proof (green
+  change-path `test-unit` + gated sync-PR leg) is lane **#2480** items 3-4; the
+  acceptance criteria were re-scoped to the pre-merge head proof (3 suites pass in the
+  fixed leg env shape at head). PR #2442 carries no `closes` keyword until that lane
+  lands. PR: #2442.
 
 Issue: #2395
+

@@ -38,6 +38,13 @@ binary.
 - **registry-sync-test-unit-e2big**: the registry-sync change path reaches a green
   `make test-unit` under the forwarded-secret env, then opens the sync PR.
 
+**Deferred live proof (Not covered):** the post-merge `workflow_dispatch` at
+`origin/main` (green change-path `test-unit`, no E2BIG; the gated `Open / update the
+sync PR` leg) is tracked by issue **#2480** items 3-4 — `registry-sync.yml`'s sync job
+checks out `ref: main` unconditionally (measured on dispatch 42956020030), so the fixed
+leg cannot execute pre-merge. PR #2442 carries **no** `closes` keyword on #2395 until
+that lane lands (rollout-lane rule, gate #1815/#1812 class).
+
 ## Impact
 
 No check weakening, no skipped test, no permission change. The secrets remain job-level
