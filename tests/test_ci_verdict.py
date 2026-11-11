@@ -590,6 +590,28 @@ def test_a_fully_settled_red_run_still_exits_one_through_the_settle_gate(tmp_pat
     assert payload["conclusion"] == "failure"
 
 
+def test_a_red_verdict_s_final_line_says_red_never_no_verdict(tmp_path, capsys):
+    """Issue #2222: a genuinely RED verdict (run 42454987236's shape) ends its final stderr line
+    with `is RED`, never `has no verdict` -- #2279 fixed the summary's own sentence; the exit line
+    misspoke the same way a layer lower, and a board quoting the LAST line re-read "no verdict".
+    The NONE verdict keeps the #1111 wording, because there a run genuinely has no verdict."""
+    # When  a genuinely red run is judged (full-matrix decision, linux/unit FAILED)
+    rc, _ = _cli(tmp_path, RED_RUN, decision=decision_for(FULL_MATRIX_PATH))
+    captured = capsys.readouterr()
+    err = captured.err
+
+    # Then  the verdict is red, and its OWN final line says so -- never "no verdict"
+    assert rc == 1
+    assert "is RED" in err, err
+    assert "has no verdict" not in err, err
+
+    # And  a NONE verdict (no decision, absent/skipped rows) keeps the #1111 wording verbatim
+    rc2, _ = _cli(tmp_path, CANCELLED_FANOUT)
+    err2 = capsys.readouterr().err
+    assert rc2 == 1
+    assert "has no verdict" in err2, err2
+
+
 def test_a_fully_settled_no_decision_run_is_still_red_through_the_settle_gate(tmp_path, capsys):
     """A genuinely cancelled run with all rows `completed` and no decision stays `none` (red):
     the settle gate only refuses rows that are NOT terminal; a settled cancelled run is judged."""
