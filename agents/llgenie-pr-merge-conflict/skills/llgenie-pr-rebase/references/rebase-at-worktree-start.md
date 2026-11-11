@@ -17,5 +17,5 @@ stale-base drift here (the #1878→#1877 shape).
   authorised push destructive).
 - Never disturb a **shared** worktree owned by the progressive sweep — use a fresh worktree.
 - The rebase is on **your own branch only**, force-pushed/pushed with
-  `--force-with-lease`/`--force-if-includes` after a fresh fetch, preserving commit authors (#840),
+  plain `--force-with-lease` after a fresh fetch (#1960: a rebased head does NOT contain the old remote tip, so the stricter includes-guarded lease would rightly refuse it), preserving commit authors (#840),
   never opening a second vehicle (#824). A branch another lane repaired is read-only.
