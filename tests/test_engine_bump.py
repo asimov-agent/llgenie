@@ -476,12 +476,14 @@ def test_unparseable_recipe_hard_fails(tmp_path):
 def test_regen_guard_isolates_engine(tmp_path, monkeypatch):
     """A bump of A that changes B's params fails the job."""
 
-    # Given make succeeds and git status shows another engine's params
+    # Given a clean baseline and a regen that leaves another engine's params dirty
+    reads = iter(["", " M containers/engines/params/other.json\n"])
+
     def fake_run(cmd, **kw):
-        out = " M containers/engines/params/other.json\n" if cmd[:2] == ["git", "status"] else ""
+        out = next(reads) if cmd[:2] == ["git", "status"] else ""
         return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
 
-    # When the guard runs for testengine
+    # When the guard runs for testengine (issue #2506: first read = baseline, second = post-regen)
     monkeypatch.setattr(eb, "_run", fake_run)
 
     # Then it fails naming the other engine
@@ -492,9 +494,11 @@ def test_regen_guard_isolates_engine(tmp_path, monkeypatch):
 def test_regen_guard_rejects_another_engines_skill(tmp_path, monkeypatch):
     """Another engine's SKILL.md is not this bump."""
 
-    # Given git status shows a different engine's skill
+    # Given a clean baseline and a regen that rewrites a different engine's skill
+    reads = iter(["", " M skills/engines/other/SKILL.md\n"])
+
     def fake_run(cmd, **kw):
-        out = " M skills/engines/other/SKILL.md\n" if cmd[:2] == ["git", "status"] else ""
+        out = next(reads) if cmd[:2] == ["git", "status"] else ""
         return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
 
     # When the guard runs for testengine
@@ -514,15 +518,15 @@ def test_regen_guard_ignores_make_directory_lines(tmp_path, monkeypatch):
     # Given make prints a directory line and git status shows only this engine
     seen = []
 
+    reads = iter(["", " M containers/engines/params/testengine.json\n"])
+
     def fake_run(cmd, **kw):
         seen.append(cmd)
         if cmd[:1] == ["make"]:
             return type("P", (), {"returncode": 0,
                                   "stdout": "make[1]: Entering directory '/work/llgenie'\n",
                                   "stderr": ""})()
-        return type("P", (), {"returncode": 0,
-                              "stdout": " M containers/engines/params/testengine.json\n",
-                              "stderr": ""})()
+        return type("P", (), {"returncode": 0, "stdout": next(reads), "stderr": ""})()
 
     # When the guard runs
     monkeypatch.setattr(eb, "_run", fake_run)
@@ -539,8 +543,10 @@ def test_regen_guard_accepts_the_aggregate_binaries_manifest(tmp_path, monkeypat
     every other engine kept verbatim), so the guard must not treat it as scope
     creep (issue #204)."""
 
+    reads = iter(["", " M containers/engines/binaries.json\n"])
+
     def fake_run(cmd, **kw):
-        out = " M containers/engines/binaries.json\n" if cmd[:2] == ["git", "status"] else ""
+        out = next(reads) if cmd[:2] == ["git", "status"] else ""
         return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
 
     monkeypatch.setattr(eb, "_run", fake_run)
@@ -557,14 +563,16 @@ def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
 
     Run 38110707179 failed every bump job on skills/engines/<id>/SKILL.md."""
 
-    # Given git status shows the pin edit plus this engine's params
+    # Given a clean baseline and a regen that leaves the pin edit plus this engine's params
+    own = (" M skills/engines/testengine/SKILL.md\n"
+           " M containers/engines/params/testengine.json\n"
+           " M containers/engines/dockerfiles/testengine/Dockerfile.cpu\n")
+    reads = iter(["", own])
+
     def fake_run(cmd, **kw):
         if cmd[:1] == ["make"]:
             return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        return type("P", (), {"returncode": 0, "stdout": (
-            " M skills/engines/testengine/SKILL.md\n"
-            " M containers/engines/params/testengine.json\n"
-            " M containers/engines/dockerfiles/testengine/Dockerfile.cpu\n"), "stderr": ""})()
+        return type("P", (), {"returncode": 0, "stdout": next(reads), "stderr": ""})()
 
     # When the guard runs
     monkeypatch.setattr(eb, "_run", fake_run)
@@ -576,6 +584,28 @@ def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
         "containers/engines/params/testengine.json",
         "containers/engines/dockerfiles/testengine/Dockerfile.cpu",
     ]
+
+
+def test_regen_guard_ignores_a_prior_engine_s_dirtiness(tmp_path, monkeypatch):
+    """bump_daily bumps engines without committing, so engine A's completed
+    bump dirties A's Dockerfile while engine B's guard runs. The guard judges
+    the delta regen itself created (issue #2506): A's pre-existing dirt is
+    baseline for B, and only paths NEW after B's regen are verdicted."""
+
+    # Given the baseline already carries llama.cpp's dirt from its own bump
+    prior = " M containers/engines/dockerfiles/llama.cpp/Dockerfile.cpu\n"
+    reads = iter([prior, prior + " M containers/engines/params/testengine.json\n"])
+
+    def fake_run(cmd, **kw):
+        out = next(reads) if cmd[:2] == ["git", "status"] else ""
+        return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+
+    # When testengine's guard runs over the cumulative tree
+    monkeypatch.setattr(eb, "_run", fake_run)
+    changed = eb._regen_guard("testengine")
+
+    # Then the prior engine's dirt is ignored and only this engine's regen output reports
+    assert changed == ["containers/engines/params/testengine.json"]
 
 
 def test_changed_engines_scopes_matrix(tmp_path):

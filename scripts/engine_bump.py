@@ -521,24 +521,43 @@ def _sync_generated(skill_id: str) -> list[str]:
     return [cmd[-1]]
 
 
-def _regen_guard(skill_id: str) -> list[str]:
-    """Run make generate-engine-params and fail if the working tree changed
-    outside the bumped engine's params/dockerfiles. Reads git status, not make's
-    stdout: GNU make prints `make[1]: Entering directory ...` there (run
-    38109392303), which is not a changed path."""
-    p = _run(["make", "generate-engine-params", f"ENGINE={skill_id}"], cwd=REPO_ROOT, timeout=300)
-    if p.returncode != 0:
-        raise SystemExit(f"[engine-bump] generate-engine-params failed:\n{p.stdout}\n{p.stderr}")
+def _porcelain_paths() -> list[str]:
+    """The dirty paths `git status --porcelain` reports, rename-aware.
+
+    Reads git status, not make's stdout: GNU make prints `make[1]: Entering
+    directory ...` there (run 38109392303), which is not a changed path."""
     status = _run(["git", "status", "--porcelain"], cwd=REPO_ROOT, timeout=60)
     if status.returncode != 0:
         raise SystemExit(f"[engine-bump] git status failed:\n{status.stderr}")
-    changed = []
+    paths = []
     for ln in status.stdout.splitlines():
         path = ln[3:].strip()
         if " -> " in path:  # rename
             path = path.split(" -> ", 1)[1].strip()
         if path:
-            changed.append(path)
+            paths.append(path)
+    return paths
+
+
+def _regen_guard(skill_id: str) -> list[str]:
+    """Run make generate-engine-params and fail if the regen changed a file
+    outside the bumped engine's params/dockerfiles.
+
+    The verdict is the delta between a porcelain snapshot taken BEFORE regen
+    and one taken after it (issue #2506): paths already dirty when the guard
+    started were written by sanctioned earlier steps — this engine's
+    pin/apply/sync wrote its own files before regen runs, and `bump_daily`
+    loops engines without committing, so a completed bump of engine A is dirty
+    while engine B's guard runs. Judging the cumulative tree (the old
+    behavior) made every engine after the first inherit A's dirt and die:
+    measured 2026-11-11 at b2e3b1ec4, ollama/strata/tensorfold each failed on
+    llama.cpp's own Dockerfile. A regen that genuinely rewrites another
+    engine's file is new in the second snapshot and still fails."""
+    before = set(_porcelain_paths())
+    p = _run(["make", "generate-engine-params", f"ENGINE={skill_id}"], cwd=REPO_ROOT, timeout=300)
+    if p.returncode != 0:
+        raise SystemExit(f"[engine-bump] generate-engine-params failed:\n{p.stdout}\n{p.stderr}")
+    changed = [c for c in _porcelain_paths() if c not in before]
     for c in changed:
         skill = f"skills/engines/{skill_id}/SKILL.md"
         own = (c == skill
