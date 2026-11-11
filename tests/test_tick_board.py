@@ -91,7 +91,21 @@ def _kanban_fixture():
     return tasks
 
 
-def _run(pr_json, kanban_json):
+def _run(pr_json, kanban_json, extra_env=None):
+    env = {
+        **os.environ,
+        "REPO": str(Path(tempfile.mkdtemp())),
+        "MAIN_OVERRIDE": MAIN,
+        "PR_LIST_JSON": pr_json,
+        "KANBAN_JSON": kanban_json,
+        # hermetic: section D's mis-profiled-run check reads KANBAN_DB unless
+        # KANBAN_RUNS_JSON is set; a missing path yields '[]' (mismatch 0).
+        "KANBAN_DB": str(Path(tempfile.mkdtemp()) / "absent.db"),
+        # never read the real credential helper
+        "HERMES_BIN": "/bin/true",
+    }
+    if extra_env:
+        env.update(extra_env)
     out = subprocess.run(
         [
             "bash",
@@ -99,18 +113,7 @@ def _run(pr_json, kanban_json):
         ],
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "REPO": str(Path(tempfile.mkdtemp())),
-            "MAIN_OVERRIDE": MAIN,
-            "PR_LIST_JSON": pr_json,
-            "KANBAN_JSON": kanban_json,
-            # hermetic: section D's mis-profiled-run check reads KANBAN_DB unless
-            # KANBAN_RUNS_JSON is set; a missing path yields '[]' (mismatch 0).
-            "KANBAN_DB": str(Path(tempfile.mkdtemp()) / "absent.db"),
-            # never read the real credential helper
-            "HERMES_BIN": "/bin/true",
-        },
+        env=env,
         timeout=120,
     )
     assert out.returncode == 0, out.stderr
@@ -148,3 +151,68 @@ def test_section_a_prints_sha_and_agents_size(tmp_path):
     # AGENTS size may be unreadable on the throwaway REPO; that is fine — the
     # header present with the sha is what a step quotes as evidence.
     assert "agents_md:" in out
+
+
+#: issue #2450: `git rev-parse --short` reads THIS repo's main at 9 chars, while
+#: gh's baseRefOid is the full 40-char sha. The old `[:8] != main` read every
+#: current-main PR as STALE (measured at main 23faf9550: #2448 #2438 #2365 #2363
+#: all base-CLEAN, all printed STALE).
+LONG_MAIN = "23faf9550"
+FULL_BASE_TIP = "23faf9550" + "0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5"  # 40 chars, same commit
+FULL_BASE_OLD = "4664bda70" + "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"  # 40 chars, older commit
+
+
+def _pr_base(n, base_oid):
+    return {
+        "number": n,
+        "baseRefOid": base_oid,
+        "mergeStateStatus": "CLEAN",
+        "mergeable": "MERGEABLE",
+        "headRefOid": "bbbbbbbb" * 5,
+        "title": f"truncation test {n}",
+    }
+
+
+def test_full_length_base_at_a_long_main_is_fresh(tmp_path):
+    """The #2450 regression: a 9-char main must match a 40-char base of the same commit."""
+    pj = tmp_path / "pr.json"
+    kj = tmp_path / "kb.json"
+    pj.write_text(json.dumps([_pr_base(2448, FULL_BASE_TIP), _pr_base(2438, LONG_MAIN)]))
+    kj.write_text(json.dumps([]))
+    out = _run(str(pj), str(kj), {"MAIN_OVERRIDE": LONG_MAIN})
+    assert re.search(r"TOTAL open=2\s+stale=0\s+dirty=0", out), out
+    assert "STALE" not in out, out
+    line = [l for l in out.splitlines() if l.strip().startswith("#2448")][0]
+    assert "fresh" in line and "base=23faf955" in line, line
+
+
+def test_genuinely_stale_base_is_stale_with_its_true_base(tmp_path):
+    """AC3: a stale base at a 9-char main still reads STALE and prints its true base."""
+    pj = tmp_path / "pr.json"
+    kj = tmp_path / "kb.json"
+    pj.write_text(json.dumps([_pr_base(2365, FULL_BASE_OLD)]))
+    kj.write_text(json.dumps([]))
+    out = _run(str(pj), str(kj), {"MAIN_OVERRIDE": LONG_MAIN})
+    assert re.search(r"TOTAL open=1\s+stale=1\s+dirty=0", out), out
+    line = [l for l in out.splitlines() if l.strip().startswith("#2365")][0]
+    assert "STALE" in line and "base=4664bda7" in line, line
+
+
+def test_tip_tag_is_length_robust(tmp_path):
+    """Section F: a 40-char headSha at the 9-char main tip must tag TIP, not other."""
+    pj = tmp_path / "pr.json"
+    kj = tmp_path / "kb.json"
+    rj = tmp_path / "runs.json"
+    pj.write_text(json.dumps([]))
+    kj.write_text(json.dumps([]))
+    rj.write_text(json.dumps([
+        {"databaseId": 1, "workflowName": "CI", "conclusion": "success",
+         "status": "completed", "headSha": FULL_BASE_TIP},
+        {"databaseId": 2, "workflowName": "CI", "conclusion": "failure",
+         "status": "completed", "headSha": FULL_BASE_OLD},
+    ]))
+    out = _run(str(pj), str(kj), {"MAIN_OVERRIDE": LONG_MAIN, "RUN_LIST_JSON": str(rj)})
+    tip_line = [l for l in out.splitlines() if "run=1" in l][0]
+    other_line = [l for l in out.splitlines() if "run=2" in l][0]
+    assert " TIP " in tip_line, tip_line
+    assert "other" in other_line and "TIP" not in other_line, other_line

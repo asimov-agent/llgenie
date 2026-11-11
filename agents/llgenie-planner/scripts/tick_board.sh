@@ -35,7 +35,11 @@
 #   KANBAN_RUNS_JSON an alternative task_runs excerpt already in [{"task_id", "profile",
 #                 "status"}] shape; section D reads it instead of the DB (tests / replay).
 #   MAIN_OVERRIDE an alternative main sha for section B's staleness comparison
-#                 (replay a historical snapshot; defaults to the freshly-fetched tip)
+#                 and section F's TIP tag (replay a historical snapshot; defaults
+#                 to the freshly-fetched tip). Comparisons are prefix rules, so a
+#                 7-, 8-, 9- or 40-char name all denote the same commit (issue #2450).
+#   RUN_LIST_JSON an alternative CI run list already in gh run list --json shape;
+#                 section F reads it instead of gh (tests / replay of a snapshot).
 
 set -uo pipefail
 
@@ -80,13 +84,19 @@ import sys,json
 try: d=json.load(sys.stdin)
 except Exception: d=[]
 main='$MAIN'
+def same_commit(a, b):
+    # issue #2450: sha names differ by truncation (8-char base vs 9-char main,
+    # 40-char baseRefOid vs short-form main). Two names denote the SAME commit
+    # when either contains the other; a stale base shares no prefix.
+    a = a or ''; b = b or ''
+    return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
 stale=dirty=0
 armed=unarmed=inert=0
 for p in d:
     base=(p.get('baseRefOid') or '')[:8]
     st=p.get('mergeStateStatus') or '?'
     review=p.get('reviewDecision') or '-'
-    is_stale = base != main
+    is_stale = not same_commit(base, main)
     is_dirty = st == 'DIRTY'
     stale += is_stale; dirty += is_dirty
     am = p.get('autoMergeRequest')
@@ -216,15 +226,19 @@ fi
 
 # --- F. recent CI conclusions at THIS tip -----------------------------------
 say "F. CI AT THE TIP (tagged TIP vs other by headSha==main; never a remembered red)"
-gh run list --repo "$SLUG" --limit 6 \
-  --json databaseId,workflowName,conclusion,status,headSha 2>/dev/null \
-| python3 -c "
+if [ -n "${RUN_LIST_JSON:-}" ]; then RUNS_SRC=$(cat "$RUN_LIST_JSON"); else RUNS_SRC=$(gh run list --repo "$SLUG" --limit 6 \
+  --json databaseId,workflowName,conclusion,status,headSha 2>/dev/null); fi
+printf '%s' "$RUNS_SRC" | python3 -c "
 import sys,json
 try: d=json.load(sys.stdin)
 except Exception: d=[]
 main='$MAIN'
+def same_commit(a, b):
+    # issue #2450 (same rule as section B): TIP must hold at any short-sha length.
+    a = a or ''; b = b or ''
+    return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
 for r in d:
-    same='TIP' if (r.get('headSha') or '')[:8]==main else 'other'
+    same='TIP' if same_commit((r.get('headSha') or '')[:8], main) else 'other'
     print(f\"  {str(r.get('workflowName') or '?')[:34]:34} {str(r.get('status') or '?'):10} {str(r.get('conclusion') or '-'):9} {same:5} run={r.get('databaseId')}\")
 print()
 print('  A failure whose headSha != main is NOT a main-tip red. Re-read at the tip before reporting.')
