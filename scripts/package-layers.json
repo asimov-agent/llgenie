@@ -59,6 +59,7 @@
    "check_engine_capabilities",
    "check_engine_launchers",
    "check_engine_pins_published",
+   "check_file_hygiene",
    "check_holds",
    "check_host_space",
    "check_import_roots",

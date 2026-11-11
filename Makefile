@@ -996,6 +996,9 @@ secret-scan-self-test: ## CI: prove the scanner is not a false green — a plant
 	python3 scripts/secret_scan_self_test.py
 .PHONY: check-empty-files
 .PHONY: check-architecture-census
+.PHONY: check-file-hygiene
+.PHONY: file-hygiene-report
+
 auto-merge: ## Merge a PR ONLY when this run is green and the PR is conflict-free: state OPEN, mergeable MERGEABLE, mergeStateStatus CLEAN (no conflicts, not behind, not blocked), head pinned to HEAD_SHA, no do-not-merge label; then verify what it closed (PR= REPO= HEAD_SHA= from ci.yml; APPROVE=1 approves a green review-blocked PR with the other allowed identity; DRY=1 prints the decision)
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]"; exit 1; }
 	python3 scripts/auto_merge.py auto-merge --repo "$(GH_REPO)" --pr $(PR) $(if $(HEAD_SHA),--head-sha $(HEAD_SHA),) $(if $(APPROVE),--approve-when-review-required,) $(if $(ACTOR),--actor $(ACTOR),) $(if $(DRY),--dry,)
@@ -1692,6 +1695,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
 	$(MAKE) check-docs
+	$(MAKE) check-file-hygiene
 	$(MAKE) check-architecture-census
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene

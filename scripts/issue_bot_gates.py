@@ -57,6 +57,7 @@ FAST_GATES: tuple[str, ...] = (
     "check-workflows",
     "check-wiring",
     "check-docs",
+    "check-file-hygiene",
     "check-pr-hygiene",
     "openspec-tasks-check",
 )

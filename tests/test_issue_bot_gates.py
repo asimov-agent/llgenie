@@ -29,12 +29,15 @@ REPO = Path(__file__).resolve().parents[1]
 
 from scripts import issue_bot_gates
 
-#: What the issue's "What done looks like" names, in that order: an independent pin on the list.
+#: What the issues name, in that order: an independent pin on the list. #475 fixed the original six;
+#: issue #2484 adds `check-file-hygiene` because its acceptance requires the gate to run in `make
+#: lane-preflight`, and lane-preflight IS `FAST_GATES` (the one imported list).
 SPEC_GATES = (
     "lint",
     "check-workflows",
     "check-wiring",
     "check-docs",
+    "check-file-hygiene",
     "check-pr-hygiene",
     "openspec-tasks-check",
 )
@@ -51,11 +54,11 @@ def _real_tree(tmp_path: Path, workflow: str | None = None) -> Path:
     return root
 
 
-def test_the_fast_gates_are_exactly_the_six_the_issue_names():
-    """The acceptance criterion is a fixed list, in order; widening it is a different issue."""
+def test_the_fast_gates_are_exactly_the_ones_the_issues_name():
+    """The acceptance criterion is a fixed list, in order; widening it is a named issue."""
     # Given the guard module
     # When  its fast gates are read
-    # Then  they are exactly the six the issue names, in the order it names them
+    # Then  they are exactly the gates the issues name, in the order they name them
     assert issue_bot_gates.FAST_GATES == SPEC_GATES
 
 

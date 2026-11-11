@@ -29,8 +29,19 @@ env/
 *.incomplete
 
 # --- Runtime logs written by the tools ---------------------------------
+# Blanket rule: no `*.log` — of ANY name — may be committed (issue #2484). The tools
+# and bot runs write logs under names this list cannot foresee, and a blacklist of
+# known names is a lagging gate that leaks the next one. The explicit names below stay
+# for readability, but `*.log` is the categorical rule.
+*.log
 .run.log
 *.progress.log
+
+# Dot-prefixed run-artifact scratch files `.<word><digits>.<ext>` (e.g. `.pr874.md`,
+# `.unit2.log`) — named after the run that produced them, never documentation (issue
+# #2484). A leading dot, then letters/digits with at least one digit before the
+# extension dot.
+.[a-zA-Z0-9_]*[0-9].*
 
 # --- OS / editor --------------------------------------------------------
 .DS_Store
