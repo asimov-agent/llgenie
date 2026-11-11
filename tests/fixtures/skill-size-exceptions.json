@@ -3,14 +3,19 @@
  "decided_utc": "2026-11-08",
  "files": {
   "agents/llgenie-engine-improver/skills/llgenie-engine-improver/SKILL.md": {
-   "reason": "106,407 characters at main c3f3b2ac — measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "reason": "106,407 characters at main c3f3b2ac \u2014 measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
    "issue": "#2114",
    "date": "2026-11-08"
   },
   "agents/llgenie-pr-merge-conflict/skills/llgenie-pr-rebase/SKILL.md": {
-   "reason": "103,927 characters at main c3f3b2ac — measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "reason": "103,927 characters at main c3f3b2ac \u2014 measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
    "issue": "#2114",
    "date": "2026-11-08"
+  },
+  "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md": {
+   "reason": "102,168 characters at the #2262 planner fold (tree copy of the LIVE skill, folded byte-faithful); its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "issue": "#2114",
+   "date": "2026-11-11"
   }
  }
 }

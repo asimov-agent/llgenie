@@ -20,6 +20,17 @@ Scope decisions (the tree is the gate's subject, so it must be green on the curr
   _renders_the_committed_changes_md` in gate-auditing.md is exactly this shape — a `ci-unit` failure
   log, quoted, where the test was later renamed. A gate that reds a quoted paste teaches nobody.
 - `tests/test_x.py::test_name` is the generic template (merged-over-red-gate.md), not a real anchor.
+  The whole `test_x.py` filename is the template family (`::test_y` is the same shape), so a bare
+  `tests/test_x.py` symbol is skipped too.
+- `agents/llgenie-planner/skills/.archive/**` are FROZEN fold snapshots (issue #2262): byte-identical
+  copies of the live profile's archived skills, kept immutable so a rebuild cannot downgrade the
+  lane. Their citations are historical — rewriting them would break the byte-identical fold parity
+  the fold proves with `cmp`. Same exclusion as `check_proc_gate.py` and `module_name_guard.py`.
+- `EXTERNAL_SKILL_MIRRORS` are the tree copies of UPSTREAM Hermes-agent skill docs (folded live→tree
+  byte-identically, issue #2262 fold parity). Their `tests/...` / `scripts/...` tokens name files in
+  the Hermes-agent repository, not this one, so they are environment, not claims this repo owns —
+  exactly the external-token rule above, applied at the whole-file level because every code citation
+  in them belongs to the other repository.
 - A trailing `...` in a test id is abbreviation ("test_the_fleet_splice_is_idempotent..."), resolved
   by prefix: at least one collected test in that file starts with the given name.
 - A backticked symbol resolves only when it names a repository-owned file (`scripts/`, `tests/`,
@@ -50,12 +61,25 @@ TEST_CITATION_RE = re.compile(r"`?tests/([A-Za-z0-9_./-]+\.py)::([A-Za-z0-9_]+)(
 SYMBOL_RE = re.compile(r"`([A-Za-z0-9_./-]+\.py(?:::[A-Za-z0-9_]+)?)`")
 #: The generic template id, never a real anchor.
 TEMPLATE = ("test_x.py", "test_name")
+#: FROZEN fold snapshots (issue #2262): immutable byte-identical archived-skill copies; their
+#: citations are historical and rewriting them would break the fold's `cmp` parity.
+ARCHIVE_SNAPSHOT = "agents/llgenie-planner/skills/.archive/"
+#: Tree copies of UPSTREAM Hermes-agent skill docs: their code tokens name Hermes-repo files, so
+#: nothing inside them is a claim THIS repo owns (issue #2262 fold, same rule as external tokens).
+EXTERNAL_SKILL_MIRRORS = (
+    "agents/llgenie-planner/skills/autonomous-ai-agents/hermes-agent/",
+    "agents/llgenie-planner/skills/software-development/hermes-agent-skill-authoring/",
+)
 #: Root-owned namespace prefixes whose filename must resolve in the repo.
 REPO_PREFIXES = ("scripts/", "tests/", "agents/", "data/", "openspec/", "docs/", "Makefile")
 
 
 def _iter_skill_md(root: Path):
-    yield from root.glob(SKILL_MD_GLOB)
+    for path in root.glob(SKILL_MD_GLOB):
+        rel = path.relative_to(root).as_posix()
+        if rel.startswith(ARCHIVE_SNAPSHOT) or any(rel.startswith(m) for m in EXTERNAL_SKILL_MIRRORS):
+            continue  # frozen fold snapshot / external Hermes mirror (see module docstring)
+        yield path
 
 
 def _strip_fences(text: str) -> str:
@@ -115,8 +139,8 @@ def check(root: Path = REPO) -> list[str]:
         rel = str(path.relative_to(root))
         text = _strip_fences(path.read_text(errors="replace"))
         for fname, tid, ellipsis in TEST_CITATION_RE.findall(text):
-            if fname == TEMPLATE[0] and (tid == TEMPLATE[1] or tid.startswith(TEMPLATE[1])):
-                continue  # the generic template, not an anchor
+            if fname == TEMPLATE[0]:
+                continue  # the whole `test_x.py` template family is not an anchor
             tfile = f"tests/{fname}"
             if tfile not in collected:
                 findings.append(f"{rel}: `{tfile}::{tid}` is not in the hermetic suite — a test "
@@ -133,6 +157,8 @@ def check(root: Path = REPO) -> list[str]:
         for sym in SYMBOL_RE.findall(text):
             filepart = sym.split("::", 1)[0]
             anchor = sym.split("::", 1)[1] if "::" in sym else None
+            if filepart.split("/")[-1] == TEMPLATE[0]:
+                continue  # a bare `test_x.py` template filename is not an anchor either
             if not _is_repo_symbol(filepart):
                 continue  # external/vendored/tool token (vllm/, a Hermes tool, a shell tool) — not a claim this repo owns
             resolved, reason = _resolve_symbol(root, filepart, anchor)

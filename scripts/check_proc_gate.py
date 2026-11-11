@@ -62,6 +62,10 @@ ALLOW_RE = re.compile(r"#\s*proc-allow:\s*\S")
 
 NONCODE = {"__init__.py"}
 
+#: Folded archive snapshots (agents/llgenie-planner/skills/.archive/) are byte-parity history of
+#: live skill states (issue #2262 fold rule); they are scans' history, not live bot-lane runners.
+ARCHIVE_SNAPSHOT = "agents/llgenie-planner/skills/.archive/"
+
 
 def _is_seam(path: Path) -> bool:
     return path.name == SEAM
@@ -80,6 +84,8 @@ def sites(root: Path) -> list[dict]:
         for path in sorted((root / base).glob(glob if base != "agents" else glob)):
             if path.name in NONCODE:
                 continue
+            if ARCHIVE_SNAPSHOT in str(path.relative_to(root)):
+                continue  # archived fold snapshots are byte-parity history (issue #2262); not runners
             rel = str(path.relative_to(root))
             try:
                 text = path.read_text()

@@ -1,23 +1,33 @@
-"""Prune the worktrees and local branches whose PR already merged — proven by the PR, not by ancestry (#431).
+"""Prune the worktrees and local branches whose work already landed on the base — proven by PR or ancestry (#431, #2262).
 
 Every merged PR leaves a worktree under `../llgenie-wt/` and a local `feat/*` branch behind. The
 agent stops at the PR (the merge is the reviewer's action), so no agent step ever sees the merge, and
 nothing swept the debris after the watch-loop dispatcher — and its `cleanup_merged_worktrees()` — was
 removed in `99ce5b9` (#211). Measured on this host on 2026-10-20: 138 local branches, 93 worktrees,
-955 MB, zero open PRs.
+955 MB, zero open PRs; by 2026-11-08 the leak had grown to 157 worktrees / 9.4 GB (issue #2262).
 
-The obvious test — "is the branch's HEAD an ancestor of `origin/main`?" — cannot work here, because
-this repository **squash-merges**: the squashed commit on `main` is a new commit, so the branch tip is
-never an ancestor and `git branch --merged` reports the work as unmerged forever. The only evidence
-that survives a squash merge is the PR itself, so eligibility is read from GitHub and from nowhere
-else:
+The obvious test — "is the branch's HEAD an ancestor of `origin/main`?" — cannot be the ONLY test,
+because this repository **squash-merges**: the squashed commit on `main` is a new commit, so a
+squash-merged branch tip is never an ancestor and `git branch --merged` reports the work as unmerged
+forever. The evidence that survives a squash merge is the PR: a branch is prunable by PR when it is
+the `headRefName` of a MERGED PR whose `mergeCommit.oid` is an ancestor of the base. But the owner
+(2026-11-08) widened the rule to the no-PR scratch that a PR-only test forever keeps: a branch with
+**no open PR and no open issue whose head IS an ancestor of the base** is equally dead and must join
+the prune. So a branch is prunable when EITHER
 
-* a branch is prunable only when it is the `headRefName` of a MERGED PR, and
-* that PR's `mergeCommit.oid` is an ancestor of the base (`origin/main` by default).
+* its head is the `headRefName` of a MERGED PR whose `mergeCommit.oid` is an ancestor of the base, OR
+* it names no OPEN PR, names no OPEN issue (its `issue-NNN`/`<NNNN>-` token, when it has one, is
+  closed or absent), and its own head is an ancestor of the base (proven merged by ancestry).
 
-Everything else is kept **with its reason printed**: a branch naming an OPEN or CLOSED PR, a branch
-naming no PR at all, a branch whose merge commit is not on the base, a dirty worktree, a detached
-worktree (it holds no branch, so no merge can license deleting it) and the repository's main checkout.
+The three guards are conjunctive for any deletion (issue #2262): **no open PR AND no open issue AND
+merged-by-ancestry-or-PR-commit**. A head that is AHEAD of `origin/main` is never deleted whatever the
+PR/issue state — that is the #794/#791 accident bound. After the local branch lands, the matching
+`origin/` remote branch is deleted too (it is merged and names no live PR).
+
+Everything else is kept **with its reason printed**: a branch naming an OPEN PR, a branch naming an
+OPEN issue, a branch that is unmerged (no PR and an ahead-of-base head), a branch whose merge commit
+is not on the base, a dirty worktree, a detached worktree (it holds no branch, so no merge can license
+deleting it) and the repository's main checkout.
 
 `--dry` prints the same plan and mutates nothing. Any failure — the `gh` lookup, a `git worktree
 remove`, a `git branch -D` — exits 2 naming the branch and the step, and never continues past a failed
@@ -132,6 +142,7 @@ class Outcome:
     decisions: list[Decision] = field(default_factory=list)
     removed_branches: list[str] = field(default_factory=list)
     removed_worktrees: list[str] = field(default_factory=list)
+    remote_deleted: list[str] = field(default_factory=list)
     leftovers: list[Leftover] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -215,6 +226,46 @@ def pull_requests(repo: str, cwd: str | None = None) -> dict[str, list[dict]]:
     for row in rows:
         by_head.setdefault(str(row.get("headRefName") or ""), []).append(row)
     return by_head
+
+
+#: A branch's `issue-NNN` or `<NNNN>-` token — the owner's no-open-issue gate (issue #2262).
+#: Either `issue-` immediately before digits, or a 4+-digit run immediately before a hyphen
+#: (`llgenie-wt/2259-publish-gap`, `agent/issue-2112-…`, `docs/1645-fix`).
+_ISSUE_TOKEN_RE = re.compile(r"(?:^|[^0-9])(?:issue-(\d{1,})|(\d{4,})-)")
+
+
+def issue_token(branch: str) -> int | None:
+    """An issue number a branch name names (`issue-NNN` or a `<NNNN>-` run), or None.
+
+    The owner's rule clears branches that have no open PR and no open issue; the token is how a branch
+    says which issue it belongs to. A name with no number has no issue gate to fail — the merge proof
+    alone decides it.
+    """
+    m = _ISSUE_TOKEN_RE.search(branch)
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
+def issue_state(repo: str, number: int, cwd: str | None = None) -> str | None:
+    """The issue's GitHub state, or None when it is closed or absent — the gate treats both the same.
+
+    A missing issue (`Could not resolve…`) and a closed one are both "not open", which is the condition
+    that lets a merged branch go. A real `gh` outage aborts the whole prune in `pull_requests()` before
+    this is ever reached; a per-token lookup failure here just falls back to the direction the
+    merged-by-ancestry/PR gate already enforces (issue #2262: "closed or absent").
+    """
+    result = _run(
+        ["gh", "issue", "view", str(number), "--repo", repo, "--json", "state"],
+        cwd=cwd,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return str((json.loads(result.stdout or "{}").get("state") or "").upper()) or None
+    except json.JSONDecodeError:
+        return None
 
 
 def is_ancestor(oid: str, base: str, cwd: str | None = None) -> bool:
@@ -370,12 +421,21 @@ def plan(
     prs: dict[str, list[dict]],
     cwd: str | None = None,
     current: str | None = None,
+    repo: str | None = None,
 ) -> list[Decision]:
     """Decide, with a printed reason, what happens to every local branch. Mutates nothing.
 
     `current` is the worktree this run is executing in: git refuses to remove the directory it is
     standing in, so it is never a candidate — running the prune from a merged branch's own worktree
     must report that instead of failing on it.
+
+    A branch is prunable when it is merged, in either of the two provable senses (issue #2262), AND
+    names no open PR AND no open issue:
+
+      * PR-merged — a MERGED PR names it and that PR's merge commit is an ancestor of `base`, or
+      * ancestry-merged — it names no merged PR but its own head is an ancestor of `base`.
+
+    A head that is AHEAD of `base` is never deleted whatever the PR/issue state.
     """
     main_checkout = trees[0].path if trees else None
     tree_by_branch = {t.branch: t for t in trees if t.branch}
@@ -391,37 +451,84 @@ def plan(
     decisions: list[Decision] = []
 
     for branch in branches:
+        # The base's own local branch (main) is NEVER a cleanup candidate: it is the branch every
+        # worktree is measured against, and its head is trivially "an ancestor of the base" — the
+        # ancestry rule would otherwise prune the tracking branch itself on every run.
+        base_local = base.rsplit("/", 1)[-1]
+        if branch == base_local:
+            decisions.append(Decision(branch, "keep", "is the repository's base branch itself"))
+            continue
+
         entries = prs.get(branch) or []
+
+        # 1. OPEN-PR gate — an OPEN PR names this branch, so the work is in flight; never prune it.
+        open_row = next(
+            (r for r in entries if str(r.get("state") or "").upper() == "OPEN"), None
+        )
+        if open_row is not None:
+            number = int(open_row.get("number") or 0) or None
+            decisions.append(
+                Decision(branch, "keep", f"PR #{number} is OPEN (in flight)", pr=number)
+            )
+            continue
+
+        # 2. MERGED proof — either its MERGED PR's merge commit is on the base, or its own head is.
         merged = _merged(entries)
-        if merged is None:
-            if entries:
+        number = int(merged.get("number") or 0) or None if merged else None
+        merge_oid = str((merged.get("mergeCommit") or {}).get("oid") or "") if merged else ""
+        pr_landed = bool(merge_oid) and is_ancestor(merge_oid, base, cwd=cwd)
+        tip = _git(["rev-parse", "--verify", branch], cwd=cwd, check=False).stdout.strip()
+        head_landed = bool(tip) and is_ancestor(tip, base, cwd=cwd)
+
+        if not pr_landed and not head_landed:
+            # Not provably merged: keep, naming which evidence was missing.
+            if merged:
+                decisions.append(
+                    Decision(
+                        branch,
+                        "keep",
+                        f"PR #{number}'s merge commit {merge_oid[:9]} is not on {base} "
+                        f"(and the branch head is not an ancestor)",
+                        pr=number,
+                    )
+                )
+            elif entries:
                 row = sorted(entries, key=lambda r: int(r.get("number") or 0))[-1]
                 state = str(row.get("state") or "UNKNOWN").upper()
                 decisions.append(
-                    Decision(branch, "keep", f"PR #{row.get('number')} is {state} (unmerged)", pr=int(row.get("number") or 0) or None)
+                    Decision(
+                        branch,
+                        "keep",
+                        f"PR #{row.get('number')} is {state} (unmerged), and the branch head is "
+                        f"not an ancestor of {base}",
+                        pr=int(row.get("number") or 0) or None,
+                    )
                 )
             else:
-                decisions.append(Decision(branch, "keep", "names no PR at all"))
+                decisions.append(
+                    Decision(
+                        branch,
+                        "keep",
+                        f"names no PR at all and the branch head is not an ancestor of {base} (unmerged)",
+                    )
+                )
             continue
 
-        number = int(merged.get("number") or 0) or None
-        merge_oid = str((merged.get("mergeCommit") or {}).get("oid") or "")
-        if not merge_oid:
-            decisions.append(Decision(branch, "keep", f"PR #{number} carries no merge commit", pr=number))
-            continue
-        if not is_ancestor(merge_oid, base, cwd=cwd):
-            decisions.append(
-                Decision(branch, "keep", f"PR #{number}'s merge commit {merge_oid[:9]} is not on {base}", pr=number)
-            )
-            continue
+        # 3. OPEN-ISSUE gate — a branch that names an OPEN issue is kept, however merged.
+        number = number or 1  # sentinel; only consulted when a token exists
+        if repo is not None:
+            token = issue_token(branch)
+            if token is not None and issue_state(repo, token, cwd=cwd) == "OPEN":
+                decisions.append(Decision(branch, "keep", f"the branch names open issue #{token}"))
+                continue
 
         tree = tree_by_branch.get(branch)
         if tree is None:
             # The branch may still be checked out somewhere detached at exactly its tip.
-            tip = _git(["rev-parse", "--verify", branch], cwd=cwd, check=False).stdout.strip()
-            candidates = detached_by_head.get(tip) or []
-            if len(candidates) == 1:
-                tree = candidates[0]
+            if tip:
+                candidates = detached_by_head.get(tip) or []
+                if len(candidates) == 1:
+                    tree = candidates[0]
         if tree is not None and main_checkout is not None and tree.path == main_checkout:
             decisions.append(Decision(branch, "keep", "checked out in the repository's main checkout", pr=number))
             continue
@@ -432,9 +539,30 @@ def plan(
             decisions.append(Decision(branch, "keep", f"worktree {tree.path} holds uncommitted changes", pr=number, path=tree.path))
             continue
 
-        decisions.append(Decision(branch, "prune", f"PR #{number} merged, its merge commit is on {base}", pr=number, path=tree.path if tree else None))
+        if pr_landed:
+            reason = f"PR #{number} merged, its merge commit is on {base}"
+        else:
+            reason = f"branch head {tip[:9]} is an ancestor of {base} (names no open PR or issue)"
+        decisions.append(Decision(branch, "prune", reason, pr=number, path=tree.path if tree else None))
 
     return decisions
+
+
+def delete_remote_branch(branch: str, outcome: Outcome, cwd: str | None = None) -> None:
+    """Delete `origin/<branch>` after the local branch landed, when the remote still carries it.
+
+    The plan only ever prunes a branch with no OPEN PR (issue #2262), so deleting its remote is safe:
+    the work is on the base and no live PR names it. A missing remote ref is a no-op; a failed push is
+    recorded — never silently swallowed, never treated as a half-success.
+    """
+    ref = f"refs/remotes/origin/{branch}"
+    if _git(["show-ref", "--verify", "--quiet", ref], cwd=cwd, check=False).returncode != 0:
+        return
+    try:
+        _git(["push", "origin", "--delete", branch], cwd=cwd)
+        outcome.remote_deleted.append(branch)
+    except PruneError as exc:
+        outcome.errors.append(f"{branch}: could not delete the remote branch origin/{branch}: {exc}")
 
 
 def apply(decisions: list[Decision], cwd: str | None = None) -> Outcome:
@@ -475,6 +603,7 @@ def apply(decisions: list[Decision], cwd: str | None = None) -> Outcome:
                 print(f"{TAG} removed the detached worktree {holder} holding {decision.branch} "
                       f"(issue #593), then deleted the branch")
                 outcome.removed_branches.append(decision.branch)
+                delete_remote_branch(decision.branch, outcome, cwd=cwd)
                 continue
             if holder:
                 # A worktree that git says holds the branch and that is NOT removable debris — a
@@ -489,6 +618,7 @@ def apply(decisions: list[Decision], cwd: str | None = None) -> Outcome:
             outcome.errors.append(f"{decision.branch}: could not delete the branch: {exc}")
             continue
         outcome.removed_branches.append(decision.branch)
+        delete_remote_branch(decision.branch, outcome, cwd=cwd)
     return outcome
 
 
@@ -505,6 +635,8 @@ def render(outcome: Outcome, *, dry: bool, base: str) -> list[str]:
         lines.append(
             f"{TAG} leftover {leftover.path} — {leftover.reason}; clear it with: {leftover.command}"
         )
+    for branch in outcome.remote_deleted:
+        lines.append(f"{TAG} removed origin/{branch} — merged and names no live PR")
     verb = "would prune" if dry else "pruned"
     worktree_count = sum(1 for d in outcome.decisions if d.prunable and d.path)
     leftovers = "" if (dry or not outcome.leftovers) else f"; {len(outcome.leftovers)} leftover(s)"
@@ -522,14 +654,14 @@ def prune(*, repo: str, base: str | None = None, dry: bool = False, cwd: str | N
     root = repo_root(cwd)
     trees = worktrees(cwd)
     prs = pull_requests(repo, cwd)
-    decisions = plan(base, local_branches(cwd), trees, prs, cwd=cwd, current=root)
+    decisions = plan(base, local_branches(cwd), trees, prs, cwd=cwd, current=root, repo=repo)
     if dry:
         return Outcome(decisions=decisions)
     return apply(decisions, cwd=root)
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Prune worktrees and branches whose PR already merged (#431).")
+    parser = argparse.ArgumentParser(description="Prune worktrees and branches whose work landed on the base — proven by a merged PR's merge commit or by ancestry, and held back by any open PR or open issue the branch names (issues #431, #2262).")
     parser.add_argument("--repo", default="asimov-agent/llgenie", help="the slug `gh pr list` reads (default asimov-agent/llgenie)")
     parser.add_argument("--base", default=None,
                         help="the ref a merge commit must be on (default: resolved from this clone's "

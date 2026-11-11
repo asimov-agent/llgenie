@@ -1,7 +1,36 @@
 # Batch dispatch: mechanical hygiene vs domain verification
 
+## A "bump" workflow bumps existing items — it does not discover new ones
+
+When the owner asks "does pipeline X collect all the new engines that support Linux?", the answer comes
+from what the *script enumerates*, never from the workflow's name. Measured shape in this repo:
+
+- **engine-bump** iterates the engines already registered (`plan()` → `load_skills()` = existing
+  `skills/engines/*/SKILL.md`), skips `servable: false`, resolves each pinned repo's newest upstream sha
+  and bumps only the ones that **moved** (never backwards). It does **not** scan for new engines. Its
+  matrix is "existing pinned engines that moved", not "new engines added upstream".
+- **New-engine discovery** is a different path with a different owner: `registry-sync.yml` copies every
+  engine upstream lists → `make render-engine-skill-gap` finds engines with no skill →
+  `make check-engine-skill-gap` **fails naming them** → `make spawn-engine-skill-issues` opens one
+  tracking issue per new engine → `engine_skill_scaffold.scaffold()` builds the skill.
+
+Ownership follows the split: discovery + Linux-support verification + params generation + rebuild + serve
+belongs to the **engine specialist lane** (the one whose profile names trending-engine sync and serving
+params). The pin-bump workflow is a **CI workflow** on its own cron whose PRs the engine lane verifies and
+repairs. Do not tell the owner the bump workflow "collects new engines" — say which of the two paths does
+what, and which lane owns the new-engine half.
+
+Procedure to answer "who covers this pipeline?" without guessing: `git show origin/main:<workflow>.yml`
+(read its `on:` cron and what `run:` it drives), read the script's `plan()`/docstring to see the exact
+set it enumerates, then `git grep -il '<workflow>' origin/main -- 'agents/**' 'docs/**'` and read the
+`docs/BOTS.md` ownership paragraph and the owning lane's SOUL mission line. The name of a workflow is a
+label; the enumerated set and the mission line are the fact.
+
+## Mechanical-hygiene vs domain-verification split (automation batches)
+
 Automation-produced PR batches (engine bumps, dependency bumps, registry sync)
-carry TWO separable duties. A dispatch that assigns only one leaves the other
+carry TWO separable duties (this is separate from the discovery-vs-bump split above,
+which decides *which* lane owns producing new items in the first place). A dispatch that assigns only one leaves the other
 unowned, and the uncovered lane reads as idle on its own domain — the defect is
 in the routing, not in the lane.
 

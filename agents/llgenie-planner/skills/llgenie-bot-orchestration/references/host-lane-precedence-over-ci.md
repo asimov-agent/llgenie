@@ -1,10 +1,5 @@
 # Precedence: host lanes first, CI is only the reporter
 
-> This is the live profile's write-up of the rule (#2084). The canonical tree write-up landed later as
-> `references/host-lane-precedence.md` (#2073); neither replaces the other — the sections below on
-> measuring a lane before calling it stalled, and on a whole-fleet quiet, exist only here. Body verbatim
-> from the live profile.
-
 **Owner rule (2026-11-08): "your own behaviour for working with your bots should always take precedence on the
 host.. the CI is just the CI really."**
 
@@ -56,7 +51,7 @@ host lane in the same pass.
 A `queued` dispatch ack is a hand-off, not a receipt — but "not landed yet" is NOT "nothing is happening".
 Before reporting a lane idle or the board stuck, measure all three:
 
-1. **`stat -c '%y' "$HOME/.hermes/profiles/<lane>/state.db"`** — a mtime within the last few minutes means
+1. **`stat -c '%y' $HOME/.hermes/profiles/<lane>/state.db`** — a mtime within the last few minutes means
    the lane is taking turns right now. Compare against `date`; do not read a stale mtime as proof of death
    without also checking the clock.
 2. **Start bookends on the PRs** — the lane posts a `**Rebase lane — start.**` (or equivalent) comment naming

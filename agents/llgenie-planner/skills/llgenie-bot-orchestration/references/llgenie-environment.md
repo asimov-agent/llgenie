@@ -1,5 +1,27 @@
 # llgenie environment facts (asimov-agent/llgenie)
 
+## Authored instructions use `$HOME`, never `/home/<user>`
+
+Every lane shells through bash, so `$HOME` resolves; a hard-coded home directory instead makes the
+instruction host-specific and bakes one machine's account name into a public repository. Write
+`git -C "$HOME/repository/git/llgenie" …`, `$HOME/.hermes/profiles/<profile>/`,
+`$HOME/repository/git/llgenie-wt/`.
+
+**The carve-out is real — do not "fix" these.** A context that is *parsed, not executed* must NOT use
+`$HOME`, because nothing expands it there: systemd units (`ExecStart=`, `EnvironmentFile=`,
+`WorkingDirectory=`), crontab lines outside a shell, and YAML/JSON values consumed by a program keep an
+absolute path or the native form (`%h` in systemd = the invoking user's home). Rewriting a unit file to
+`$HOME` produces a path that silently never resolves — strictly worse than the literal it replaced.
+
+`scripts/*.py` is excluded too: a Python literal may legitimately need a real absolute path or
+`pathlib.Path.home()`; `"$HOME"` inside Python is just a string that never expands.
+
+Sweeping the literal out of **live profile** files is not durable on its own — a later
+`make sync-agent-profile` restores the tree's copy over the live one. Sweep the tree and gate it there.
+And after any edit to a live profile's `SOUL.md`/skill files, **re-read before reporting**: a concurrent
+sync can silently revert the whole file (observed: a skill returned byte-for-byte to its pre-edit state
+minutes after the write, reported as `0 → 6` reintroduced occurrences).
+
 ## Remotes: two clones, two names
 
 ```

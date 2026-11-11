@@ -78,3 +78,17 @@ When the owner has decided a state change applies repo-wide (arm auto-merge, add
 ## Never prune a worktree
 
 `make worktree-prune`, `git worktree prune`, `git worktree remove` are forbidden unless the owner says so. The prune's "already merged" test reads the branch ref only, so it cannot see uncommitted work — and the trees it would destroy are exactly the merged-head, no-open-PR, dirty ones. Measure with `git worktree list --porcelain` and report; a report target that cannot delete is the supported operation.
+
+## `check-pr-authors` reds on a Name→email MISMATCH — fix is a commit re-author, not a body edit
+
+The commit-identity gate reads an allowlist dict (`git show origin/main:scripts/check_pr_authors.py`, `ALLOWED`/`ALIASES`, `{"Name": "email"}`). A commit whose author carries the **right name but the wrong email** (e.g. the noreply address where the allowlist requires an org address) reds `linux/unit` with `pull request carries a commit authored outside the allowlist`, naming base+head. The identity lives in the commit object, so a body-only fix cannot clear it; re-author the commit and force-push (owner-commanded scope, own-branch-only, lease after a fresh fetch):
+
+```bash
+git -C <wt> log -1 --format='%an <%ae>'                              # what the head actually carries
+python3 scripts/check_pr_authors.py --base origin/main --head HEAD   # the real gate; expect the off-allowlist line
+git -C <wt> commit --amend --no-edit --author='<Allowed Name> <allowed@email>'   # BOTH from the dict
+git -C <wt> log -1 --format='%an <%ae>'
+python3 scripts/check_pr_authors.py --base origin/main --head HEAD   # must now print OK
+```
+
+Read the exact allowed pair from the script rather than guessing the address. After the force-push, re-read `gh pr view <n> --json headRefOid` — the API read lags a force-push, so confirm the new tip landed before claiming the guard cleared; that fresh head then re-runs its own CI, re-measuring every body gate at the amended sha.

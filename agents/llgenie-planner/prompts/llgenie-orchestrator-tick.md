@@ -176,20 +176,15 @@ worktrees and /tmp is under build headroom — restore it every pass; the owner 
 explicitly CONFIRM=1'd this destructive cleanup, pinned in the issue:
     1. `make worktree-report`  # mutates nothing; measure first
     2. `make worktree-prune CONFIRM=1`   # owner-authorized: deletes proven-merged worktrees + branches
-    3. `/tmp` collector pass (issue #2141) — the ONLY delete path for /tmp trees; dry first, then act:
-         DRY=1 bash "$HOME/.hermes/profiles/llgenie-planner/bin/reclaim_tmp_worktrees.sh"
-               bash "$HOME/.hermes/profiles/llgenie-planner/bin/reclaim_tmp_worktrees.sh"
-       It removes only a tree that is clean AND whose HEAD is an ancestor of origin/main AND idle
-       >= MIN_IDLE_MIN; it reports (never deletes) a head on no remote ref, a dirty tree, or a tree
-       blocked by root-owned files, printing the exact `sudo rm -rf <path>` remedy. It also clears
-       cache-only deregistered debris. NEVER remove a /tmp tree by hand and NEVER delete one whose
-       head is ahead of main — report it, keep it. #794/#2262/#2141. Once #2141's PR lands, call
-       `make -C $HOME/repository/git/llgenie reclaim-tmp-worktrees` instead of the script path.
+    3. `make reclaim-tmp-worktrees DRY=0`  # the ancestry-gated /tmp pass (issue #2141): removes a
+       /tmp worktree only when its head IS an ancestor of origin/main and it is clean and idle;
+       NEVER removes one that is ahead of main — it reports it, keeps it. This is the conservative
+       pass, not FORCE (which stays the #794-guarded owner exception, never a pass step). #794/#2262.
     4. `make check-host-space`  # /tmp space AND inodes; refuse a /tmp build/worktree below threshold
-Quote all five lines (`pruned N branches, M worktrees`, the collector's `registered: …` and `debris: …`, `check-host-space` pass/refuse) on the pass record.
-The guard (worktree_prune_guard.py) treats this tick as unattended and refuses without CONFIRM=1 —
-the owner's mandate in #2262 is the confirmation; pass it. Never delete anything whose head is ahead
-of origin/main, whatever its PR/issue state.
+Quote the four result lines (`pruned N branches, M worktrees`, the reclaim pass's reclaimed/kept counts,
+`check-host-space` pass/refuse) on the pass record. The guard (worktree_prune_guard.py) treats this tick
+as unattended and refuses without CONFIRM=1 — the owner's mandate in #2262 is the confirmation; pass it.
+Never delete anything whose head is ahead of origin/main, whatever its PR/issue state.
 
 STEP 11 — CI AT THE TIP (section F). Never trust a remembered red:
     gh run view <run-id> --repo "$SLUG" --json status,conclusion,headSha
