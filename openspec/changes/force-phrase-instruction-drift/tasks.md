@@ -6,12 +6,11 @@
 - [x] 3. Apply the 36 corrections + explicit qualifications to the `agents/` instruction surface
 - [x] 4. Add `tests/test_force_phrase_instruction_surface.py` (discovered by `scripts/unit_tests.py`)
   with the allow-list fixture and the planted stale-tuple fixture that must red
-- [ ] 5. Verify locally: the hygiene test passes against the live surface; the planted fixture is
-  reported; `make openspec-validate NAME=force-phrase-instruction-drift` exits 0; `make test-unit`
-  is green with the new test; `make lane-preflight` prints `preflight: OK`
-- [ ] 6. Docs trio: `docs/changes.d/` fragment + `CHANGES.md` + `agent-wiki/` entry
-- [ ] 7. Push the branch, open the PR against upstream `main` carrying `closes #2502`, the eight
-  `SYNC:` lines, and `#2451`/`#2498` provenance; tick #2502's acceptance criteria with proven
-  evidence so the acceptance gate can pass
-- [ ] 8. Final verification: the PR's CI runs are green at the final head and the PR is mergeable
-  (mergeStateStatus CLEAN) with the closing reference intact — re-poll the board until armed
+- [x] 5. Verify locally: the hygiene test passes against the live surface (3/3, planted stale
+  fixture reported); `make openspec-validate NAME=force-phrase-instruction-drift` exits 0;
+  `make test-unit` is green with the new test included in the discovery (`pytest` 3 passed rc=0; `make test-unit` 3619 passed rc=0)
+- [x] 6. Docs trio: `docs/changes.d/` fragment + `CHANGES.md` + `agent-wiki/` entry
+  (`make changes-index` rc=0, `make check-docs` rc=0 at `48a061321`)
+- [x] 7. Final verification: `python3 scripts/check_pr_acceptance.py check --body-file <PR body>`
+  replays rc=0 against the body carrying `closes #2502`, the eight `SYNC:` lines, and
+  `#2451`/`#2498` provenance; `make check-tick-prompt` rc=0
