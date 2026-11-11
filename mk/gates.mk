@@ -92,6 +92,14 @@ check-empty-files: ## CI: fail when a tracked or diff-added path is a zero-byte 
 check-architecture-census: ## CI: fail when the docs/ARCHITECTURE.md census disagrees with the tree at the `measured at <sha>` commit it names (which must be an ancestor of HEAD), naming both values and the sha measured (issues #896, #1053)
 	python3 scripts/check_architecture_census.py check
 
+check-file-hygiene: ## CI: fail when a committed file matches a runtime-artifact shape — any `*.log`, or a dot-prefixed `.<word><digits>.<ext>` scratch name (e.g. `.pr874.md`) — unless a dated exception records why (issue #2484); lists findings as paths only
+	python3 scripts/check_file_hygiene.py check
+file-hygiene-report: ## Show every committed `*.log` / dot-scratch artifact and every stale exception the hygiene gate reads, plus the dated exception fixture that records the intentional ones (issue #2484)
+	python3 scripts/check_file_hygiene.py report
+
+.PHONY: check-file-hygiene
+.PHONY: file-hygiene-report
+
 docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ note's issue references + its docs/changes.d/ index row
 	python3 scripts/check_docs.py report
 

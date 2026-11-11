@@ -1,0 +1,5 @@
+{
+ "note": "Tracked files that legitimately match the stray run-artifact patterns (a `*.log`, or a dot-prefixed `.<word><digits>.<ext>` name) and are intentionally kept (issue #2484). `make check-file-hygiene` refuses any matching tracked file with no entry here, and an entry is STALE the moment its file is no longer tracked or no longer matches — an exemption is a dated decision naming the issue that decided it, never a pass. This file cannot rot: a stale entry fails the gate and must be deleted.",
+ "decided_utc": "2026-11-11",
+ "files": {}
+}

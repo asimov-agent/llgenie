@@ -388,10 +388,17 @@ make check-wiring              # CI: fail when a test/script is wired to no make
                                # cannot run (no target at all, or no recipe and no prerequisite — `make
                                # <name>` then prints "Nothing to be done" and exits 0; issue #883)
 make check-empty-files         # CI: fail when a path the change set ADDS is a zero-byte file, or (with
-                               # --all) when any present tracked file is zero bytes — an empty
-                               # diagnostic like the `.wt-probe.txt` that rode a squash to main must
-                               # never get in again; `.gitkeep`-style sentinels are the one allowed
-                               # empty case. Runs inside `ci-lint` (issue #1509)
+                              # --all) when any present tracked file is zero bytes — an empty
+                              # diagnostic like the `.wt-probe.txt` that rode a squash to main must
+                              # never get in again; `.gitkeep`-style sentinels are the one allowed
+                              # empty case. Runs inside `ci-lint` (issue #1509)
+make check-file-hygiene       # CI: fail when a committed file matches a runtime-artifact shape —
+                              # any `*.log`, or a dot-prefixed `.<word><digits>.<ext>` scratch name
+                              # like `.pr874.md` — unless a dated exception fixture records why
+                              # (issue #2484). Lists findings as paths only; runs in `ci-unit` and
+                              # `make lane-preflight`
+make file-hygiene-report      # show every committed `*.log`/dot-scratch artifact and stale hygiene
+                              # exception, plus the dated exception fixture (issue #2484)
 make wiring-report            # show how every test/script is wired (which target, whether CI runs it)
 ```
 
