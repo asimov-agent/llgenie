@@ -49,6 +49,7 @@ Every one of these was found in one night, in code written that same night by ca
 | profiles-home caveat | a comparison ran | `Path(x).parent` = `/`, which always exists |
 | `live-longer` shrink gate | no truncation | live text, which another lane was rewriting in place |
 | `replaced an existing file` | which files changed | counted **after** the copy |
+| a drift check run via `make` | "drift" vs "command broke" | `make` returns **2** for any failing recipe, erasing the script's own `1 = differs` |
 
 Detection habits that worked:
 
@@ -56,6 +57,7 @@ Detection habits that worked:
 - Make a skip **audible in the success line**, not only in stderr: `OK: 3 profile(s) — tree checks only, LIVE NOT COMPARED`. A reader scanning `&&` chains sees the OK line; `EXIT=0` hides the warning.
 - Require a home/directory to **hold** the thing it claims (`<base>/<name>/SOUL.md`), not merely to exist.
 - Prefer a **manifest match** over a count when deciding whether a directory is a real home — a count is satisfied by junk, a name is not.
+- **Do not read semantics through `make`.** A checker that distinguishes "differs" (exit 1) from "error" (exit 2) is unreadable when wrapped in a `make` target, because `make` collapses every non-zero recipe result to 2. A pass then cannot tell real drift from a broken invocation and will misreport one as the other. Invoke the script directly and quote *its* exit contract; if it must run under `make`, make the target print and assert the distinction explicitly.
 
 ## 5. Re-seeding a live profile is a merge, not a copy
 

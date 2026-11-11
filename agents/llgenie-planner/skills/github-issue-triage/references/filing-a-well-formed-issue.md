@@ -30,6 +30,14 @@ block = "\n".join(l if not l.startswith("## ") else "### " + l[3:] for l in past
 `###` cannot match a `^##\s+` scan, so demoting is enough; do not strip the headings — the pasted text has to stay
 verbatim to be the seed someone commits.
 
+**Every section label must carry its literal `## ` marker — a bare label is MISSING, not shorthand.** A body
+assembled with the label text alone on each line (`Problem`, `Why it matters`, …) and no `##` marker reads perfectly
+to a human, but the gate tests `f"## {name}" in body`, so every section reports missing and `Technical`-last reports
+false. This happens silently when the body is written by a tool/`write_file` whose source text omitted the prefix —
+the file on disk AND the posted body both lack it, and a glance at the rendered issue still looks like headed prose.
+Verify with the substring check (`f'## {name}' in body`) or `issue_body.missing()`, then `PATCH /issues/<n>` with a
+corrected body file — never close-and-recreate, which burns a shared number and leaves a stray non-canonical issue.
+
 ## 3. Write the body from a Python dict, never from a shell heredoc or an escaped f-string
 
 - `gh api -X POST repos/<o>/<r>/issues --input -` with `json.dumps({...})` avoids every shell-quoting trap

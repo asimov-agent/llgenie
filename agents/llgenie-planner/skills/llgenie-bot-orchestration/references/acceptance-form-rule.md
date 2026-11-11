@@ -23,6 +23,16 @@
 4. **Out of scope / do not touch:** `issue_body.py`'s renderer, `acceptance_writeback`'s verdict-gated seam, #1088 merge/arm, `-h`/`--version`-vs-serve engine gate.
 5. **Do not relabel #1088** — this is a form/surface rule, never a merge-blocker to owner approval.
 
+## Ticking checkboxes on demand: prove, then tick — never fabricate the verdict-gated box
+
+When the owner says "update the PR and tick the checkboxes", the honest split is by what is actually provable from the committed head vs. what still needs a run to conclude:
+
+1. **Tick the boxes provable from committed code in this pass** (the diff removes/changes the named artifact, a pin is the stated literal, the file is at the head). Append a `(proven: …)` note naming the head sha and the artifact — the tick must be traceable to a measurement, not an assertion.
+2. **Leave the verdict-gated box unticked and mark it `(RUNNING: <workflow> run <id> at head <sha> — held until it concludes)`.** A "gates pass at this head (run ids quoted)" criterion cannot be ticked before its run has a verdict; ticking it would be a fabricated green of exactly the class the verdict-gate (#1644) exists to prevent. Name the run id so the reader sees *which* run will satisfy it, then tick it in the pass where that run concludes green.
+3. **Verify on the wire after the edit** — `gh pr view <n> --json body --jq .body > /tmp/v.md` then `grep -cE '^\s*- \[x\]'` / `'- \[ \]'` — not a mangled jq pipeline (a `[.body]|map(...)` squeeze reports a wrong count). A body edit fires no CI run, so the tick does not re-measure anything; the next push or the held run is what flips the gate.
+
+Fabricating a tick to satisfy "tick them all" is a false evidence claim on the tracker the owner reads; the correct report is "N ticked with provenance, 1 held on run <id>", not "all ticked".
+
 ## File one body without a checklist — visible classes
 
 - Open a PR whose body has only AGENTS/BASE/SYNC/closing/base, no criteria → the #1796 form-gate (when landed) surfaces it.
