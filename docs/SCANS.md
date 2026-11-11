@@ -61,11 +61,14 @@ work nobody can do today, and #716 decides which recorded findings become issues
 
 ## Where the scanner image comes from
 
-The run uses the ref `containers/scanners/digests.json` names. It is **pulled** when it is published.
-A `pull_request` run before the first publish — and any run whose token cannot read the packages —
-does not skip the scan: the **same Dockerfile** the publish job builds (digest-pinned base, exact
-versions) is built locally and tagged with the ref the run asked for, and the log says which path was
-taken. A build that fails fails the run, loudly; there is no third path and no silent skip.
+The run uses the ref `containers/scanners/digests.json` names, built and published by the scanners'
+own pipeline [`.github/workflows/security-images.yml`](SCANNERS.md) — a daily schedule before the
+scan, a path-filtered `push` to `main`, and a `workflow_dispatch`. It is **pulled** when it is
+published. A run before the first publish — and any run whose token cannot read the packages — does
+not skip the scan: the **same Dockerfile** the pipeline builds (digest-pinned base, exact versions)
+is obtained through the ONE builder (`scanner_image.ensure`, agenda #745), and the log says which
+path was taken. A scanner that cannot be obtained at all fails the run, loudly; there is no third
+path and no silent skip.
 
 Every scanner runs as the **invoking user** (`docker run --user <uid>:<gid>`): the mounted checkout
 belongs to the runner, so without it trivy cannot create its report (`permission denied`) and the run

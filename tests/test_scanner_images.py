@@ -264,3 +264,105 @@ def test_a_failed_build_prints_its_captured_streams(tmp_path, monkeypatch, capsy
 
     # Then  the printed output carries the exit code and the captured error line
     assert "exit 1" in out and "sentinel-build-error" in out
+
+
+# --- `ensure` is the scanners' own pipeline (issue #745): publish ONLY the tags GHCR is missing ---
+
+
+def test_ensure_skips_a_published_ref(tmp_path, monkeypatch, capsys):
+    """A tag the registry already carries is one manifest lookup and a log line, never a build."""
+
+    # Given the registry already carries the content-hash tag (imagetools inspect answers 0)
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, platforms=("linux/amd64", "linux/arm64"))
+
+    # When  ensure runs
+    rc = si.ensure("trivy")
+    out = capsys.readouterr().out
+
+    # Then  it skipped: a `present … (skipped)` line naming the ref, no --push/unqualified build ran
+    assert rc == 0
+    assert "present" in out and "(skipped)" in out and si.ref("trivy") in out
+    assert not any("--push" in c or "--platform" in c for c in calls)
+    # single registry probe only — the decision came from one imagetools inspect
+    assert sum("imagetools" in c for c in calls) == 1
+
+
+def test_ensure_publishes_an_absent_ref(tmp_path, monkeypatch, capsys):
+    """A tag absent from the registry is built + pushed exactly once, with the digests ref."""
+
+    # Given the registry probe exits non-zero (the tag does not exist)
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, probe_rc=1)
+
+    # When  ensure runs
+    rc = si.ensure("trivy")
+    out = capsys.readouterr().out
+
+    # Then  it published the multi-arch tag once, from digests.json's ref
+    assert rc == 0 and "publishing" in out
+    pushes = [c for c in calls if "--push" in c]
+    assert len(pushes) == 1
+    assert si.ref("trivy") in pushes[0] and "linux/amd64,linux/arm64" in pushes[0]
+
+
+def test_ensure_force_republishes_a_present_ref(tmp_path, monkeypatch, capsys):
+    """force (the dispatch input, passed as an env value) re-pushes even a present tag."""
+
+    # Given the registry already carries the tag on both platforms
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, platforms=("linux/amd64", "linux/arm64"))
+
+    # When  ensure runs with FORCE set in the environment
+    monkeypatch.setenv("FORCE", "1")
+    rc = si.ensure("trivy", force=True)
+    out = capsys.readouterr().out
+
+    # Then  it published anyway (a --push ran, named the ref)
+    assert rc == 0 and "publishing" in out
+    assert any("--push" in c for c in calls)
+
+
+# --- the scanners' own pipeline (issue #745): ci.yml holds no scanner build, security-images.yml never a PR ---
+
+
+def test_ci_yml_has_no_scanner_job():
+    """Main CI builds and publishes no scanner image: the scanner-images job is gone from ci.yml."""
+
+    # Given this repository's ci.yml
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+
+    # Then  it declares no scanner-images JOB (a YAML job key at 2-space indent) and runs no scanner
+    #       make target on a PR/merge — the build lives in security-images.yml, its own pipeline
+    assert "scanner-images:" not in ci          # the job declaration key is gone
+    assert "make ci-scanner-images" not in ci
+    assert "make ci-security-images" not in ci  # this pipeline must not publish from main CI
+    assert "make publish-scanner-images" not in ci  # a PR/merge run must not push a scanner tag
+
+
+def test_security_images_yml_runs_never_on_a_pull_request():
+    """The scanner-images pipeline has schedule + path-filtered push + dispatch, never pull_request."""
+
+    # Given the new security-images.yml
+    wf = (REPO / ".github" / "workflows" / "security-images.yml").read_text()
+
+    # Then  the on: block carries a pull_request key exactly nowhere (a PR cannot publish these
+    #       images, issue #745) — only schedule, a path-filtered push to main, and workflow_dispatch
+    assert "pull_request:" not in wf            # no trigger declares a PR event
+    assert "schedule:" in wf and "workflow_dispatch:" in wf
+    assert "containers/scanners/**" in wf and "scanner_image.py" in wf
+
+
+def test_ensure_image_has_single_build_path():
+    """security_scan.ensure_image carries no docker build of its own (issue #745 item 4)."""
+
+    # Given the module that resolves a scanner image for a scan
+    src = (REPO / "scripts" / "security_scan.py").read_text()
+
+    # Then  it delegates to scanner_image.ensure and never hand-rolls a second `docker build`
+    assert "_scanner_image.ensure(scanner=tool)" in src
+    # the old inline builder arguments (docker build -t <ref> <context>) must not be present
+    assert '"build"' not in src or "subprocess.run([RUNTIME, \"build\"" not in src
+    assert "cannot build" not in src  # the old failure message naming the inline build is gone
+
+

@@ -1,0 +1,122 @@
+name: security-images — build and publish the scanner images, only the tags GHCR is missing
+
+# The scanner images' own pipeline (issue #745, parent #713; the scan's own-pipeline rule #738).
+# Each scanner ships as an immutable image named by containers/scanners/digests.json (a content
+# hash of the Dockerfile). This workflow is where that image is BUILT and PUBLISHED: it is the
+# security stack's builder, just as security-scan.yml is its scanner. It is not part of PR or
+# main CI — ci.yml builds and publishes no scanner image — so a PR is never charged for a build
+# it can never publish and a merge that does not touch a scanner Dockerfile rebuilds nothing.
+#
+# The publish decision is the TAG'S EXISTENCE, never the event name: `scanner_image.ensure`
+# does one `buildx imagetools inspect` per scanner and builds + pushes both platforms only when
+# that content-hash tag is absent from GHCR (or `force` asks). A tag that is present is one HTTP
+# lookup and a log line, not a 3-minute multi-arch build. `FORCE` is a dispatch input passed as
+# an env value to the make target — never a workflow `if:` (AGENTS.md).
+#
+# Because the publish only happens when the hash is absent, the schedule can run more often than
+# anything changes: a Dockerfile edit moves the hash, the tag is absent, the next run (or the
+# path-filtered push below) publishes it; everything else is a no-op.
+# Flow: guard (owner / repository bot / collaborator with write, BEFORE any secret is read) ->
+#       make ci-security-images (scanner_image.ensure: for each scanner, publish the content-hash
+#       tag only when GHCR is missing it, or when `force` asks).
+# Trigger surface: schedule daily 03:49 UTC (an odd minute before the 04:05 scan, issue #275 — no
+#                  other workflow owns minute 49; the images reach the scan fresh), a push to main
+#                  path-filtered to containers/scanners/** and scripts/scanner_image.py (a merge
+#                  that changes a Dockerfile publishes that scanner's new tag the moment it lands),
+#                  and workflow_dispatch (scanner = all|trivy|grype|semgrep, force = republish
+#                  even when the tag exists). There is NO pull_request trigger and no
+#                  unfiltered push: this workflow never checks a change and never runs on a PR.
+# Never: never runs on a pull_request, never gates a PR check or a push, never installs a scanner,
+#        never edits the security reports, and never runs the scan itself (that is security-scan.yml).
+on:
+  schedule:
+    - cron: "49 3 * * *"    # daily 03:49 UTC — an odd minute before the 04:05 scan (issue #275)
+  push:
+    branches: ["main"]
+    paths:
+      - "containers/scanners/**"
+      - "scripts/scanner_image.py"
+  workflow_dispatch:
+    inputs:
+      scanner:
+        description: "Which scanner image to publish: all, or one of trivy / grype / semgrep"
+        type: choice
+        options: [all, trivy, grype, semgrep]
+        default: all
+      force:
+        description: "Rebuild and push even when the content-hash tag is already on GHCR"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# concurrency: a scanner publish must never pile up, but a second dispatch should wait for one
+# mid-publish rather than cancel it and leave a half-pushed tag (issue #2453).
+concurrency:
+  group: security-images
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's
+          # same-repo-head intent is reached via event+ref instead (issue #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  build:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: make ci-security-images (publish each scanner image's tag only when GHCR is missing it)
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized dispatch input, quoted, make-routed (issue #1595)
+        env:
+          SCANNER: ${{ github.event.inputs.scanner || 'all' }}
+          FORCE: ${{ github.event.inputs.force == 'true' && '1' || '' }}
+        run: |
+          set -euo pipefail
+          make ci-security-images SCANNER="$SCANNER"

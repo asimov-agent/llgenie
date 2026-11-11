@@ -101,6 +101,9 @@
     "security-bot — turns ONE auto-fixable vulnerability issue into a green PR (never merges)": {
       "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
     },
+    "security-images — build and publish the scanner images, only the tags GHCR is missing": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this pipeline's red (a scanner image build/publish failure) is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
+    },
     "stale-branch-cleanup — delete non-main branches with no live vehicle, older than 3 days (daily cron)": {
       "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
     }

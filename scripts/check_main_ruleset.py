@@ -51,7 +51,6 @@ REPO = "asimov-agent/llgenie"
 REQUIRED_CONTEXTS: tuple[str, ...] = (
     "guard",
     "ci-images",
-    "scanner-images",
     "linux / agents-read",
     "linux / cpu-health",
     "linux / install",

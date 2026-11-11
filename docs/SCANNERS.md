@@ -65,9 +65,10 @@ red `make secret-scan`), rewrites `default.yml`, and re-stamps `rules_sha` / `ru
 | `make scanner-digests` | Rewrite `containers/scanners/digests.json` from the Dockerfiles. |
 | `make semgrep-rules-refresh` | Re-resolve the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, re-apply the credential-shape escapes, rewrite `default.yml`, and re-stamp `rules_sha`/`rules_captured_at`/`rules_count` (the scheduled refresh, issue #2283). |
 | `make scanner-ref SCANNER=<id>` | Print the published immutable ref. |
-| `make publish-scanner-images SCANNER=<id>` | Build linux/amd64 + linux/arm64 and push the content-hash tag (CI). |
-| `make ci-scanner-images` | The CI job: build + version-test every scanner; publish on a push run only. |
-| `make check-scanner-images` | **The gate** (inside `make ci-unit`): floating base, missing version pin, or a stale `digests.json` fails. |
+| `make publish-scanner-images SCANNER=<id>` | Build linux/amd64 + linux/arm64 and push the content-hash tag (the security-images pipeline uses this per scanner). |
+| `make ci-security-images SCANNER=<id>\|all` | **The security-images pipeline command**: for each scanner image, publish its content-hash tag only when GHCR is missing it (FORCE=1 republishes); never runs on a PR. |
+| `make security-images-ensure SCANNER=<id>\|all` | Local/one-off: publish each scanner image's content-hash tag only when GHCR is missing it (FORCE=1 to republish). |
+| `make check-scanner-images` | **The gate** (inside `make ci-unit`): floating base, missing version pin, or a stale `digests.json` fails (a static lint — it builds nothing). |
 
 ## Bumping a scanner
 
@@ -77,5 +78,11 @@ red `make secret-scan`), rewrites `default.yml`, and re-stamps `rules_sha` / `ru
 4. Commit the Dockerfile **and** `digests.json` together: a Dockerfile alone leaves the scan
    workflow pointing at the previous build, which is the staleness the gate exists to catch.
 
-The publish policy lives in `scripts/scanner_image.py` (`ci`), not in a workflow `if:`: a
-scenario-scoped condition in YAML is how a publish silently stops happening.
+The publish policy lives in `scripts/scanner_image.py` (`ensure`), not in a workflow `if:`: a
+scenario-scoped condition in YAML is how a publish silently stops happening. `ensure` does ONE
+registry manifest lookup per scanner (`buildx imagetools inspect`) and builds + pushes both platforms
+only when the content-hash tag is absent from GHCR (or FORCE asks), so the pipeline publishes exactly
+the tags GHCR is missing — a present tag is an HTTP lookup and a log line, never a build. The
+scanners' own pipeline `.github/workflows/security-images.yml` drives it (a daily schedule before the
+scan, a path-filtered push to `main` for `containers/scanners/**` and `scripts/scanner_image.py`, and
+a `workflow_dispatch`); `ci.yml` builds and publishes no scanner image (issue #745).

@@ -34,6 +34,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:  # the ONE builder (issue #797 policy); dual-mode like scripts/semgrep_rules.py
+    from . import scanner_image as _scanner_image  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    import scanner_image as _scanner_image  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"
 DIGESTS = REPO / "containers" / "scanners" / "digests.json"
@@ -148,11 +153,13 @@ def policy() -> dict:
 def ensure_image(tool: str) -> str:
     """The pinned image, from the registry when it is published, else built from its Dockerfile.
 
-    A pull is the normal path. It fails for a `pull_request` run before the first publish (the
-    `scanner-images` job publishes on a push to main only), and for a fork run, whose token cannot
-    write the base repo's packages. That is not a reason to skip a scan, and it is not a second
-    implementation: the SAME Dockerfile — digest-pinned base, exact versions — is built and tagged
-    with the SAME immutable ref the workflow asked for, and the log says which path was taken.
+    A pull is the normal path. It fails before the image's pipeline has published a tag, and for a
+    fork run, whose token cannot write the base repo's packages — exactly when a scanner pipeline
+    that is this daily run's OWN upstream (`security-images.yml`, issue #745) has not yet
+    published. That is not a reason to skip a scan, and it is not a second implementation: the
+    pull misses, so the ONE builder (`scanner_image.ensure`) is asked for that one scanner, and it
+    builds + publishes the tag through its own registry probe (an absent tag is built and pushed;
+    a present one is skipped). The log says which path was taken.
     """
     ref = image_ref(tool)
     if subprocess.run([RUNTIME, "image", "inspect", ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
@@ -162,13 +169,10 @@ def ensure_image(tool: str) -> str:
     if pull.returncode == 0:
         print(f"[security-scan] pulled {ref}")
         return ref
-    context = REPO / "containers" / "scanners" / tool
-    print(f"[security-scan] {ref} is not published yet — building {context} (the same Dockerfile "
-          "the publish job builds) and tagging it with the ref the scan asked for")
-    build = subprocess.run([RUNTIME, "build", "-t", ref, str(context)],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
-                           capture_output=True, text=True)
-    if build.returncode != 0:
-        raise SystemExit(f"[security-scan] cannot build {tool}: {build.stderr.strip()[-400:]}")
+    print(f"[security-scan] {ref} is not published yet — asking scanner_image.ensure to "
+          "build the one Dockerfile and publish the one tag (the scanner-images pipeline, "
+          "security-images.yml)")
+    _scanner_image.ensure(scanner=tool)
     return ref
 
 

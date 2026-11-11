@@ -15,10 +15,12 @@ Commands (driven by make, never by hand):
     test <id>       build + run the image's version command and compare it with the pin
                                                                               make test-scanner-image
     publish <id>    build linux/amd64 + linux/arm64 and push the hash tag     make publish-scanner-images
+    ensure [<id>|all]  publish every tag GHCR is missing (or FORCE asks)     make ci-security-images
     write           rewrite containers/scanners/digests.json from the files   make scanner-digests
     check <id>|all  fail when a Dockerfile floats, or when digests.json is stale
                                                                               make check-scanner-images
 """
+
 from __future__ import annotations
 
 import argparse
@@ -188,8 +190,11 @@ def publish(scanner: str) -> int:
     """
     target = ref(scanner)
     wanted = {p.strip() for p in PLATFORMS.split(",") if p.strip()}
+    # FORCE (a dispatch input passed as an env value, never a workflow `if:`) overrides the
+    # already-published short-circuit: even a fully-present tag is re-pushed.
+    force = os.environ.get("FORCE") in ("1", "true", "yes")
     already = _published_platforms(target)
-    if wanted and wanted <= already:
+    if wanted and wanted <= already and not force:
         print(f"[scanner-image] already published ({', '.join(sorted(wanted))}), "
               f"skipping re-push: {target}")
         return 0
@@ -297,29 +302,45 @@ def check(scanner: str = "all") -> int:
     return 0
 
 
-def ci() -> int:
-    """Every scanner: build + prove its version. Publish only on a push (never a PR run).
+def published(r: str) -> bool:
+    """True when the registry already carries the tag (one `buildx imagetools inspect`).
 
-    The policy lives here, not in a workflow `if:` — a scenario-scoped condition in YAML is how a
-    publish silently stops happening (AGENTS.md).
+    The same probe `scripts/ci_images.py::published` uses: a manifest lookup, no build and no
+    layer pull. rc != 0 (the registry does not have the ref) is an empty answer, not a failure —
+    `run_ok` returns the rc as a value, never an exception.
     """
-    published = os.environ.get("GITHUB_EVENT_NAME", "workflow_dispatch") != "pull_request"
-    for sid in SCANNERS:
-        test(sid)
-        if published:
-            publish(sid)
-        else:
-            print(f"[scanner-image] build+test only for {sid} (a pull_request run does not publish)")
+    return _run([RUNTIME, "buildx", "imagetools", "inspect", r]).returncode == 0
+
+
+def ensure(scanner: str = "all", force: bool = False) -> int:
+    """Every scanner whose content-hash tag GHCR is missing, or all of them when FORCE asks.
+
+    The scanners' own pipeline (`security-images.yml`, issue #745): for each requested scanner it
+    does ONE registry manifest lookup (`published`) and builds + pushes both platforms only when
+    that content-hash tag is absent — a present tag is an HTTP lookup and a log line, never a
+    3-minute multi-arch build. `ci()` is gone: the event name (`GITHUB_EVENT_NAME !=
+    "pull_request"`) is no longer the publish policy, the tag's existence is. `FORCE` comes from
+    the dispatch input as an env value, never from a workflow `if:` (AGENTS.md).
+    """
+    force = force or os.environ.get("FORCE") in ("1", "true", "yes")
+    ids = list(SCANNERS) if scanner == "all" else [scanner]
+    for sid in ids:
+        target = ref(sid)
+        if not force and published(target):
+            print(f"[scanner-image] present {target} (skipped)")
+            continue
+        print(f"[scanner-image] publishing {target}")
+        publish(sid)
     return 0
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("command", choices=("digest", "ref", "build", "test", "publish", "write", "check", "ci"))
+    ap.add_argument("command", choices=("digest", "ref", "build", "test", "publish", "ensure", "write", "check"))
     ap.add_argument("scanner", nargs="?", default="all")
     args = ap.parse_args(argv)
     sid = args.scanner
-    if args.command in ("digest", "ref", "build", "test", "publish") and sid not in SCANNERS:
+    if args.command in ("digest", "ref", "build", "test", "publish", "ensure") and sid not in SCANNERS and sid != "all":
         raise SystemExit(f"[scanner-image] unknown scanner `{sid}`; known: {', '.join(SCANNERS)}")
     if args.command == "digest":
         print(content_hash(sid))
@@ -328,8 +349,8 @@ def main(argv: list[str]) -> int:
         print(ref(sid))
         return 0
     return {"build": lambda: 0 if build(sid) else 0, "test": lambda: test(sid),
-            "publish": lambda: publish(sid), "write": write,
-            "check": lambda: check(sid), "ci": ci}[args.command]()
+            "publish": lambda: publish(sid), "ensure": lambda: ensure(sid),
+            "write": write, "check": lambda: check(sid)}[args.command]()
 
 
 if __name__ == "__main__":

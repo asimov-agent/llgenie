@@ -598,35 +598,54 @@ def test_a_published_image_is_pulled_and_used(tmp_path, monkeypatch):
     assert not [l for l in log.read_text().splitlines() if '"build"' in l]
 
 
-def test_an_unpublished_image_is_built_from_the_same_dockerfile(tmp_path, monkeypatch):
-    """Before the first publish (and on a fork run) the SAME Dockerfile is built, never skipped."""
+def test_a_pull_miss_delegates_the_build_to_scanner_image_ensure(tmp_path, monkeypatch):
+    """Before the first publish (and on a fork run) the image is obtained through the ONE builder:
+    `security_scan.ensure_image` stops carrying its own `docker build` and delegates to
+    `scanner_image.ensure` for that scanner (issue #745 item 4).
+    """
 
-    # Given a docker whose pull fails but whose build succeeds
-    log = _docker_stub(tmp_path, monkeypatch, pull_ok=False, build_ok=True)
+    # Given a docker whose pull fails, so the scan must get the image another way
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=False)
+    # ... and a recorder standing in for the ONE builder it must delegate to
+    calls: list[str] = []
+
+    class _EnsureRecorder:
+        @staticmethod
+        def ensure(*, scanner: str) -> int:
+            calls.append(scanner)
+            return 0
+
+    monkeypatch.setattr(ss, "_scanner_image", _EnsureRecorder)
 
     # When  the image is resolved
     ref = ss.ensure_image("trivy")
 
-    # Then  it was built from containers/scanners/trivy and tagged with the requested ref
-    builds = [json.loads(l) for l in log.read_text().splitlines() if '"build"' in l]
-    assert len(builds) == 1
-    assert builds[0][-1].endswith("containers/scanners/trivy")
-    assert ref in builds[0]
+    # Then  it returned the digests ref and delegated to scanner_image.ensure for that scanner,
+    #       and hand-rolled no `docker build` of its own (the delegation is the ONE code path)
     assert ref == ss.image_ref("trivy")
+    assert calls == ["trivy"]
+    assert not [l for l in log.read_text().splitlines() if '"build"' in l]
 
 
-def test_a_failed_build_is_loud(tmp_path, monkeypatch):
+def test_a_build_failure_is_loud(tmp_path, monkeypatch):
     """A scanner that cannot be obtained at all fails the run; it is never a silent skip."""
 
-    # Given a docker whose pull AND build fail
-    _docker_stub(tmp_path, monkeypatch, pull_ok=False, build_ok=False)
+    # Given a docker whose pull fails, and a builder that cannot build the image either
+    _docker_stub(tmp_path, monkeypatch, pull_ok=False)
+
+    class _FailingBuilder:
+        @staticmethod
+        def ensure(*, scanner: str) -> int:
+            raise SystemExit(f"[scanner-image] publish failed: {scanner}")
+
+    monkeypatch.setattr(ss, "_scanner_image", _FailingBuilder)
 
     # When  the image is resolved
     try:
         ss.ensure_image("trivy")
     except SystemExit as exc:
         # Then  the run refuses, naming the scanner
-        assert "cannot build trivy" in str(exc)
+        assert "publish failed: trivy" in str(exc)
     else:
         raise AssertionError("a scanner that could not be obtained was accepted")
 

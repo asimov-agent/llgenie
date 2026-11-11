@@ -151,12 +151,13 @@ def test_an_engine_change_selects_the_engine_rows_and_the_install_proof():
     rows = dict((job, runs) for job, runs, _ in cs.select(classes))
 
     assert rows["linux/install"] and rows["linux/cpu-health"]
-    # `scanner-images` keys on `containers`, and `containers/engines/**` IS a containers path, so an
-    # engine-params change selects it too — the class granularity #824 specifies. Recorded here rather
-    # than silently narrowed: sharpening the rule (scanners only for `containers/scanners/**`) is part
-    # (b)'s job, not this classifier's, and a test that asserted the sharper behaviour would be
-    # describing a rule the repo does not have.
-    assert rows["scanner-images"], "the issue's table selects the scanners for any `containers` change"
+    # The scanner-images job left ci.yml in #745 (the scanners are published by their own
+    # security-images.yml pipeline), so no ci.yml row keys on `containers` any more — but a
+    # `containers/scanners/**` change still selects `linux/unit` via the `containers` class, and
+    # that is where `check-scanner-images` (inside `make ci-unit`) reds it, and the new
+    # `security-images.yml` path-filtered push publishes the moved tag.
+    assert "scanner-images" not in rows
+    assert rows["linux/unit"], "a containers/engines change still runs the unit battery (check-scanner-images lives in ci-unit)"
 
 
 def test_an_engine_skill_pin_change_selects_the_unit_security_battery():

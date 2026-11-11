@@ -449,29 +449,13 @@ jobs:
         run: make ci-image-refs
 
   # ------------------------------------------------------------------
-  # scanner-images (issue #714, parent #713): one immutable image per scanner —
-  # containers/scanners/<id>/Dockerfile, Wolfi base pinned BY DIGEST, scanner pinned to an
-  # exact version, published under a content-hash tag (scripts/scanner_image.py). A build +
-  # version test runs on every PR; the publish runs on a push only, and that policy lives in
-  # the script (`ci`), never in a scenario-scoped `if:` here.
-  # ------------------------------------------------------------------
-  scanner-images:
-    needs: [guard]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: write
-    env:
-      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: make ci-scanner-images (build + version-test every scanner; publish on a push run)
-        run: make ci-scanner-images
+  # The scanner images are built and published by their OWN pipeline, security-images.yml
+  # (issue #745): a daily schedule before the scan, a push to main path-filtered to
+  # containers/scanners/** and scripts/scanner_image.py, and workflow_dispatch. ci.yml builds
+  # NO scanner image — a PR is never charged for a build it cannot publish, a merge that does
+  # not touch a scanner Dockerfile rebuilds nothing, and this pipeline holds no packages: write
+  # for one. `make check-scanner-images` (a static lint that builds nothing) still runs in
+  # ci-unit, where a scanner change belongs as a gate, not as an image build.
 
   linux:
     # `guard` is in `needs` for its row-selection output (issue #859): `linux / top-tier` follows
