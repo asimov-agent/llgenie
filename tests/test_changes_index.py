@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
 import changes_index as ci  # noqa: E402
 import unit_tests as ut  # noqa: E402
 
@@ -207,8 +208,8 @@ def test_render_orders_rows_newest_first_and_is_stable(tmp_path):
 def test_make_changes_index_renders_and_the_gate_runs_it_in_ci():
     """The renderer is a make target, and `check-docs` (which `ci-unit` runs) gates the fragments."""
 
-    # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    # Given the Makefile (the top + its mk/*.mk includes — check-docs/docs-report live behind them)
+    mk = makefiles_text()
 
     # When the check-docs recipe and the phony block are read
     check_docs = mk.split("\ncheck-docs:", 1)[1].split("\ndocs-report:", 1)[0]
@@ -304,7 +305,7 @@ def test_resolve_is_wired_as_make_changes_resolve_and_documented():
     """`make changes-resolve` runs exactly the issue's recipe (`git checkout <base> -- CHANGES.md
     && make changes-index`) and is documented in docs/BOTS.md (issue #1103)."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     bots = (REPO / "docs/BOTS.md").read_text()
 

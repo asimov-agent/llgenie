@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 from scripts import check_docs as cd
 from scripts import unit_tests as ut
 
@@ -556,8 +557,8 @@ def test_the_gate_reds_on_a_reintroduced_changes_append_and_greens_on_the_fragme
 def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     """The guard is only real when the pipeline runs it."""
 
-    # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    # Given the Makefile (the top + its mk/*.mk includes — the gates targets live behind the include)
+    mk = makefiles_text()
 
     # When the ci-unit job and the unit suite are read
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
