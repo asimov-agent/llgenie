@@ -19,8 +19,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
-import changes_index as ci  # noqa: E402
-import unit_tests as ut  # noqa: E402
+from scripts import changes_index as ci  # noqa: E402
+from scripts import unit_tests as ut  # noqa: E402
 
 CLI = REPO / "scripts" / "changes_index.py"
 
