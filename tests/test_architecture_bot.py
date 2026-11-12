@@ -258,9 +258,19 @@ def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
     assert sum(1 for c in calls if c.startswith("issue create")) == 1
     assert sum(1 for c in calls if c.startswith("pr create") == 1)
 
-    # And the commit carries the doc alone, authored by the bot identity
-    files = _git(root, "show", "--name-only", "--format=", "HEAD").split()
-    assert files == ["docs/ARCHITECTURE.md"]
+    # And the commit carries the doc plus the note+row pair check-docs owes it (issue #2598),
+    # authored by the bot identity
+    files = sorted(_git(root, "show", "--name-only", "--format=", "HEAD").split())
+    stem = "2026-10-21-architecture-refresh-7"
+    assert files == sorted([
+        "docs/ARCHITECTURE.md",
+        f"agent-wiki/{stem}.md",
+        f"docs/changes.d/{stem}.md",
+        "CHANGES.md",
+    ])
+    frag = (root / "docs/changes.d" / f"{stem}.md").read_text()
+    assert frag.count("\n") == 1 and f"(agent-wiki/{stem}.md)" in frag and "| #7 |" in frag
+    assert f"[{stem}.md](agent-wiki/{stem}.md)" in (root / "CHANGES.md").read_text()
     author = _git(root, "log", "-1", "--format=%an <%ae>").strip()
     assert author == "Asimov Agent <support@docondee.com>"
     assert result["pr_body"].rstrip().endswith("closes #7")
@@ -291,6 +301,7 @@ def test_publish_files_nothing_without_drift(tmp_path, monkeypatch):
     assert result["action"] == "none"
     assert "identical to HEAD" in result["reason"]
     assert log.read_text() == ""
+    assert not (root / "agent-wiki").exists() and not (root / "CHANGES.md").exists()
 
 
 def test_publish_skips_when_an_architecture_pr_is_open(tmp_path, monkeypatch):
@@ -311,6 +322,25 @@ def test_publish_skips_when_an_architecture_pr_is_open(tmp_path, monkeypatch):
     assert result["action"] == "pending"
     assert "#12" in result["reason"]
     assert not any(c.startswith("issue create") for c in log.read_text().splitlines())
+    assert not (root / "agent-wiki").exists() and not (root / "CHANGES.md").exists()
+
+
+def test_publish_dry_previews_without_writing_the_pair(tmp_path, monkeypatch):
+    """A dry run previews the bodies and writes no note, fragment or CHANGES.md (issue #2598)."""
+
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+
+    result = ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", dry=True, gh=str(gh))
+
+    assert result["action"] == "would-publish"
+    assert "closes #0" in result["pr_body"]
+    calls = log.read_text().splitlines()
+    assert not any(c.startswith(("issue create", "pr create")) for c in calls)
+    assert not (root / "agent-wiki").exists() and not (root / "docs" / "changes.d").exists()
+    assert not (root / "CHANGES.md").exists()
 
 
 def test_publish_refuses_an_empty_doc(tmp_path, monkeypatch):

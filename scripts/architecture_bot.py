@@ -42,6 +42,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import changes_index  # the note/row pair this bot owes every doc change renders through (issue #2598)
 import git_identity  # the ONE source of the commit identity (issue #840)
 import issue_body  # the one issue shape every producer renders through (issue #745)
 import module_name_guard  # the shared rename rule (#573): the same check `make test-unit` runs
@@ -399,22 +400,26 @@ def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
             "`make architecture-bot-brief` derives the surface and the drift from real `git` state.",
             "`make architecture-bot-doc` rewrites the doc inside the agent image, where only the "
             f"doc (`{doc}`) is writable.",
-            "The deterministic publish step commits that one file on its own branch and opens the "
-            "linked PR — the refresh is reviewed like any other change.",
+            "The deterministic publish step commits that file on its own branch, pays the pair "
+            "`check-docs` owes a doc change (its own `agent-wiki/` note, its `docs/changes.d/` "
+            "row, `CHANGES.md`) — the bot used to commit the doc alone and reddened its own "
+            "ci-scope (issue #2598) — and opens the linked PR.",
         ],
         benefit=(
             "The architecture map tracks the code on a 6-hour cadence instead of ageing silently, "
-            "and every refresh is a one-file PR a reviewer can check against the drift it names."
+            "and every refresh is a small PR a reviewer can check against the drift it names."
         ),
         acceptance=[
             f"`{doc}` describes the tree at `{head}` after the refresh",
-            "the refresh commit touches no file other than the doc",
+            "the refresh commit carries the doc and the note+row+CHANGES.md pair it owes",
             "the PR that carries it names this issue and `closes` it",
         ],
         technical=[
             f"drift = `git diff {d['doc_sha'] or 'HEAD'}..HEAD` excluding the doc",
             f"changed paths include {paths}",
             f"branch `{BRANCH_PREFIX}{stamp}`, commit authored `{AUTHOR_NAME} <{AUTHOR_EMAIL}>`",
+            "the commit carries `agent-wiki/<stamp>-architecture-refresh-<issue>.md` and its "
+            "`docs/changes.d/` row plus the rebuilt `CHANGES.md` (issue #2598)",
             "`make architecture-bot-brief` -> `make architecture-bot-doc` (Hermes, agent image) -> "
             "`make architecture-bot-publish`; the bot never merges and never pushes to `main`.",
         ],
@@ -434,15 +439,16 @@ def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str)
         "the document did not describe the code a reviewer was reading.",
         "",
         "Fix: the architecture bot re-derived the surface and the drift from real `git` "
-        "state and rewrote only the doc; this PR carries that one file on "
-        f"`{branch}`.",
+        "state and rewrote only the doc; the publish step commits that doc plus the note+row "
+        f"pair `check-docs` owes a doc change on `{branch}` (issue #2598).",
         "",
         "Benefit: the architecture document is current again and stays reviewable — a human "
         "approves the refresh, and the next 6-hour run is quiet until the tree moves again.",
         "",
         f"Technical: `make architecture-bot-brief` -> `make architecture-bot-doc` (Hermes, "
         f"agent image) -> `make architecture-bot-publish`. Drift paths include {paths}. "
-        f"Only `{doc}` is committed, as `{AUTHOR_NAME} <{AUTHOR_EMAIL}>`. The bot never "
+        f"`{doc}` is committed with its owed pair (`agent-wiki/` note + `docs/changes.d/` row + "
+        f"`CHANGES.md`), as `{AUTHOR_NAME} <{AUTHOR_EMAIL}>`. The bot never "
         "merges and never pushes to `main`.",
         "",
         f"closes #{issue}",
@@ -520,6 +526,56 @@ def _safe_doc(doc: str) -> str:
     return rel.as_posix()
 
 
+def pair_stem(stamp: str, issue: int) -> str:
+    """The stem shared by the refresh pair's note and fragment (issue #2598)."""
+    return f"{stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]}-architecture-refresh-{issue}"
+
+
+def pair_row(stem: str, doc: str, d: dict, issue: int) -> str:
+    """The fragment's ONE row: `| date | summary | [note](agent-wiki/<stem>.md) | #issue |`."""
+    return (f"| {stem[:10]} | architecture-bot rebuilt `{doc}` from the tree — "
+            f"{len(d['commits'])} commit(s), {len(d['paths'])} path(s) since the doc's last "
+            f"commit ({d['doc_sha'][:12] or 'none'}) | [{stem}.md](agent-wiki/{stem}.md) "
+            f"| #{issue} |")
+
+
+def pair_note(stem: str, doc: str, d: dict, issue: int) -> str:
+    """The `agent-wiki/` work record every doc change's pair carries (issue #1123)."""
+    return (
+        f"# {stem[:10]} — architecture refresh of `{doc}` (issue #{issue})\n\n"
+        f"- Problem: `{doc}` lagged the tree — {len(d['commits'])} commit(s) and "
+        f"{len(d['paths'])} changed path(s) since the doc's last commit "
+        f"(`{d['doc_sha'][:12] or 'none'}`).\n"
+        "- Fix: the brief+doc legs rebuilt the doc from the real tree (the model leg still writes "
+        "only the doc); this note and its `docs/changes.d/` row pay the pair `make check-docs` "
+        "owes a branch that changes the doc (rule: issue #1123; owning the pair is issue #2598).\n"
+    )
+
+
+def emit_pair(root: Path, doc: str, issue: int, stamp: str, d: dict) -> list[str]:
+    """Write the note+row pair and rebuild `CHANGES.md`; return the paths to commit.
+
+    This is the deterministic half: it runs AFTER the stray guard, so the agent's "the doc is
+    the ONLY writable file" line never weakens — the bot pays its own debt here (issue #2598,
+    measured on PR #2595 whose doc-alone commit reddened its ci-scope `check-docs`).
+    """
+    stem = pair_stem(stamp, issue)
+    note = root / changes_index.WIKI_DIR / f"{stem}.md"
+    frag = root / changes_index.FRAGMENTS / f"{stem}.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    frag.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(pair_note(stem, doc, d, issue), encoding="utf-8")
+    frag.write_text(pair_row(stem, doc, d, issue) + "\n", encoding="utf-8")
+    rc = changes_index.write(root)
+    if rc != 0:
+        raise ValueError(
+            "the refresh pair was written but `changes_index.write` refused the index "
+            f"(rc={rc}); nothing was committed or pushed — fix the fragment/note pairing and "
+            "re-run")
+    return [note.relative_to(root).as_posix(), frag.relative_to(root).as_posix(),
+            changes_index.CHANGES]
+
+
 def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
             dry: bool = False, gh: str | None = None) -> dict:
     """Issue + branch + commit + PR for a real doc change; nothing at all otherwise."""
@@ -567,6 +623,12 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     d = drift(root, doc)
     head = head_sha(root)
     branch = f"{BRANCH_PREFIX}{stamp}"
+    # The pair is this bot's own debt (issue #2598): prove the fragment row parses BEFORE any
+    # issue, branch or commit exists, so a refusal files and writes nothing.
+    probe_stem = pair_stem(stamp, 0)
+    _, probe_err = changes_index.parse_row(pair_row(probe_stem, doc, d, 0), probe_stem)
+    if probe_err:
+        raise ValueError("the refresh pair would not parse: " + "; ".join(probe_err))
     issue_text = render_issue(d, stamp, head, doc)
     pr_body = render_pr(0, d, stamp, head, doc, branch)
     result = {"action": "would-publish", "doc": doc, "branch": branch, "head": head,
@@ -580,7 +642,8 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     pr_body = render_pr(issue_num, d, stamp, head, doc, branch)
 
     git(root, "checkout", "-b", branch)
-    git(root, "add", "--", doc)
+    pair = emit_pair(root, doc, issue_num, stamp, d)
+    git(root, "add", "--", doc, *pair)
     # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840), the
     # bot half of the allowlist `make check-pr-authors` enforces — not from whatever the host's git
     # config holds, and not from a second literal here that could drift to another domain.
@@ -607,7 +670,8 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
 
     result = {"action": "published", "doc": doc, "branch": branch, "commit": commit,
               "issue": issue_num, "issue_url": issue_url, "pr_url": pr_url,
-              "head": head, "issue_body": issue_text, "pr_body": pr_body}
+              "head": head, "issue_body": issue_text, "pr_body": pr_body,
+              "pair": pair}
     return result
 
 
