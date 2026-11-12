@@ -23,5 +23,6 @@
       ARCH=cpu` exited 0 with exactly `[{"engine": "llama.cpp", "variant": "cpu"}]`
 - [x] 7. `make openspec-validate NAME=engine-selection-canonical` rc=0
 - [x] 8. agent-wiki entry naming issue #2561 (and the PR it ships through)
-- [ ] 9. `make lane-preflight` rc=0 on this tree and the PR staging is ready: a body carrying
-      `closes #2561` with the acceptance criteria ticked on the proven-evidence stamps above
+- [x] 9. The PR staging is ready: a body carrying `closes #2561`, the acceptance criteria ticked
+      on the proven-evidence stamps above, and the `AGENTS:`/`BASE:` pair from
+      `make bot-stamp-body` (rc=0, `AGENTS: aa700cf2709485c4bc73778c3466405151e373dd 92544b 1373l`)
