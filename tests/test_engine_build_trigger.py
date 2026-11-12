@@ -2,8 +2,10 @@
 
 `scripts/check_engine_pins_published.py` is the merged "may" arm (#1631/#1622): a bump PR may not MERGE
 until its image is published. `scripts/engine_build_trigger.py` is the "will" arm this issue adds: the PR
-itself dispatches `engine-build push=true` for exactly the engines it repins and awaits each run's verdict,
-so a bump does not sit red-and-idle until a human remembers to dispatch the producer.
+itself dispatches `engine-build push=true` for exactly the CELLS it repins and awaits each run's verdict,
+so a bump does not sit red-and-idle until a human remembers to dispatch the producer. Cell granularity
+is the dispatch unit (issue #2590): an arch-less dispatch of a `DEFAULT_CPU_ONLY` engine builds only its
+cpu cell, so a repinned GPU cell (the #2582 rocm tag) was never built by the trigger.
 
 Hermetic: the repin set is stubbed and the chef is a fake `gh` that answers run-list/dispatch-verdict from
 a fixed in-memory state, so the dispatch-and-wait AND the verdict logic are driven with real JSON — no
@@ -30,11 +32,11 @@ def _stub_base(monkeypatch) -> None:
     monkeypatch.setattr(ebt.base_ref, "resolve_base", lambda explicit="", quiet=False: _BASE)
 
 
-def _stub_repin(monkeypatch, engine=None) -> None:
+def _stub_repin(monkeypatch, engine=None, variant="cpu") -> None:
     if engine is None:
-        monkeypatch.setattr(ebt.cpp, "repinned_engine_ids", lambda base, root=None: [])
+        monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [])
     else:
-        monkeypatch.setattr(ebt.cpp, "repinned_engine_ids", lambda base, root=None: [engine])
+        monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [(engine, variant)])
 
 
 def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
@@ -381,7 +383,46 @@ def test_dry_run_prints_the_plan_without_dispatching(monkeypatch, capsys):
                "--branch", "main", "--gh", "gh"])
     assert rc == 0
     captured = capsys.readouterr()
-    assert "would dispatch engine-build push=true engine=llama.cpp" in captured.out
+    assert "would dispatch engine-build push=true engine=llama.cpp arch=cpu" in captured.out
+
+
+def test_a_repinned_gpu_cell_is_dispatched_with_its_explicit_arch(monkeypatch, capsys):
+    """#2590: a change repinning ONLY the rocm cell of a DEFAULT_CPU_ONLY engine gets THAT cell dispatched.
+
+    `vllm` builds cpu only when the producer is dispatched with no arch (issue #1836 narrowing).
+    On PR #2582 the repin was the rocm cell: the trigger dispatched a bare `engine=vllm`, run
+    43248400389 built only the cpu cell, and the new rocm tag stayed unpublished — the may arm
+    (which expands a repinned ENGINE to every committed cell, rocm included) stayed red until a
+    human dispatched `arch=rocm` out-of-band (run 43264436280). The will arm now dispatches per
+    cell, so the cell the may arm demands is the cell the trigger actually produces.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm", variant="rocm")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "completed", "conclusion": "success",
+                              "completed_at": "2026-11-12T00:00:00Z"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "feat/rocm", "--gh", "gh"])
+    assert rc == 0
+    argv = _dispatch_argvs(state)[0]
+    fields = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--field"]
+    assert fields == ["engine=vllm", "push=true", "arch=rocm"]
+    out = capsys.readouterr().out
+    assert "1 repinned cell(s) vs" in out
+    assert "OK engine=vllm arch=rocm" in out
+
+
+def test_the_dry_plan_names_the_cell_arch_and_never_an_archless_dispatch(monkeypatch, capsys):
+    """The dry plan IS the dispatch plan: `engine=<id> arch=<variant>` per cell, never arch-less."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm", variant="rocm")
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    rc = _run(["check", "--base", _BASE, "--dry", "--repo", "asimov-agent/llgenie",
+               "--branch", "main", "--gh", "gh"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "would dispatch engine-build push=true engine=vllm arch=rocm @ main" in out
+    assert "engine=vllm @ main" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +480,7 @@ def test_every_dispatch_input_gets_its_own_field_argument(monkeypatch):
     (run 42423190271 job 128555865778).
     """
     _stub_base(monkeypatch)
-    _stub_repin(monkeypatch, engine="llama.cpp")
+    _stub_repin(monkeypatch, engine="llama.cpp", variant="rocm")
     state = _fake_gh(monkeypatch, before_ids=[1], new_run={"status": "completed", "conclusion": "success"})
     assert _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
                  "--branch", "feat/bump", "--arch", "rocm", "--gh", "gh"]) == 0

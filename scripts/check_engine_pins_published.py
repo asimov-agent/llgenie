@@ -53,6 +53,43 @@ import engine_image as ei  # noqa: E402
 import base_ref  # noqa: E402
 
 
+def repinned_cells(base: str, root: Path | None = None) -> list[tuple[str, str]]:
+    """The (engine, variant) CELLS whose published TAG identity moves from `base` (issue #2590).
+
+    The cell-granularity view behind `retagged_engine_ids`: the same pair of functions that
+    build the real tag — `_current_tag` for this tree, `_tag_at` for `base` — collected per
+    cell instead of deduped to an engine id. A cell whose params copy is missing at `base`,
+    or whose tag inputs cannot be read there, has the base tag `""` != its current tag: a
+    first import moves every enabled cell of that engine. Disabled cells never move.
+
+    The will-arm (`engine_build_trigger`) dispatches at THIS granularity: an arch-less
+    producer dispatch of a `DEFAULT_CPU_ONLY` engine builds only its cpu cell (issue #1836
+    narrowing), so a repinned GPU cell of such an engine was never built — the #2582 rocm
+    tag stayed unpublished while only the cpu cell got a producer run. Naming the cell and
+    dispatching `engine=<id> arch=<variant>` activates the #2561 rule: an explicit selection
+    must build the cell it names or die at the matrix step.
+    """
+    root = root or REPO
+    params_dir = root / "containers" / "engines" / "params"
+    moved: list[tuple[str, str]] = []
+    for path in sorted(params_dir.glob("*.json")):
+        try:
+            with path.open() as fh:
+                params = json.load(fh)
+            engine = params["id"]
+            for variant in sorted(params.get("variants", {})):
+                if ei.disabled(engine, variant):
+                    continue
+                if ei._tag_at(base, engine, variant, root) != ei._current_tag(params, variant, root):
+                    moved.append((engine, variant))
+        except (KeyError, ValueError, OSError):
+            # Not engine-shaped params (a harness fixture) or an input file the digest
+            # cannot read: tag identity cannot judge this file, so its own text diff
+            # decides it — the union only ADDS verdicts it can compute confidently.
+            continue
+    return moved
+
+
 def retagged_engine_ids(base: str, root: Path | None = None) -> list[str]:
     """Engine ids whose published TAG identity moves between `base` and this tree.
 
@@ -64,27 +101,11 @@ def retagged_engine_ids(base: str, root: Path | None = None) -> list[str]:
     consumers saw an empty diff, and 28 committed tags merged unpublished — main
     went red (issue #2559). Both sides are the functions that build the real tag:
     `_current_tag` for this tree, `_tag_at` for `base`. Disabled cells never move.
+
+    This is the engine-deduped view of `repinned_cells` (#2590): one comparison path,
+    two granularities.
     """
-    root = root or REPO
-    params_dir = root / "containers" / "engines" / "params"
-    moved: list[str] = []
-    for path in sorted(params_dir.glob("*.json")):
-        try:
-            with path.open() as fh:
-                params = json.load(fh)
-            engine = params["id"]
-            for variant in sorted(params.get("variants", {})):
-                if ei.disabled(engine, variant):
-                    continue
-                if ei._tag_at(base, engine, variant, root) != ei._current_tag(params, variant, root):
-                    moved.append(engine)
-                    break
-        except (KeyError, ValueError, OSError):
-            # Not engine-shaped params (a harness fixture) or an input file the digest
-            # cannot read: tag identity cannot judge this file, so its own text diff
-            # decides it — the union only ADDS verdicts it can compute confidently.
-            continue
-    return moved
+    return list(dict.fromkeys(engine for engine, _variant in repinned_cells(base, root)))
 
 
 def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
@@ -100,7 +121,7 @@ def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
     """
     root = root or REPO
     params_dir = root / "containers" / "engines" / "params"
-    moved = set(retagged_engine_ids(base, root))
+    moved = {engine for engine, _variant in repinned_cells(base, root)}
     ids: list[str] = []
     for path in sorted(params_dir.glob("*.json")):
         rel = f"containers/engines/params/{path.name}"
