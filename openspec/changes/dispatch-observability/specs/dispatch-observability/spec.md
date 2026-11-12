@@ -42,3 +42,26 @@ passes `producer_run` or `engine-build` no longer echoes it.
   provenance step / the `producer_run` input from `engine-build.yml`
 - **When** the hermetic unit suite runs
 - **Then** `tests/test_check_engine_pins_published.py` fails, naming issue #2578
+
+### Requirement: tracking issues name the engine-build run dispatched for them (#2583)
+
+When a registry-liveness run files (or reuses) a tracking issue for a missing cell AND
+dispatches an engine-build remedy in the same run, it SHALL stamp each tracking issue with
+the dispatched engine-build run id, the dispatch shape used, and the `producer_run` that
+dispatch carries. A dispatch that produced no queue run SHALL be recorded as `unknown`, never
+as a phantom id.
+
+#### Scenario: a filed tracking issue sees its remedy
+
+- **Given** a liveness run that files a tracking issue for an unpublished pin and dispatches
+  the remedy (sweep or single-cell)
+- **When** the run finishes
+- **Then** the tracking issue carries a comment naming the dispatched engine-build run id,
+  its shape, and `producer_run=<the liveness run id>`
+
+#### Scenario: no dispatch, no stamp, no lie
+
+- **Given** a liveness run that filed issues but whose `gh workflow run` produced no queue
+  run, or that dispatched nothing
+- **When** the stamp step runs
+- **Then** it either records `unknown` as the remedy or states "nothing to stamp" and no-ops

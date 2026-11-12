@@ -430,6 +430,42 @@ def test_liveness_dispatches_name_their_producer_run():
         "an unattributed (human or PR-lane) dispatch must say so, not stay silent"
 
 
+def test_tracking_issues_name_their_dispatched_engine_build_run():
+    """Issue #2583: a tracking issue filed for a missing cell must see the remedy's run id.
+    The dispatch step's output used to end at the board echo; the tracking issue kept
+    pointing at "the next registry-liveness run" generically. The wiring now runs through
+    three artifacts in the job workspace: the file step records tag→issue in
+    tracking_issues.txt, the dispatch step resolves the dispatch it just fired out of the
+    queue into producer.txt (an honest `unknown` when `gh workflow run` produced no run),
+    and a stamp step comments the dispatched run id, its shape, and the producer_run it
+    carries onto every tracking issue (#2578's attribution on the issue side).
+    """
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[1]
+    wf = (root / ".github/workflows/registry-liveness.yml").read_text()
+
+    # Given the filing step records the issue it created or reused, per tag
+    assert wf.count(">> tracking_issues.txt") == 2, \
+        "both the reused-issue and created-issue branches must record tag->issue"
+    assert "--json number --jq .number" in wf, \
+        "a created issue's number must be captured, not just its URL printed"
+
+    # Given the dispatch step names the dispatched run by polling the queue, never guessing
+    assert "created=%3E%3D$since" in wf, \
+        "the dispatched run id must come from the queue window the step just opened"
+    assert "> producer.txt" in wf and "${rid:-unknown}" in wf, \
+        "a dispatch that produced no run records `unknown`, never a phantom id"
+
+    # Given the stamp step carries the remedy onto each tracking issue
+    stamp = wf.split("record the dispatched engine-build run id", 1)[1]
+    assert "gh issue comment" in stamp and "run $rid" in stamp, \
+        "the tracking issue must be told the dispatched engine-build run id"
+    assert "producer_run=${{ github.run_id }}" in stamp, \
+        "the comment carries the #2578 attribution alongside the dispatched run"
+    assert "nothing to stamp" in stamp, \
+        "a run that filed nothing (or dispatched nothing) says so and no-ops"
+
+
 def test_the_gate_names_every_missing_cell_with_a_canonical_select_line(capsys):
     """Issue #2561: the gate's own machine-readable line is `[select] <engine-id>
     <variant> <tag-suffix>` with the COMMITTED id — dots intact. The registry-liveness

@@ -1,4 +1,4 @@
-# 2026-11-12 — dispatch-observability (#2578 / PR pending)
+# 2026-11-12 — dispatch-observability (#2578 + folded #2583 / PR #2589)
 
 ## What was verified
 
@@ -22,7 +22,19 @@
   the field, the input roster must hold `producer_run`, and the provenance step must echo into
   log AND summary with the explicit `none-recorded` fallback.
 
+- Folded-in lane #2583 (tracking issues name their dispatched run): the file step records
+  tag→issue in `tracking_issues.txt` (created issues captured via `--json number`); the
+  dispatch step polls the workflow_dispatch queue window (`created=>=$since`) and writes the
+  dispatched engine-build run id + shape to `producer.txt` — `unknown` when the dispatch
+  produced no run, never a phantom id; a new "record the dispatched engine-build run id" step
+  comments the run id, shape, and carried `producer_run` onto each tracking issue. Text-locked
+  by `test_tracking_issues_name_their_dispatched_engine_build_run`. Folded because
+  `check-pr-acceptance` deadlocks a split lane here: the umbrella #2578 may not carry
+  `closes` while a referenced open lane (#2583) exists, and the lane references back —
+  #2583 is closed as folded into this change before merge.
+
 ## Current status
 
-- OpenSpec change `dispatch-observability` validates; targeted pytest green; full `make
-  test-unit` running before push.
+- OpenSpec change `dispatch-observability` validates (incl. the #2583 requirement); targeted
+  locks green; first full `make test-unit` (2578 half) rc=0 3687 passed; the folded-half full
+  run (`obs-test-unit3.log`) is the pre-push gate.

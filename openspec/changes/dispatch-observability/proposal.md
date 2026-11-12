@@ -19,6 +19,10 @@ rarer but still anonymous — attribution is the missing half of the wave story.
   shapes (the #2579 coalesced sweep and the #2567 single-cell dispatch), so every liveness-fired
   producer run is attributable from its own metadata in one lookup.
 - A new text-lock test pins both sides of the wiring (issue #2578's AC).
+- Folded in from #2583 (its own lane would deadlock #2578's close in `check-pr-acceptance`: an umbrella may not close while a
+  referenced open lane exists): the liveness job now records tag→issue in `tracking_issues.txt`, resolves the engine-build run it
+  just dispatched out of the queue into `producer.txt` (honest `unknown` when the dispatch produced no run), and a new step
+  comments the dispatched run id, its shape, and the carried `producer_run` onto every tracking issue.
 
 ## Not covered
 
@@ -31,3 +35,5 @@ names each producer run id in its own awaited-verdict log, so it dispatches unch
 - Affected specs: dispatch-observability (new)
 - Affected code: `.github/workflows/engine-build.yml`, `.github/workflows/registry-liveness.yml`,
   `tests/test_check_engine_pins_published.py`
+- Folded-in lane: GitHub issue #2583 is closed as folded into this change before merge (no separate PR); its requirement lives in
+  this change's spec delta.

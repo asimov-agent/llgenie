@@ -106,8 +106,9 @@ jobs:
             open=$(gh issue list --repo "$REPO" --state open --search "\"$tag\"" --json number --jq '.[0].number' 2>/dev/null || true)
             if [ -n "$open" ]; then
               echo "issue #$open already open for $tag"
+              printf '%s %s\n' "$tag" "$open" >> tracking_issues.txt
             else
-              gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug >/dev/null && echo "filed issue for $engine ($tag)"
+              num=$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug --json number --jq .number 2>/dev/null) && echo "filed issue #$num for $engine ($tag)" && printf '%s %s\n' "$tag" "$num" >> tracking_issues.txt
             fi
           done < unnamed.txt
       - name: dispatch engine-build push=true for every missing committed tag (#2259)
@@ -186,3 +187,46 @@ jobs:
               || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
           fi
           echo "dispatch shape chosen from $n contract-valid [select] cell(s); re-run registry-liveness after the builds publish"
+          # Issue #2583: a tracking issue names the remedy it is waiting for. `gh
+          # workflow run` returns no id; the dispatch queue does. Poll briefly for the
+          # workflow_dispatch run this step just created on main and record it (or
+          # `unknown`, honestly — a dispatch that failed is not a remedy).
+          if [ -s validated.txt ]; then
+            since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            rid=""
+            for _i in 1 2 3 4 5 6; do
+              sleep 10
+              rid=$(gh api "repos/$REPO/actions/runs?event=workflow_dispatch&branch=main&per_page=10&created=%3E%3D$since" --jq '[.workflow_runs[] | select(.name == "engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)")] | .[0].id' 2>/dev/null)
+              [ -n "$rid" ] && break
+            done
+            if [ "$n" -gt 1 ]; then
+              shape="full-matrix sweep (#2579)"
+            else
+              read -r sel engine variant tag < validated.txt
+              shape="per-cell $engine/$variant"
+            fi
+            printf '%s %s\n' "${rid:-unknown}" "$shape" > producer.txt
+            echo "dispatched engine-build run id for the tracking issues: ${rid:-unknown} ($shape)"
+          fi
+      - name: record the dispatched engine-build run id on the tracking issues (#2583)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          if [ ! -s tracking_issues.txt ]; then
+            echo "no tracking issues were filed this run; nothing to stamp"
+            exit 0
+          fi
+          if [ ! -s producer.txt ]; then
+            echo "no engine-build dispatch fired this run; the tracking issues keep their #2259 remedy text"
+            exit 0
+          fi
+          read -r rid shape < producer.txt
+          while read -r tag num; do
+            [ -n "$num" ] || continue
+            gh issue comment "$num" --repo "$REPO" --body "registry-liveness run ${{ github.run_id }} dispatched engine-build **run $rid** (shape: $shape, carrying producer_run=${{ github.run_id }} per #2578) for \`$tag\`. That dispatched run is the named remedy for this tracking issue (#2583)." >/dev/null \
+              && echo "stamped #$num with dispatched engine-build run $rid" \
+              || echo "stamp failed on #$num (rc $?)"
+          done < tracking_issues.txt
