@@ -140,8 +140,18 @@ jobs:
             cat dispatch.out
             exit 0   # the fleet step already reds the run; dispatch cannot name a cell, so do not fail twice
           fi
-          while read -r engine variant tag; do
-            [ -n "$engine" ] || continue
+          # Issue #2567: the gate prints 4 fields per cell — `[select] <committed
+          # engine id> <variant> <tag-suffix>` — so the read loop must have 4
+          # variables. Three variables shifted every field one slot right: $engine
+          # became the literal `[select]`, $variant the engine id, $tag
+          # "<variant> <tag-suffix>", and 22 runs dispatched
+          # engine="[select]" arch="llama.cpp" for engine-build, which matched no
+          # committed params id and published nothing while reporting "success".
+          # Skip (loudly) any line whose first field is not exactly `[select]` so a
+          # malformed line is never dispatched with shifted fields.
+          while read -r sel engine variant tag; do
+            [ "$sel" = "[select]" ] || { echo "unrecognized select line, not dispatching: $sel $engine $variant $tag"; continue; }
+            [ -n "$engine" ] && [ -n "$variant" ] && [ -n "$tag" ] || { echo "malformed select line (missing fields), not dispatching: $sel $engine $variant $tag"; continue; }
             echo "dispatching engine-build push=true for $engine/$variant (missing tag $tag)"
             gh workflow run engine-build.yml --repo "$REPO" --ref main \
               -f engine="$engine" -f arch="$variant" -f push=true \

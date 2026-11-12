@@ -299,3 +299,44 @@ def test_a_published_cell_names_no_select_line(capsys):
     out = capsys.readouterr().out
     assert "[select]" not in out
 
+
+def test_the_liveness_dispatch_reads_all_four_select_fields():
+    """Issue #2567: the gate emits `[select] <engine> <variant> <tag-suffix>` (4
+    whitespace-separated fields), and the registry-liveness dispatch must read all
+    four. A 3-variable `while read -r engine variant tag` shifted every field one
+    slot right — $engine became the literal `[select]`, $variant the engine id,
+    $tag the "<variant> <tag-suffix>" — and 22 runs dispatched
+    engine="[select]" / arch="llama.cpp" for engine-build, which matched no
+    committed params id and published nothing while reporting "success". This test
+    locks the workflow's read loop to the gate's line format so they cannot drift.
+
+    Hermetic: both sources are read off the tree at HEAD.
+    """
+    # Given  the gate's [select] contract line in scripts/check_engine_pins_published.py
+    gate = REPO / "scripts" / "check_engine_pins_published.py"
+    gate_text = gate.read_text()
+    # the format string printing the marker + 3 cell fields
+    m = re.search(r'print\(f?"\[select\] \{engine\} \{variant\} \{tag\.split\(\':\'\)\[-1\]\}"\)', gate_text)
+    assert m, "the gate must print its 4-field [select] contract line"
+
+    # And  the dispatch read loop in .github/workflows/registry-liveness.yml
+    wf = (REPO / ".github/workflows/registry-liveness.yml").read_text()
+    m = re.search(r"while read -r (\w+ \w+ \w+ \w+); do", wf)
+    assert m, "the workflow's dispatch read loop must be a 4-field read"
+    fields = m.group(1).split()
+
+    # When  we name the four fields the workflow binds from the gate's line
+    sel, engine, variant, tag = fields
+
+    # Then  the first field is the [select] marker (not the engine), the next three
+    #      are the cell fields, and the loop guards a missing marker.
+    assert sel in ("sel", "marker", "contract"), \
+        f"the read must name the [select] marker in its own field, not the engine: {fields}"
+    assert "unrecognized select" in wf, \
+        "a line whose first field is not exactly [select] must be skipped loudly"
+    assert '-f engine="$engine"' in wf and '-f arch="$variant"' in wf and '-f push=true' in wf, \
+        "the dispatch must forward engine/variant/push as named, un-shifted"
+    assert engine != sel and variant != sel and tag != sel, \
+        "the four read fields must be distinct, never the same variable twice"
+
+
