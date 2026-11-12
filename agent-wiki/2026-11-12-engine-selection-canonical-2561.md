@@ -1,6 +1,6 @@
 # Engine selection canonical — a scoped build dispatch must name its cell or die (#2561)
 
-Issue: #2561 · branch: feat/engine-selection-canonical (PR number recorded when the PR opens)
+Issue: #2561 · PR: #2562 · branch: feat/engine-selection-canonical
 
 ## What was verified
 
