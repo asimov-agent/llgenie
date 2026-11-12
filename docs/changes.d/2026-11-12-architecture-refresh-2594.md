@@ -1,0 +1,1 @@
+| 2026-11-12 | docs(ARCHITECTURE): bot re-derive of `docs/ARCHITECTURE.md` at `be92a32695` (drift 6 commits / 58 paths since `1e7daa279655`), docs-only PR #2595; the note+row pair this row belongs to is what `check-docs` owed the refresh (issue #2594) | [note](agent-wiki/2026-11-12-architecture-refresh-2594.md) | #2594 |
