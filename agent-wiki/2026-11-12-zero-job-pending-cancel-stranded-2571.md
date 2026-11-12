@@ -38,3 +38,13 @@ OpenSpec change `zero-job-pending-cancel-stranded`; verification (pytest, `make 
 `make openspec-validate`, `make lane-preflight`) recorded in the PR. The unattributed engine-build
 queue kill (queued push sweep 43203422414 cancelled 9s after an unexplained re-dispatch
 43206254966) is tracked separately as #2570.
+
+## Acceptance evidence restated (gate grammar) — scope job 131159959149
+
+- The PR CI `scope` job read `[check-pr-acceptance]` RED: five ticked AC items carried
+  `(proven: …)` text with no `rc=<n>` + sha, and `#2570` (OPEN, citing `#2571` back)
+  registered as an in-flight rollout lane holding the close.
+- Fix, same pipeline: every tick's proven text restated to `command rc=0 <sha>` measured at
+  this head; `#2570`'s back-citation restated to name its vehicle PR (open deferred work is
+  a lane only when it cites the umbrella back — the gate derives lanes from live bodies);
+  issue #2571 and PR #2572 bodies synced to the same evidence, then the scope job re-run.
