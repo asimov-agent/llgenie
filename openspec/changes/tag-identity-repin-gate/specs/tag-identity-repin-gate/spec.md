@@ -52,6 +52,27 @@ cell's exact tag resolves in the registry.
   its base
 - **Then** the gate exits 1 naming the engine and the exact missing tag
 
+### Requirement: The pre-merge trigger fires on every tag-moving surface
+
+The `pull_request` `paths` filter of `.github/workflows/engine-build-pr-trigger.yml` SHALL cover every
+surface a published tag identity is computed from — `containers/engines/params/**`,
+`containers/engines/dockerfiles/**`, `containers/engines/entrypoint.sh`, `scripts/engine_runner.py` —
+plus the scripts that compute the digest (`scripts/engine_skills.py`, `scripts/engine_image.py`), so a
+Dockerfile-shaped retag is never invisible to the will-arm. A PR that passes the path filter while
+retagging nothing SHALL still exit hermetically.
+
+#### Scenario: A Dockerfile-only PR fires the will-arm
+- **Given** a PR whose only changed file is `containers/engines/dockerfiles/demo/Dockerfile.cpu`
+- **When** the workflow's `pull_request` `paths` filter is evaluated against that PR's changed files
+- **Then** the will-arm workflow runs on the PR, and its script dispatches `engine=demo push=true`
+  (the union diff names `demo`)
+
+#### Scenario: A hash-scheme change drives its own republish pass
+- **Given** a PR that changes `scripts/engine_skills.py` such that tag digests move
+- **When** the `paths` filter is evaluated and the trigger script runs
+- **Then** every engine whose tag identity moved is dispatched; if nothing moved, the run is hermetic
+  and dispatches nothing
+
 ### Requirement: The unit suite defers retagged engines on a moving base
 
 `tests/test_ci_publish_order.py::_deferred_engines` SHALL defer exactly the engines named by the

@@ -23,17 +23,26 @@ tags `make install` pulls), main CI has been red since (`linux / unit` run 43149
   the may-arm (`check_engine_pins_published` itself) inherit the shared diff automatically: a
   retagging PR dispatches scoped `engine-build push=true` builds for exactly its retagged engines,
   and cannot merge until those exact tags resolve.
+- `.github/workflows/engine-build-pr-trigger.yml` widens its `pull_request` `paths` filter from
+  `containers/engines/params/**` only to every surface the tag identity hashes
+  (`containers/engines/dockerfiles/**`, `containers/engines/entrypoint.sh`, `scripts/engine_runner.py`,
+  plus `scripts/engine_skills.py` / `scripts/engine_image.py` — a hash-scheme change drives its own
+  republish): without it a Dockerfile-only PR never fires the will-arm at all, and the may-arm gate
+  would block an unpublished retag while NOTHING dispatches the publish (the #2518-class deadlock).
+  Header comments and dispatch-input descriptions are synced to the union diff.
 - `tests/test_ci_publish_order.py::_deferred_engines` replaces its `scripts/engine_image.py`-only
   special case (issue #823) with the same helper: retagged engines are deferred to
   `make ci-wait-engine-images` on a moving base; base == head defers nothing.
-- No `.github/workflows/*.yml` changes. `registry-liveness`'s self-remediation (issue #2259) stays
+- `registry-liveness`'s self-remediation (issue #2259) stays
   as the post-merge safety net, not the only line of defence.
 
 ## Impact
 
 - Affected spec: `tag-identity-repin-gate` (ADDED requirements)
 - Affected code: `scripts/check_engine_pins_published.py`, `tests/test_ci_publish_order.py`
-  (`scripts/engine_build_trigger.py` consumes the shared diff unchanged)
+  (`scripts/engine_build_trigger.py` consumes the shared diff unchanged),
+  `.github/workflows/engine-build-pr-trigger.yml` (trigger `paths` widened to every tag-moving
+  surface; comments + dispatch-input descriptions synced)
 - Affected tests: `tests/test_check_engine_pins_published.py` (new fixture tests),
   `tests/test_engine_build_trigger.py` (monkeypatches the same seam already)
 - Issue: #2559. Related: #2517 (the merged retag), #2518, #2529, #2259, #1633, #823.

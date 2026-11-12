@@ -26,6 +26,15 @@ Issue: #2559 · branch: feat/tag-identity-repin-gate (PR number recorded when th
   real checkout: the authoritative defer set is the gate's own union. `base == head` moves nothing,
   so a main run still checks every committed tag against the registry (the #2517 self-remediation
   that published the fleet via 28 scoped dispatches stays the safety net, not the only defence).
+- **The trigger surface.** `engine-build-pr-trigger.yml`'s `pull_request` `paths` filter narrowed the
+  will-arm to `containers/engines/params/**` only — the #2517 Dockerfile-shaped retag never fired the
+  will-arm at all. The filter now covers every surface the tag identity hashes
+  (`containers/engines/dockerfiles/**`, `containers/engines/entrypoint.sh`, `scripts/engine_runner.py`,
+  plus the two scripts that compute the digest, `scripts/engine_skills.py` / `scripts/engine_image.py`),
+  so a retagging PR always starts its own scoped `engine-build push=true` builds. `make check-workflows`
+  is green over the widened filter, and `make engine-build-pr-trigger-report BASE=origin/main` proves
+  hermeticity on a tag-still branch: `[will] 0 repinned engine(s) vs origin/main` — dispatches nothing,
+  touches no network.
 - **Tests (hermetic, git-only).** Four fixture tests over a real mini git tree (`demo` engine with
   params + Dockerfile.cpu + entrypoint.sh + engine_runner.py): Dockerfile-only change → both diffs
   name it; whitespace-only params edit with unchanged tag → union still names it, tag diff does not;
