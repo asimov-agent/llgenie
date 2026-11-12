@@ -1253,10 +1253,15 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
     # params live in <repo>/containers/engines/params: the repo root is two levels
     # above that dir, and every hashed path is relative to it.
     root = params_dir.parents[2]
+    engine_seen = False  # an explicit --engine matched a committed params id at all (#2561)
+    engine_variants: list[str] = []
     for path in sorted(params_dir.glob("*.json")):
         params = json.loads(path.read_text())
         if engine and params["id"] != engine:
             continue
+        if engine:
+            engine_seen = True
+            engine_variants = sorted(params["variants"])
         for key, v in params["variants"].items():
             if arch and key != arch:
                 continue
@@ -1277,9 +1282,27 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
                         "smoke": serve, "test": "serve" if serve else "detect",
                         "chat": "yes" if chat_testable(params["id"], key) else ""})
     if not out:
+        if engine or arch:
+            # Issue #2561: an EXPLICIT selection that resolves to nothing is a name error,
+            # not a no-op. The nine `engine-build-none-none` green runs at aa700cf27 came
+            # from a ghcr package name (`llama-cpp`, dots replaced) reaching this call as an
+            # "engine" — the placeholder below made that a success. A scoped dispatch must
+            # build the cell it names or die here, at the matrix step, in seconds.
+            if engine and not engine_seen:
+                raise SystemExit(
+                    f"engine-build matrix: no committed engine id {engine!r}; ids are the "
+                    f"params ids under containers/engines/params/ — a ghcr package name "
+                    f"(dots replaced) is not an engine id")
+            raise SystemExit(
+                f"engine-build matrix: engine={engine!r} arch={arch!r} resolves to no "
+                f"committed cell"
+                + (f" (engine {engine!r} committed variants: {', '.join(engine_variants)})"
+                   if engine else ""))
         # GitHub fails a workflow whose matrix include list is empty BEFORE the
         # job's if: is evaluated (run 38105450418). One placeholder row keeps the
-        # matrix legal; ci.yml skips engine == none and builds nothing.
+        # matrix legal; ci.yml skips engine == none and builds nothing. This
+        # unscoped no-op (--changed nothing moved, whole-fleet) is the ONLY way
+        # the none row is ever produced (#2561).
         out.append({"engine": "none", "backend": "cpu", "variant": "none",
                     "smoke": False, "test": "detect", "chat": ""})
     return out

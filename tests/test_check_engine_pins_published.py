@@ -248,8 +248,54 @@ def test_the_liveness_workflow_dispatches_the_publish_not_just_names_it():
     assert "actions: write" in wf, "the dispatch step needs actions:write to run gh workflow run"
     assert "workflow run engine-build.yml" in wf, "the dispatch must start the engine-build producer"
     assert "-f push=true" in wf or "--field push=true" in wf, "the dispatch must publish (push=true)"
-    # It must parse a variant out of the <pin8>-<hash8>-<variant> committed tag.
-    assert "awk -F- '{print $NF}'" in wf, "the dispatch must derive the arch from the tag suffix"
+    # Issue #2561: the dispatch takes engine+arch ONLY from the gate's `[select]`
+    # contract lines (committed ids, dots intact). The old parse cut the engine out of
+    # the ghcr package URL, where dots are illegally replaced by dashes — llama.cpp
+    # arrived as `llama-cpp` and nine runs published nothing while reporting success.
+    assert "[select]" in wf, "the dispatch must consume the [select] contract lines"
+    assert "missing-tags.txt" not in wf and "cut -d: -f1" not in wf, \
+        "the dispatch must not reverse-parse an engine id from a ghcr package URL"
     # Keep the ALL=1 hard-fail: the dispatch step may not weaken or bypass the fleet gate's exit.
     assert 'exit "$rc"' in wf, "ALL=1 hard-fail must be untouched by the dispatch wiring"
+
+
+def test_the_gate_names_every_missing_cell_with_a_canonical_select_line(capsys):
+    """Issue #2561: the gate's own machine-readable line is `[select] <engine-id>
+    <variant> <tag-suffix>` with the COMMITTED id — dots intact. The registry-liveness
+    dispatch used to reverse-parse ids out of ghcr package URLs, where dots are
+    legally replaced by dashes, and dispatched `llama-cpp` for `llama.cpp`: matrix
+    matched nothing, synthesized none/none, and nine runs "succeeded" publishing
+    nothing (runs 43149732453…43149757005 on aa700cf27). The selection line is now
+    the contract, and it may never carry the package spelling.
+
+    Hermetic: the digest probe is a 404 stub — the ids/variants come from the real
+    committed params (llama.cpp exists with dotted id), the registry is stubbed.
+    """
+    engine = "llama.cpp"
+    rc = cpp.check_committed(
+        digest=lambda ref: ("", "404 Not Found"), registry=REGISTRY,
+        cells=[(engine, v) for v in cpp._enabled_variants(engine)])
+    assert rc == 1
+    out = capsys.readouterr().out
+    select = [ln.split() for ln in out.splitlines() if ln.startswith("[select]")]
+    assert select, "a red fleet gate must name every cell with a [select] line"
+    assert {parts[1] for parts in select} == {engine}, \
+        "the select line carries the committed engine id, dots intact"
+    assert not any("llama-cpp" in parts[1] for parts in select), \
+        "the package spelling must never appear as an engine id"
+    variants = {parts[2] for parts in select}
+    assert variants == set(cpp._enabled_variants(engine))
+    for parts in select:
+        assert len(parts) == 4 and re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{8}-[a-z]+", parts[3]), \
+            f"[select] line names the committed tag suffix: {parts}"
+
+
+def test_a_published_cell_names_no_select_line(capsys):
+    """Green gate: PUBLISHED lines print, no [select] selection is made."""
+    rc = cpp.check_committed(
+        digest=lambda ref: ("sha256:deadbeef", ""), registry=REGISTRY,
+        cells=[("llama.cpp", "cpu")])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[select]" not in out
 

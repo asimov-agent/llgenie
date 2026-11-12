@@ -120,6 +120,12 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
         else:
             missing.append(ref)
             print(f"[pins] NOT PUBLISHED {ref} ({err})")
+            # Issue #2561 contract line: the canonical selection for this cell — the
+            # COMMITTED engine id (dots intact, NOT the ghcr package spelling), the
+            # variant, and the committed tag suffix. registry-liveness dispatches
+            # engine-build from exactly these lines; package names are a namespace
+            # where dots are illegal and must never be reverse-parsed back into ids.
+            print(f"[select] {engine} {variant} {tag.split(':')[-1]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {checked} checked): dispatch engine-build with push=true, "

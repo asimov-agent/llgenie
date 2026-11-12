@@ -10,6 +10,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -731,3 +732,91 @@ def test_a_push_build_streams_its_log_and_keeps_the_exit_code(monkeypatch):
     assert seen["rc"] == 2
     cmd = seen["live"][0]
     assert "--push" in cmd and "--progress=plain" in cmd
+
+
+# ---------------------------------------------------------------------------
+# Issue #2561: an EXPLICIT engine/arch selection that resolves to nothing is a
+# name error, never the none/none placeholder. The nine green `engine-build-none-none`
+# runs on aa700cf27 (43149732453, 43149735782, 43149739069, 43149741957,
+# 43149744886, 43149748002, 43149751256, 43149753954, 43149757005) came from the
+# registry-liveness dispatch reverse-parsing engine ids out of ghcr package URLs —
+# package names legally replace dots with dashes (`engine_image.py`
+# `params['id'].replace('.', '-')`), so `llama.cpp` reached matrix as `llama-cpp`,
+# matched no params id, and the placeholder row made a vacuous success.
+# ---------------------------------------------------------------------------
+
+
+def test_a_package_spelling_engine_is_a_hard_named_fail(tmp_path):
+    """The replay: `llama-cpp` (the package spelling) is not an engine id. matrix
+    must die naming it, not emit the placeholder — a scoped dispatch that cannot
+    name its cell must never reach a build job."""
+    repo, _sha = _real_build_inputs(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        ei.matrix(ci=True, engine="llama-cpp",
+                  params_dir=repo / "containers" / "engines" / "params")
+    msg = str(exc.value.args[0])
+    assert "no committed engine id" in msg and "llama-cpp" in msg, msg
+
+
+def test_a_real_engine_with_an_uncommitted_variant_is_a_hard_named_fail(tmp_path):
+    """`llama.cpp` exists but `metal` is not one of its committed variants: red,
+    naming the engine, the variant, AND the committed variants so the fix is obvious."""
+    repo, _sha = _real_build_inputs(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        ei.matrix(ci=True, engine="llama.cpp", arch="metal",
+                  params_dir=repo / "containers" / "engines" / "params")
+    msg = str(exc.value.args[0])
+    assert "llama.cpp" in msg and "metal" in msg, msg
+
+
+def test_an_explicit_arch_with_no_committed_cell_is_a_hard_fail(tmp_path):
+    """ARCH-only scoping hard-fails the same way when no committed engine declares
+    that variant at all."""
+    repo, _sha = _real_build_inputs(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        ei.matrix(ci=True, arch="metal",
+                  params_dir=repo / "containers" / "engines" / "params")
+    assert "metal" in str(exc.value.args[0])
+
+
+def test_unscoped_nothing_moved_still_emits_the_placeholder(tmp_path):
+    """The intentional no-op survives: an UNscoped `--changed` sweep against an
+    unchanged tree keeps the single none/none row (GitHub rejects an empty matrix
+    include list before the job's `if:` runs — run 38105450418). #2561 removed the
+    placeholder ONLY from explicit selections."""
+    repo, sha = _real_build_inputs(tmp_path)
+    rows = ei.matrix(ci=True, changed=sha,
+                     params_dir=repo / "containers" / "engines" / "params")
+    assert rows == [PLACEHOLDER]
+    # The same selection WITH an explicit engine that does not match is red, not placeholder.
+    with pytest.raises(SystemExit):
+        ei.matrix(ci=True, changed=sha, engine="llama-cpp",
+                  params_dir=repo / "containers" / "engines" / "params")
+
+
+def test_scoped_dispatch_selection_emits_exactly_the_named_cell(tmp_path):
+    """engine=llama.cpp arch=cpu — the shape the fixed liveness dispatch sends —
+    resolves to exactly one row bearing the committed dotted id."""
+    repo, _sha = _real_build_inputs(tmp_path)
+    rows = ei.matrix(ci=True, engine="llama.cpp", arch="cpu",
+                     params_dir=repo / "containers" / "engines" / "params")
+    assert {(r["engine"], r["variant"]) for r in rows} == {("llama.cpp", "cpu")}
+
+
+def test_the_cli_matrix_hard_fails_on_a_package_spelling():
+    """The Makefile seam (`make engine-build-matrix ENGINE=llama-cpp`) exits
+    non-zero naming the bad selection — the engine-build matrix step goes red in
+    seconds instead of dispatching a nine-run vacuous success."""
+    p = subprocess.run(
+        [sys.executable, "scripts/engine_image.py", "matrix", "--json", "--ci",
+         "--engine", "llama-cpp"],
+        cwd=REPO, capture_output=True, text=True)
+    assert p.returncode != 0, p.stdout
+    assert "no committed engine id" in (p.stderr + p.stdout)
+    assert "llama-cpp" in (p.stderr + p.stdout)
+    p_ok = subprocess.run(
+        [sys.executable, "scripts/engine_image.py", "matrix", "--json", "--ci",
+         "--engine", "llama.cpp", "--arch", "cpu"],
+        cwd=REPO, capture_output=True, text=True)
+    assert p_ok.returncode == 0, p_ok.stderr
+    assert "llama.cpp" in p_ok.stdout and "none" not in json.loads(p_ok.stdout)["include"][0]["engine"]
