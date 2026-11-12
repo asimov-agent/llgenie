@@ -17,7 +17,7 @@
   tests/test_engine_build_trigger.py` rc=0 (58/58; the two live-registry tests are deselected on this
   host — they run in the PR's `test-unit` job, tracked as task 10).
 - [x] 7. `make openspec-validate NAME=tag-identity-repin-gate` rc=0.
-- [ ] 8. `agent-wiki/` entry + `docs/changes.d/` entry naming issue #2559; issue #2559 body, proposal,
+- [x] 8. `agent-wiki/` entry + `docs/changes.d/` entry naming issue #2559; issue #2559 body, proposal,
   spec delta and tasks all synced to the trigger-paths seam in the same commit batch.
 - [ ] 9. Commit the batch, push the branch, open the PR against upstream `main` with `closes #2559`
   and a body mirroring the proven acceptance criteria + `OPENSPEC: tag-identity-repin-gate`.
