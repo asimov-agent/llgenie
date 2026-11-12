@@ -20,8 +20,13 @@
       lane-preflight FAST-gate roster text.
 - [x] 6. Docs trio: `agent-wiki/2026-11-12-merge-checkbox-parity-2519.md` +
       `docs/changes.d/2026-11-12-merge-checkbox-parity-2519.md` + `CHANGES.md` row.
-- [ ] 7. Gates green: `make openspec-validate NAME=merge-checkbox-parity`, `make test-unit`,
-      `make lane-preflight`; replay the measured #2509 commit text through the new subcommand and
-      show it RED; replay the current #2516/#2517 heads and show what they must carry.
-- [ ] 8. Push, open PR against upstream `main` referencing #2519, drive CI green, verify
-      mergeStateStatus CLEAN, checkboxes ticked in issue + PR + commits before arming.
+- [ ] 7. Local gates green: `make openspec-validate NAME=merge-checkbox-parity` rc=0;
+      `make test-unit` rc=0 (live-registry tests deselect on this host — fleet publishing is CI's
+      remit); replay the measured #2509 commit text (`49f0cc3be`, 3 unticked boxes) through the
+      `commit-checkboxes` subcommand and show it RED (rc=1, names the squash-shape); replay the
+      current main heads `d8700c60e` (#2516) and `aa700cf27` (#2517) with their PR bodies and show
+      the ticked mirror they must carry (both rc=0 today). `make lane-preflight` is verified under
+      task 8 because it includes `openspec-tasks-check`, which checks this very file.
+- [ ] 8. `make lane-preflight` green on the final head; push, PR against upstream `main`
+      referencing #2519 driven fully green, mergeStateStatus CLEAN, checkboxes ticked in issue +
+      PR + commits before arming auto-merge.
