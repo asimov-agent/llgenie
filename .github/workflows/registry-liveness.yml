@@ -149,6 +149,7 @@ jobs:
           # The marker now has its own field; a line that violates the contract is
           # reported, never dispatched, and fails this step.
           bad_line=0
+          : > validated.txt
           while read -r sel engine variant tag extra; do
             if [ "$sel" != "[select]" ] || [ -z "$engine" ] || [ -z "$variant" ] \
                || [ -z "$tag" ] || [ -n "$extra" ]; then
@@ -156,13 +157,32 @@ jobs:
               bad_line=1
               continue
             fi
-            echo "dispatching engine-build push=true for $engine/$variant (missing tag $tag)"
-            gh workflow run engine-build.yml --repo "$REPO" --ref main \
-              -f engine="$engine" -f arch="$variant" -f push=true \
-              || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
+            printf '%s %s %s %s\n' "$sel" "$engine" "$variant" "$tag" >> validated.txt
           done < select.txt
           if [ "$bad_line" -ne 0 ]; then
             echo "registry-liveness: a select.txt line violated the [select] contract; malformed dispatch refused (#2567)"
             exit 1
           fi
-          echo "dispatched for every [select] cell; re-run registry-liveness after the builds publish"
+          # Issue #2579: a per-cell dispatch is a WAVE, and the wave itself was the failure.
+          # Eight one-cell runs queued at 1s intervals in the single engine-build-push
+          # concurrency group (43211663538, 43211665298, 43211666762, 43211668277,
+          # 43211670190, 43211672019, 43211685857, 43211688780), each occupying a group slot
+          # and a runner for its whole wait while the already-running sweep starved (#2570).
+          # engine-build ALREADY has the coalesced shape: empty engine/arch inputs = the
+          # full matrix, push=true publishes every cell from its own green job (fleet run
+          # #645 published 27 cells that way). So: more than one missing cell dispatches ONE
+          # sweep; exactly one missing cell keeps the #2567 per-cell named-field dispatch.
+          n=$(wc -l < validated.txt)
+          if [ "$n" -gt 1 ]; then
+            echo "coalescing $n missing cells into ONE full-matrix push=true sweep (#2579); sweep cells:"
+            cat validated.txt
+            gh workflow run engine-build.yml --repo "$REPO" --ref main -f push=true \
+              || echo "sweep dispatch failed (rc $?); the tracking issues above stay the record"
+          elif [ "$n" = "1" ]; then
+            read -r sel engine variant tag < validated.txt
+            echo "dispatching engine-build push=true for $engine/$variant (single missing cell)"
+            gh workflow run engine-build.yml --repo "$REPO" --ref main \
+              -f engine="$engine" -f arch="$variant" -f push=true \
+              || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
+          fi
+          echo "dispatch shape chosen from $n contract-valid [select] cell(s); re-run registry-liveness after the builds publish"

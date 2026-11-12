@@ -373,6 +373,36 @@ def test_the_dispatch_read_loop_binds_the_select_contract_positionally():
         "engine/arch must be passed from the named contract fields"
 
 
+def test_the_dispatch_coalesces_a_multi_cell_wave_into_one_sweep():
+    """Issue #2579: per-cell dispatches are a WAVE. On 2026-11-12 eight one-cell runs
+    queued at 1s intervals in the single engine-build-push concurrency group
+    (43211663538..43211688780), each holding a group slot and a runner for its whole
+    wait while the sweep already running starved — the same mechanism that killed
+    43203422414 (#2570), repeated as 663/664 and 666-671 pairs after every main merge.
+    The consumer must coalesce: MORE than one contract-valid [select] cell dispatches
+    exactly ONE full-matrix sweep (engine-build's documented empty-input sweep,
+    push=true; fleet #645 published 27 cells that way); EXACTLY ONE missing cell keeps
+    the #2567 named-field per-cell dispatch. Contract validation runs before either
+    shape, so a malformed gate report dispatches nothing, sweep included.
+    """
+    import re as _re
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert "coalescing" in wf and "push=true sweep (#2579)" in wf, \
+        "the multi-cell path must announce the coalesced sweep"
+    assert 'n=$(wc -l < validated.txt)' in wf and '[ "$n" -gt 1 ]' in wf, \
+        "the dispatch shape must be chosen from the validated [select] line count"
+    sweep = _re.search(r'gh workflow run engine-build\.yml --repo "\$REPO" --ref main -f push=true', wf)
+    assert sweep, "the multi-cell path must dispatch ONE sweep with push=true and no engine/arch fields"
+    assert '-f engine="$engine"' in wf and '-f arch="$variant"' in wf, \
+        "the exactly-one-cell path must keep the #2567 per-cell named-field dispatch"
+    assert 'elif [ "$n" = "1" ]' in wf, "per-cell dispatch is the single-cell branch only"
+    assert wf.index("malformed dispatch refused") < wf.index("wc -l < validated.txt"), \
+        "contract validation must complete before either dispatch shape is chosen"
+    assert wf.count('gh workflow run engine-build.yml') == 2, \
+        "exactly two dispatch shapes: the sweep and the single-cell dispatch"
+
+
 def test_the_gate_names_every_missing_cell_with_a_canonical_select_line(capsys):
     """Issue #2561: the gate's own machine-readable line is `[select] <engine-id>
     <variant> <tag-suffix>` with the COMMITTED id — dots intact. The registry-liveness
