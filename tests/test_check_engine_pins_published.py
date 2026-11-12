@@ -530,10 +530,10 @@ def test_a_published_cell_names_no_select_line(capsys):
 
 
 def test_push_run_waits_for_the_same_head_publisher_before_the_manifest_check():
-    """Issue #2592: on a push to main, liveness races the run that PUBLISHES the pins in this
+    """Issue #2592 (+ #2596): a liveness run races the run that PUBLISHES the pins in this
     tree — the ci.yml run at the SAME head SHA (measured: run #457 redded `mlx:93e6d4a6-...`
-    while CI #5565 at the same head was still in_progress). So a push-triggered run must WAIT,
-    bounded, for that run to conclude BEFORE any GHCR manifest check. The wait step sits before
+    while CI #5565 at the same head was still in_progress). So every run must WAIT, bounded,
+    for that run to conclude BEFORE any GHCR manifest check. The wait step sits before
     the fleet gate and queries actions/runs filtered to the ci.yml workflow at the head sha.
     """
     from pathlib import Path as _P
@@ -542,11 +542,53 @@ def test_push_run_waits_for_the_same_head_publisher_before_the_manifest_check():
     fleet = next(i for i, ln in enumerate(lines) if ln.strip() == "id: fleet")
     wait = next(i for i, ln in enumerate(lines) if "same-head main-publisher" in ln)
     assert wait < fleet, "the wait step must run BEFORE the fleet manifest check"
-    assert "github.event_name == 'push'" in wf, "the wait is push-trigger only (a schedule never races)"
     assert "actions/runs?head_sha=$HEAD_SHA" in wf, "the wait must poll the same-head run"
     assert 'endswith("/ci.yml")' in wf, "the wait must select the ci.yml workflow, not this workflow"
     assert "publisher_still_running" in wf, "a not-concluded run must be recorded as still in flight"
     assert "publisher_conclusion" in wf, "a concluded run's verdict must reach downstream"
+
+
+def test_publisher_wait_runs_for_every_trigger_event():
+    """Issue #2596: a scheduled or rerun liveness CAN catch the same-head publisher mid-publish
+    (measured publisher windows 16 m 51 s at 5ffc7cdc8, 40 m 21 s at be92a32695), so the wait
+    carries no event gate. A head whose same-head publisher never surfaces (the normal scheduled
+    case) exits the poll through a bounded registration grace instead of burning the full budget.
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    step = wf.split("id: publisher", 1)[1].split("id: fleet", 1)[0]
+    assert "github.event_name" not in step, "the wait must not be gated to an event (#2596)"
+    assert "REGISTRATION_GRACE_SECONDS" in step and "publisher_none" in step, \
+        "a head with no same-head publisher must exit the poll via the bounded grace"
+    assert 'while [ "$SECONDS" -lt "$deadline" ]' in step, \
+        "the poll must be bounded by elapsed seconds, not a fixed attempt count"
+
+
+def test_publisher_wait_budget_always_expires_before_its_step_timeout():
+    """Issue #2596: the landed wait needed 108 x (10 s sleep + API) ≈ 21 min under an 18-minute
+    step timeout — a publisher slower than ~18 min CANCELLED the step mid-loop, so
+    `publisher_still_running` was never recorded and the job redded: the defer path was dead
+    code for exactly the slow publishers the bound exists for (live near-miss at 5ffc7cdc8: the
+    wait consumed 16 m 42 s of 18 m; the publisher concluded 68 s before cancellation). The
+    script's own wall-clock budget must exceed the measured worst-case publisher and always fire
+    before the step timeout can cancel it, with the job timeout above both.
+    """
+    import re as _re
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    step = wf.split("id: publisher", 1)[1].split("id: fleet", 1)[0]
+    budget = int(_re.search(r'WAIT_BUDGET_SECONDS: "(\d+)"', step).group(1))
+    poll = int(_re.search(r'POLL_SECONDS: "(\d+)"', step).group(1))
+    step_to = int(_re.search(
+        r"timeout-minutes: (\d+)",
+        wf.split("id: publisher", 1)[1].split("env:", 1)[0]).group(1))
+    job_to = int(_re.search(r"timeout-minutes: (\d+)", wf.split("jobs:", 1)[1].split("steps:", 1)[0]).group(1))
+    assert budget >= 55 * 60, "the budget must exceed the measured worst-case publisher run (40 m 21 s, CI #5565)"
+    assert budget + 6 * poll < step_to * 60, \
+        "the loop must end through its own deadline before the step timeout can cancel it"
+    assert step_to < job_to, "the job must outlive the wait step with room for the gates"
+    assert "::warning::" in step, \
+        "a cap-hit must annotate the run loudly (named deferred verdict), never a silent green"
 
 
 def test_publisher_still_in_flight_does_not_hard_fail():
@@ -585,10 +627,10 @@ def test_no_sweep_dispatched_for_a_failed_publisher():
         "the successful-publisher / scheduled dispatch shapes must be untouched"
 
 def test_scheduled_and_successful_publisher_keep_the_dispatch_contract():
-    """Issue #2592: the wait gate is push-only and only SUPPRESSES the failure/dispatch edges. A
-    scheduled run (no same-head publisher) and a push run whose publisher concluded SUCCESS keep
-    today's file-issue + dispatch + hard-fail contract verbatim (the [select] parse, coalescing,
-    per-cell shape, and the fleet `exit "$rc"` are unchanged).
+    """Issue #2592 (+ #2596): the wait only SUPPRESSES the failure/dispatch edges. A scheduled
+    run with no same-head publisher (the grace exit) and a run whose publisher concluded SUCCESS
+    keep today's file-issue + dispatch + hard-fail contract verbatim (the [select] parse,
+    coalescing, per-cell shape, and the fleet `exit "$rc"` are unchanged).
     """
     from pathlib import Path as _P
     wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
