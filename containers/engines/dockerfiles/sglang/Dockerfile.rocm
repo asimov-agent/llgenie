@@ -4,6 +4,7 @@
 # Run:   make run-engine ENGINE=sglang ARCH=rocm MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
 FROM rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e
+USER root
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
@@ -23,6 +24,8 @@ LABEL org.opencontainers.image.title="llgenie-sglang:rocm" llgenie.engine="sglan
       llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"
 EXPOSE 11434
 VOLUME ["/models"]
+RUN set -eux; getent group 1000 >/dev/null || groupadd -g 1000 llgenie; getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -m -d /var/lib/llgenie -s /usr/sbin/nologin llgenie; mkdir -p /var/lib/llgenie /models/hf && chown 1000:1000 /var/lib/llgenie /models /models/hf && chown -R 1000:1000 /opt/llgenie/app
+USER 1000:1000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \
     CMD /opt/llgenie/app/entrypoint.sh health
 ENTRYPOINT ["/opt/llgenie/app/entrypoint.sh"]

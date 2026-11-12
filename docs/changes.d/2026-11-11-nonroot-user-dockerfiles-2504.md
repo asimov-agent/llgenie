@@ -1,0 +1,1 @@
+- Security: every shipped Dockerfile (4 shared bases, 32 engine variants, the test image) now serves as uid/gid 1000 instead of root; builds re-enable `USER root` after each `FROM` (issue #2504, trivy DS-0002)

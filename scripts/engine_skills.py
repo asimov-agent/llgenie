@@ -935,6 +935,21 @@ BASE_DIR = CONTAINER_DIR / "base"
 BUILD_TOOLS = ["ca-certificates", "curl", "git", "build-essential", "cmake", "ninja-build", "zstd",
                "python3", "tar"]
 
+# Every image we ship serves as uid/gid 1000 instead of root (issue #2504, trivy DS-0002).
+# The create is idempotent: upstream bases (nvcr.io, lmsysorg/sglang, vllm/vllm-openai)
+# may already own uid/gid 1000, so we never add a duplicate identity. Derived images
+# re-enable `USER root` after each FROM so build-stage installs stay privileged; the
+# trailing `USER 1000:1000` is what the served process runs as. Host-mounted model dirs
+# belong to the host user (uid 1000), which is now exactly who writes into them.
+_SERVICE_USER_CREATE = ("set -eux; getent group 1000 >/dev/null || groupadd -g 1000 llgenie; "
+                        "getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -m -d "
+                        "/var/lib/llgenie -s /usr/sbin/nologin llgenie; ")
+USER_CREATE_RUN_BASE = "RUN " + _SERVICE_USER_CREATE + \
+    "mkdir -p /var/lib/llgenie && chown 1000:1000 /var/lib/llgenie"
+USER_CREATE_RUN_ENGINE = "RUN " + _SERVICE_USER_CREATE + \
+    "mkdir -p /var/lib/llgenie /models/hf && chown 1000:1000 /var/lib/llgenie /models /models/hf " \
+    "&& chown -R 1000:1000 /opt/llgenie/app"
+
 
 def base_image_name(backend: str) -> str:
     return f"llgenie/base-{backend}"
@@ -953,6 +968,8 @@ def render_base_dockerfile(backend: str) -> str:
         "    && rm -rf /var/lib/apt/lists/*",
         "COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/",
         f'LABEL llgenie.base="{backend}" llgenie.from="{DEFAULT_BASE[backend]}"',
+        USER_CREATE_RUN_BASE,
+        "USER 1000:1000",
         "",
     ])
 
@@ -1039,13 +1056,23 @@ def render_dockerfile(params: dict, variant: str) -> str:
         '      llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"',
         "EXPOSE 11434",
         'VOLUME ["/models"]',
+        USER_CREATE_RUN_ENGINE,
+        "USER 1000:1000",
         "HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \\",
         "    CMD /opt/llgenie/app/entrypoint.sh health",
         'ENTRYPOINT ["/opt/llgenie/app/entrypoint.sh"]',
         'CMD ["serve"]',
         "",
     ]
-    return "\n".join(lines)
+    # Bases now end with `USER 1000:1000`; every stage in a derived image re-enables root
+    # after its FROM so build-time installs stay privileged (issue #2504). Only the served
+    # process (after the trailing USER above) is unprivileged.
+    staged: list[str] = []
+    for line in lines:
+        staged.append(line)
+        if line.startswith("FROM "):
+            staged.append("USER root")
+    return "\n".join(staged)
 
 
 def dockerfile_path(skill_id: str, variant: str) -> Path:
