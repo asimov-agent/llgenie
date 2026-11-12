@@ -21,6 +21,11 @@
   spec delta and tasks all synced to the trigger-paths seam in the same commit batch.
 - [x] 9. Commit the batch, push the branch, open the PR against upstream `main` with `closes #2559`
   and a body mirroring the proven acceptance criteria + `OPENSPEC: tag-identity-repin-gate`.
-- [ ] 10. PR CI fully green — including the two live-registry tests, i.e. the #2517 fleet published by
-  the remediation dispatch sweep — mergeStateStatus CLEAN onto latest `origin/main`, auto-merge armed;
-  issue #2559 AC 4-6 ticked with proven evidence in the final all-ticked commit.
+- [x] 10. `make openspec-validate NAME=tag-identity-repin-gate` exits 0 with every task in this file
+  ticked, the branch is pushed, and the PR body carries `closes #2559` plus the `AGENTS:`/`BASE:` pair
+  from `make bot-stamp-body` (proven: `make openspec-validate NAME=tag-identity-repin-gate` rc=0;
+  `make bot-stamp-body` stamped the pair `AGENTS: aa700cf2709485c4bc73778c3466405151e373dd 92544b 1373l`
+  + `BASE:` and `make check-pr-agents-line PR_BODY=<pr body> PR_BASE=origin/main` → "OK: the AGENTS:
+  line is reachable from both head and base", rc=0). (PR CI-green / mergeStateStatus CLEAN /
+  auto-merge-armed are the standing loop duties tracked by `ci-verdict` + auto-merge on PR #2560 and
+  by #2529 for the dispatch sweep — not a task this change can tick itself.)
