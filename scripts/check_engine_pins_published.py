@@ -53,23 +53,63 @@ import engine_image as ei  # noqa: E402
 import base_ref  # noqa: E402
 
 
-def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
-    """Engine ids whose committed params differ from `base` (or are new there).
+def retagged_engine_ids(base: str, root: Path | None = None) -> list[str]:
+    """Engine ids whose published TAG identity moves between `base` and this tree.
 
-    The comparison is the params FILE, the thing a bump writes, never a skill
-    (mirrors `install_engine_launchers.PARAMS`). An engine with no params copy on
-    the base is repinned too: it is a first import, and nothing has published it.
+    `engine_skills._image_inputs` hashes the variant params + the variant's
+    committed Dockerfile + `entrypoint.sh` + `engine_runner.py` into the
+    `<pin8>-<hash8>-<variant>` tag, so a change to ANY of those bytes retags the
+    cell. The params-FILE diff alone misses Dockerfile-only edits: merge
+    `aa700cf27` (#2517) changed 36 Dockerfiles and no params file, both repin
+    consumers saw an empty diff, and 28 committed tags merged unpublished — main
+    went red (issue #2559). Both sides are the functions that build the real tag:
+    `_current_tag` for this tree, `_tag_at` for `base`. Disabled cells never move.
     """
     root = root or REPO
     params_dir = root / "containers" / "engines" / "params"
+    moved: list[str] = []
+    for path in sorted(params_dir.glob("*.json")):
+        try:
+            with path.open() as fh:
+                params = json.load(fh)
+            engine = params["id"]
+            for variant in sorted(params.get("variants", {})):
+                if ei.disabled(engine, variant):
+                    continue
+                if ei._tag_at(base, engine, variant, root) != ei._current_tag(params, variant, root):
+                    moved.append(engine)
+                    break
+        except (KeyError, ValueError, OSError):
+            # Not engine-shaped params (a harness fixture) or an input file the digest
+            # cannot read: tag identity cannot judge this file, so its own text diff
+            # decides it — the union only ADDS verdicts it can compute confidently.
+            continue
+    return moved
+
+
+def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
+    """Engine ids whose published images differ from `base`: params diff UNION tag identity.
+
+    The params FILE stays the first comparison — the thing a bump writes, never a
+    skill (mirrors `install_engine_launchers.PARAMS`) — and everything it named
+    before is still named (issue #1622 behaviour, never loosened). Tag identity
+    (issue #2559) adds what file text cannot see: Dockerfile, entrypoint, runner
+    or tag-computation edits retag every cell they hash. An engine with no params
+    copy on the base is repinned too: it is a first import, and nothing has
+    published it.
+    """
+    root = root or REPO
+    params_dir = root / "containers" / "engines" / "params"
+    moved = set(retagged_engine_ids(base, root))
     ids: list[str] = []
     for path in sorted(params_dir.glob("*.json")):
         rel = f"containers/engines/params/{path.name}"
         shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=root,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                capture_output=True, text=True)
-        if shown.returncode != 0 or shown.stdout != path.read_text():
-            with path.open() as fh:
-                ids.append(json.load(fh)["id"])
+        with path.open() as fh:
+            engine = json.load(fh)["id"]
+        if shown.returncode != 0 or shown.stdout != path.read_text() or engine in moved:
+            ids.append(engine)
     return ids
 
 

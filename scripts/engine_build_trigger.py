@@ -31,7 +31,8 @@ board cannot disguise an unverifiable dispatch.
 
 HERMETIC: when the change repins nothing, nothing is dispatched and no API is touched — the same rule as
 the may-arm ("no engine this change repins => green and no network"). The repin set comes from
-`check_engine_pins_published.repinned_engine_ids` (the params-FILE diff, one shared logic with the merged
+`check_engine_pins_published.repinned_engine_ids` (params-FILE diff UNION tag-identity diff, issue
+#2559 — one shared logic with the merged
 gate, not a hand-written roster). Inputs narrow a manual re-dispatch but never widen the committed scope.
 
 Usage:
