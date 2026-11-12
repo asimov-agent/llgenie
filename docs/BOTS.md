@@ -2059,7 +2059,7 @@ from the pipeline that will run.
 | `ci-requeue.yml` | re-runs only the cancelled runs no later run superseded, every 30 minutes | none — the healer takes no target: it re-runs every cancelled run in the window that |
 | `ci-verdict.yml` | holds a finished CI run to its published scope decision, and says "no verdict" out loud | `run_id` (required) — the finished run id to re-judge (a `CI` run that has published a scope decision)<br>`head_sha` (optional) — the commit the verdict is about; empty = the judged run's head sha |
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
-| `engine-build-pr-trigger.yml` | a pin-bump PR starts the producer and waits on it (issue #1633) | `base_ref` (required) — the git ref (branch or sha) the head's repin diff is measured against (the PR's base)<br>`branch` (required) — the head ref (branch or sha) whose params may repin engines — the ref the producer dispatch targets |
+| `engine-build-pr-trigger.yml` | a pin-bump PR starts the producer and waits on it (issue #1633) | `base_ref` (required) — the git ref (branch or sha) the head's repin diff is measured against (the PR's base)<br>`branch` (required) — the head ref (branch or sha) whose params or image inputs may repin engines — the ref the producer dispatch targets |
 | `engine-build.yml` | builds and verifies EVERY engine at its committed pin, in parallel (never merges) | `engine` (optional) — Engine id to sweep (e.g. llama.cpp); empty = every engine in the committed params<br>`arch` (optional) — One backend to sweep (cpu|cuda|rocm|vulkan); empty = every variant of each engine<br>`push` (optional, default `false`) — Publish the built images to GHCR (true) or build and verify only (false)<br>`force` (optional, default `false`) — Rebuild from scratch, ignoring the layer cache (true) or reuse a cached/available image (false) |
 | `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
 | `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |
@@ -2082,6 +2082,7 @@ from the pipeline that will run.
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 | `semgrep-rules-refresh.yml` | re-resolves the semgrep rules pack from upstream p/default and opens the re-pin PR (never merges) | none — the refresh has no modes: it always re-resolves p/default through the pinned scanner image and opens the re-pin PR only when the pack changed. |
 | `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
+
 <!-- dispatch-forms:end -->
 
 ## The weekly umbrella sweep (issue #1102)
