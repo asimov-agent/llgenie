@@ -18,7 +18,7 @@
 - [x] 5. AGENTS.md: durable mandate section (three mirrors, one tick, closing is the single
       automatic act, commits end with a ticked `Acceptance:` block) + add the new gate to the
       lane-preflight FAST-gate roster text.
-- [ ] 6. Docs trio: `agent-wiki/2026-11-12-merge-checkbox-parity-2519.md` +
+- [x] 6. Docs trio: `agent-wiki/2026-11-12-merge-checkbox-parity-2519.md` +
       `docs/changes.d/2026-11-12-merge-checkbox-parity-2519.md` + `CHANGES.md` row.
 - [ ] 7. Gates green: `make openspec-validate NAME=merge-checkbox-parity`, `make test-unit`,
       `make lane-preflight`; replay the measured #2509 commit text through the new subcommand and
