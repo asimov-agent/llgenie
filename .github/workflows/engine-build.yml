@@ -67,6 +67,10 @@ on:
         description: "Rebuild from scratch, ignoring the layer cache (true) or reuse a cached/available image (false)"
         required: false
         default: "false"
+      producer_run:
+        description: "Run id of the workflow instance that fired this dispatch (issue #2578); registry-liveness passes its own github.run_id. A human/PR-lane dispatch leaves it empty and the provenance step records the actor instead."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -139,6 +143,17 @@ jobs:
             esac
           done
           echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+      - name: Dispatch provenance (#2578 — every engine-build run names the run that fired it)
+        run: |
+          producer="${{ inputs.producer_run }}"
+          if [ -n "$producer" ]; then
+            echo "dispatched_by_run=$producer"
+            echo "Dispatched by run $producer (producer_run dispatch input, issue #2578)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "dispatched_by_run=none-recorded actor=${{ github.triggering_actor }}"
+            echo "No producer run recorded; dispatched by ${{ github.triggering_actor }} (human or PR-lane re-drive)." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   matrix:
     needs: [guard]
