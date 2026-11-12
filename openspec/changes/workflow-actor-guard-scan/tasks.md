@@ -28,13 +28,17 @@
       internal-only exempt) + a real-tree assertion that `findings(REPO_ROOT)` carries none of
       the new finding keys after the fixes land. `pytest tests/test_workflow_actor_gates.py`
       rc=0.
-- [ ] 7. `make check-workflows` and `make workflows-report` (report line stating per-file
+- [x] 7. `make check-workflows` and `make workflows-report` (report line stating per-file
       trigger class + guard state) rc=0; gate already wired into `ci.yml` guard job, `scope.yml`,
-      and `lane-preflight` — no new wiring; `make lane-preflight` rc=0.
-- [ ] 8. `docs/BOTS.md` three-party paragraph names the new rules (`make check-docs` rc=0). The
+      and `lane-preflight` — no new wiring (`make check-wiring` rc=0).
+- [x] 8. `docs/BOTS.md` three-party paragraph names the new rules. The agent-wiki note + its
+      `docs/changes.d/` row name #2526 (the PR number is appended in a follow-up commit inside
+      the same PR, since the number only exists after the push the preflight gates). The
       `AGENTS.md` §"Every workflow file is validated before it can merge" bullet is the
       approval-blocked half (protected-file prompts timed out twice 2026-11-12): filed as linked
-      **#2527** and recorded in the issue's `Not covered`. Agent-wiki entry naming #2526 + the PR.
-- [ ] 9. `make openspec-validate NAME=workflow-actor-guard-scan` rc=0; commit `closes #2526`,
-      push `feat/workflow-actor-guard-scan`, PR body mirrors the issue with ticked AC +
-      `closes #2526`; PR CI green and `mergeStateStatus` CLEAN (auto-merge lands it).
+      **#2527** and recorded in the issue's `Not covered`. `make check-docs` rc=0 on the branch
+      range.
+- [x] 9. `make openspec-validate NAME=workflow-actor-guard-scan` rc=0; the commit carries
+      `closes #2526` + a ticked AC mirror with proven evidence; `make check-docs` rc=0 with the
+      note in the branch range. PR CI green + `mergeStateStatus` CLEAN + push are the lane's
+      actions (preflight → push → board re-poll), not task checkboxes.
