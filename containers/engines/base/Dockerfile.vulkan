@@ -8,3 +8,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/
 LABEL llgenie.base="vulkan" llgenie.from="ubuntu:24.04"
+RUN set -eux; getent group 1000 >/dev/null || groupadd -g 1000 llgenie; getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -m -d /var/lib/llgenie -s /usr/sbin/nologin llgenie; mkdir -p /var/lib/llgenie && chown 1000:1000 /var/lib/llgenie
+USER 1000:1000

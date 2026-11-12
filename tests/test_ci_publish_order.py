@@ -477,7 +477,63 @@ def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -
     if shown.returncode != 0 or shown.stdout != (REPO / tag_src).read_text():
         for params_file in sorted(root.glob("*.json")):
             deferred.add(params_file.stem)
+    # A change to an engine's Dockerfile contents re-tags that engine's images the same way:
+    # the context hash baked into the tag covers the Dockerfile, so the new tag is published by
+    # this change's producer and is not registry-required here (issue #2504 removed the root
+    # USER line from every Dockerfile and reddened this gate for want of exactly this rule).
+    # The scan is anchored beside params_dir, so a test that points params_dir at a synthetic
+    # tree scans that tree and never the real checkout.
+    docker_root = root.parent / "dockerfiles"
+    if docker_root.is_dir():
+        for docker_dir in sorted(docker_root.iterdir()):
+            if not docker_dir.is_dir() or docker_dir.name in deferred:
+                continue
+            for docker_file in sorted(docker_dir.glob("Dockerfile*")):
+                rel = docker_file.relative_to(REPO).as_posix()
+                shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=REPO,
+                                       capture_output=True, text=True)
+                if shown.returncode != 0 or shown.stdout != docker_file.read_text():
+                    deferred.add(docker_dir.name)
+                    break
     return deferred
+
+
+def test_an_engine_dockerfile_change_defers_that_engine(tmp_path, monkeypatch):
+    """A Dockerfile-only change re-tags that engine's image — the context hash baked into the
+    tag covers the Dockerfile, so the new tag exists only once this change's producer publishes
+    it, exactly like the #823 tag-computation case. The unit gate must defer it, not require a
+    404 from the registry (issue #2504 removed the root USER line and reddened the gate for
+    want of this rule)."""
+    repo = tmp_path / "repo"
+    params_dir = repo / "containers" / "engines" / "params"
+    docker = repo / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.cpu"
+    params_dir.mkdir(parents=True)
+    docker.parent.mkdir(parents=True)
+    (params_dir / "demo.json").write_text('{"version": "1"}\n')
+    docker.write_text("FROM base\nUSER root\n")
+    # The tag-computation source must exist at base too, or the #823 fleet rule defers
+    # everything for want of a base copy (issue #925's lesson, applied to this harness).
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "engine_image.py").write_text("# tag computation placeholder\n")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+
+    git("init", "-b", "main")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base")
+    monkeypatch.setattr(sys.modules[__name__], "REPO", repo)
+
+    # Given a tree identical to base, the engine is still registry-checked.
+    assert _deferred_engines(params_dir=params_dir, base="main") == set()
+
+    # When only the engine Dockerfile moves (on a branch, base stays at main), that engine
+    # is deferred to its producer publish.
+    git("checkout", "-b", "feat")
+    docker.write_text("FROM base\nUSER 1000:1000\n")
+    git("add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "nonroot")
+    assert _deferred_engines(params_dir=params_dir, base="main") == {"demo"}
 
 
 def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
