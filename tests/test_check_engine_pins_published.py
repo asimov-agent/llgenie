@@ -259,6 +259,37 @@ def test_the_liveness_workflow_dispatches_the_publish_not_just_names_it():
     assert 'exit "$rc"' in wf, "ALL=1 hard-fail must be untouched by the dispatch wiring"
 
 
+def test_the_dispatch_read_loop_binds_the_select_contract_positionally():
+    """Issue #2567: the gate prints FOUR-token contract lines "[select] <engine> <variant>
+    <tag-suffix>" (the format test above locks the gate side), but the dispatch loop read
+    THREE variables from them, so every field shifted one slot right: $engine was the
+    literal "[select]", $variant the engine id, $tag the variant+suffix. All 22 dispatches
+    made on e6b9b4b4f (runs 43187181181..43187252711) therefore started engine-build with
+    engine="[select]" — no committed params id matched, the matrix synthesized its none/none
+    placeholder, and the runs "succeeded" publishing nothing (same class as the nine runs on
+    aa700cf27, #2561). The read loop must bind the marker in its OWN field and reject a
+    line that violates the contract loudly, never dispatch it.
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    lines = wf.splitlines()
+    ends = [i for i, ln in enumerate(lines) if ln.strip() == "done < select.txt"]
+    assert len(ends) == 1, f"select.txt must be consumed by exactly one loop, found {len(ends)}"
+    starts = [i for i, ln in enumerate(lines[: ends[0]]) if "while read -r " in ln]
+    assert starts, "the dispatch loop must read select.txt with named fields"
+    fields = lines[starts[-1]].split("while read -r ", 1)[1].split(";")[0].split()
+    assert fields[:4] == ["sel", "engine", "variant", "tag"], (
+        f"the loop binds {fields}; the contract line has four tokens and $engine must be "
+        "the committed engine id, never the literal '[select]'"
+    )
+    assert '"$sel" != "[select]"' in wf, "a line whose first token is not [select] must be refused, not dispatched"
+    assert "UNRECOGNIZED select line" in wf, "a refused line must be printed, not swallowed"
+    assert "bad_line" in wf and "malformed dispatch refused" in wf, \
+        "a refused line must fail the step after the loop, not just print"
+    assert '-f engine="$engine"' in wf and '-f arch="$variant"' in wf, \
+        "engine/arch must be passed from the named contract fields"
+
+
 def test_the_gate_names_every_missing_cell_with_a_canonical_select_line(capsys):
     """Issue #2561: the gate's own machine-readable line is `[select] <engine-id>
     <variant> <tag-suffix>` with the COMMITTED id — dots intact. The registry-liveness
