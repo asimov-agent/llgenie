@@ -13,5 +13,5 @@
       push-only docstring in `test_scheduled_and_successful_publisher_keep_the_dispatch_contract`.
 - [x] Full unit suite green (`make test-unit`), `make openspec-validate NAME=liveness-wait-cap`
       passes, gates green (`make lane-preflight`).
-- [ ] Mirror issue #2596's body to the measured landed semantics (18-min bound, 16 m 42 s live
+- [x] Mirror issue #2596's body to the measured landed semantics (18-min bound, 16 m 42 s live
       near-miss, 40 m 21 s worst-case publisher) with ticked acceptance criteria.
