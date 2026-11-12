@@ -759,7 +759,7 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
     # host/port/model stay placeholders: bound at `docker run` time.
     unbind = lambda c: c.replace("--host 127.0.0.1", "--host {host}").replace("-host 127.0.0.1", "-host {host}") \
         .replace("127.0.0.1:11434", "{host}:{port}").replace("11434", "{port}") if c else c  # noqa: E731
-    return {
+    variant = {
         "id": skill["id"], "engine": skill["engine"], "backend": backend, "arch": arch,
         "base": base, "prebuilt": prebuilt,
         "runtime_base": (str(spec.get("runtime_base") or RUNTIME_BASE[backend]) if spec.get("runtime") else ""),
@@ -775,6 +775,13 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
         # adding a key would move every published tag.
         "binary": binary,
     }
+    if spec.get("base_access"):
+        # Declared by a skill whose prebuilt base hides the engine install from
+        # uid 1000 (issue #2553: rocm/vllm's root-built uv venv at /opt/python).
+        # Only the DECLARING variant's dict gains the key, so only that cell's
+        # tag digest moves — there the image content genuinely changes.
+        variant["base_access"] = [str(d) for d in spec["base_access"]]
+    return variant
 
 
 def documented_flags(skill: dict, backend: str | None = None) -> list[str]:
@@ -951,6 +958,24 @@ USER_CREATE_RUN_ENGINE = "RUN " + _SERVICE_USER_CREATE + \
     "&& chown -R 1000:1000 /opt/llgenie/app"
 
 
+def _base_access_run(dirs: list[str]) -> str:
+    """Open the base's engine install for the uid-1000 runtime user (issue #2553).
+
+    The AMD `rocm/vllm` base builds its uv venv at /opt/python as root: measured on run
+    43221661126, uid 1000 gets exit 126 on `/opt/python/bin/vllm` and `ModuleNotFoundError:
+    No module named 'vllm'` from the detect probe. This opens every DIRECTORY under each
+    declared path, plus the entries directly inside `<path>/bin` — directory metadata only.
+    A recursive chmod over regular files would re-materialize the base's ~15 GB engine tree
+    as a copy-up layer; the wheel file modes (644 data / 755 binaries) are already right
+    once every parent directory carries o+rx.
+    """
+    body = ('for d in %s; do test -d "$d" || continue; '
+            'find "$d" -type d -exec chmod a+rx {} +; '
+            'if test -d "$d/bin"; then find "$d/bin" -maxdepth 1 -exec chmod a+rx {} +; fi; '
+            'done') % " ".join(dirs)
+    return "RUN set -eux; " + body
+
+
 def base_image_name(backend: str) -> str:
     return f"llgenie/base-{backend}"
 
@@ -1057,6 +1082,7 @@ def render_dockerfile(params: dict, variant: str) -> str:
         "EXPOSE 11434",
         'VOLUME ["/models"]',
         USER_CREATE_RUN_ENGINE,
+        *([_base_access_run(v["base_access"])] if v.get("base_access") else []),
         "USER 1000:1000",
         "HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \\",
         "    CMD /opt/llgenie/app/entrypoint.sh health",

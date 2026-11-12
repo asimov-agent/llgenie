@@ -614,8 +614,15 @@ def test_an_engine_with_no_base_copy_is_deferred(tmp_path):
     # When  the deferred set is computed
     deferred = _deferred_engines(params_dir=root, base="origin/main")
 
-    # Then  that engine is deferred, never silently required from the registry
-    assert deferred == {"brand-new-engine"}, deferred
+    # Then  that engine is deferred, never silently required from the registry.
+    # The #2559 authoritative union adds the REAL checkout's retagged engines to whatever
+    # the synthetic tree names: on a branch whose own change moves a committed engine's
+    # tag (a params repin, a Dockerfile edit), that engine is deferred too — correctly,
+    # because this change's producer publishes the new tag. Requiring EXACTLY the synthetic
+    # set contradicts the union and reddens every params-retag PR; measured on the
+    # vllm-rocm base_access branch, deferred == {"brand-new-engine", "vllm"}.
+    assert "brand-new-engine" in deferred, deferred
+    assert deferred == {"brand-new-engine"} | set(cpp.retagged_engine_ids("origin/main", REPO)), deferred
 
 
 def _assert_published(deferred: set[str]) -> list[str]:
