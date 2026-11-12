@@ -583,6 +583,31 @@ def announce_merge(gh: str, repo: str, pr: int, head_sha: str, admin: bool = Fal
         raise
 
 
+def commit_checkbox_hold(gh: str, repo: str, pr: int) -> "str | None":
+    """The merge-lane half of checkbox parity (issue #2519).
+
+    PR #2509 merged as squash `49f0cc3be` with `checked=0 unchecked=3` in its commit text: the
+    issue/PR-body pair was locked by #2511, but the THIRD artifact — the commit message that
+    permanently lands on `main` — was never read. This re-runs `check_pr_hygiene.commit_text_findings`
+    (imported, never restated) against the PR's live commit messages and live PR body, immediately
+    before `gh pr merge` would fire.
+
+    Returns the deferral reason, or None. A failure defers to a human through the existing
+    one-comment-per-head deferral machinery — it never merges, and it never reds the job: the fix is
+    on the branch (re-tick the commit messages), not a re-run.
+    """
+    from check_pr_hygiene import commit_text_findings  # noqa: PLC0415
+
+    out = _gh(gh, ["api", f"repos/{repo}/pulls/{pr}/commits", "--paginate",
+                   "--jq", '.[].commit.message + "\u0000"'])
+    messages = [m for m in out.split("\u0000") if m.strip()]
+    body = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json", "body", "--jq", '.body // ""'])
+    findings = commit_text_findings(messages, body or "")
+    if not findings:
+        return None
+    return " || ".join(f"{f['key']}: {f['detail']}" for f in findings)
+
+
 def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
           admin: bool = False) -> int:
     same = _same_repo(state, repo)
@@ -788,6 +813,10 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         return _clear_review(gh, repo, pr, head_sha, state, dry)
     if reason:
         defer(gh, repo, pr, head_sha, reason, dry=dry)
+        return 0
+    checkbox_hold = commit_checkbox_hold(gh, repo, pr)
+    if checkbox_hold:
+        defer(gh, repo, pr, head_sha, checkbox_hold, dry=dry)
         return 0
     if review_blocked(state):
         # decide() cleared the review block: only a bot verdict at this head can do that (#852).
