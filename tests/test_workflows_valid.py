@@ -26,11 +26,15 @@ from scripts import check_workflows as cw
 PRE_FIX_COMMENT = ("          # folded into one `${{ ... }}` so the mode this run took is readable "
                    "in the log.\n")
 
-#: A workflow that passes every rule, so a fixture breaks exactly one thing.
+#: A workflow that passes every rule, so a fixture breaks exactly one thing. It declares its own
+#: token scope (#2526, R1) and dispatches only — an internal trigger, so it needs no guard (#2526, R3).
 WORKFLOW_OK = (
     "name: a-bot — does one thing\n"
     "on:\n"
     "  workflow_dispatch:\n"
+    "\n"
+    "permissions:\n"
+    "  contents: read\n"
     "\n"
     "jobs:\n"
     "  go:\n"
@@ -88,7 +92,12 @@ def _exempt(root: Path, *names: str) -> Path:
 
 
 def _reactor_workflow(*names: str) -> str:
-    """A consumer whose `workflow_run.workflows:` block lists `names`, one per line."""
+    """A consumer whose `workflow_run.workflows:` block lists `names`, one per line.
+
+    It declares its token scope (#2526, R1); its guard is derived transitively when every name in
+    the roster resolves to a guarded or internal-only workflow (#2526, R3) — the real
+    `zero-job-pending.yml` shape.
+    """
     block = "".join(f"      - {n}\n" for n in names)
     return (
         "name: a-bot \u2014 reacts to a run\n"
@@ -96,6 +105,9 @@ def _reactor_workflow(*names: str) -> str:
         "  workflow_run:\n"
         "    workflows:\n" + block +
         "    types: [completed]\n"
+        "\n"
+        "permissions:\n"
+        "  contents: read\n"
         "\n"
         "jobs:\n"
         "  go:\n"
@@ -239,6 +251,9 @@ def test_a_workflow_run_that_names_existing_workflows_is_accepted(tmp_path: Path
         "  workflow_run:\n"
         "    workflows: [CI, pipeline]\n"
         "    types: [completed]\n"
+        "\n"
+        "permissions:\n"
+        "  contents: read\n"
         "\n"
         "jobs:\n"
         "  go:\n"
@@ -556,6 +571,9 @@ def _leg_workflow(inline: str) -> str:
         "name: a-leg — does one thing\n"
         "on:\n"
         "  workflow_dispatch:\n"
+        "\n"
+        "permissions:\n"
+        "  contents: read\n"
         "\n"
         "jobs:\n"
         "  go:\n"

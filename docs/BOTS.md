@@ -2544,6 +2544,13 @@ image → download → lint → unit → install → health → top-tier → top
   on top of the fact that a push to a fork already runs the workflow in the fork (its own
   GHCR), never upstream — so a non-collaborator can never drive the upstream's GHCR publish
   jobs (`ci-images`, `engine-base`, `engine-matrix` in ci.yml; `sync` in registry-sync.yml; `plan`/`bump` in engine-bump.yml).
+  Since issue #2526 this rule is MACHINE-CHECKED on all 36 files: `make check-workflows` requires each
+  workflow's explicit top-level `permissions:` (never `write-all`), refuses `pull_request_target`
+  outright, and demands on every outsider-reachable trigger (the automatic PR-creation chain and its
+  `workflow_run` followers) either the trigger guard outside `run:` script text or a transitive guard
+  through a roster of already-guarded workflows — manual starts (`workflow_dispatch`), pushes and
+  crons are write-capable-only at the platform level. `make workflows-report` prints each file's start
+  classes and guard state; `tests/test_workflow_actor_gates.py` locks the rules with zero exemptions.
 - **CI images are pulled, never rebuilt per job (issue #117):** the first job, `ci-images`,
   tags `llgenie/test` and `llgenie/openspec` with a hash of the files they are built from
   (`scripts/ci_images.py`) and runs `make publish-ci-images`: a hash already on GHCR is one

@@ -1,5 +1,14 @@
 name: pipeline
 
+# Explicit minimum token scope for every job in this file (issue #2526, gate rule R1): this
+# reusable pipeline is called from ci.yml (the caller's guard gates the entry; `workflow_call` is
+# internal-only), and its jobs read packages and check out code — the elevated `packages: read`
+# jobs declare it at job level below. Declaring `contents: read` at top level states the scope the
+# jobs actually use today and closes the implicit org-default fallback: no job's effective access
+# changes.
+permissions:
+  contents: read
+
 # The verification pipeline, called from ci.yml for Linux and for macOS with the same
 # make commands and asserts (issue #112). Every job runs ONE `make ci-<job>` target
 # (Makefile). Docker is set up only on Linux; macOS runs the same targets in the
