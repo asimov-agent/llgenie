@@ -166,19 +166,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_REF: ${{ github.head_ref }}
+          # Dispatch refs cross as env, never as shell text (issue #2505).
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_BRANCH: ${{ inputs.branch }}
+          DISPATCH_BASE_REF: ${{ inputs.base_ref }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             # A manual dispatch resolves BOTH refs itself: fetch the head and the base it is measured
             # against, stand on the head's tree (the params files must be the HEAD's, not the branch the
             # dispatch happened to target), and let the base resolve for the diff. A branch input that
             # resolves to nothing is a finding — the make target refuses to dispatch at a ref GitHub
             # cannot resolve (issue #2089), so this must not hide behind a hermetic green.
-            git fetch --no-tags origin "${{ inputs.branch }}" "${{ inputs.base_ref }}"
-            branch_head=$(git rev-parse --verify "refs/remotes/origin/${{ inputs.branch }}" 2>/dev/null || git rev-parse --verify "${{ inputs.branch }}")
+            git fetch --no-tags origin "$DISPATCH_BRANCH" "$DISPATCH_BASE_REF"
+            branch_head=$(git rev-parse --verify "refs/remotes/origin/$DISPATCH_BRANCH" 2>/dev/null || git rev-parse --verify "$DISPATCH_BRANCH")
             git checkout -q --detach "$branch_head"
-            git rev-parse --verify "${{ inputs.base_ref }}" >/dev/null || git rev-parse --verify "refs/remotes/origin/${{ inputs.base_ref }}" >/dev/null
-            make engine-build-pr-trigger BASE="${{ inputs.base_ref }}" BRANCH="${{ inputs.branch }}"
+            git rev-parse --verify "$DISPATCH_BASE_REF" >/dev/null || git rev-parse --verify "refs/remotes/origin/$DISPATCH_BASE_REF" >/dev/null
+            make engine-build-pr-trigger BASE="$DISPATCH_BASE_REF" BRANCH="$DISPATCH_BRANCH"
           else
             # A pull_request checkout is DETACHED: `git rev-parse --abbrev-ref HEAD` is the literal
             # `HEAD`, and a dispatch at it dies with HTTP 422 `No ref found for: HEAD` — so a repin PR

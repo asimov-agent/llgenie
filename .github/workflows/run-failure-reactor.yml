@@ -128,8 +128,12 @@ jobs:
 
       - name: Report
         if: always()
+        env:
+          # The routed id crosses as env, never as shell text (issue #2505).
+          ROUTED_RUN_ID: ${{ inputs.run_id }}
         run: |
+          set -euo pipefail
           echo "### run-failure-reactor" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Routed run ${{ inputs.run_id }} (see the reactor step above)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Routed run $ROUTED_RUN_ID (see the reactor step above)." >> "$GITHUB_STEP_SUMMARY"
           echo "The reactor never merges; the issue-bot owns implementation, the fix-bot owns PR repair." >> "$GITHUB_STEP_SUMMARY"
