@@ -322,6 +322,22 @@ green rows can no longer hide cells that proved nothing but a file's presence.
 set (an engine x arch image that cannot finish in CI is disabled with its tracking issue,
 never left as a red job). GPU images never contain a driver: the host driver is mounted
 through the container runtime (CDI for CUDA, `/dev/kfd` + `/dev/dri` for ROCm/Vulkan).
+
+Every shipped image serves as uid/gid 1000, not root (issue #2504, trivy DS-0002). The
+create is generator-side in `scripts/engine_skills.py`: `render_base_dockerfile()` ends the
+four shared bases with a `USER 1000:1000`, and `render_dockerfile()` does the same for every
+engine variant's served stage. The create is idempotent — upstream bases (nvcr.io,
+lmsysorg/sglang, vllm/vllm-openai) may already own uid/gid 1000, so `getent` never adds a
+duplicate identity. Derived images re-enable `USER root` after each `FROM` (`render_dockerfile`
+injects one after every FROM line), so build-stage installs stay privileged; only the trailing
+`USER 1000:1000` is what the served process runs as. The `llgenie` user's home is
+`/var/lib/llgenie`, and `/models` (plus `/opt/llgenie/app`) is chowned to it — so
+host-mounted model dirs, which belong to the host user (uid 1000), are exactly the user who
+writes into them. The negative control was measured: trivy `DS-0002` root-user findings went
+37 on `origin/main` to 0 at head (issue #2504, per-file issues #2397–#2428 and #2463–#2467
+closed as duplicates). `containers/test/Dockerfile` is deliberately OUT of the sweep: its
+content is the published `test:<tag>` pull gate for every fork-head PR CI job, so editing it
+self-blocks the PR (deferred with the ci-scope publish-order lane to #2518).
 Seventeen engine directories carry a skill, and thirteen of them produce a container image:
 `containers/engines/params/` and `containers/engines/dockerfiles/` each hold one entry per
 servable engine — `llama.cpp`, `llama.cpp-prism`, `llama.cpp-laurentzuijdwijk`,
@@ -364,6 +380,21 @@ The committed params hold 32 engine x arch cells; `CI_VARIANTS` and `DISABLED` l
 them as CI rows today, which is also what `make engine-build-matrix` emits. Of the 32 cells,
 28 say `prebuilt: false` and 4 say `prebuilt: true` (`sglang` cuda, `tensorrt-llm` cuda,
 `vllm` cuda and rocm).
+Selection travels through `matrix()` as a canonical **`[select]` contract** (issue #2561): an
+EXPLICIT `--engine`/`--arch` request that resolves to no committed cell is a **name error,
+not a no-op** — `matrix()` raises `SystemExit` at the matrix step, in seconds, naming the id
+and the committed variants (`engine-build matrix: no committed engine id … a ghcr package
+name (dots replaced) is not an engine id`). Before that, the nine `engine-build-none-none`
+green runs at `aa700cf27` came from a ghcr package name (`llama-cpp`, dots replaced) reaching
+the matrix as an "engine": it matched no params id, the placeholder below made that a
+success, and the dispatch built and published nothing while reporting green (runs
+43149732453 … on aa700cf27). The `none`/`none` placeholder row is now the ONE legal no-op:
+GitHub fails a workflow whose matrix include list is empty BEFORE the job's `if:` is evaluated
+(run 38105450418), so an unscoped sweep that moved nothing (`--changed` no diff, whole-fleet)
+still gets its one placeholder row and `ci.yml` skips `engine == none`; a SCOPE that names an
+engine or arch can never produce that row — it hard-fails instead. `make build-engines` echoes
+the same rule locally: its `matrix --json` call is now `… || exit 1`, so a bad `ENGINE=`/`ARCH=`
+fails the sweep instead of silently iterating zero rows.
 Of the 28 source cells, 27 run their own build and 1 is a tracked exception. A cell whose
 genuine build cannot run yet is recorded in the script's `KNOWN_NOT_SOURCE` with its reason
 and issue (`litert` cpu installs a wheel, `litert-lm==0.18.1`, whose runtime core is
@@ -757,7 +788,13 @@ engine-build producer the PR's trigger starts, in parallel with the run's own jo
 `containers/engines/params/<id>.json` differs from `origin/main` (or has no copy there), the
 test checks every tag this change did not repin, and it prints the engines it deferred with
 the gate (`make ci-wait-engine-images`) that covers them; no git on `PATH` means nothing is
-deferred, i.e. the previous, stricter behaviour.
+deferred, i.e. the previous, stricter behaviour. The same deferral covers an engine whose
+**Dockerfile contents moved** (issue #2504): a Dockerfile edit re-tags that engine's image —
+the context hash baked into the tag covers the Dockerfile, exactly like the #823
+tag-computation case — so the file's new tag is published by the PR that edits it and must
+not be required from the registry by this unit gate. The scan is anchored beside `params_dir`,
+so a test pointing `params_dir` at a synthetic tree scans that tree and never the real
+checkout.
 
 The test and OpenSpec images are hash-tagged artifacts, not per-job rebuilds: `make test-image`
 and `make openspec-image` pull the published hash of their Dockerfile (plus lockfiles) and
@@ -813,7 +850,15 @@ mid-build run. Its dispatch step passes the base sha and head ref through `env:`
 as `"$PR_BASE_SHA"` / `"$PR_HEAD_REF"` in the `make` dispatcher — never interpolated into the
 `run:` shell — because github context is attacker-influenceable, and a `run:` script that
 embeds `${{ github.* }}` directly is a semgrep `run-shell-injection` finding (issue #2241, the
-same env-hoist rule that shields the `ci-verdict` judge job, #1972). The same scopes are
+same env-hoist rule that shields the `ci-verdict` judge job, #1972). That env-hoist rule was
+since applied to the other three run-shell-injection sites (issue #2505, four rewrites):
+`review-verdict`'s Report step reads `REPORT_PR` / `REPORT_VERDICT` / `REPORT_HEAD` from the
+step `env:`, `run-failure-reactor`'s Report reads `ROUTED_RUN_ID` from `env:`, and
+`.github/actions/agent-leg`'s preflight shell-keys proof passes `AGENT_SHELL_CHECK_KEYS` through
+`env:` (the Makefile's `AGENT_SHELL_CHECK_KEYS ?=` reads the exported name) instead of typing
+`"${{ inputs.shell_keys }}"` into the `run:`. A negative control was cached: zero
+`run-shell-injection` findings at the head, with a 4-finding control on the pre-fix tree
+(per-site duplicates #2468 #2469 #2471 #2491 stay closed). The same scopes are
 available locally and in parallel from `make build-engines`.
 
 That pin-validity guard is the repin-only kind: it fires only for an engine the PR itself
@@ -832,13 +877,22 @@ cron `35 3 * * *` / `49 11 * * *` / `1 19 * * *` — odd minutes not shared with
 issue #275 — plus a `push` trigger on `main`), which runs `make check-engine-launchers
 CHECK_REGISTRY=1 ARCH=all` and names each engine whose committed pin resolves no manifest as
 ONE tracking issue. Since issue #2259 that gate no longer only *names* the gap: an `always()`
-step parses the `NOT PUBLISHED <pin>-<hash>-<variant>` tag out of the fleet-gate output
-(needs `actions: write` on the caller — engine-build's own `packages: write` and the fork guard
-are untouched), derives engine+arch from it, and runs `engine-build` with `push=true` for each
-missing cell, so a 404'd committed tag is a **partial publish** that the worker itself repairs
+step reads the fleet-gate output and runs `engine-build` with `push=true` for each missing
+cell, so a 404'd committed tag is a **partial publish** that the worker itself repairs
 (measured: a torch 2.13→2.14 change in vllm's install lines retagged all three backend cells,
 the producer aborted on the cpu cell, and cuda/rocm at the new hash sat unpublished for five
-days until the gate dispatched them; issues #2261, #2259). The real committed set is also held
+days until the gate dispatched them; issues #2261, #2259). Which cells it dispatches is now
+the canonical **`[select]` contract** (issue #2561), not a reverse-parse of the ghcr tag:
+`check_engine_pins_published.py` prints one `[select] <committed engine id> <variant> <tag
+suffix>` line per missing cell (the COMMITTED id, dots intact — NOT the ghcr package spelling,
+where dots are illegal and the name never becomes `llama-cpp` again), and `registry-liveness`
+greps for `^\[select\] ` and dispatches each. Before that it derived the engine from the ghcr
+package URL — and because package names legally replace dots with dashes, `llama.cpp` reached
+`engine-build` as `engine=llama-cpp`, the matrix matched no params id, synthesized its
+`none`/`none` placeholder, and nine runs completed "success" having built nothing (runs
+43149732453 … on `aa700cf27`). A gate red with no parseable `[select]` line exits 0 with a
+message — the fleet step already reds the run, and dispatch cannot name a cell, so it does
+not fail twice. The real committed set is also held
 against GHCR by a `pytest.mark.network` live test (`tests/test_check_engine_pins_published.py`)
 on the ci-network seam (issue #1000), beside hermetic sabotage tests that red a 404'd committed
 tag and green it once published. The internal sweep lets an all-new/renamed backend cell be
@@ -1262,6 +1316,10 @@ every row is built and then verified, publishing is opt-in, and `force` reaches 
 step only),
 `tests/test_engine_source_guard.py` (a `prebuilt: false` cell with no build is a finding, and
 a tracked exception is reported rather than failing the gate),
+`tests/test_engine_image_matrix.py` (an explicit engine/arch selection that resolves to no
+committed cell is a name error — `matrix()` raises instead of synthesizing the `none`
+placeholder, the placeholder survives only for the one unscoped whole-fleet no-op, and a
+ghcr-package name with dots replaced is refused as an engine id — issue #2561),
 `tests/test_issue_bot_gates.py` (every `ci-unit` gate is classified fast or deferred, a fast
 gate is wired and `.PHONY`, and the workflow's gate step sits between the change detection
 and the push — issue #475),
