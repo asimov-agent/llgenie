@@ -170,6 +170,28 @@ def _print_verdict(tag: str, flag: str, ret: subprocess.CompletedProcess) -> boo
     return True
 
 
+# The version/help vocabulary the binary gate may probe (issue #2319's ceiling,
+# re-read per issue #2573): what a manifest/skill is allowed to DOCUMENT, and
+# the pinned probe set when an engine documents nothing. The gate probes exactly
+# the documented set ("the binary answering the flags it documents", issue #1717)
+# — never more than this vocabulary, never a flag the engine does not have.
+DOCUMENTED_FLAG_VOCAB = frozenset({"-h", "--help", "--version"})
+DEFAULT_BINARY_FLAGS = ["-h", "--version"]
+
+
+def _documented_probe_set(flags, who: str) -> list[str] | None:
+    """Validate a documented probe set (issue #2573). Returns the deduped set,
+    the pinned default when nothing is documented, or None when a documented
+    flag sits outside the version/help vocabulary — the caller fails closed."""
+    flags = [str(f) for f in (flags or [])]
+    bad = [f for f in flags if f not in DOCUMENTED_FLAG_VOCAB]
+    if bad:
+        print(f"[smoke] FAIL {who}: documents flag(s) {' '.join(bad)} outside the "
+              f"version/help vocabulary [{' '.join(sorted(DOCUMENTED_FLAG_VOCAB))}] (issue #2573)")
+        return None
+    return list(dict.fromkeys(flags)) or list(DEFAULT_BINARY_FLAGS)
+
+
 def binary_smoke(spec: dict | None = None, skill: dict | None = None,
                  p: dict | None = None, host_prelude: str = "") -> int:
     """The ENGINE BINARY smoke (issue #1717): the engine binary must answer
@@ -200,9 +222,14 @@ def binary_smoke(spec: dict | None = None, skill: dict | None = None,
         if not binary:
             print(f"[smoke] FAIL {tag}: binaries.json has no binary for {spec['id']}/{spec['variant']}")
             return 1
-        # probe set pinned to EXACTLY -h + --version (owner directive 2026-11-09, issue #2319):
-        # the engine-build gate tests only those two flags, never more.
-        flags = ["-h", "--version"]
+        # Probe what THIS engine's own generated manifest documents (issue #2573):
+        # binaries.json is generated from each skill's binary_flags and the push
+        # gate has read it since issue #204. #2319's pinned pair survives as the
+        # default when nothing is documented, and as the vocabulary bound.
+        probe = _documented_probe_set(ei.variant_flags(spec), f"{spec['id']}/{spec['variant']}")
+        if probe is None:
+            return 1
+        flags = probe
         print(f"[smoke] binary {binary}  image {tag}  flags: {' '.join(flags)}", flush=True)
         ok = True
         for flag in flags:
@@ -213,16 +240,23 @@ def binary_smoke(spec: dict | None = None, skill: dict | None = None,
             ok = _print_verdict(tag, flag, r) and ok
         return 0 if ok else 1
     # skill path: installed engine binary on the host
+    assert skill is not None  # the skill path is only entered without a spec
     binary = (p or {}).get("binary")
     if not binary:
         print(f"[smoke] FAIL {skill.get('id')}: no binary in the skill plan; cannot binary-smoke")
         return 1
-    # probe set pinned to EXACTLY -h + --version (issue #2319): the engine binary gate is
-    # -h then --version, nothing else.
-    flags = ["-h", "--version"]
+    # Probe what THIS skill documents for the backend being smoked (issue #2573):
+    # binary_flags is a list or a per-backend map; documented_flags resolves it.
+    # Nothing documented -> the pinned #2319 pair as default, same as the image path.
+    probe = _documented_probe_set(
+        es.documented_flags(skill, (p or {}).get("backend")),
+        f"{skill.get('id')}/{(p or {}).get('backend') or 'all-backends'}")
+    if probe is None:
+        return 1
+    flags = probe
     print(f"[smoke] binary {binary}  flags: {' '.join(flags)}", flush=True)
     ok = True
-    for flag in dict.fromkeys(flags):
+    for flag in flags:
         r = subprocess.run(  # proc-allow: binary smoke of the installed engine (issue #1717)
             [os.environ.get("LLGENIE_BASH") or "bash", "-euo", "pipefail", "-c",
              host_prelude + f'{binary} "{flag}" 2>&1; ec=$?; exit $ec'],
