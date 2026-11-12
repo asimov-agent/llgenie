@@ -598,9 +598,11 @@ def commit_checkbox_hold(gh: str, repo: str, pr: int) -> "str | None":
     """
     from check_pr_hygiene import commit_text_findings  # noqa: PLC0415
 
+    # The separator must reach JQ as an escape, never as a real NUL in argv: a Python
+    # "\u0000" in the argument string is an embedded null byte and execv refuses it.
     out = _gh(gh, ["api", f"repos/{repo}/pulls/{pr}/commits", "--paginate",
-                   "--jq", '.[].commit.message + "\u0000"'])
-    messages = [m for m in out.split("\u0000") if m.strip()]
+                   "--jq", '.[].commit.message + "\\u001e"'])
+    messages = [m for m in out.split("\u001e") if m.strip()]
     body = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json", "body", "--jq", '.body // ""'])
     findings = commit_text_findings(messages, body or "")
     if not findings:

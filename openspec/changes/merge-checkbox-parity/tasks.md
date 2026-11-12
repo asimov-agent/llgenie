@@ -15,7 +15,7 @@
 - [x] 4. `tests/test_pr_hygiene_commit_checkboxes.py`: real-git fixtures covering the spec
       scenarios (unticked acceptance text RED; ticked mirror GREEN; missing mirror RED;
       human-only range skipped; merge-lane deferral via the pure seam).
-- [ ] 5. AGENTS.md: durable mandate section (three mirrors, one tick, closing is the single
+- [x] 5. AGENTS.md: durable mandate section (three mirrors, one tick, closing is the single
       automatic act, commits end with a ticked `Acceptance:` block) + add the new gate to the
       lane-preflight FAST-gate roster text.
 - [ ] 6. Docs trio: `agent-wiki/2026-11-12-merge-checkbox-parity-2519.md` +
