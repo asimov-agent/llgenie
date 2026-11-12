@@ -32,16 +32,26 @@ def _copy_inputs(root: Path) -> Path:
 
 
 def _fake_docker(tmp: Path, published: bool, cache_published: bool = True,
-                 build_denied: str | None = None) -> tuple[dict, Path]:
+                 build_denied: str | None = None,
+                 pull_rc: int | None = None) -> tuple[dict, Path]:
     """`docker` that logs its args (and the build context's files) and answers the registry
     lookup / pull with `published`.
 
     `build_denied` makes the `buildx build --push` exit 1 and print exactly `build_denied` on
     stderr — the shape GHCR answers a fork-PR write with (issue #1673). With it unset the build
     succeeds.
+
+    `pull_rc` overrides the PULL answer alone (issue #2518): a registry that HAS the tag
+    (`published=True`) but fails the pull — the transient-failure shape the deferral must NOT fire
+    for.
+
+    `GITHUB_EVENT_NAME` is scrubbed from the returned env: the unit gate runs pytest on
+    `pull_request` runners, and tests must not inherit the ambient event (issue #2518). Tests that
+    need an event set it explicitly.
     """
     log = tmp / "docker.log"
     rc = 0 if published else 1
+    prc = rc if pull_rc is None else pull_rc
     # The registry cache ref is probed separately: a NEW image's first publish has no cache
     # yet, and buildx fails to configure the importer then (so publish omits --cache-from).
     cache_rc = 0 if cache_published else 1
@@ -55,7 +65,7 @@ case "$1 $2" in
   "buildx build") for a in "$@"; do [ -d "$a" ] && ls "$a" | tr '\\n' ' ' | sed 's/^/CTX: /' >> "{log}" && echo >> "{log}"; done; {denied} ;;
 esac
 case "$1" in
-  pull) exit {rc} ;;
+  pull) exit {prc} ;;
 esac
 exit 0
 '''
@@ -65,6 +75,7 @@ exit 0
     (bindir / "docker").chmod(0o755)
     env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "RUNTIME": "docker",
            "LLGENIE_REGISTRY": "ghcr.io/asimov-agent"}
+    env.pop("GITHUB_EVENT_NAME", None)
     return env, log
 
 
@@ -449,6 +460,88 @@ def test_ci_pull_tags_the_local_name(tmp_path):
     assert calls == [f"pull {ref}", f"tag {ref} llgenie/test:latest"]
     assert re.fullmatch(r"ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", ref), ref
     assert "TEST_IMG := llgenie/test:latest" in (REPO / "Makefile").read_text()
+
+
+def test_pull_defers_to_a_local_build_for_a_pull_request_run(tmp_path):
+    """A pull_request run can never publish a CI-image hash its own change moved (fork head,
+    issue #155), so its consumers must not red on a pull the run itself cannot satisfy: the pull
+    DEFERS the publish to the landing run and builds the same Dockerfile locally (issue #2518,
+    measured shape: PR #2517, four legs red at `pull test`)."""
+
+    # Given a registry without the test image's hash tag, in a pull_request run
+    env, log = _fake_docker(tmp_path, published=False)
+    env["GITHUB_EVENT_NAME"] = "pull_request"
+
+    # When ci_images.py pull test runs
+    r = _ci_images(env, "pull", "test")
+
+    # Then the job is not red: the deferral names the landing publish and issue #2518
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "::warning title=publish deferred::" in r.stdout
+    assert "DEFER publish" in r.stdout and "issue #2518" in r.stdout
+
+    # And the image is built locally from a temp context that is then removed
+    builds = [c for c in _calls(log) if c.startswith("build -t llgenie/test:latest ")]
+    assert len(builds) == 1, _calls(log)
+    assert not Path(builds[0].split()[-1]).exists()
+
+    # And nothing is pushed or published by this run
+    assert not [c for c in _calls(log) if c.startswith("buildx build")], _calls(log)
+
+
+def test_pull_request_run_pulls_a_published_tag_without_building(tmp_path):
+    """A same-repo pull_request already published its moved tag mid-run (measured: PR #1738):
+    that pull stays a pull, with no deferral and no build."""
+
+    # Given a registry with the test image's hash tag, in a pull_request run
+    env, log = _fake_docker(tmp_path, published=True)
+    env["GITHUB_EVENT_NAME"] = "pull_request"
+
+    # When ci_images.py pull test runs
+    r = _ci_images(env, "pull", "test")
+
+    # Then the hash ref is pulled and tagged, nothing is built, and no deferral is printed
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = _calls(log)
+    assert all(not c.startswith(("build ", "buildx build")) for c in calls), calls
+    assert calls[1].endswith(" llgenie/test:latest"), calls
+    assert "DEFER" not in r.stdout
+
+
+def test_push_run_pull_still_never_builds_a_missing_tag(tmp_path):
+    """A push run's publish already ran before its consumers: a missing tag stays a loud failure,
+    and the never-build contract is unchanged outside a pull_request run (issue #2518)."""
+
+    # Given a registry without the test image's hash tag, in a push run
+    env, log = _fake_docker(tmp_path, published=False)
+    env["GITHUB_EVENT_NAME"] = "push"
+
+    # When ci_images.py pull test runs
+    r = _ci_images(env, "pull", "test")
+
+    # Then it exits non-zero with the never-build error and builds nothing
+    assert r.returncode == 1
+    assert "ghcr.io/asimov-agent/llgenie/test:" in r.stderr and "never build" in r.stderr
+    assert not [c for c in _calls(log) if c.startswith(("build ", "buildx build"))], _calls(log)
+
+
+def test_pull_request_run_with_a_published_tag_and_a_failed_pull_still_reds(tmp_path):
+    """The deferral is only for genuinely unpublished tags: a pull_request run whose tag IS on
+    the registry but whose pull fails (network/daemon) fails like any other failed pull
+    (issue #2518)."""
+
+    # Given a registry WITH the tag but a failing pull, in a pull_request run
+    env, log = _fake_docker(tmp_path, published=True, pull_rc=1)
+    env["GITHUB_EVENT_NAME"] = "pull_request"
+
+    # When ci_images.py pull test runs
+    r = _ci_images(env, "pull", "test")
+
+    # Then the run is red with the not-published/never-build contract and builds nothing
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "never build" in r.stderr
+    assert "DEFER" not in r.stdout
+    assert not [c for c in _calls(log) if c.startswith(("build ", "buildx build"))], _calls(log)
 
 
 def test_local_image_is_pulled_when_published(tmp_path):

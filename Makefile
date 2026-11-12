@@ -1407,7 +1407,7 @@ VARIANT_RUN := $(RUNTIME) run $(VARIANT_OPTS) $(VARIANT_IMG)
 test-image: ## The test image: pull the published hash of its Dockerfile + lockfiles (GHCR), else build it here (issue #117)
 	python3 scripts/ci_images.py ensure test
 
-test-image-pull: ## CI: pull the published test image (hash of its Dockerfile + lockfiles) as $(TEST_IMG); fails if not published, never builds
+test-image-pull: ## CI: pull the published test image (hash of its Dockerfile + lockfiles) as $(TEST_IMG); a push run fails if not published and never builds; a pull_request run defers the publish to the landing run and builds it locally (issue #2518)
 	python3 scripts/ci_images.py pull test
 
 publish-ci-images: ## CI job ci-images: build + push the test and OpenSpec images ONLY when their hash tag is not on GHCR yet. The AGENT image is NOT here: the default GITHUB_TOKEN is denied "Create organization package" for a brand-new package (the first llgenie/agent publish), so it goes out through publish-agent-image.yml with the owner PAT, deliberately and by hand
@@ -1669,7 +1669,8 @@ uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-*
 # pipeline.yml runs each as one job, on Linux AND on macOS (issue #120: the same
 # file, no combined jobs). The commands are the same on both OSes. Every target
 # that runs in a container needs the pulled llgenie/test (or llgenie/openspec) image:
-# CI pulls the test image first with `make test-image-pull`; the openspec gate pulls-or-builds
+# CI pulls the test image first with `make test-image-pull` (a pull_request run that moved the
+# hash defers the publish and builds it locally, issue #2518); the openspec gate pulls-or-builds
 # with `make openspec-image` (a fork PR cannot publish a NEW hash, issue #1673).
 ci-lint: bash-check ## CI job lint: make lint + the zero-byte file gate
 	$(MAKE) lint
