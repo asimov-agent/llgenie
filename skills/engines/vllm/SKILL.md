@@ -96,10 +96,15 @@ container:
     # AMD's official prebuilt rocm/vllm serving base (issue #1558 / PR #2274). prebuilt: true runs
     # zero install steps; the image ships the baked vllm + ROCm runtime, and `detect` probes it via
     # `from vllm import __version__`. Entrypoint serves (see launch below).
+    # issue #2553: the base hosts vllm in a root-built uv venv at /opt/python (measured via its
+    # Docker Hub config blob); as the mandatory runtime USER 1000 the launcher is not executable
+    # (exit 126) and site-packages is untraversable (ModuleNotFoundError). base_access makes the
+    # renderer open the tree's DIRECTORIES + <dir>/bin entries for uid 1000 before USER 1000:1000.
     base: docker.io/rocm/vllm:rocm10.1.0_ubuntu24.04_py3.14-pytorch_2.13.0_vllm-0.29.0
     prebuilt: true
     binary: "vllm"
     binary_flags: ["--version"]
+    base_access: ["/opt/python"]
   cpu:
     apt: [python3-dev, libnuma-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]

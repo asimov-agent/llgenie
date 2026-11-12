@@ -1847,6 +1847,45 @@ def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
     assert "git clone" in cpu and "-e ." in cpu, "cpu must stay a source build"
 
 
+def test_vllm_rocm_opens_its_root_only_base_venv_for_uid_1000():
+    """Issue #2553: rocm/vllm builds its uv venv at /opt/python as root. As the mandatory
+    runtime USER 1000 (measured on run 43221661126) /opt/python/bin/vllm exits 126 and
+    detect fails with ModuleNotFoundError. The skill declares base_access: ["/opt/python"]
+    and the generated Dockerfile opens DIRECTORIES plus <dir>/bin entries right before the
+    trailing USER. Only the rocm variant's params carry the key, so only the rocm tag
+    digest moves: the published cuda cell keeps its digest, cpu stays identical."""
+    params = json.loads((REPO / "containers/engines/params/vllm.json").read_text())
+    p = params["variants"]
+    assert p["rocm"].get("base_access") == ["/opt/python"]
+    assert "base_access" not in p["cuda"] and "base_access" not in p["cpu"]
+
+    df = (REPO / "containers/engines/dockerfiles/vllm/Dockerfile.rocm").read_text().splitlines()
+    opens = [line for line in df if 'find "$d"' in line]
+    assert len(opens) == 1 and opens[0].startswith("RUN set -eux; for d in /opt/python;")
+    # position: after the service-user create, directly before the runtime USER
+    assert any("chown -R 1000:1000 /opt/llgenie/app" in line for line in df[:df.index(opens[0])])
+    assert df[df.index(opens[0]) + 1] == "USER 1000:1000"
+    # directories only + <dir>/bin maxdepth-1: no recursive chmod over regular files
+    assert 'find "$d" -type d -exec chmod a+rx {} +' in opens[0]
+    assert 'find "$d/bin" -maxdepth 1 -exec chmod a+rx {} +' in opens[0]
+    assert "chmod -R" not in opens[0]
+
+    import scripts.engine_skills as es
+    # The open is a hash input for the cell it declares, and for nothing else.
+    assert b"base_access" in es._image_inputs(params, "rocm")
+    for untouched in ("cuda", "cpu"):
+        hashed = es._image_inputs(params, untouched)
+        assert b"base_access" not in hashed, f"{untouched} must not move its tag"
+    # The published cuda digest (vllm:3a4d82f5-4c1f3eee-cuda) stays reachable; rocm moves
+    # (db98981b -> a new digest) because its image content actually changed. Update these
+    # only with a real vllm version bump that re-publishes the fleet.
+    assert es._image_hash(params, "cuda") == "4c1f3eee"
+    assert es._image_hash(params, "cpu") == "524f7326"
+    assert es._image_hash(params, "rocm") != "db98981b"
+    cuda_df = (REPO / "containers/engines/dockerfiles/vllm/Dockerfile.cuda").read_text()
+    assert 'find "$d"' not in cuda_df
+
+
 def test_rocm_source_builds_pin_a_base_their_build_accepts():
     """CI #98: exllamav3 needs ROCm >= 7.2.4 (the shared 7.0 base fails), sglang's
     setup_rocm.py hard-codes c++17 (rocm/pytorch:latest needs c++20 headers),

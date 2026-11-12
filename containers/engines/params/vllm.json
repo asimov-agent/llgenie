@@ -73,7 +73,10 @@
         "--ipc",
         "host"
       ],
-      "port": 11434
+      "port": 11434,
+      "base_access": [
+        "/opt/python"
+      ]
     },
     "cpu": {
       "id": "vllm",
