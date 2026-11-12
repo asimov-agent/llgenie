@@ -297,18 +297,46 @@ def _buildx_push(name: str, r: str, tags: list[str], cache_flags: list[str],
     return done.returncode, out
 
 
+def _build_local(name: str, root: Path = REPO) -> int:
+    """Build `llgenie/<name>:latest` from exactly the hashed inputs, in a temp context."""
+    ctx = context(name, root)
+    try:
+        return _sh([RUNTIME, "build", "-t", local_name(name), *build_args(name, root), str(ctx)]).returncode
+    finally:
+        shutil.rmtree(ctx, ignore_errors=True)
+
+
 def pull(name: str, root: Path = REPO) -> int:
-    """CI jobs: pull the published tag, never build. A missing tag fails the job.
+    """CI jobs: pull the published tag. A push run never builds; a missing tag fails the job.
 
     The agent image pulls GHCR `:latest`. Test and OpenSpec pull the content hash.
+
+    One event-scoped exception (issue #2518): a `pull_request` run's token is read-only to the
+    base registry (issue #155), so a PR whose own change MOVES a content hash can never have
+    published that hash anywhere a later job of the same run could pull it. Measured on PR #2517
+    (fork head): the image built green in `ci-images` while `lint`, `unit`, `install` and
+    `cpu-health` all died at this pull. A `pull_request` run therefore DEFERS that publish to the
+    landing run and builds the same Dockerfile locally — the pull-or-build fallback the OpenSpec
+    gate has used since issue #1673 — so every consumer job runs its real work against the built
+    image instead of red-ing on a permission GitHub will never grant. The deferral only fires when
+    `published()` confirms the tag is genuinely absent: a published tag with a failing pull is a
+    real failure. A push run keeps the hard failure — there, the publish already ran.
     """
     r = pull_ref(name, root)
-    if _pull_and_tag(name, r) != 0:
-        print(f"[ci-images] {r} is not published: the ci-images job publishes it "
-              f"(make publish-ci-images); CI jobs never build a CI image", file=sys.stderr, flush=True)
-        return 1
-    print(f"[ci-images] {local_name(name)} = {r}", flush=True)
-    return 0
+    if _pull_and_tag(name, r) == 0:
+        print(f"[ci-images] {local_name(name)} = {r}", flush=True)
+        return 0
+    if os.environ.get("GITHUB_EVENT_NAME") == "pull_request" and not published(r):
+        print(f"::warning title=publish deferred::[ci-images] DEFER publish {r}: this "
+              f"pull_request run cannot publish the CI image its own change moved (its token "
+              f"is read-only, issue #155); it builds {local_name(name)} from the same Dockerfile "
+              f"here, and the run that lands this change publishes {r} (issue #2518)")
+        print(f"[ci-images] DEFER publish {r}: building {local_name(name)} locally for this "
+              f"run (issue #2518)", flush=True)
+        return _build_local(name, root)
+    print(f"[ci-images] {r} is not published: the ci-images job publishes it "
+          f"(make publish-ci-images); CI jobs never build a CI image", file=sys.stderr, flush=True)
+    return 1
 
 
 def ensure(name: str, root: Path = REPO) -> int:
@@ -319,11 +347,7 @@ def ensure(name: str, root: Path = REPO) -> int:
         return 0
     print(f"[ci-images] {r} is not published (an edited Dockerfile or lockfile): "
           f"building {local_name(name)} here", flush=True)
-    ctx = context(name, root)
-    try:
-        return _sh([RUNTIME, "build", "-t", local_name(name), *build_args(name, root), str(ctx)]).returncode
-    finally:
-        shutil.rmtree(ctx, ignore_errors=True)
+    return _build_local(name, root)
 
 
 # --------------------------------------------------------------------------- the push pre-flight
