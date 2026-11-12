@@ -31,8 +31,11 @@ board cannot disguise an unverifiable dispatch.
 
 HERMETIC: when the change repins nothing, nothing is dispatched and no API is touched — the same rule as
 the may-arm ("no engine this change repins => green and no network"). The repin set comes from
-`check_engine_pins_published.repinned_engine_ids` (the params-FILE diff, one shared logic with the merged
-gate, not a hand-written roster). Inputs narrow a manual re-dispatch but never widen the committed scope.
+`check_engine_pins_published.repinned_engine_ids` (the params-FILE diff UNION the tag-identity
+diff, one shared logic with the merged gate, not a hand-written roster) — so an engine a change
+only RE-TAGS (a `Dockerfile`/`entrypoint.sh`/`engine_runner.py` change, empty params diff, the
+#2517 class) is a repin to this arm too and is dispatched. Inputs narrow a manual re-dispatch but
+never widen the committed scope.
 
 Usage:
     python3 scripts/engine_build_trigger.py check [--base REF] [--engine ID] [--arch A] [--dry]

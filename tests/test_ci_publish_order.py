@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 
 import base_ref  # noqa: E402  (the base ref resolver, issue #925)
+import scripts.check_engine_pins_published as cpp  # noqa: E402  (the shared repin/tag-identity diff)
 import scripts.install_engine_launchers as iel  # noqa: E402
 
 # `install_engine_launchers` imports its sibling as the top-level `engine_image`;
@@ -439,24 +440,35 @@ def test_the_caller_grants_the_action_read_the_callee_needs():
 
 
 def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -> set[str]:
-    """Engines whose committed params this change moved, so this run is publishing their tags.
+    """Engines whose committed tag this change moved, so this run is publishing them.
 
-    A tag that has never been published cannot answer a registry lookup, and the PR that moves the
-    pin is exactly the one that publishes it — in the parallel `engine-image-*` job. Those tags are
-    waited for where the wait belongs (`make ci-wait-engine-images`, a prerequisite of `ci-install`,
-    issue #169), so a hermetic unit gate must not require them (issue #672).
+    A tag that has never been published cannot answer a registry lookup, and the change
+    that moves the tag is exactly the one that publishes it — via its own dispatched
+    producer run, waited for where the wait belongs (`make ci-wait-engine-images`, a
+    prerequisite of `ci-install`, issue #169). So a hermetic unit gate must not require
+    them (issue #672).
 
     `base` is RESOLVED when not given (issue #925): this host has clones where `origin` is the owner's fork
     and `upstream` is the base, and a hard-coded `origin/main` there diffs against a different tree — which
     reds this test on a checkout where nothing is wrong with publishing.
 
-    An engine whose params file has no copy on the base is deferred too: it is a first import, and
-    nothing has published it yet.
+    The deferred set is the union of two diffs:
+    1. the params FILE diff — an engine whose params differ from `base`, plus an engine
+       with no base copy (a first import), which nothing has published yet.
+    2. the SHARED tag-identity diff (`check_engine_pins_published.retagged_engine_ids`),
+       replacing the `engine_image.py`-text and per-Dockerfile text scans: an engine whose
+       computed image tag differs from `base` — a Dockerfile / entrypoint / runner /
+       tag-computation change re-tags the image without moving a params byte (issue
+       #2517). This is the SAME logic the may-arm merge gate and the will-arm publisher
+       use, so the unit suite and the merge gate can never disagree about which engine a
+       change re-tags. A main run (base == head) retags nothing, so every tag is still
+       registry-checked.
     """
     base = base or base_ref.resolve_base(quiet=True)
-    root = params_dir or (REPO / "containers" / "engines" / "params")
+    params_root = params_dir or (REPO / "containers" / "engines" / "params")
+    repo_root = params_root.parent.parent.parent  # <repo>/containers/engines/params -> <repo>
     deferred: set[str] = set()
-    for params_file in sorted(root.glob("*.json")):
+    for params_file in sorted(params_root.glob("*.json")):
         rel = f"containers/engines/params/{params_file.name}"
         try:
             shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=REPO,
@@ -467,54 +479,37 @@ def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -
             deferred.add(params_file.stem)
         elif shown.stdout != params_file.read_text():
             deferred.add(params_file.stem)
-    # A change to the engine-image tag computation (scripts/engine_image.py) re-tags EVERY engine
-    # to a new, not-yet-published tag — issue #823 re-enabled prism CUDA and re-tagged the whole fleet
-    # this way without touching any params file. Those tags are published by this run's producer, so
-    # defer every engine the same way a params repin would be.
-    tag_src = "scripts/engine_image.py"
-    shown = subprocess.run(["git", "show", f"{base}:{tag_src}"], cwd=REPO,
-                           capture_output=True, text=True)
-    if shown.returncode != 0 or shown.stdout != (REPO / tag_src).read_text():
-        for params_file in sorted(root.glob("*.json")):
-            deferred.add(params_file.stem)
-    # A change to an engine's Dockerfile contents re-tags that engine's images the same way:
-    # the context hash baked into the tag covers the Dockerfile, so the new tag is published by
-    # this change's producer and is not registry-required here (issue #2504 removed the root
-    # USER line from every Dockerfile and reddened this gate for want of exactly this rule).
-    # The scan is anchored beside params_dir, so a test that points params_dir at a synthetic
-    # tree scans that tree and never the real checkout.
-    docker_root = root.parent / "dockerfiles"
-    if docker_root.is_dir():
-        for docker_dir in sorted(docker_root.iterdir()):
-            if not docker_dir.is_dir() or docker_dir.name in deferred:
-                continue
-            for docker_file in sorted(docker_dir.glob("Dockerfile*")):
-                rel = docker_file.relative_to(REPO).as_posix()
-                shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=REPO,
-                                       capture_output=True, text=True)
-                if shown.returncode != 0 or shown.stdout != docker_file.read_text():
-                    deferred.add(docker_dir.name)
-                    break
+    # The tag-identity diff; retagged engines are published by this change's producer and
+    # are not registry-required here.
+    try:
+        deferred |= set(cpp.retagged_engine_ids(base, repo_root))
+    except OSError:                     # no git on PATH (same guard as the params loop): no diff
+        pass
     return deferred
 
 
-def test_an_engine_dockerfile_change_defers_that_engine(tmp_path, monkeypatch):
-    """A Dockerfile-only change re-tags that engine's image — the context hash baked into the
-    tag covers the Dockerfile, so the new tag exists only once this change's producer publishes
-    it, exactly like the #823 tag-computation case. The unit gate must defer it, not require a
-    404 from the registry (issue #2504 removed the root USER line and reddened the gate for
-    want of this rule)."""
+def _synthetic_engine_repo(tmp_path: Path, dockerfile_cpu: str) -> Path:
+    """A self-contained git repo with one buildable engine cell (`demo/cpu`).
+
+    `retagged_engine_ids` computes the REAL published tag from the params file, the
+    engine's `Dockerfile.<variant>`, `containers/engines/entrypoint.sh` and
+    `scripts/engine_runner.py` (`engine_skills._image_inputs`), so the synthetic tree
+    must carry every hashed input at both the base commit and the working tree — not
+    just the params and a dockerfile.
+    """
     repo = tmp_path / "repo"
     params_dir = repo / "containers" / "engines" / "params"
     docker = repo / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.cpu"
-    params_dir.mkdir(parents=True)
+    (repo / "scripts").mkdir(parents=True)
     docker.parent.mkdir(parents=True)
-    (params_dir / "demo.json").write_text('{"version": "1"}\n')
-    docker.write_text("FROM base\nUSER root\n")
-    # The tag-computation source must exist at base too, or the #823 fleet rule defers
-    # everything for want of a base copy (issue #925's lesson, applied to this harness).
-    (repo / "scripts").mkdir()
-    (repo / "scripts" / "engine_image.py").write_text("# tag computation placeholder\n")
+    params_dir.mkdir(parents=True)
+    # A minimal-but-valid params file: id/variants/pinned are the fields the tag formula reads.
+    (params_dir / "demo.json").write_text(
+        "{\"id\": \"demo\", \"pinned\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", "
+        "\"variants\": {\"cpu\": {\"id\": \"demo\", \"backend\": \"cpu\"}}}\n")
+    docker.write_text(dockerfile_cpu)
+    (repo / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\n")
+    (repo / "scripts" / "engine_runner.py").write_text("# runner\n")
 
     def git(*args):
         return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
@@ -522,59 +517,87 @@ def test_an_engine_dockerfile_change_defers_that_engine(tmp_path, monkeypatch):
     git("init", "-b", "main")
     git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
     git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base")
+    return repo
+
+
+def test_an_engine_dockerfile_change_defers_that_engine(tmp_path, monkeypatch):
+    """A Dockerfile-only change re-tags that engine's image — the context hash baked into the
+    tag covers the Dockerfile, so the new tag exists only once this change's producer publishes
+    it, exactly like the #823 tag-computation case. The unit gate must defer it, not require a
+    404 from the registry (issue #2504 removed the root USER line and reddened the gate for
+    want of this rule; #2517 is the same shape merged red)."""
+
+    # Given a synthetic repo with one engine and its full hashed input set at base
+    repo = _synthetic_engine_repo(tmp_path, "FROM base\nUSER root\n")
+    params_dir = repo / "containers" / "engines" / "params"
+    docker = repo / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.cpu"
     monkeypatch.setattr(sys.modules[__name__], "REPO", repo)
 
-    # Given a tree identical to base, the engine is still registry-checked.
-    assert _deferred_engines(params_dir=params_dir, base="main") == set()
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
 
-    # When only the engine Dockerfile moves (on a branch, base stays at main), that engine
-    # is deferred to its producer publish.
+    # When the tree is identical to base (main run, base == head) nothing is deferred
+    # Then  the engine is still registry-checked
+    assert _deferred_engines(params_dir=params_dir, base="main") == set(), \
+        "a tree identical to base must defer nothing"
+
+    # When only the engine Dockerfile moves (on a branch, base stays at main)
     git("checkout", "-b", "feat")
     docker.write_text("FROM base\nUSER 1000:1000\n")
     git("add", "-A")
     git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "nonroot")
-    assert _deferred_engines(params_dir=params_dir, base="main") == {"demo"}
+    deferred = _deferred_engines(params_dir=params_dir, base="main")
+
+    # Then  that engine is deferred to its producer publish, not required from the registry
+    assert deferred == {"demo"}, deferred
+
+
+def test_a_dockerfile_only_change_is_deferred_via_the_shared_helper_and_base_eq_head_is_not(tmp_path, monkeypatch):
+    """The deferral runs the SAME tag-identity helper as the may-arm merge gate (issue #2517).
+
+    A change that re-tags an engine (its Dockerfile bytes moved, params untouched) is deferred
+    by `retagged_engine_ids` — the shared computation — on a moving base, and on a base==head
+    run (every retag already published by the PR that merged it) nothing is deferred, so every
+    tag is still registry-checked."""
+
+    # Given a synthetic engine repo whose params file is byte-identical to its base
+    repo = _synthetic_engine_repo(tmp_path, "FROM base\nUSER root\n")
+    params_dir = repo / "containers" / "engines" / "params"
+    monkeypatch.setattr(sys.modules[__name__], "REPO", repo)
+    params_unchanged = (repo / "containers" / "engines" / "params" / "demo.json").read_text()
+
+    # When the tag-identity diff runs against the base, the identical tree retags nothing
+    # Then  nothing is deferred and the shared helper agrees
+    assert cpp.retagged_engine_ids("main", repo) == []
+    assert _deferred_engines(params_dir=params_dir, base="main") == set()
+    assert (repo / "containers" / "engines" / "params" / "demo.json").read_text() == params_unchanged
 
 
 def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
-    """An engine whose params AND whose tag computation equal the base copy is still checked
-    against the registry (#672). A tag-computation change (issue #823 re-enabling prism CUDA) re-tags
-    the whole fleet to not-yet-published tags and DOES defer an unchanged params file, because the
-    producer publishes those new tags — deferred, not required from the registry."""
+    """An engine whose params equal the base copy is still checked against the registry (#672).
+
+    With base == head the params loop AND the shared tag-identity diff are both empty, so an
+    unchanged params file defers nothing — the tag-identity case (unchanged params, retagged
+    dockerfile) is covered by the dedicated Dockerfile retag tests below (#2517)."""
 
     engine = "llama.cpp"
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
                           capture_output=True, text=True).stdout.strip()
 
-    # Case 1: params identical AND tag computation stable (base == head) => NOT deferred
+    # Given a synthetic params dir whose llama.cpp copy equals this checkout's exactly
     root = tmp_path / "params"
     root.mkdir()
     shown = subprocess.run(["git", "show", f"{head}:containers/engines/params/{engine}.json"],
                            cwd=REPO, capture_output=True, text=True)
     assert shown.returncode == 0, shown.stderr
     (root / f"{engine}.json").write_text(shown.stdout)
-    assert _deferred_engines(params_dir=root, base=head) == set()
 
-    # Case 2: params identical to origin/main. Whether the engine is deferred depends on whether
-    # this branch's tag computation (scripts/engine_image.py) actually differs from base — a
-    # tag-computation change re-tags the whole fleet, so an unchanged params file IS deferred then
-    # (#823), and is not when the computation is unchanged. Computing it here keeps the assertion
-    # deterministic across the CI and local base states.
-    changed = subprocess.run(["git", "show", "origin/main:scripts/engine_image.py"], cwd=REPO,
-                             capture_output=True, text=True)
-    tag_src_changed = (changed.returncode != 0
-                       or changed.stdout != (REPO / "scripts" / "engine_image.py").read_text())
-    base_main = subprocess.run(["git", "show", f"origin/main:containers/engines/params/{engine}.json"],
-                               cwd=REPO, capture_output=True, text=True)
-    assert base_main.returncode == 0, base_main.stderr
-    root2 = tmp_path / "params2"
-    root2.mkdir()
-    (root2 / f"{engine}.json").write_text(base_main.stdout)
-    got = _deferred_engines(params_dir=root2, base="origin/main")
-    if tag_src_changed:
-        assert "llama.cpp" in got, got
-    else:
-        assert "llama.cpp" not in got, got
+    # When  the deferred set is computed with base == head (params loop and tag-identity
+    #       diff both equal to the base — nothing changed)
+    deferred = _deferred_engines(params_dir=root, base=head)
+
+    # Then  that engine is NOT deferred
+    assert deferred == set(), deferred
 
 
 def test_an_engine_with_no_base_copy_is_deferred(tmp_path):

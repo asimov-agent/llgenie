@@ -130,6 +130,103 @@ def test_the_real_diff_detects_a_repin_and_checks_the_registry():
     assert (REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text() == orig
 
 
+# --- tag-identity diff (issue #2517) -------------------------------------
+# The published tag hashes the Dockerfile (plus entrypoint.sh and engine_runner.py),
+# NOT just the params file. So a Dockerfile-only change re-tags every image with an
+# EMPTY params diff — the gate that only diffs params text cannot see it, and the change
+# merged red (#2517: 36 Dockerfiles, 0 params, 28 unpublished tags). `retagged_engine_ids`
+# is the tag-identity half of the repin set: an engine whose computed tag differs from base.
+
+def _synthetic_repo_with_retag(tmp_path, dockerfile_cpu="FROM base\nUSER root\n"):
+    """A git repo with one buildable engine cell, every hashed input present at base.
+
+    The tag formula (`engine_skills._image_inputs`) reads the params file, the engine's
+    `Dockerfile.<variant>`, `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`,
+    so the fixture must carry all four at the base commit for the diff to compare real bytes.
+    Returns (repo, params_dir, dockerfile).
+    """
+    repo = tmp_path / "repo"
+    params_dir = repo / "containers" / "engines" / "params"
+    docker = repo / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.cpu"
+    (repo / "scripts").mkdir(parents=True)
+    docker.parent.mkdir(parents=True)
+    params_dir.mkdir(parents=True)
+    (params_dir / "demo.json").write_text(
+        "{\"id\": \"demo\", \"pinned\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", "
+        "\"variants\": {\"cpu\": {\"id\": \"demo\", \"backend\": \"cpu\"}}}\n")
+    docker.write_text(dockerfile_cpu)
+    (repo / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\n")
+    (repo / "scripts" / "engine_runner.py").write_text("# runner\n")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+
+    git("init", "-b", "main")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "base")
+    return repo, params_dir, docker
+
+
+def test_retagged_engine_ids_names_an_engine_whose_dockerfile_changed_while_params_did_not(tmp_path):
+    """A Dockerfile-only change (params byte-identical) re-tags the engine's image, and the
+    tag-identity helper names it even though no params text moved — the #2517 shape."""
+
+    # Given a synthetic repo whose engine's params file equals its base exactly
+    repo, params_dir, docker = _synthetic_repo_with_retag(tmp_path, "FROM base\nUSER root\n")
+    params_unchanged = (params_dir / "demo.json").read_text()
+
+    # When  only the engine's Dockerfile changes (on a branch, base stays at main)
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+
+    git("checkout", "-b", "feat")
+    docker.write_text("FROM base\nUSER 1000:1000\n")
+    git("add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "nonroot")
+
+    # Then  the tag-identity diff names the engine while its params file is untouched
+    assert (params_dir / "demo.json").read_text() == params_unchanged, "the params file must not move"
+    retagged = cpp.retagged_engine_ids("main", repo)
+    assert retagged == ["demo"], retagged
+
+
+def test_retagged_engine_ids_names_nothing_when_base_equals_head(tmp_path):
+    """On a main run — base == head, every retag already published by the PR that merged it —
+    the tag-identity diff is empty, so the may-arm gate still checks every tag."""
+
+    # Given a synthetic repo with one engine, tree identical to base
+    repo, params_dir, _docker = _synthetic_repo_with_retag(tmp_path)
+
+    # When  the tag-identity diff runs against the base itself
+    retagged = cpp.retagged_engine_ids("main", repo)
+
+    # Then  no engine is named (nothing re-tagged by a change that did not move)
+    assert retagged == [], retagged
+
+
+def test_repinned_engine_ids_is_the_union_of_params_and_tag_identity(tmp_path):
+    """The repin set is the params-file diff UNION the tag-identity diff — a Dockerfile-only
+    change repins via tag identity even though no params byte moved, so both the may-arm merge
+    gate and the will-arm publisher inherit the retag."""
+
+    # Given a synthetic repo whose engine's Dockerfile changed (params identical)
+    repo, _params_dir, docker = _synthetic_repo_with_retag(tmp_path, "FROM base\nUSER root\n")
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True)
+
+    git("checkout", "-b", "feat")
+    docker.write_text("FROM base\nUSER 1000:1000\n")
+    git("add", "-A")
+    git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "nonroot")
+
+    # When  the repin set is computed vs the base
+    ids = cpp.repinned_engine_ids("main", repo)
+
+    # Then  the engine is repinned by tag identity even though its params file never moved
+    assert ids == ["demo"], ids
+
+
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
     mk = (REPO / "Makefile").read_text()

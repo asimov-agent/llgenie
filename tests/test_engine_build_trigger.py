@@ -465,3 +465,38 @@ def test_a_rejected_dispatch_reports_the_cli_reason_not_a_bare_failure(monkeypat
     err = capsys.readouterr().err
     assert "HTTP 422" in err
     assert "the workflow input 'arch' is not valid" in err
+
+
+# --- tag-identity (issue #2517): the will-arm inherits the shared union -----------------
+# `repinned_engine_ids` is now the params-file diff UNION the tag-identity diff
+# (`check_engine_pins_published.retagged_engine_ids`), so a Dockerfile-only change — the
+# #2517 shape: 36 Dockerfiles retagged with an empty params diff — is a repin to the
+# trigger and must dispatch scoped push=true builds (the mechanism that a dockerfile-only
+# change lands in `repinned_engine_ids` is locked by
+# `test_repinned_engine_ids_is_the_union_of_params_and_tag_identity` in the pins file).
+# Nothing retagged => nothing dispatched (the existing `test_no_engine_repinned_is_green_and_hermetic`).
+
+def test_a_tag_retagged_engine_dispatches_scoped_push_true(monkeypatch, capsys):
+    """A Dockerfile-only change (empty params diff) is a repin to the will-arm: it dispatches
+    scoped `engine=demo push=true` and awaits that run's verdict — the #2517 class, fixed."""
+
+    # Given a tag-retagged engine (the helper's union names it; demo's Dockerfile moved,
+    # params byte-identical — see the pins-file union test)
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="demo")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "completed", "conclusion": "success", "completed_at": "2026-11-03T00:00:00Z"})
+
+    # When  the will-arm runs on that change
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "main", "--gh", "gh"])
+
+    # Then  it dispatches scoped push=true for the tag-retagged engine and passes on success
+    assert rc == 0
+    argvs = _dispatch_argvs(state)
+    assert argvs, "a tag-retagged engine must be dispatched"
+    argv = argvs[0]
+    fields = [argv[i + 1] for i in range(len(argv)) if argv[i] == "--field"]
+    assert fields[0].startswith("engine="), f"scoped to the retagged engine, got {fields}"
+    assert "engine=demo" in fields and fields[1] == "push=true", f"scoped push=true dispatch, got {fields}"
+    assert "producer run 77 success" in capsys.readouterr().out
