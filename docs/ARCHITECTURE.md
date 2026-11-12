@@ -158,12 +158,12 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 5414 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
-`README.md`), `containers/` 60, `tests/` 300, `scripts/` 175, `openspec/` 1789, `agent-wiki/`
-785, `docs/` 795 and `agents/` 1400 (13 profile dirs plus `manifest.json`,
+The tree is 5541 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
+`README.md`), `containers/` 60, `tests/` 307, `scripts/` 175, `openspec/` 1867, `agent-wiki/`
+806, `docs/` 816 and `agents/` 1400 (13 profile dirs plus `manifest.json`,
 `standing-rules.md`, `fleet-block-exemptions.json` and `README.md`). The nine named content dirs sum to
-5335; the remaining 79 tracked files are `.github/`, `.hermes/`, `tools/`,
-`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `8a4bc26df0a7c132c0622204f7385c04fe46ccd5`)
+5462; the remaining 79 tracked files are `.github/`, `.hermes/`, `tools/`,
+`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `be92a32695ebf46c9b15386295c73be1331091fd`)
 
 | Path | Role |
 |---|---|
@@ -179,10 +179,10 @@ The tree is 5414 tracked files: `data/` 13, `skills/` 18 (17 engine directories 
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`): its `Dockerfile` only — the two lockfiles are copied from `tools/` into a temp build context and are never tracked here (a committed copy is a stale pin the scan can never clear, issue #787) |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (461 changes) |
-| `agent-wiki/` | dated work record (785 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (480 changes) |
+| `agent-wiki/` | dated work record (806 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
-| `tests/` | 256 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 260 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `mk/` | the include-split of the top `Makefile` (issue #800): `gates.mk` moved byte-identical out of it (`include mk/gates.mk`), so the host/gate/coverage/lint targets keep their `##` help lines under the top entry point |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
@@ -272,8 +272,11 @@ container; a bare `python3 -m pytest` on the runner's own interpreter is what ma
 without a seam.
 
 `make engine-smoke` is the host entry point that installs one engine through its skill and
-serves a tiny model; CI's per-engine serve check is `make test-engine-stage TEST=serve` in
-the producer's build rows, plus `make test-published-engine` on the published image.
+serves a tiny model — its deterministic default gate probes the engine binary against the
+flags the engine's `binaries.json` manifest documents (issue #2573), exactly like the
+built-image path, with full serving the explicit `--serve` tier; CI's per-engine serve
+check is `make test-engine-stage TEST=serve` in the producer's build rows, plus
+`make test-published-engine` on the published image.
 
 The binary proof is per flag, never per binary (issue #580). `make push-engine` gates the
 publish on `scripts/engine_image.py`'s `BINARY_PROBE`: the probe resolves the engine file
@@ -333,11 +336,20 @@ injects one after every FROM line), so build-stage installs stay privileged; onl
 `USER 1000:1000` is what the served process runs as. The `llgenie` user's home is
 `/var/lib/llgenie`, and `/models` (plus `/opt/llgenie/app`) is chowned to it — so
 host-mounted model dirs, which belong to the host user (uid 1000), are exactly the user who
-writes into them. The negative control was measured: trivy `DS-0002` root-user findings went
+writes into them. A root-built runtime the served user must reach is opened the same way: a
+skill declares `base_access: ["/opt/python"]`, and `render_dockerfile` runs
+`_base_access_run` before the trailing `USER 1000:1000` — it opens that tree's directories
+and `<dir>/bin` entries and traces every `<dir>/bin/python*` symlink's ancestor chain
+(`a+x` traverse) for uid 1000, because the vllm rocm base hosts its venv in a root-built
+`/opt/python` whose `python3` is a symlink out to a standalone CPython under a root-private
+home that directory permissions alone cannot reach (issue #2553). The negative control was
+measured: trivy `DS-0002` root-user findings went
 37 on `origin/main` to 0 at head (issue #2504, per-file issues #2397–#2428 and #2463–#2467
-closed as duplicates). `containers/test/Dockerfile` is deliberately OUT of the sweep: its
-content is the published `test:<tag>` pull gate for every fork-head PR CI job, so editing it
-self-blocks the PR (deferred with the ci-scope publish-order lane to #2518).
+closed as duplicates). `containers/test/Dockerfile` used to be OUT of the sweep because its content is the
+published `test:<tag>` pull gate for every fork-head PR CI job, so editing it self-blocked
+the PR; with the #2518 publish-order lane a `pull_request` run now defers the publish it
+cannot perform and builds the moved test tag locally, so the file can move again and the
+landing push publishes it.
 Seventeen engine directories carry a skill, and thirteen of them produce a container image:
 `containers/engines/params/` and `containers/engines/dockerfiles/` each hold one entry per
 servable engine — `llama.cpp`, `llama.cpp-prism`, `llama.cpp-laurentzuijdwijk`,
@@ -799,7 +811,10 @@ checkout.
 The test and OpenSpec images are hash-tagged artifacts, not per-job rebuilds: `make test-image`
 and `make openspec-image` pull the published hash of their Dockerfile (plus lockfiles) and
 build it locally only when that hash is not on GHCR yet; `test-image-pull` and
-`openspec-image-pull` are what CI calls, and they fail rather than build. `make agent-image`
+`openspec-image-pull` are what CI calls — a push run fails rather than builds, while a
+`pull_request` run DEFERS the publish it cannot perform (a fork token cannot write the
+package) and builds the moved tag locally, so the image the fork's own job ran on is real
+and the landing push publishes it (issue #2518 / #2564). `make agent-image`
 and `make agent-image-pull` pull `ghcr.io/<registry>/llgenie/agent:latest` — the tag
 `publish agent` points at the current content hash, including when that hash was already
 published — and the pull form fails rather than builds. `make agent-image-ref` prints that
@@ -842,9 +857,13 @@ two pushes cannot race on the same `:<arch>` tag; `cancel-in-progress` is false,
 is never killed by a dispatch. `.github/workflows/engine-build-pr-trigger.yml` is the "will"
 arm of the pin-bump gate (issue #1633): a PR that REPINS an engine (a change under
 `containers/engines/params/**`) dispatches `engine-build push=true` scoped to exactly the
-engines the change repins (via `scripts/engine_build_trigger.py`, the params-FILE diff shared
-with the may-arm `make check-engine-pins-published`, issue #1631) and AWAITS each dispatched
-run's own verdict before the merge window opens; it dispatches only when the PR head is a
+repinned (engine, arch) CELLS the change repins, one cell per row with its arch passed
+explicitly (`make engine-build-pr-trigger` dispatches, `--dry` prints the plan and
+mutates nothing, and `make engine-build-pr-trigger-report` reads the plan without ever
+dispatching — cell granularity, issue #2590), via `scripts/engine_build_trigger.py`'s
+params-FILE diff shared with the may-arm `make check-engine-pins-published`, issue #1631,
+and AWAITS each dispatched run's own verdict before the merge window opens; it dispatches
+only when the PR head is a
 branch in this repository, joins the producer's own concurrency queue, and never cancels a
 mid-build run. Its dispatch step passes the base sha and head ref through `env:` and reads them
 as `"$PR_BASE_SHA"` / `"$PR_HEAD_REF"` in the `make` dispatcher — never interpolated into the
@@ -877,16 +896,20 @@ cron `35 3 * * *` / `49 11 * * *` / `1 19 * * *` — odd minutes not shared with
 issue #275 — plus a `push` trigger on `main`), which runs `make check-engine-launchers
 CHECK_REGISTRY=1 ARCH=all` and names each engine whose committed pin resolves no manifest as
 ONE tracking issue. Since issue #2259 that gate no longer only *names* the gap: an `always()`
-step reads the fleet-gate output and runs `engine-build` with `push=true` for each missing
-cell, so a 404'd committed tag is a **partial publish** that the worker itself repairs
+step reads the fleet-gate output and repairs a 404'd committed tag itself, so a pinned image
+that never reaches GHCR is a **partial publish** the worker redispenses
 (measured: a torch 2.13→2.14 change in vllm's install lines retagged all three backend cells,
 the producer aborted on the cpu cell, and cuda/rocm at the new hash sat unpublished for five
-days until the gate dispatched them; issues #2261, #2259). Which cells it dispatches is now
+days until the gate dispatched them; issues #2261, #2259). A multi-cell wave is coalesced
+into ONE full-matrix `push=true` sweep, and a single missing cell is dispatched as its own
+per-cell `engine-build push=true` row (issue #2579); every dispatch names the producing run
+id, so the wave that asked for the republish is visible in the repair run's log
+(dispatch-observability, issue #2589). Which cells it dispatches is now
 the canonical **`[select]` contract** (issue #2561), not a reverse-parse of the ghcr tag:
 `check_engine_pins_published.py` prints one `[select] <committed engine id> <variant> <tag
 suffix>` line per missing cell (the COMMITTED id, dots intact — NOT the ghcr package spelling,
 where dots are illegal and the name never becomes `llama-cpp` again), and `registry-liveness`
-greps for `^\[select\] ` and dispatches each. Before that it derived the engine from the ghcr
+greps for `^\[select\] ` and dispatches the cells it names. Before that it derived the engine from the ghcr
 package URL — and because package names legally replace dots with dashes, `llama.cpp` reached
 `engine-build` as `engine=llama-cpp`, the matrix matched no params id, synthesized its
 `none`/`none` placeholder, and nine runs completed "success" having built nothing (runs
