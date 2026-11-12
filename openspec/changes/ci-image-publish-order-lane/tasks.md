@@ -43,6 +43,8 @@
 - [x] 4.5 `agent-wiki/` entry + `docs/changes.d/` row naming issue #2518 and the PR: entries
       written naming issue #2518 + #2563; PR number added to the wiki line as soon as the PR opens.
 - [x] 4.6 PR staging verified: branch carries the implementation + tick commits; staged PR body
-      ends with `closes #2518`, has ticked AC with `proven:` evidence and `Not covered` naming #2563;
-      `make bot-stamp-body` rc=0 (AGENTS/BASE pair appended, 2026-11-12). Push + PR-open proofs are
-      recorded in the wiki entry once the PR number exists.
+      (#2564) carries umbrella-aware close handling — no closing keyword to #2518 (its lanes
+      #2504, #2529, #2563 are open), ticked AC with `proven:` evidence and `Not covered` naming
+      #2563; `make bot-stamp-body` rc=0 (AGENTS/BASE pair on the body, 2026-11-12); local
+      `check_pr_acceptance.py` and `check_pr_closing.py` rc=0 against head `6d7269378` and this
+      body. Push + PR-open proofs are recorded in the wiki entry.

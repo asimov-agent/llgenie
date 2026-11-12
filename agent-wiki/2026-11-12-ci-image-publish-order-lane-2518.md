@@ -49,8 +49,12 @@ fallback. Issue body synced to this design.
 
 ## Current status
 
-Implementation committed on `feat/ci-image-publish-order-lane`; PR opened against
-upstream main with `closes #2518`. The `USER 1000:1000` fold of
+Branch pushed, PR #2564 open against upstream main at head `6d7269378` (single squashed commit).
+#2518 is an umbrella with in-flight lanes (#2504, #2529, #2563): the PR body carries no closing
+keyword to it — `Not covered` names the lanes and the close lands with the lane-closing PR
+(rollout-lane gate, #1856/#1849 recurrence class).
+
+Implementation committed on `feat/ci-image-publish-order-lane`. The `USER 1000:1000` fold of
 `containers/test/Dockerfile` (last tree-wide trivy `DS-0002`) is deferred to its own
 fork-head PR issue, which doubles as the live proof that a fork-head PR riding this
 lane goes green.
