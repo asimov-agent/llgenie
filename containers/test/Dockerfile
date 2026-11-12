@@ -35,17 +35,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # safe so `git ls-files` in the lint stage works as root in the container.
     && git config --global --add safe.directory '*'
 
-# Serve as an unprivileged user (issue #2504, trivy DS-0002). Every test stage in
-# the Makefile runs this image with an explicit `-u root` (TEST_OPTS /
-# ENGINE_TEST_ARGS), so this USER does not change how the stages run - it removes
-# the bare-root default for any plain `docker run llgenie/test`, which is what the
-# misconfig scan flags. HOME for this user is created up front.
-RUN set -eux; \
-    getent group 1000 >/dev/null || groupadd -g 1000 llgenie; \
-    getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -m -d /var/lib/llgenie -s /bin/bash llgenie; \
-    git config --system safe.directory '*'
-
-USER 1000:1000
-
 WORKDIR /repo
 CMD ["--help"]

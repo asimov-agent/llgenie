@@ -1,1 +1,1 @@
-| 2026-11-11 | Every shipped Dockerfile (4 bases, 32 engine variants, test image) now serves as uid/gid 1000; builds re-enable `USER root` after each FROM (trivy DS-0002 37 -> 0) | [note](agent-wiki/2026-11-11-nonroot-user-dockerfiles-2504.md) | #2504 |
+| 2026-11-11 | The 36 engine Dockerfiles (4 bases, 32 variants) now serve as uid/gid 1000; builds re-enable `USER root` after each FROM (trivy DS-0002 37 -> 1; `containers/test/Dockerfile` deferred to #2518) | [note](agent-wiki/2026-11-11-nonroot-user-dockerfiles-2504.md) | #2504 |

@@ -4,7 +4,7 @@
 
 ### Requirement: Every shipped Dockerfile declares a non-root service user
 
-All 37 shipped Dockerfiles (4 shared bases, 32 engine variants, `containers/test/Dockerfile`) SHALL specify a `USER` with a non-root uid as the trailing runtime identity, satisfying trivy `DS-0002`. The user SHALL be created idempotently so bases that already define uid/gid 1000 are not double-created.
+All 36 shipped engine Dockerfiles (4 shared bases, 32 engine variants) SHALL specify a `USER` with a non-root uid as the trailing runtime identity, satisfying trivy `DS-0002`. The user SHALL be created idempotently so bases that already define uid/gid 1000 are not double-created. `containers/test/Dockerfile` is OUT of this scope: it is a hash input of the published `llgenie/test` CI image, and editing it in a fork-head PR moves a GHCR tag no PR token may publish (issue #155) — every `test-env`-consuming job then fails at pull (measured on PR #2517 head `09f814f79`: `ci-images` SKIP-publish `test:8fb483ae90f5`, then `linux/lint`, `linux/unit`, `linux/install`, `linux/cpu-health` red on `make test-env`). Its non-root fold needs the publish-order lane filed as its own issue.
 
 #### Scenario: Generated engine image serves unprivileged
 
