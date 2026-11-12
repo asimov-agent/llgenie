@@ -13,7 +13,7 @@
   `_base_access_run` renders a directory-only `find -type d -exec chmod a+rx` between the
   service-user RUN and `USER 1000:1000`.
 - Tag-identity proof measured on the branch: cuda `4c1f3eee` and cpu `524f7326` digests
-  byte-identical before/after; rocm moves `db98981b` → `ba13b1d7` (the new image must not
+  byte-identical before/after; rocm moves `db98981b` → `ba13b1d7` → `d04739cb` — run 43254534536 showed chmod-on-/opt/python alone still fails (exit 126 / ModuleNotFoundError) because the venv's python3 symlink resolves through a mode-700 home, so the rendered step now traces each bin/python* symlink and opens its ancestor chain (a+x) + interpreter tree (a+rx) (the new image must not
   reuse the broken tag identity).
 - `make generate-engine-params` rc=0, generated diff touches exactly
   `containers/engines/dockerfiles/vllm/Dockerfile.rocm` + `containers/engines/params/vllm.json`.
@@ -32,3 +32,16 @@ Issue #2553 body restated into the six-section shape (liveness marker line kept 
 the bot's idempotence still finds it; both tag identities named). Full `make test-unit`
 re-run in progress on the committed branch. After merge, registry-liveness' push trigger
 dispatches the `vllm`/`rocm` `push=true` publish of `3a4d82f5-ba13b1d7-rocm` from main.
+
+## 2026-11-12 (later) — ancestor-traversal proven by a real build
+Manual engine-build dispatch run 43264436280 (push=true) on head `179d7aa647`:
+`make build-engine ENGINE=vllm ARCH=rocm` succeeded, `make test-engine-stage
+ENGINE=vllm ARCH=rocm TEST=detect` passed, bind-proof recorded, and
+`make push-engine` ran (the previous dispatch 43254534536 had failed at the
+verify stage). The CI unit failure on run 43264350593 is now fully explained:
+3687 tests passed at 17:16:20Z, then the `check-engine-pins-published` gate
+reported `[pins] NOT PUBLISHED vllm:3a4d82f5-d04739cb-rocm (HTTP 404)` at
+17:16:31Z — publish simply had not happened yet; the PR trigger's own dispatch
+(run 43264400389) contained only engine-build-vllm-cpu, a selection gap filed
+as #2590. Remedy for the red unit job: publish 43264436280, then re-run the
+failed CI jobs.

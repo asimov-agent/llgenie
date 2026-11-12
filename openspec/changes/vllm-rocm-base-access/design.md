@@ -7,7 +7,7 @@ entrypoint + runner)` (`engine_skills._image_inputs`). Attaching the key ONLY to
 that declares `base_access` means exactly one digest moves. Measured before/after on this
 branch: vllm cuda `4c1f3eee` and cpu `524f7326` are byte-identical hash inputs before and
 after (their variant dicts gain nothing), so their published tags stay reachable; rocm moves
-`db98981b` → `ba13b1d7` — and that move is REQUIRED: the old rocm image is the broken one,
+`db98981b` → `ba13b1d7` → `d04739cb` — and that move is REQUIRED: the old rocm image is the broken one, (run 43254534536: chmod-ing the venv tree alone left exit 126 — the interpreter lives behind a mode-700 ancestor; the rendered step now traces it),
 so a new content hash must carry the fixed image. Attaching the key to every variant (even
 empty lists) would move all 28 published tags at once — which is why the attach is
 conditional on a non-empty declaration.

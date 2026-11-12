@@ -49,7 +49,7 @@ cell's digest — and every already-published tag — byte-reachable.
 - **When** the vllm params JSON and the tag digests are recomputed
 - **Then** `variants.rocm` carries `base_access: ["/opt/python"]`, `variants.cuda` and
   `variants.cpu` carry no such key, the cuda digest stays `4c1f3eee` and the cpu digest
-  stays `524f7326`, and the rocm digest moves away from `db98981b` (measured `ba13b1d7`)
+  stays `524f7326`, and the rocm digest moves away from `db98981b` (measured `d04739cb` after the interpreter-chain trace; `ba13b1d7` on run 43254534536 proved the chmod-only step insufficient)
 
 #### Scenario: rocm detect and flag probes pass on a rebuilt image
 

@@ -98,8 +98,11 @@ container:
     # `from vllm import __version__`. Entrypoint serves (see launch below).
     # issue #2553: the base hosts vllm in a root-built uv venv at /opt/python (measured via its
     # Docker Hub config blob); as the mandatory runtime USER 1000 the launcher is not executable
-    # (exit 126) and site-packages is untraversable (ModuleNotFoundError). base_access makes the
-    # renderer open the tree's DIRECTORIES + <dir>/bin entries for uid 1000 before USER 1000:1000.
+    # (exit 126) and the venv is untraversable (ModuleNotFoundError): the venv's python3 is a
+    # symlink out to a standalone CPython under a root-private home, so opening /opt/python's
+    # directories alone is not enough. base_access makes the renderer open the tree's DIRECTORIES
+    # + <dir>/bin entries AND trace each <dir>/bin/python* symlink's ancestor chain (a+x traverse)
+    # for uid 1000 before USER 1000:1000.
     base: docker.io/rocm/vllm:rocm10.1.0_ubuntu24.04_py3.14-pytorch_2.13.0_vllm-0.29.0
     prebuilt: true
     binary: "vllm"

@@ -4,7 +4,7 @@
       variant; `_base_access_run` renders the directory-only chmod RUN; `render_dockerfile`
       inserts it between the service-user RUN and `USER 1000:1000`
       (proven: cuda `4c1f3eee` / cpu `524f7326` `_image_hash` byte-identical before/after,
-      rocm moves `db98981b` → `ba13b1d7`, measured on the branch)
+      rocm moves `db98981b` → `d04739cb`, measured on the branch via `make check-engine-pins-published ALL=1`)
 - [x] `skills/engines/vllm/SKILL.md` `container.rocm` declares `base_access: ["/opt/python"]`;
       cuda/cpu declare nothing (proven: regenerated params carry the key in the rocm variant only)
 - [x] `make generate-engine-params` rc=0; generated diff touches exactly

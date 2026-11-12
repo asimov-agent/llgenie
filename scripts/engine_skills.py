@@ -968,12 +968,26 @@ def _base_access_run(dirs: list[str]) -> str:
     A recursive chmod over regular files would re-materialize the base's ~15 GB engine tree
     as a copy-up layer; the wheel file modes (644 data / 755 binaries) are already right
     once every parent directory carries o+rx.
+
+    A venv's interpreter is only a symlink: the uv base points `/opt/python/bin/python3`
+    at a standalone CPython under a root-private home (measured on run 43254534536: the
+    chmod above had landed and uid 1000 still hit exit 126 / ModuleNotFoundError, because
+    resolving the link crosses a mode-700 ancestor). So the step also traces each
+    `<path>/bin/python*` symlink to its real target and opens the target's ancestor
+    chain — `a+x` only (traverse, never list) up the chain, `a+rx` on the interpreter
+    package tree — so exec, shebang resolution and the PATH lookup all reach the venv's
+    interpreter without copying the interpreter tree into the image.
     """
     body = ('for d in %s; do test -d "$d" || continue; '
             'find "$d" -type d -exec chmod a+rx {} +; '
             'if test -d "$d/bin"; then find "$d/bin" -maxdepth 1 -exec chmod a+rx {} +; fi; '
             'done') % " ".join(dirs)
-    return "RUN set -eux; " + body
+    chain = ('for d in %s; do for l in "$d"/bin/python*; do test -e "$l" || continue; '
+             'rp=$(readlink -f "$l"); case "$rp" in "$d"/*) continue ;; esac; '
+             't="$rp"; while [ "$t" != "/" ]; do chmod a+x "$t"; t=$(dirname "$t"); done; '
+             'find "$(dirname "$rp")/.." -maxdepth 5 -type d -exec chmod a+rx {} +; '
+             'done; done') % " ".join(dirs)
+    return "RUN set -eux; " + body + "; " + chain
 
 
 def base_image_name(backend: str) -> str:

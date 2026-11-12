@@ -28,7 +28,7 @@ LABEL org.opencontainers.image.title="llgenie-vllm:rocm" llgenie.engine="vllm" \
 EXPOSE 11434
 VOLUME ["/models"]
 RUN set -eux; getent group 1000 >/dev/null || groupadd -g 1000 llgenie; getent passwd 1000 >/dev/null || useradd -u 1000 -g 1000 -m -d /var/lib/llgenie -s /usr/sbin/nologin llgenie; mkdir -p /var/lib/llgenie /models/hf && chown 1000:1000 /var/lib/llgenie /models /models/hf && chown -R 1000:1000 /opt/llgenie/app
-RUN set -eux; for d in /opt/python; do test -d "$d" || continue; find "$d" -type d -exec chmod a+rx {} +; if test -d "$d/bin"; then find "$d/bin" -maxdepth 1 -exec chmod a+rx {} +; fi; done
+RUN set -eux; for d in /opt/python; do test -d "$d" || continue; find "$d" -type d -exec chmod a+rx {} +; if test -d "$d/bin"; then find "$d/bin" -maxdepth 1 -exec chmod a+rx {} +; fi; done; for d in /opt/python; do for l in "$d"/bin/python*; do test -e "$l" || continue; rp=$(readlink -f "$l"); case "$rp" in "$d"/*) continue ;; esac; t="$rp"; while [ "$t" != "/" ]; do chmod a+x "$t"; t=$(dirname "$t"); done; find "$(dirname "$rp")/.." -maxdepth 5 -type d -exec chmod a+rx {} +; done; done
 USER 1000:1000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=600s --retries=3 \
     CMD /opt/llgenie/app/entrypoint.sh health

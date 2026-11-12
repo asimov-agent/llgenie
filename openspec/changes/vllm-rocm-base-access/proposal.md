@@ -24,7 +24,7 @@ unpublished, the fleet is stuck at 26/28, and every retry burns ~65 min of runne
   cell's image tag hashes its own variant params plus its committed Dockerfile
   (`engine_skills._image_inputs`), so only the declaring cell's digest moves: vllm cuda
   stays `4c1f3eee` (published tag stays reachable), cpu stays `524f7326`, and the broken
-  rocm moves `db98981b` → `ba13b1d7` — moving that tag identity is the point, since the
+  rocm moves `db98981b` → `ba13b1d7` → `d04739cb` — moving that tag identity is the point, since the
   old rocm image is the broken one.
 - `skills/engines/vllm/SKILL.md` `container.rocm` sets `base_access: ["/opt/python"]`;
   `make generate-engine-params` regenerates `containers/engines/dockerfiles/vllm/Dockerfile.rocm`
