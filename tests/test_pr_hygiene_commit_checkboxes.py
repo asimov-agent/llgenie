@@ -117,7 +117,10 @@ def test_the_cli_exits_non_zero_for_unticked_commit_text(repo: Path, tmp_path: P
     commit(repo, "b.txt", UNTICKED_MSG)
     rc = hy.main(["commit-checkboxes", "--root", str(repo), "--head", "feature", "--base", "main"])
     assert rc == 1
-    git(repo, "commit", "-q", "--amend", "-m", TICKED_MSG)
+    # The amend rewrites the COMMITTER too — an identity-less amend dies with 128 in a container
+    # that has no global git identity, exactly the environment the real merge lane runs in.
+    git(repo, "-c", f"user.name={BOT[0]}", "-c", f"user.email={BOT[1]}",
+        "commit", "-q", "--amend", "-m", TICKED_MSG)
     f = tmp_path / "body.md"
     f.write_text(BODY_WITH_CRITERIA)
     assert hy.main(["commit-checkboxes", "--root", str(repo), "--head", "feature", "--base", "main",
@@ -139,6 +142,7 @@ def test_the_merge_lane_defers_a_pr_whose_commits_lack_the_mirror(repo: Path, mo
     reason = am.commit_checkbox_hold("gh", "o/r", 1)
     assert reason and "commit-unchecked-acceptance" in reason
 
-    git(repo, "commit", "-q", "--amend", "-m", TICKED_MSG)
+    git(repo, "-c", f"user.name={BOT[0]}", "-c", f"user.email={BOT[1]}",
+        "commit", "-q", "--amend", "-m", TICKED_MSG)
     msgs = git(repo, "log", "--no-merges", "--format=%B%x00", "main..feature")
     assert am.commit_checkbox_hold("gh", "o/r", 1) is None
