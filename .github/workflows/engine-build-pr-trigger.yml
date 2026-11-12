@@ -4,12 +4,15 @@
 # MERGE until its exact image tag is published. But nothing started the producer — a human had to dispatch
 # `engine-build` with `push=true` out-of-band or wait for a scheduled sweep. Issue #1633 closes that gap with
 # the trigger: THIS workflow, on the PR itself, dispatches `engine-build push=true` scoped to exactly the
-# engines the change repins (via `scripts/engine_build_trigger.py`, the params-FILE diff shared with the may
-# arm), and AWAITS each dispatched run's own verdict before the merge window opens.
+# engines the change repins (via `scripts/engine_build_trigger.py`, the repin diff — params-FILE diff
+# UNION tag-identity diff, issue #2559 — shared with the may arm), and AWAITS each dispatched run's own
+# verdict before the merge window opens.
 #
 # Trigger surface: `pull_request` — a bump's very existence is the trigger, nothing schedules a separate run.
-#                  The paths narrow it to engine params changes; a non-bump PR (the path filter passes but no
-#                  params differ) is hermetic — the script prints `no engine this change repins` and exits 0
+#                  The paths narrow it to every surface a published tag identity is computed from — params,
+#                  the committed Dockerfiles, entrypoint.sh, engine_runner.py, and the two hashing scripts
+#                  themselves (issue #2559: a Dockerfile-only retag IS a repin); a non-bump PR (the path
+#                  filter passes but no tag identity differs) is hermetic — the script prints `no engine this change repins` and exits 0
 #                  touching no network. The trigger never runs on `push` to main: merging publishes on its own
 #                  schedule; a push would double-dispatch a full sweep (#614 design preserved).
 #                  `workflow_dispatch` is a manual re-drive of the same trigger (issue #2381): the base_ref
@@ -40,7 +43,14 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
+      # Every surface the published tag identity hashes (engine_skills._image_inputs) — plus the two
+      # scripts that compute it, so a hash-scheme change drives its own republish (issue #2559).
       - "containers/engines/params/**"
+      - "containers/engines/dockerfiles/**"
+      - "containers/engines/entrypoint.sh"
+      - "scripts/engine_runner.py"
+      - "scripts/engine_skills.py"
+      - "scripts/engine_image.py"
   workflow_dispatch:
     inputs:
       base_ref:
@@ -48,7 +58,7 @@ on:
         required: true
         type: string
       branch:
-        description: "the head ref (branch or sha) whose params may repin engines — the ref the producer dispatch targets"
+        description: "the head ref (branch or sha) whose params or image inputs may repin engines — the ref the producer dispatch targets"
         required: true
         type: string
 

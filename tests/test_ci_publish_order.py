@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 
 import base_ref  # noqa: E402  (the base ref resolver, issue #925)
+import scripts.check_engine_pins_published as cpp  # noqa: E402  (the shared tag-identity repin diff, issue #2559)
 import scripts.install_engine_launchers as iel  # noqa: E402
 
 # `install_engine_launchers` imports its sibling as the top-level `engine_image`;
@@ -439,7 +440,7 @@ def test_the_caller_grants_the_action_read_the_callee_needs():
 
 
 def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -> set[str]:
-    """Engines whose committed params this change moved, so this run is publishing their tags.
+    """Engines whose published tags this change moved, so this run is publishing their tags.
 
     A tag that has never been published cannot answer a registry lookup, and the PR that moves the
     pin is exactly the one that publishes it — in the parallel `engine-image-*` job. Those tags are
@@ -495,6 +496,15 @@ def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -
                 if shown.returncode != 0 or shown.stdout != docker_file.read_text():
                     deferred.add(docker_dir.name)
                     break
+    # The three file-text heuristics above approximate the tag rule for synthetic trees; the
+    # authoritative verdict is the merge gate's own union diff (scripts/check_engine_pins_published,
+    # issue #2559): every engine whose computed tag moves between `base` and this tree is deferred,
+    # because this change's producer publishes it and `make ci-wait-engine-images` waits for it.
+    # base == head moves nothing, so a main run still checks every committed tag.
+    try:
+        deferred.update(cpp.retagged_engine_ids(base, REPO))
+    except OSError:                     # no git on PATH: nothing to compare against
+        return set()
     return deferred
 
 
@@ -534,6 +544,22 @@ def test_an_engine_dockerfile_change_defers_that_engine(tmp_path, monkeypatch):
     git("add", "-A")
     git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "nonroot")
     assert _deferred_engines(params_dir=params_dir, base="main") == {"demo"}
+
+
+def test_the_2517_retag_is_deferred_against_its_pre_merge_main():
+    """The #2517 merge retagged every engine image (36 Dockerfiles, params untouched) while the
+    params-only diff stayed empty and main went red (#2559). Replay it git-only: the tree at HEAD
+    against `d8700c60e`, main's tip just before that merge. Every engine whose tag identity moved
+    MUST be deferred — the deferred set must at least contain the union the merge gate now names.
+    Git + file reads only; no registry call is made."""
+    parent = "d8700c60e"
+    shown = subprocess.run(["git", "cat-file", "-e", parent], cwd=REPO,
+                           capture_output=True, text=True)
+    assert shown.returncode == 0, f"the pinned pre-#2517 commit {parent} must be in the clone"
+    moved = set(cpp.retagged_engine_ids(parent, REPO))
+    assert moved, f"the tree at HEAD differs from {parent} in Dockerfile bytes: those tags moved"
+    deferred = _deferred_engines(base=parent)
+    assert deferred >= moved, f"retagged engines not deferred: {sorted(moved - deferred)}"
 
 
 def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):

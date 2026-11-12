@@ -130,6 +130,89 @@ def test_the_real_diff_detects_a_repin_and_checks_the_registry():
     assert (REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text() == orig
 
 
+# --- Tag identity is the unit of a repin (issue #2559) ------------------------------------------
+# The merged retag of #2517: 36 Dockerfiles changed, no params file touched, both repin consumers
+# saw an empty diff, and 28 committed tags merged unpublished. These fixtures replay that shape
+# with a real git tree holding one engine `demo` — the full input set the tag digest hashes.
+# Git-only: nothing here touches the registry.
+
+
+def _fixture(tmp_path, base_text: str | None = None) -> str:
+    """A committed git tree: engine `demo` x cpu with the params, Dockerfile, entrypoint and
+    runner bytes the published tag hashes. Returns the base commit sha."""
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+    params = {"id": "demo", "pinned": "cafe1234deadbeef", "variants": {"cpu": {"model": "m1"}}}
+    (tmp_path / "containers" / "engines" / "params").mkdir(parents=True)
+    (tmp_path / "containers" / "engines" / "params" / "demo.json").write_text(
+        base_text if base_text is not None else json.dumps(params) + "\n")
+    (tmp_path / "containers" / "engines" / "dockerfiles" / "demo").mkdir(parents=True)
+    (tmp_path / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.cpu").write_text(
+        "FROM base\nUSER 1000\n")
+    (tmp_path / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\nexec launch\n")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts/engine_runner.py").write_text("# runner\n")
+    git("init", "-q")
+    git("config", "user.email", "gate@example.com")
+    git("config", "user.name", "gate")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _commit_against(tmp_path, rel: str, content: str, msg: str) -> None:
+    (tmp_path / rel).write_text(content)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", msg], cwd=tmp_path, check=True, capture_output=True)
+
+
+def test_a_dockerfile_only_change_is_detected_as_a_repin(tmp_path):
+    """The #2517 shape, on a fixture: params byte-identical to the base, only Dockerfile.cpu
+    moved — the tag digest differs, so the tag-identity diff names it and the union names it."""
+    base = _fixture(tmp_path)
+    _commit_against(tmp_path, "containers/engines/dockerfiles/demo/Dockerfile.cpu",
+                    "FROM base\nUSER 1001\n", "dockerfile-only retag")
+    assert cpp.retagged_engine_ids(base, tmp_path) == ["demo"]
+    assert cpp.repinned_engine_ids(base, tmp_path) == ["demo"]
+
+
+def test_a_params_text_diff_is_still_named_even_with_an_unchanged_tag(tmp_path):
+    """The #1622 behaviour is never loosened: a params file whose TEXT differs from the base is
+    named even when the variant bytes the tag hashes are unchanged — only the file's trailing
+    newline moved, so the tag stayed put."""
+    base = _fixture(tmp_path)
+    _commit_against(tmp_path, "containers/engines/params/demo.json",
+                    json.dumps({"id": "demo", "pinned": "cafe1234deadbeef",
+                                "variants": {"cpu": {"model": "m1"}}}),
+                    "whitespace-only params edit")
+    assert cpp.retagged_engine_ids(base, tmp_path) == []
+    assert cpp.repinned_engine_ids(base, tmp_path) == ["demo"]
+
+
+def test_a_tree_equal_to_its_base_repins_and_probes_nothing(tmp_path):
+    """The hermetic gate rule survives the union: a branch identical to its base names nothing,
+    so the gate would probe nothing beyond the empty diff."""
+    base = _fixture(tmp_path)
+    assert cpp.retagged_engine_ids(base, tmp_path) == []
+    assert cpp.repinned_engine_ids(base, tmp_path) == []
+
+
+def test_a_first_import_counts_immediately(tmp_path):
+    """An engine with no params copy at the base never had a published image: both diffs count
+    it from its first commit, and the engine that stayed put is not named."""
+    base = _fixture(tmp_path)
+    params = json.dumps({"id": "second", "pinned": "feed5678cafe0000", "variants": {"cpu": {}}})
+    (tmp_path / "containers" / "engines" / "params" / "second.json").write_text(params + "\n")
+    (tmp_path / "containers" / "engines" / "dockerfiles" / "second").mkdir(parents=True)
+    (tmp_path / "containers" / "engines" / "dockerfiles" / "second" / "Dockerfile.cpu").write_text(
+        "FROM base\nUSER 1000\n")
+    _commit_against(tmp_path, "IMPORTS.md", "second engine imported\n", "import second engine")
+    ids = cpp.retagged_engine_ids(base, tmp_path)
+    assert ids == ["second"]
+    assert cpp.repinned_engine_ids(base, tmp_path) == ["second"]
+
+
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
     mk = (REPO / "Makefile").read_text()
