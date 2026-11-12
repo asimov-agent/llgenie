@@ -9,16 +9,14 @@ build real bot commits, because the commit range is the thing under test.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_pr_hygiene as hy  # noqa: E402
-import auto_merge as am  # noqa: E402
+from scripts import auto_merge as am  # noqa: E402
+from scripts import check_pr_hygiene as hy  # noqa: E402
 
 BOT = ("Asimov Agent", "support@docondee.com")
 
