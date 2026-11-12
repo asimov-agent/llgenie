@@ -17,3 +17,7 @@
 - [x] 5. Hermetic gates green at the PR head: pytest modules 25 passed rc=0,
       `make openspec-validate NAME=engine-smoke-documented-flags` rc=0, `make check-wiring` rc=0,
       `make lane-preflight` prints `preflight: OK`.
+- [x] 6. `tests/test_engine_skills.py` text locks updated to the documented-flags shape
+      (the old lock demanded the removed literal `flags = ["-h", "--version"]`): it now locks
+      `DEFAULT_BINARY_FLAGS`, `DOCUMENTED_FLAG_VOCAB`, and `_documented_probe_set`.
+      (verified: pytest `tests/test_engine_skills.py tests/test_engine_smoke_binary_flags.py` 110 passed rc=0 hermetic TEST_RUN, 2026-11-12)

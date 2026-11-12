@@ -1766,8 +1766,12 @@ def test_every_published_image_is_started_and_answers_hi():
     assert "$(if $(filter cpu,$(ARCH)),,--no-gpu)" not in recipe
     assert 'ei.chat_testable("$(ENGINE)", "$(ARCH)")' not in recipe
     smoke = (REPO / "scripts" / "engine_smoke.py").read_text()
-    assert 'flags = ["-h", "--version"]' in smoke
-    assert '["--version", "--help"]' not in smoke.replace('["-h", "--version"]', "")
+    assert 'DEFAULT_BINARY_FLAGS = ["-h", "--version"]' in smoke
+    assert 'DOCUMENTED_FLAG_VOCAB = frozenset({"-h", "--help", "--version"})' in smoke
+    # issue #2573: the probe set comes from the engine's DOCUMENTED flags (the manifest
+    # `flags` field), bounded to the help/version vocabulary; -h/--version stays the
+    # default for engines that document nothing.
+    assert "_documented_probe_set" in smoke
     eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
     # the producer verifies every image it published: the binary smoke answers -h/--version (issue #2319,
     # the DEFAULT gate — never a serving-readiness wait); serving is NOT exercised in CI
