@@ -31,5 +31,8 @@ Issue: #2573 · branch: feat/engine-smoke-documented-flags
 ## Current status
 
 - OpenSpec change `engine-smoke-documented-flags` validated; implementation + tests green locally;
-  ships as the PR closing #2573. The rescued cells (`mlx-cpu`, `sglang-cuda`, `sglang-rocm`,
-  `litert-cpu`) are republished by the next fleet sweep (#2529 duty), not by this change.
+  ships as PR #2575 closing #2573. Measured inventory at `151c910ae` (`ALL=1 make
+  check-engine-pins-published`, make rc=2): 28 pinned cells, 21 published, 7 unpublished
+  (`llama-cpp-laurentzuijdwijk/rocm`, `llama.cpp/cuda`, `llama.cpp/rocm`, `mlx/cpu`,
+  `tensorfold/cuda`, `vllm/cuda`, `vllm/rocm`); the collision is proven to red-block only
+  `engine-build-mlx-cpu`. It is republished by the next push sweep (#2529 duty), not by this change.

@@ -14,9 +14,15 @@ generated from (`containers/engines/binaries.json`) already records the document
 (`mlx/cpu → flags ["--help"], probe "help"`, sglang cuda/rocm `["--help"]`, `litert/cpu ["--help"]`,
 `tensorfold/cuda ["--version"] probe "version"`), the push gate has read it since issue #204
 (`engine_image.variant_flags`), and the skill parser exposes it (`engine_skills.documented_flags`).
-The gate's own contract (issue #1717) is "the binary answering the flags **it documents**", yet four
-unpublished cells (`mlx-cpu`, `sglang-cuda`, `sglang-rocm`, `litert-cpu`) demand answers from flags
-their skills say do not exist, so they can never publish and every wave re-burns their builds.
+The gate's own contract (issue #1717) is "the binary answering the flags **it documents**", yet the
+pinned pair bets every binary tolerates an undocumented `--version`. Measured at head `151c910ae`
+(`ALL=1 make check-engine-pins-published`, make rc=2): 28 committed pinned cells, 21 published,
+7 unpublished (`llama-cpp-laurentzuijdwijk/rocm`, `llama.cpp/cuda`, `llama.cpp/rocm`, `mlx/cpu`,
+`tensorfold/cuda`, `vllm/cuda`, `vllm/rocm`). The collision is proven to red-block exactly one of
+them: `engine-build-mlx-cpu` (run #645 job 131144134691 FAIL, `--version: binary exited 2`).
+`sglang cuda/rocm` and `litert/cpu` (manifest-documented `["--help"]` only) publish today only
+because their binaries empirically tolerate the undocumented `--version` — mlx is the measured proof
+that binaries without it exist, and any future re-pin onto one reds such a cell permanently.
 
 ## What Changes
 
@@ -37,6 +43,8 @@ their skills say do not exist, so they can never publish and every wave re-burns
 ## Benefit
 
 The manifest stops being decorative: what a skill documents is exactly what CI tests, the gate's
-"flags it documents" contract becomes literally true in code, and `mlx-cpu`, `sglang-cuda`,
-`sglang-rocm`, `litert-cpu` become publishable in the next wave with no engine-side hack — the
-publish backlog can actually drain to zero.
+"flags it documents" contract becomes literally true in code, and `engine-build-mlx-cpu` — the
+measured blocked cell — becomes publishable in the next push wave with no engine-side hack. Cells
+documenting `["--help"]` (sglang cuda/rocm, litert cpu) stop depending on undocumented `--version`
+tolerance that has never been part of their contract; the remaining unpublished cells are waiting
+on build time, not on a gate collision.
