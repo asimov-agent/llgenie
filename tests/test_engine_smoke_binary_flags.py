@@ -19,9 +19,10 @@ REPO = Path(__file__).resolve().parent.parent
 
 from scripts import engine_smoke as smoke  # noqa: E402  (conftest puts scripts/ on the path)
 
-# The image path does `import engine_image as ei` inside binary_smoke; conftest's
-# single import root (tests/conftest.py) makes this the SAME module object.
-import engine_image as ei  # noqa: E402
+# The image path does `import engine_image as ei` inside binary_smoke (deferred);
+# the helper below imports it the same deferred way so the monkeypatch lands on
+# the SAME sys.modules module the smoke resolves at call time. A top-level bare
+# import here would be a NEW import root (issue #1101, check-import-roots).
 
 MANIFEST = REPO / "containers" / "engines" / "binaries.json"
 
@@ -43,6 +44,7 @@ def _capture(monkeypatch) -> list[str]:
 
 def _manifest(monkeypatch, entries: dict) -> None:
     """Stand in for the committed generated manifest for these variants."""
+    import engine_image as ei  # deferred, like engine_smoke's own (see module doc)
     monkeypatch.setattr(ei, "binary_manifest",
                         lambda engine, variant: entries[(engine, variant)])
 
