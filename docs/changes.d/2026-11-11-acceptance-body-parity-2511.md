@@ -1,0 +1,1 @@
+| 2026-11-11 | acceptance-body-parity: closing PR bodies can no longer merge with unticked acceptance boxes — `acceptance-body-lag` finding in the guard gate; 4 merged bodies retro-fixed | [note](agent-wiki/2026-11-11-acceptance-body-parity-2511.md) | #2511 |

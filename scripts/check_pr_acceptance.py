@@ -419,6 +419,34 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
             "where": f"#{issue}",
         })
 
+    # acceptance-body-lag: the reverse drift (issue #2511) — the PR body closes `#issue` yet still
+    # carries `- [ ]` under its OWN `## Acceptance criteria`. The body is written once at PR creation
+    # and the issue-side ticks land during the work; nothing read the body's copy, and CI auto-merge
+    # fires on job-green + CLEAN without ever reading body checkboxes (measured at main `614838fb8`:
+    # 4 of the 12 most recently merged PRs merged with unticked body acceptance boxes — #2507 #2498
+    # #2496 #2490). The reviewer's record must not read `not done` under an issue that reads `done`:
+    # mirror the issue's `(proven: …)` tick into the body (`gh pr edit`) or name the box under
+    # `## Not covered` with its linked work item. Only the canonical section counts — the exact-match
+    # scope `_acceptance_items` applies to the issue side, so a `## Verify` list elsewhere in the
+    # body is not a criterion copy.
+    for pos, ticked, text in _acceptance_items(pr_body):
+        if ticked or _declared_out_of_scope(pr_body, text):
+            continue
+        out.append({
+            "key": "acceptance-body-lag",
+            "blocking": True,
+            "title": f"ci: the PR body closing issue #{issue} leaves its own acceptance criterion unticked",
+            "evidence": (
+                f"PR-body acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [ ]` in the closing "
+                "PR body's own `## Acceptance criteria`. The linked issue's tick proved the work; "
+                "the body's copy of the same criterion was never re-ticked, and auto-merge reads "
+                "jobs and mergeability, never body checkboxes (issue #2511). Mirror the issue's "
+                "`(proven: …)` tick into the PR body with `gh pr edit`, or name the box under "
+                "`## Not covered` with a linked work item."
+            ),
+            "where": "pr-body",
+        })
+
     # tick-unprovable: a TICKED criterion with no re-measurable evidence (issue #1858, #1784/#1819 class).
     for pos, _t, text in [it for it in items if it[1]]:
         m = PROVEN_MARKER.search(str(text or ""))

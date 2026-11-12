@@ -142,6 +142,52 @@ def test_pr_body_claim_matching_a_ticked_criterion_is_GREEN():
     assert g.acceptance_verdict(issue, pr, 1000) == []
 
 
+# --- acceptance-body-lag: a closing PR body's own criteria may not lag the issue (issue #2511) ------
+
+
+def _pr_ac(checkboxes: list[str]) -> str:
+    """A closing PR body that carries its own copy of the issue's `## Acceptance criteria`."""
+    return ("## What and why\n\ncloses #1000\n\n## Acceptance criteria\n"
+            + "\n".join(checkboxes) + "\n")
+
+
+def test_closing_body_with_unticked_own_criterion_is_RED():
+    # the measured #2507 shape: issue-side ticks proven, the PR body's copy left `- [ ]`
+    issue = _issue(ticked=[1, 2], total=2)
+    pr = _pr_ac(["- [x] criterion 1 is met", "- [ ] criterion 2 is met"])
+    findings = g.acceptance_verdict(issue, pr, 1000)
+    lag = [f for f in findings if f["key"] == "acceptance-body-lag"]
+    assert lag and lag[0]["blocking"] and lag[0]["where"] == "pr-body"
+
+
+def test_closing_body_fully_ticked_mirror_is_GREEN():
+    issue = _issue(ticked=[1, 2], total=2)
+    pr = _pr_ac(["- [x] criterion 1 is met", "- [x] criterion 2 is met"])
+    assert g.acceptance_verdict(issue, pr, 1000) == []
+
+
+def test_body_lag_exempted_by_not_covered_with_linked_item():
+    issue = _issue(ticked=[1, 2], total=2)
+    pr = _pr_ac(["- [x] criterion 1 is met", "- [ ] criterion 2 is met"]) + (
+        "\n## Not covered\n- criterion 2 is met is tracked as #1001\n"
+    )
+    assert not any(f["key"] == "acceptance-body-lag" for f in g.acceptance_verdict(issue, pr, 1000))
+
+
+def test_unticked_boxes_outside_the_canonical_section_are_not_body_lag():
+    # `## Verify` prose is not a criterion copy — only the canonical section is in scope.
+    issue = _issue(ticked=[1], total=1)
+    pr = _pr("closes #1000", body_checkbox="- [ ] ran make test-unit")
+    assert not any(f["key"] == "acceptance-body-lag" for f in g.acceptance_verdict(issue, pr, 1000))
+
+
+def test_body_without_criteria_section_closes_normally():
+    # the issue carries the criteria; a body that re-states nothing cannot lag (the gate already
+    # requires bump-only bodies to carry their own checklist — issue #2352).
+    issue = _issue(ticked=[1], total=1)
+    assert g.acceptance_verdict(issue, _pr("closes #1000"), 1000) == []
+
+
 # --- CLI: live issue read at merge time ---------------------------------------------------------------
 
 
