@@ -39,3 +39,11 @@ the ONE automatic act (`closes #N` on merge); it only refuses to merge text that
 ## Current status
 
 Branch pushed, PR up against upstream main; `tasks.md` fully ticked at merge time per this very rule.
+
+2026-11-12 rebase + replay (head `a59b9563c` on `origin/main` `c4734a020`): the unpushed reword
+commit was cherry-picked onto the rebased remote chain and tasks 7-8 carry measured evidence —
+`openspec-validate` rc=0; `commit-checkboxes` replay of `49f0cc3be` RED rc=1 (3 unticked boxes,
+0 ticked mirror); `d8700c60e` and `aa700cf27` rc=0. CI `linux / unit` on this head (run
+43175752662) is 1 failed / 3646 passed: the sole failure is the fleet-publish gate
+`test_every_image_install_pulls_is_published` (unpublished engine images under the #2529 dispatch
+wave), not this change's files — unit goes green when the fleet wave lands and the jobs rerun.
