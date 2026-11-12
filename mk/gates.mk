@@ -122,6 +122,10 @@ check-pr-agents-line: ## CI: fail when a bot PR's body omits or mis-cites the `A
 check-pr-sync-line: ## CI: fail when a profile-editing bot PR (a diff under agents/<profile>/) does not report its live re-sync in a `SYNC:` line — the owner's profile-propagation rule (issue #1724); the guard jobs call it with the LIVE PR body, never from a hermetic chain
 	python3 scripts/check_pr_hygiene.py sync-line --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 
+.PHONY: check-pr-commit-checkboxes
+check-pr-commit-checkboxes: ## CI: fail when a bot range's commit text carries an unticked `- [ ]` under an acceptance heading, or the PR body's declared acceptance items have no ticked `- [x]` mirror in the commits (issue #2519) — the guard job calls it with the LIVE PR body (same fetch as check-pr-agents-line), never from a hermetic chain; the auto-merge lane re-runs the same findings against the live commits before `gh pr merge`
+	python3 scripts/check_pr_hygiene.py commit-checkboxes --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(if $(PR_BASE),$(PR_BASE),origin/main)" --body-file "$(PR_BODY)"
+
 check-pr-openspec-change: ## CI: fail when an implementing bot PR's final diff adds no `openspec/changes/<name>/` file and its body names no ACTIVE change it implements against (`OPENSPEC: <name>`) — the presence half #1807 (AGENTS.md MANDATORY change-first; `ci-openspec` only iterates EXISTING changes, so an openspec-empty implementing PR is otherwise CI-green); the guard jobs call it with the LIVE PR body, never from a hermetic chain. Reuses the existing openspec gates (openspec-validate-all / openspec-tasks-check own structure and ticks) — never weakened
 	python3 scripts/check_pr_hygiene.py openspec-change --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 

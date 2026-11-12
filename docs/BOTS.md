@@ -890,6 +890,20 @@ It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body and a l
 fetching that body via `gh api` (issue #1589); a push to main has no body and prints a `nothing to
 validate` note instead of failing. Implemented as issue #1724.
 
+`make check-pr-commit-checkboxes` is the #2519 checkbox-parity preflight: a squash merge concatenates the
+branch's commit messages into the commit that lands on `main`, so the COMMIT TEXT is the permanent record of
+the acceptance checklist — measured on PR #2509, squash `49f0cc3be` carries `checked=0 unchecked=3` because
+the bot pasted the issue's unticked `## Acceptance criteria` into its commit message and nothing read it.
+The gate refuses a bot range whose commit text carries an unticked `- [ ]` under an acceptance heading
+(`commit-unchecked-acceptance`), and refuses a PR body that declares N acceptance items while the commit
+text carries fewer than N ticked `- [x]` boxes (`commit-acceptance-unmirrored` — the tick happened somewhere
+but never reached the permanent record). `ci.yml`'s `guard` job runs it with the LIVE PR body beside
+`check-pr-closing` (same `gh api` fetch, issue #1589); `ci-unit` runs the commit-side rule hermetically; and
+the auto-merge lane re-runs the SAME findings against the live commits immediately before `gh pr merge`,
+holding a green + CLEAN PR with a `commit-checkboxes: <finding>` deferral comment — one tick, three mirrors
+(issue body, PR body, commit text); closing stays the ONE automatic act and the gate itself never ticks.
+Implemented as issue #2519.
+
 `make check-pr-openspec-change` is the #1807 OpenSpec-presence preflight mounted in CI: `ci-openspec`
 (openspec-validate-all + openspec-tasks-check) validates the STRUCTURE and task ticks of every ACTIVE
 change, but both only iterate EXISTING changes — an implementing bot PR that adds no change dir is

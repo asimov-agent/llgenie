@@ -395,6 +395,33 @@ push to `main` whose range is empty. A `#N` that is only prose, including a rema
 `(#N)` for the issue it leaves open. The linux unit job passes the body into `make ci-unit`. The
 branch name is `PR_BRANCH`, because `PR_HEAD` is the git revision the author gate reads (issue #1417).
 
+## The ticked acceptance checklist is a three-mirror rule: issue body, PR body, commit text (MANDATORY, durable)
+
+An acceptance criterion is ticked **once, at verification time**, and the same ticked set appears in
+all three places a reviewer can read it: the **issue body** (lifecycle), the **PR body** (review), and
+the **commit text GitHub lands on main** (permanent record). A squash merge uses the PR's own commit
+messages as the merge commit body (`squash_merge_commit_message=COMMIT_MESSAGES`), so whatever the
+implementation commit says is what main permanently says about the issue. Measured defect: PR #2509
+merged as `49f0cc3be` carrying `checked=0 unchecked=3` — three unticked `- [ ]` acceptance boxes in
+the main commit text.
+
+The tick belongs to the verification moment, and closing is not a substitute: GitHub's auto-close is a
+state flip with no evidence attached, and it does not tick anything. A merged PR with a `closes #N`
+whose acceptance boxes are unticked is a merged PR with no evidence it accomplished its acceptance.
+
+- Before pushing, the implementation commit ENDS with a ticked `Acceptance:` block mirroring the PR
+  body's `## Acceptance criteria` items, each with its proven evidence — the tick happens once, at the
+  verification moment, and travels with the close. Do not tick the body and leave the commits behind.
+- `make check-pr-commit-checkboxes` (`scripts/check_pr_hygiene.py commit-checkboxes`, a live-body gate
+  in `ci.yml`'s guard job, classified in `scripts/issue_bot_gates.py::DEFERRED` like `check-pr-closing`)
+  fails RED when a bot range's commit text carries an unticked `- [ ]` under an acceptance heading, or
+  when the PR body's declared acceptance items have no ticked `- [x]` mirror in the joined commit text.
+- `scripts/auto_merge.py::commit_checkbox_hold` re-runs the same findings against the LIVE commits and
+  body in the merge lane: an unmirrored PR is deferred before `gh pr merge` fires, beside the green and
+  mergeability gates. The hold is a deferral, never a red run.
+- A human-only range is skipped, never failed; unticked boxes outside an acceptance heading are not
+  this gate's business.
+
 ## A PR's commits are authored through an allowed email — no one else
 
 A commit's author is the attribution every reader trusts: `git log`, `git blame` and `git bisect` all

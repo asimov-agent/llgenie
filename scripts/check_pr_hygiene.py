@@ -723,6 +723,83 @@ def _active_change_names(root: Path) -> list[str]:
     return out
 
 
+#: An acceptance heading inside COMMIT text (issue #2519): any markdown heading line that names
+#: acceptance. The commit-text twin of `acceptance_writeback._is_acceptance_heading` — kept lenient
+#: (substring, not exact) because commit messages embed the issue body with its heading suffixes.
+_COMMIT_ACCEPTANCE_HEADING = re.compile(r"^#{1,6}\s.*[Aa]cceptance", re.M)
+_COMMIT_UNTICKED = re.compile(r"^\s*[-*]\s+\[\s?\]", re.M)
+_COMMIT_TICKED = re.compile(r"^\s*[-*]\s+\[[xX]\]", re.M)
+
+
+def commit_text_findings(messages: list[str], body: str) -> list[dict]:
+    """The commit-text half of checkbox parity (issue #2519).
+
+    A squash merge concatenates the branch's commit messages into the commit that lands on `main`,
+    so the commit text is the PERMANENT record of the acceptance checklist. Measured on PR #2509:
+    squash `49f0cc3be` carries `checked=0 unchecked=3` — the bot pasted the issue's unticked
+    `## Acceptance criteria` into its commit message and nothing read it. Two findings:
+
+    * `commit-unchecked-acceptance` — an unchecked `- [ ]` sitting under an acceptance heading in
+      any commit message of the range (the #2509 shape, caught before merge);
+    * `commit-acceptance-unmirrored` — the PR body declares N acceptance items
+      (`acceptance_writeback.acceptance_items`, reused not restated) while the range's commit text
+      carries fewer than N ticked `- [x]` boxes: the tick happened somewhere but never reached the
+      permanent record.
+
+    One tick, three mirrors: issue body, PR body, commit text. Closing stays the ONE automatic act
+    (the `closes #N` keyword on merge) — this gate never closes and never ticks anything itself.
+    Empty body (hermetic preflight, no PR body on a push) checks the commit-side rule only.
+    """
+    findings: list[dict] = []
+    unticked = 0
+    for msg in messages:
+        in_acceptance = False
+        for line in msg.splitlines():
+            if line.lstrip().startswith("#"):
+                in_acceptance = bool(_COMMIT_ACCEPTANCE_HEADING.match(line.lstrip()))
+                continue
+            if in_acceptance and _COMMIT_UNTICKED.match(line):
+                unticked += 1
+    if unticked:
+        findings.append({
+            "key": "commit-unchecked-acceptance",
+            "where": "commit text",
+            "detail": f"the range's commit text carries {unticked} unticked `- [ ]` under an acceptance "
+                      "heading — a squash merge lands that text on main as the permanent record "
+                      "(measured shape: #2509 squash `49f0cc3be`, checked=0 unchecked=3). Tick every "
+                      "criterion in the commit message too, or drop the checklist from the message "
+                      "(issue #2519)",
+        })
+    if body:
+        from acceptance_writeback import acceptance_items, BodyError  # noqa: PLC0415 reuse, never restate
+        try:
+            items = acceptance_items(body)
+        except BodyError:
+            items = []
+        if items:
+            ticked = sum(len(_COMMIT_TICKED.findall(m)) for m in messages)
+            if ticked < len(items):
+                findings.append({
+                    "key": "commit-acceptance-unmirrored",
+                    "where": "commit text",
+                    "detail": f"the PR body declares {len(items)} acceptance items but the range's "
+                              f"commit text carries only {ticked} ticked `- [x]` boxes — the ticked "
+                              "checklist must mirror into the commit message so the squash text on main "
+                              "proves it was ticked (issue #2519); end the implementation commit with a "
+                              "ticked `Acceptance:` block",
+                })
+    return findings
+
+
+def commit_checkboxes_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """`commit_text_findings` over a real PR range, bot ranges only (issue #2519)."""
+    if not is_bot_pr(root, base, head):
+        return []
+    raw = _git(root, "log", "--no-merges", "--format=%B%x00", f"{base}..{head}") or ""
+    messages = [m for m in raw.split("\x00") if m.strip()]
+    return commit_text_findings(messages, body)
+
+
 def pr_acceptance_form_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
     """A bot PR's body must carry its own `## Acceptance criteria` `- [ ]` checklist (issue #1796).
 
@@ -895,6 +972,11 @@ def main(argv=None) -> int:
     a.add_argument("--head", required=True, help="the PR head ref or sha")
     a.add_argument("--base", required=True, help="the PR base ref or sha")
     a.add_argument("--body-file", required=True, help="the file holding the PR body")
+    c = sub.add_parser("commit-checkboxes", help="a bot range's commit text carries the ticked acceptance mirror and no unticked acceptance box (issue #2519)")
+    c.add_argument("--root", default=str(REPO_ROOT))
+    c.add_argument("--head", required=True, help="the PR head ref or sha")
+    c.add_argument("--base", required=True, help="the PR base ref or sha")
+    c.add_argument("--body-file", default="", help="the file holding the PR body (omit: commit-side rule only)")
     c = sub.add_parser("changes-index", help="a CHANGES.md row has a docs/changes.d/<stem>.md fragment, and no note appears twice (issue #1063)")
     c.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
@@ -939,6 +1021,16 @@ def main(argv=None) -> int:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
         print("[check-pr-hygiene] OK: this bot PR's body carries its own `## Acceptance criteria` `- [ ]` checklist")
+        return 0
+    if args.cmd == "commit-checkboxes":
+        body = Path(args.body_file).read_text() if args.body_file else ""
+        items = commit_checkboxes_findings(root, args.head, args.base, body)
+        if items:
+            for it in items:
+                print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
+            return 1
+        print("[check-pr-hygiene] OK: the range's commit text carries the ticked acceptance mirror "
+              "with no unticked acceptance box (issue #2519)")
         return 0
     if args.cmd == "changes-index":
         items = changes_index_findings(root)

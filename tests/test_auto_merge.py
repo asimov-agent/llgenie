@@ -59,7 +59,8 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
              unknown_reads: int = 0, refuse_user_for: list | None = None,
              checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0,
              runs_after=None, runs_then: int = 1,
-             merge_err: str | None = None, merged_after_merge_refusal: bool = False):
+             merge_err: str | None = None, merged_after_merge_refusal: bool = False,
+             commit_messages: list | None = None):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -101,6 +102,7 @@ RUNS = json.loads({json.dumps(runs_default if runs is None else runs)!r})
 RUNS_RC = {runs_rc!r}
 RUNS_AFTER = {json.dumps(runs_after) if runs_after is not None else "None"}
 RUNS_THEN = {runs_then!r}
+COMMIT_MSGS = json.loads({json.dumps(commit_messages or [])!r})
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -136,6 +138,12 @@ if args[:2] == ["pr", "list"]:
     if "merged" in args:
         print(json.dumps(MERGED)); sys.exit(0)
     print(json.dumps(PRS)); sys.exit(0)
+if args[0] == "api" and "/pulls/" in args[1] and args[1].endswith("/commits"):
+    # issue #2519: the commit-checkbox hold reads the PR's commit messages; the record-separator
+    # separator is what the real --jq emits.
+    print("\u001e".join(COMMIT_MSGS)); sys.exit(0)
+if args[:2] == ["pr", "view"] and "--json" in args and "body" in args:
+    print(PR.get("body", "")); sys.exit(0)
 if args[:2] == ["pr", "view"] and len(args) > 2 and args[2] in VIEWS:
     print(json.dumps(VIEWS[args[2]])); sys.exit(0)
 if args[:2] == ["pr", "view"]:
@@ -2263,6 +2271,35 @@ def test_a_skipped_check_is_not_a_red_pipeline(tmp_path):
     merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
     assert merges and "--admin" not in merges[0], merges
+
+
+def test_unticked_acceptance_boxes_in_the_commits_hold_the_merge(tmp_path):
+    """Issue #2519 (PR #2509 lesson): the squash text lands on `main` forever, so a green + CLEAN
+    head whose LIVE commit messages carry unticked acceptance boxes is held before `gh pr merge`
+    — a deferral comment naming the finding, exit 0, never a merge and never a red run."""
+
+    # Given a fully mergeable PR whose single commit declares acceptance criteria UNTICKED
+    bad = _fake_gh(tmp_path / "bad", _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
+                   commit_messages=["feat: thing (closes #900)\n\n"
+                                    "## Acceptance criteria\n- [ ] gate refuses the defect\n"])
+    # When  the gate runs
+    rc = am.run(str(bad), "asimov-agent/llgenie", 900, HEAD)
+    calls = _calls(tmp_path / "bad" / "gh.log")
+    # Then  it defers with the finding on the PR and never reaches the merge call
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    comments = [" ".join(c) for c in calls if c[:2] == ["pr", "comment"]]
+    assert any("commit-unchecked-acceptance" in c for c in comments), comments
+
+    # Given  the same PR with the mirror TICKED in the commit message
+    good = _fake_gh(tmp_path / "good", _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
+                    commit_messages=["feat: thing (closes #900)\n\n"
+                                     "## Acceptance criteria\n- [x] gate refuses the defect\n"])
+    # When  the gate runs
+    rc = am.run(str(good), "asimov-agent/llgenie", 900, HEAD)
+    # Then  the hold is gone and the merge proceeds
+    assert rc == 0, rc
+    assert [c for c in _calls(tmp_path / "good" / "gh.log") if c[:2] == ["pr", "merge"]]
 
 
 def test_a_cancelled_or_neutral_check_defers_the_merge(tmp_path):

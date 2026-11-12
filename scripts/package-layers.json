@@ -206,6 +206,11 @@
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
   },
   {
+   "from": "auto_merge",
+   "to": "check_pr_hygiene",
+   "reason": "the merge lane re-runs the hygiene gate's own commit_text_findings (issue #2519) immediately before gh pr merge: one parity rule, one implementation, so the lane and the lane gate cannot disagree."
+  },
+  {
    "from": "bot_preflight",
    "to": "check_pr_hygiene",
    "reason": "the pre-flight runs the PR-body SYNC/agents-line findings from the hygiene gate itself, so the two cannot disagree (issue #1724/#1796)."
