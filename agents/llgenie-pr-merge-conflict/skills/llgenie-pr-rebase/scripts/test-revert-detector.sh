@@ -29,7 +29,12 @@ VERIFY="$HERE/post-rebase-verify.sh"
 case_repo() {
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   cd "$T" || exit 2
-  git init -q .
+  # Name the initial branch explicitly: inheriting the host default made the base-branch
+  # pathspec below resolve to 'main' or 'master' depending on the runner's init.defaultBranch,
+  # and the checkout failed on modern-git hosts (issue #2497). The harness creates 'main' and
+  # checks out $BASE_BRANCH, so the tested shape is identical on every host and in CI.
+  git init -q -b main .
+  BASE_BRANCH=main
   git config user.email t@t.example
   git config user.name t
 }
@@ -45,7 +50,7 @@ git checkout -q -b work 2>/dev/null
 printf 'def build():\n    return verdict(poll(), emit())\n' > engine.py   # branch's intended edit
 git add -A && git commit -qm 'branch rewrites build()'
 WORK_ORIG=$(git rev-parse HEAD)
-git checkout -q master
+git checkout -q "$BASE_BRANCH"
 printf 'alpha\nmain\n' > notes.txt                                        # main advances notes.txt
 git add -A && git commit -qm 'main advances notes'
 MAIN=$(git rev-parse HEAD)
@@ -64,7 +69,7 @@ git add -A && git commit -qm O
 git checkout -q -b work 2>/dev/null
 printf '# comment\nrun the tool with ref agent\n' > recipe.mk            # branch carries stale ref
 git add -A && git commit -qm 'branch touches recipe.mk carrying stale ref'
-git checkout -q master
+git checkout -q "$BASE_BRANCH"
 printf 'run the tool with latest agent\n' > recipe.mk                    # main advances ref->latest
 git add -A && git commit -qm 'main advances to latest'
 MAIN2=$(git rev-parse HEAD)
@@ -82,7 +87,7 @@ git add -A && git commit -qm base
 git checkout -q -b work 2>/dev/null
 printf 'alpha\n' > notes.txt                                             # delete the obsolete line
 git add -A && git commit -qm 'branch deletes obsolete line'
-git checkout -q master
+git checkout -q "$BASE_BRANCH"
 printf 'x\nmain\n' > a.txt
 git add -A && git commit -qm 'main advances a.txt'
 MAIN3=$(git rev-parse HEAD)
@@ -129,7 +134,7 @@ case_repo
 printf 'x\n' > base.txt ; git add -A && git commit -qm base
 git checkout -q -b work 2>/dev/null
 printf 'branchwork\n' > branch.txt && git add -A && git commit -qm 'case7 branch commit'
-git checkout -q master
+git checkout -q "$BASE_BRANCH"
 printf 'mainwork\n' > main.txt && git add -A && git commit -qm 'case7 main commit'
 MAIN7=$(git rev-parse HEAD)
 git checkout -q work 2>/dev/null
