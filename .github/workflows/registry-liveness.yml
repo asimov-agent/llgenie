@@ -59,6 +59,55 @@ jobs:
           ref: main
       - name: make test-env
         run: make test-env
+      # Issue #2592 (this change): on a PUSH to main this job races the run that PUBLISHES the
+      # pins in this tree — the ci.yml run at the SAME head SHA. Measured: liveness run #457
+      # (head be92a32695) redded `mlx:93e6d4a6-e5ab3798-cpu resolves no manifest` at 19:23:12Z
+      # while CI #5565 at that same head was still in_progress, and the tag is published now;
+      # #454/#455 redded head 85be1b6a87 the same way. A manifest check that decides before that
+      # publisher concludes cries red on a tag it is about to publish. So a push-triggered run
+      # FIRST waits (bounded) for the same-head ci.yml run to conclude, and only a concluded run
+      # lets the fleet gate decide. A scheduled run has no same-head publisher to race (cron fires
+      # after merges settle), so this wait is gated to `push` and a schedule keeps today's path.
+      - name: wait for the same-head main-publisher (ci.yml) run to conclude (#2592)
+        id: publisher
+        if: github.event_name == 'push'
+        timeout-minutes: 18
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          WAIT_ATTEMPTS: "108"   # 18 min at 10s per poll; the whole job is timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          echo "waiting for the ci.yml run at head $HEAD_SHA (the publisher of these pins) to conclude (#2592)"
+          still="true"
+          for _attempt in $(seq 1 "$WAIT_ATTEMPTS"); do
+            # The same-head ci.yml run only — NOT this workflow's own run (both fire on a push to
+            # main at the same head_sha). `.path` disambiguates the workflow FILE; the newest run
+            # at the head wins (a rerun supersedes: polling it is what the publisher would do).
+            row=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100&event=push" \
+              --jq '[.workflow_runs[] | select(.path | endswith("/ci.yml"))] | sort_by(.created_at) | last // empty' 2>/dev/null || true)
+            if [ -n "$row" ]; then
+              run_id=$(printf '%s' "$row" | jq -r '.id')
+              status=$(printf '%s' "$row" | jq -r '.status')
+              conclusion=$(printf '%s' "$row" | jq -r '.conclusion // ""')
+              echo "same-head ci.yml run $run_id status=$status conclusion=${conclusion:-none}"
+              if [ "$status" = "completed" ]; then
+                still="false"
+                echo "publisher_run=$run_id" >> "$GITHUB_OUTPUT"
+                echo "publisher_conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+                if [ "$conclusion" = "failure" ]; then
+                  echo "publisher_failed=true" >> "$GITHUB_OUTPUT"
+                fi
+                break
+              fi
+            fi
+            sleep 10
+          done
+          echo "publisher_still_running=$still" >> "$GITHUB_OUTPUT"
+          if [ "$still" = "true" ]; then
+            echo "NO same-head ci.yml run concluded within ${WAIT_ATTEMPTS}0s; publisher still in flight — deferring the verdict to a non-racing run (#2592)"
+          fi
       - name: full-fleet committed-tag pin-validity gate
         id: fleet
         run: |
@@ -75,6 +124,13 @@ jobs:
           rc=$?
           set -e
           sed 's/^/  /' fleet.out
+          # #2592: on a push run whose same-head publisher is STILL in flight, a NOT PUBLISHED
+          # verdict is the race, not a gap — the tag is mid-publish. Never hard-fail a pin that is
+          # being published; defer to the next (non-racing) run, which settles it definitively.
+          if [ "${{ steps.publisher.outputs.publisher_still_running }}" = "true" ] && [ "$rc" -ne 0 ]; then
+            echo "publisher still in flight (same head); suppressing the fleet hard-fail for this run — deferred (#2592)"
+            rc=0
+          fi
           echo "fleet_rc=$rc" >> "$GITHUB_OUTPUT"
           echo "fleet_rc=$rc"
           exit "$rc"
@@ -89,6 +145,13 @@ jobs:
           rc=$?
           set -e
           sed 's/^/  /' liveness.out
+          # #2592: still-in-flight publisher — the gate deferred (fleet_rc forced to 0), so there
+          # is nothing to file yet: the tag is mid-publish, not missing. Exit cleanly instead of
+          # running the NOT PUBLISHED filer against a tag the same-head run is about to publish.
+          if [ "${{ steps.publisher.outputs.publisher_still_running }}" = "true" ]; then
+            echo "publisher still in flight (same head); nothing to file — deferred (#2592)"
+            exit 0
+          fi
           if [ "$rc" = "0" ] && [ "${{ steps.fleet.outputs.fleet_rc }}" = "0" ]; then
             echo "all committed engine tags published; nothing to file"
             exit 0
@@ -99,10 +162,18 @@ jobs:
             cat liveness.out
             exit 1
           fi
+          # #2592: a publisher that FAILED means the pin is unpublished because its own main run
+          # failed — the tracking issue names that run as the diagnostic anchor instead of pointing
+          # at a sweep that will reproduce the failure (a sweep is only dispatched on success).
+          fail_note=""
+          if [ "${{ steps.publisher.outputs.publisher_failed }}" = "true" ]; then
+            pub_run="${{ steps.publisher.outputs.publisher_run }}"
+            fail_note=" The same-head main-publisher run ${pub_run:-unknown} concluded FAILURE, so this pin is unpublished because that run failed — no sweep was dispatched here (dispatching would reproduce the publisher's own failure, #2592). Investigate the failed publisher run, then re-publish."
+          fi
           while read -r engine tag; do
             [ -n "$engine" ] || continue
             title="engine: committed tag $tag ($engine) is not published in ghcr"
-            body="BOT registry-liveness: committed image tag $tag ($engine) has NO manifest in ghcr. A publish is the remedy, and #2259 now makes this gate DISPATCH it: the next registry-liveness run (or the config-page rerun button) fires engine-build push=true for this cell. Either confirm that dispatch/PR landed the tag, or move the pin to a published commit (#1365 class). See #2190/#2259."
+            body="BOT registry-liveness: committed image tag $tag ($engine) has NO manifest in ghcr. A publish is the remedy, and #2259 now makes this gate DISPATCH it: the next registry-liveness run (or the config-page rerun button) fires engine-build push=true for this cell. Either confirm that dispatch/PR landed the tag, or move the pin to a published commit (#1365 class). See #2190/#2259.${fail_note}"
             open=$(gh issue list --repo "$REPO" --state open --search "\"$tag\"" --json number --jq '.[0].number' 2>/dev/null || true)
             if [ -n "$open" ]; then
               echo "issue #$open already open for $tag"
@@ -123,6 +194,18 @@ jobs:
           set -e
           if [ "$rc" = "0" ] && [ "${{ steps.fleet.outputs.fleet_rc }}" = "0" ]; then
             echo "all committed engine tags published; nothing to dispatch"
+            exit 0
+          fi
+          # #2592: never dispatch a sweep for a SHA whose own main-publisher run failed — it would
+          # reproduce the publisher's own known failure (measured: sweeps #682/#684 at 85be1b6a87
+          # failed `vllm-rocm ... Permission denied`, fixed only in b32594c8c4) just to file a second
+          # red run. A still-in-flight publisher means nothing is missing yet; also no dispatch.
+          if [ "${{ steps.publisher.outputs.publisher_still_running }}" = "true" ]; then
+            echo "publisher still in flight (same head); nothing to dispatch — deferred (#2592)"
+            exit 0
+          fi
+          if [ "${{ steps.publisher.outputs.publisher_failed }}" = "true" ]; then
+            echo "publisher concluded failure; NO engine-build dispatch — the tracking issue names the failed publisher run and no sweep would pass it (#2592)"
             exit 0
           fi
           # Issue #2561: dispatch ONLY from the gate's own [select] contract lines —
