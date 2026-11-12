@@ -211,6 +211,27 @@ def test_a_first_import_counts_immediately(tmp_path):
     ids = cpp.retagged_engine_ids(base, tmp_path)
     assert ids == ["second"]
     assert cpp.repinned_engine_ids(base, tmp_path) == ["second"]
+    # Cell view (#2590): a first import moves every enabled cell of that engine.
+    assert cpp.repinned_cells(base, tmp_path) == [("second", "cpu")]
+
+
+def test_repinned_cells_names_only_the_cell_whose_tag_moved(tmp_path):
+    """#2590 cell granularity: adding a rocm variant retags ONLY the rocm cell.
+
+    `_image_inputs` hashes each variant's OWN params subset, so a params file that gains a
+    rocm variant leaves the cpu cell's tag exactly where it was. The engine-deduped view names
+    `demo` (it has a moved cell), the cell view names exactly the moved `(demo, rocm)` — the
+    unit the will arm dispatches with an explicit arch (#2582 class: a bare `engine=demo`
+    dispatch would have built cpu only and left rocm unpublished).
+    """
+    base = _fixture(tmp_path)
+    params = json.dumps({"id": "demo", "pinned": "cafe1234deadbeef",
+                         "variants": {"cpu": {"model": "m1"}, "rocm": {"model": "m1"}}})
+    (tmp_path / "containers" / "engines" / "dockerfiles" / "demo" / "Dockerfile.rocm").write_text(
+        "FROM rocm-base\nUSER 1000\n")
+    _commit_against(tmp_path, "containers/engines/params/demo.json", params + "\n", "add rocm variant")
+    assert cpp.repinned_cells(base, tmp_path) == [("demo", "rocm")]
+    assert cpp.retagged_engine_ids(base, tmp_path) == ["demo"]
 
 
 def test_the_gate_is_wired_into_ci_unit_and_phony():

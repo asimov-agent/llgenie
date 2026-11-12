@@ -12,7 +12,7 @@
 #                  The paths narrow it to every surface a published tag identity is computed from — params,
 #                  the committed Dockerfiles, entrypoint.sh, engine_runner.py, and the two hashing scripts
 #                  themselves (issue #2559: a Dockerfile-only retag IS a repin); a non-bump PR (the path
-#                  filter passes but no tag identity differs) is hermetic — the script prints `no engine this change repins` and exits 0
+#                  filter passes but no tag identity differs) is hermetic — the script prints `no cell this change repins` and exits 0
 #                  touching no network. The trigger never runs on `push` to main: merging publishes on its own
 #                  schedule; a push would double-dispatch a full sweep (#614 design preserved).
 #                  `workflow_dispatch` is a manual re-drive of the same trigger (issue #2381): the base_ref
@@ -34,9 +34,10 @@
 #        refused at the producer's guard is reported `NOT VERIFIED — refused at its own trigger guard`, never a
 #        bare failure, so a green board cannot disguise an unverifiable dispatch.
 # Never: never merges, never pushes to main, never edits code, never cancels a producer run, never dispatches
-#        for a foreign-head PR, never widens the scope past the engines this change repins.
+#        for a foreign-head PR, never widens the scope past the cells this change repins.
 # Flow: guard (same-repo head) + actor-guard (owner/collaborator, on a dispatch) -> make engine-build-pr-trigger
-#       BASE= BRANCH= (dispatch push=true for each repinned engine, await every run's verdict; no repin is hermetic).
+#       BASE= BRANCH= (dispatch push=true per repinned CELL with engine=<id> arch=<variant> (#2590), await every
+#       run's verdict; no repin is hermetic).
 name: engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)
 
 on:
@@ -171,7 +172,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"   # the repo's pinned Python (issue #120)
-      - name: make engine-build-pr-trigger (dispatch push=true for the repinned engines, await each verdict — no repin is hermetic)
+      - name: make engine-build-pr-trigger (dispatch push=true per repinned cell with explicit arch, await each verdict — no repin is hermetic)
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}

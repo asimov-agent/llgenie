@@ -31,17 +31,21 @@ board cannot disguise an unverifiable dispatch.
 
 HERMETIC: when the change repins nothing, nothing is dispatched and no API is touched — the same rule as
 the may-arm ("no engine this change repins => green and no network"). The repin set comes from
-`check_engine_pins_published.repinned_engine_ids` (params-FILE diff UNION tag-identity diff, issue
-#2559 — one shared logic with the merged
-gate, not a hand-written roster). Inputs narrow a manual re-dispatch but never widen the committed scope.
+`check_engine_pins_published.repinned_cells` (tag-identity diff at CELL granularity, issue #2590 —
+the engine-level view `repinned_engine_ids`, params-FILE diff UNION tag-identity diff, issue
+#2559, stays one shared logic with the merged gate, not a hand-written roster). Inputs narrow a
+manual re-dispatch but never widen the committed scope.
 
 Usage:
     python3 scripts/engine_build_trigger.py check [--base REF] [--engine ID] [--arch A] [--dry]
-        dispatch engine-build push=true for every engine this change repins (scoped to --engine/--arch if given),
-        await each run's verdict, exit 0 only when every dispatched run concluded success. `--dry` prints the
-        dispatch plan and exits without dispatching. No repin => green, hermetic, prints nothing dispatched.
-    python3 scripts/engine_build_trigger.py report [--base REF] [--engine ID]
-        print the repinned engine set and the dispatch plan (never dispatches).
+        dispatch engine-build push=true for every (engine, arch) CELL this change repins (narrowed to
+        --engine/--arch if given), naming each cell's arch explicitly — an arch-less dispatch of a
+        DEFAULT_CPU_ONLY engine builds only its cpu cell and silently drops a repinned GPU cell
+        (issue #2590, measured on PR #2582). Await each run's verdict, exit 0 only when every
+        dispatched run concluded success. `--dry` prints the dispatch plan and exits without
+        dispatching. No repin => green, hermetic, prints nothing dispatched.
+    python3 scripts/engine_build_trigger.py report [--base REF] [--engine ID] [--arch A]
+        print the repinned cell set and the dispatch plan (never dispatches).
 """
 from __future__ import annotations
 
@@ -146,10 +150,17 @@ def _run_verdict(repo: str, run_id: str, gh: str) -> dict:
     return not_found
 
 
-def repinned(base: str, engine_filter: str = "") -> list[str]:
-    """Engine ids this change repins vs `base`, optionally narrowed to one engine."""
-    ids = [e for e in cpp.repinned_engine_ids(base) if not engine_filter or e == engine_filter]
-    return ids
+def repinned(base: str, engine_filter: str = "", arch_filter: str = "") -> list[tuple[str, str]]:
+    """(engine, variant) CELLS this change repins vs `base`, optionally narrowed.
+
+    Cell granularity is the dispatch unit (#2590): a repinned cell must never be silently
+    dropped by the producer's arch-less default narrowing (`DEFAULT_CPU_ONLY` engines build
+    cpu only when no arch is named, issue #1836) — the #2582 rocm tag stayed unpublished
+    exactly because the trigger dispatched `engine=vllm` with no arch.
+    """
+    return [(engine, variant) for engine, variant in cpp.repinned_cells(base)
+            if (not engine_filter or engine == engine_filter)
+            and (not arch_filter or variant == arch_filter)]
 
 
 def _existing_run_ids(repo: str, gh: str) -> set[str]:
@@ -177,7 +188,7 @@ def _workflow_run_args(gh: str, repo: str, branch: str, fields: list[str]) -> li
 
 def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
                        wait_min: int, gh: str) -> dict:
-    """Dispatch engine-build push=true for ONE engine, await the NEW run's own verdict (#964 discipline).
+    """Dispatch engine-build push=true for ONE (engine, arch) cell, await the NEW run's own verdict (#964 discipline).
 
     Returns {run_id, status, conclusion, guard_refused}. `gh workflow run` exit 0 is never a verdict.
     """
@@ -291,13 +302,16 @@ def _push_group_holder(repo: str, gh: str) -> str:
 
 def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False, repo: str = "",
           branch: str = "", wait_min: int = DEFAULT_MAX_WAIT, gh: str = "gh") -> int:
-    """Dispatch + await a push=true engine-build for every repinned engine; 0 when all succeeded.
+    """Dispatch + await a push=true engine-build for every repinned CELL; 0 when all succeeded.
 
-    No repin => print and return 0 with no dispatch (hermetic). `dry` prints the plan and never dispatches.
+    One dispatch per cell with `engine=<id> arch=<variant>` (#2590): the explicit arch means
+    the producer builds the cell this change repinned, never a cpu-only substitute chosen by
+    the matrix default. No repin => print and return 0 with no dispatch (hermetic). `dry`
+    prints the plan and never dispatches.
     """
-    ids = repinned(base, engine_filter)
-    if not ids:
-        print("[will] no engine this change repins; nothing to dispatch (hermetic, same rule as the may-arm)")
+    cells = repinned(base, engine_filter, arch)
+    if not cells:
+        print("[will] no cell this change repins; nothing to dispatch (hermetic, same rule as the may-arm)")
         return 0
     repo = repo or base_ref.BASE_REPO
     branch = _dispatch_ref(branch)
@@ -308,26 +322,27 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         print("[will] refusing to dispatch: the checkout names no ref (detached HEAD) and "
               "GITHUB_HEAD_REF is unset. Pass --branch / BRANCH=${{ github.head_ref }}.", file=sys.stderr)
         return 1
-    print(f"[will] {len(ids)} repinned engine(s) vs {base}: {', '.join(sorted(ids))}")
+    print(f"[will] {len(cells)} repinned cell(s) vs {base}: "
+          f"{', '.join(f'{e}/{v}' for e, v in sorted(cells))}")
     if dry:
-        for e in sorted(ids):
-            print(f"  would dispatch engine-build push=true engine={e}{f' arch={arch}' if arch else ''} @ {branch}")
+        for e, v in sorted(cells):
+            print(f"  would dispatch engine-build push=true engine={e} arch={v} @ {branch}")
         print("[will] dry-run: nothing dispatched")
         return 0
     failures = 0
-    for e in sorted(ids):
-        print(f"[will] dispatching engine-build push=true engine={e}{f' arch={arch}' if arch else ''} @ {branch}")
-        outcome = _dispatch_and_wait(repo, branch, e, arch, wait_min, gh)
+    for e, v in sorted(cells):
+        print(f"[will] dispatching engine-build push=true engine={e} arch={v} @ {branch}")
+        outcome = _dispatch_and_wait(repo, branch, e, v, wait_min, gh)
         if outcome.get("guard_refused"):
-            print(f"[will] FAIL engine={e}: producer refused at its own trigger guard "
+            print(f"[will] FAIL engine={e} arch={v}: producer refused at its own trigger guard "
                   f"(run {outcome.get('run_id')}) — NOT VERIFIED, not a bare failure", file=sys.stderr)
             failures += 1
         elif outcome.get("cause"):
-            print(f"[will] FAIL engine={e}: {outcome['cause']} (run {outcome.get('run_id')})",
+            print(f"[will] FAIL engine={e} arch={v}: {outcome['cause']} (run {outcome.get('run_id')})",
                   file=sys.stderr)
             failures += 1
         elif outcome.get("expired"):
-            msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
+            msg = (f"[will] FAIL engine={e} arch={v}: wait bound ({wait_min} min) expired — producer run "
                    f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
             if outcome.get("unresolved_404"):
                 msg += (" — the producer id never resolved on the run endpoint (404 for the whole bound): "
@@ -344,22 +359,23 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             # unknown input, a permission refusal) — print it, so the log says which refusal this
             # was instead of a bare `run  concluded queued/None` (issue #2089).
             extra = f" — {outcome['error']}" if outcome.get("error") else ""
-            print(f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
+            print(f"[will] FAIL engine={e} arch={v}: run {outcome.get('run_id')} concluded "
                   f"{outcome.get('status')}/{outcome.get('conclusion')}{extra}", file=sys.stderr)
             failures += 1
         else:
-            print(f"[will] OK engine={e}: producer run {outcome.get('run_id')} success")
+            print(f"[will] OK engine={e} arch={v}: producer run {outcome.get('run_id')} success")
     if failures:
         print(f"[will] {failures} engine-build run(s) did not succeed — the producer must build+push these "
-              f"before the bump may merge (issue #1633)", file=sys.stderr)
+              f"cells before the bump may merge (issue #1633)", file=sys.stderr)
         return 1
-    print(f"[will] every repinned engine's push=true build succeeded")
+    print("[will] every repinned cell's push=true build succeeded")
     return 0
 
 
-def report(base: str, engine_filter: str = "") -> int:
-    ids = repinned(base, engine_filter)
-    print(f"[will] {len(ids)} repinned engine(s) vs {base}: {', '.join(sorted(ids)) or '-'}")
+def report(base: str, engine_filter: str = "", arch: str = "") -> int:
+    cells = repinned(base, engine_filter, arch)
+    print(f"[will] {len(cells)} repinned cell(s) vs {base}: "
+          f"{', '.join(f'{e}/{v}' for e, v in sorted(cells)) or '-'}")
     return 0
 
 
@@ -377,7 +393,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     base = base_ref.resolve_base(explicit=args.base, quiet=True)
     if args.cmd == "report":
-        return report(base, args.engine)
+        return report(base, args.engine, args.arch)
     return check(base, args.engine, args.arch, args.dry, args.repo, args.branch, args.wait_min, args.gh)
 
 
