@@ -527,3 +527,72 @@ def test_a_published_cell_names_no_select_line(capsys):
     out = capsys.readouterr().out
     assert "[select]" not in out
 
+
+
+def test_push_run_waits_for_the_same_head_publisher_before_the_manifest_check():
+    """Issue #2592: on a push to main, liveness races the run that PUBLISHES the pins in this
+    tree — the ci.yml run at the SAME head SHA (measured: run #457 redded `mlx:93e6d4a6-...`
+    while CI #5565 at the same head was still in_progress). So a push-triggered run must WAIT,
+    bounded, for that run to conclude BEFORE any GHCR manifest check. The wait step sits before
+    the fleet gate and queries actions/runs filtered to the ci.yml workflow at the head sha.
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    lines = wf.splitlines()
+    fleet = next(i for i, ln in enumerate(lines) if ln.strip() == "id: fleet")
+    wait = next(i for i, ln in enumerate(lines) if "same-head main-publisher" in ln)
+    assert wait < fleet, "the wait step must run BEFORE the fleet manifest check"
+    assert "github.event_name == 'push'" in wf, "the wait is push-trigger only (a schedule never races)"
+    assert "actions/runs?head_sha=$HEAD_SHA" in wf, "the wait must poll the same-head run"
+    assert 'endswith("/ci.yml")' in wf, "the wait must select the ci.yml workflow, not this workflow"
+    assert "publisher_still_running" in wf, "a not-concluded run must be recorded as still in flight"
+    assert "publisher_conclusion" in wf, "a concluded run's verdict must reach downstream"
+
+
+def test_publisher_still_in_flight_does_not_hard_fail():
+    """Issue #2592: a pin whose same-head publisher is STILL in flight is mid-publish, not missing.
+    The push-triggered wait bound may expire while the publisher still runs; the fleet gate must
+    then NOT hard-fail (its `exit $rc` is forced green) and the filer/dispatch must no-op.
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    # the fleet gate suppresses the hard-fail under a still-running publisher
+    assert "publisher_still_running" in wf.split("id: fleet", 1)[1].split("name: file one", 1)[0], \
+        "the fleet gate must read the still-running marker"
+    assert "suppressing the fleet hard-fail" in wf, "a still-running publisher must not red the job"
+    assert "publisher still in flight (same head); nothing to file" in wf, \
+        "the filer must not file for a tag the same-head run is about to publish"
+    assert "publisher still in flight (same head); nothing to dispatch" in wf, \
+        "the dispatch must not fire while the publisher still runs"
+
+def test_no_sweep_dispatched_for_a_failed_publisher():
+    """Issue #2592: a sweep must never be dispatched for a SHA whose own main-publisher run
+    concluded failure — it would reproduce the publisher's known failure (measured: sweeps
+    #682/#684 at 85be1b6a87 failed `vllm-rocm ... Permission denied`, fixed only in b32594c8c4).
+    Instead the tracking issue names the failed publisher run.
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert "publisher_failed" in wf, "the wait step must record when the same-head run failed"
+    assert "NO engine-build dispatch" in wf, "a failed publisher must suppress the sweep dispatch"
+    assert "no sweep would pass it (#2592)" in wf, "the suppressed dispatch must name the reason"
+    # the tracking issue body names the failed publisher run instead of a future dispatch
+    dispatch = wf.split("dispatch engine-build push=true", 1)[1]
+    assert "fail_note" in wf, "the filer must append the failed-publisher note"
+    assert "concluded FAILURE" in wf, "the note must name the failure explicitly"
+    # the success path still dispatches: the two `gh workflow run engine-build.yml` shapes survive
+    assert wf.count("gh workflow run engine-build.yml") == 2, \
+        "the successful-publisher / scheduled dispatch shapes must be untouched"
+
+def test_scheduled_and_successful_publisher_keep_the_dispatch_contract():
+    """Issue #2592: the wait gate is push-only and only SUPPRESSES the failure/dispatch edges. A
+    scheduled run (no same-head publisher) and a push run whose publisher concluded SUCCESS keep
+    today's file-issue + dispatch + hard-fail contract verbatim (the [select] parse, coalescing,
+    per-cell shape, and the fleet `exit "$rc"` are unchanged).
+    """
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert 'if: always()' in wf.split("id: fleet")[1], "the filer must still run after any gate result"
+    assert "-f push=true" in wf and "workflow run engine-build.yml" in wf
+    assert "exit \"$rc\"" in wf, "the ALL=1 hard-fail must be untouched for the success/scheduled path"
+    assert "check-engine-pins-published ALL=1" in wf, "the fleet gate must still run ALL=1"
