@@ -51,7 +51,7 @@ concurrency:
 jobs:
   liveness:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -59,35 +59,50 @@ jobs:
           ref: main
       - name: make test-env
         run: make test-env
-      # Issue #2592 (this change): on a PUSH to main this job races the run that PUBLISHES the
-      # pins in this tree — the ci.yml run at the SAME head SHA. Measured: liveness run #457
-      # (head be92a32695) redded `mlx:93e6d4a6-e5ab3798-cpu resolves no manifest` at 19:23:12Z
-      # while CI #5565 at that same head was still in_progress, and the tag is published now;
-      # #454/#455 redded head 85be1b6a87 the same way. A manifest check that decides before that
-      # publisher concludes cries red on a tag it is about to publish. So a push-triggered run
-      # FIRST waits (bounded) for the same-head ci.yml run to conclude, and only a concluded run
-      # lets the fleet gate decide. A scheduled run has no same-head publisher to race (cron fires
-      # after merges settle), so this wait is gated to `push` and a schedule keeps today's path.
-      - name: wait for the same-head main-publisher (ci.yml) run to conclude (#2592)
+      # Issue #2592 (landed via #2593) + #2596 (this change): a liveness run races the run that
+      # PUBLISHES the pins in this tree — the ci.yml run at the SAME head SHA. Measured: liveness
+      # run #457 (head be92a32695) redded `mlx:93e6d4a6-e5ab3798-cpu resolves no
+      # manifest` at 19:23:12Z while CI #5565 at that same head was still in_progress, and the tag
+      # is published now; #454/#455 redded head 85be1b6a87 the same way. A manifest check that
+      # decides before that publisher concludes cries red on a tag it is about to publish. So EVERY
+      # run FIRST waits (bounded) for the same-head ci.yml run to conclude, and only a concluded
+      # run lets the fleet gate decide. #2596 replaced the push-only gate and the fixed attempt
+      # count: a scheduled run CAN catch a publisher mid-flight (measured publisher windows: 16 m
+      # 51 s at 5ffc7cdc8, 40 m 21 s at be92a32695), and 108 polls of 10 s + API time exceed the
+      # old 18-minute step bound — a step timeout cancels the loop BEFORE the defer path records
+      # `publisher_still_running`, redding the job (live near-miss: wait 16 m 42 s, publisher
+      # concluded 68 s before the bound). The bound is now a wall-clock budget the script enforces
+      # via SECONDS, so the loop always ends through the defer path; a head with no same-head
+      # publisher (the normal scheduled case) exits after a short registration grace.
+      - name: wait for the same-head main-publisher (ci.yml) run to conclude (#2592/#2596)
         id: publisher
-        if: github.event_name == 'push'
-        timeout-minutes: 18
+        timeout-minutes: 63
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.sha }}
-          WAIT_ATTEMPTS: "108"   # 18 min at 10s per poll; the whole job is timeout-minutes: 30
+          WAIT_BUDGET_SECONDS: "3600"       # 60 min wall clock > measured worst-case publisher 40 m 21 s (#2596)
+          POLL_SECONDS: "10"
+          REGISTRATION_GRACE_SECONDS: "120" # a push registers its ci.yml run slightly late; poll on
         run: |
           set -euo pipefail
-          echo "waiting for the ci.yml run at head $HEAD_SHA (the publisher of these pins) to conclude (#2592)"
+          echo "waiting for the ci.yml run at head $HEAD_SHA (the publisher of these pins) to conclude (#2592/#2596)"
           still="true"
-          for _attempt in $(seq 1 "$WAIT_ATTEMPTS"); do
+          # #2596: a wall-clock budget, not an attempt count. 108 polls of ~11.5 s each need
+          # ~21 min, and the old 18-minute step timeout cancelled such a loop MID-LOOP, redding
+          # the job before the defer path could record `publisher_still_running`. SECONDS is the
+          # shell's own elapsed clock, so the loop always ends before its 63-minute step timeout.
+          deadline=$(( SECONDS + WAIT_BUDGET_SECONDS ))
+          grace=$(( SECONDS + REGISTRATION_GRACE_SECONDS ))
+          seen_run="false"
+          while [ "$SECONDS" -lt "$deadline" ]; do
             # The same-head ci.yml run only — NOT this workflow's own run (both fire on a push to
             # main at the same head_sha). `.path` disambiguates the workflow FILE; the newest run
             # at the head wins (a rerun supersedes: polling it is what the publisher would do).
             row=$(gh api "repos/$REPO/actions/runs?head_sha=$HEAD_SHA&per_page=100&event=push" \
               --jq '[.workflow_runs[] | select(.path | endswith("/ci.yml"))] | sort_by(.created_at) | last // empty' 2>/dev/null || true)
             if [ -n "$row" ]; then
+              seen_run="true"
               run_id=$(printf '%s' "$row" | jq -r '.id')
               status=$(printf '%s' "$row" | jq -r '.status')
               conclusion=$(printf '%s' "$row" | jq -r '.conclusion // ""')
@@ -101,12 +116,22 @@ jobs:
                 fi
                 break
               fi
+            elif [ "$seen_run" = "false" ] && [ "$SECONDS" -ge "$grace" ]; then
+              # No same-head ci.yml run surfaced after the registration grace: this head has no
+              # publisher to race (the normal scheduled case) — go straight to the gate (#2596).
+              still="false"
+              echo "publisher_none=true" >> "$GITHUB_OUTPUT"
+              echo "no same-head ci.yml run at $HEAD_SHA after ${REGISTRATION_GRACE_SECONDS}s grace; nothing to wait for"
+              break
             fi
-            sleep 10
+            sleep "$POLL_SECONDS"
           done
           echo "publisher_still_running=$still" >> "$GITHUB_OUTPUT"
           if [ "$still" = "true" ]; then
-            echo "NO same-head ci.yml run concluded within ${WAIT_ATTEMPTS}0s; publisher still in flight — deferring the verdict to a non-racing run (#2592)"
+            # A cap-hit must never look like a verified green: name the deferral as a workflow
+            # warning AND in the job output (#2596 AC: "never a silent rc=0 green").
+            echo "::warning::registry-liveness DEFERRED: no same-head ci.yml publisher concluded within ${WAIT_BUDGET_SECONDS}s at head $HEAD_SHA — this run verified nothing; the verdict is deferred to a non-racing run (#2596)"
+            echo "NO same-head ci.yml run concluded within ${WAIT_BUDGET_SECONDS}s; publisher still in flight — deferring the verdict to a non-racing run (#2596)"
           fi
       - name: full-fleet committed-tag pin-validity gate
         id: fleet
@@ -124,7 +149,7 @@ jobs:
           rc=$?
           set -e
           sed 's/^/  /' fleet.out
-          # #2592: on a push run whose same-head publisher is STILL in flight, a NOT PUBLISHED
+          # #2592/#2596: on a run whose same-head publisher is STILL in flight, a NOT PUBLISHED
           # verdict is the race, not a gap — the tag is mid-publish. Never hard-fail a pin that is
           # being published; defer to the next (non-racing) run, which settles it definitively.
           if [ "${{ steps.publisher.outputs.publisher_still_running }}" = "true" ] && [ "$rc" -ne 0 ]; then
