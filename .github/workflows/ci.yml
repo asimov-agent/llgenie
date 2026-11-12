@@ -4,6 +4,16 @@ name: CI
 # feature-branch push. This keeps the upstream pipeline (and the GHCR publish on
 # main) working while feature branches don't burn CI by themselves. For cross-repo
 # fork PRs the upstream pipeline runs the PR and its checks report on the PR.
+#
+# Explicit minimum token scope for every job in this file (issue #2526, gate rule R1): every
+# GitHub touch this workflow makes through the token is a READ (`gh api ... --jq` in the guard
+# steps), and the only jobs that need more already declare it at job level below (`ci-images` /
+# `scanner-images`: `packages: write`; `linux`: read scopes). Declaring `contents: read` at top
+# level states the scope the jobs actually use today and closes the implicit org-default fallback
+# — no job's effective access changes.
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: ["main"]

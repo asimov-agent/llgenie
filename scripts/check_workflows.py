@@ -161,6 +161,35 @@ AGENT_LEG_ACTION = ".github/actions/agent-leg/action.yml"
 JEV_PREFLIGHT_INLINE = re.compile(r"make\s+agent-jev-preflight\b")
 SHELL_KEYS_INLINE = re.compile(r"make\s+agent-shell-keys-check\b")
 
+#: Triggers a person WITHOUT write access to this repository can cause: their pull request, issue,
+#: comment, review, or label event — and the completion of a run such a person started
+#: (`workflow_run` fires for a fork-PR's CI run too). The three-party rule (`docs/BOTS.md`: only the
+#: owner, a collaborator, and the `github-actions[bot]` may drive a workflow) is exactly the rule
+#: about these events reaching privileged automation (issue #2526).
+OPEN_TRIGGERS = frozenset({"pull_request", "pull_request_target", "workflow_run", "issues",
+                           "issue_comment", "pull_request_review", "pull_request_review_comment",
+                           "label", "discussion", "discussion_comment"})
+#: Triggers GitHub itself opens only to write-capable accounts (`push`, `workflow_dispatch`), to the
+#: repository's own clock (`schedule`), or to workflows INSIDE this repository (`workflow_call`): a
+#: non-collaborator cannot fire them at all, so a file whose whole trigger surface is internal needs
+#: no guard step — `registry-liveness.yml` (push+schedule) and `pipeline.yml` (`workflow_call`) are
+#: exactly this class (issue #2526).
+INTERNAL_TRIGGERS = frozenset({"push", "schedule", "workflow_dispatch", "workflow_call"})
+#: The trigger GitHub refuses to run fork code against base-repo write credentials. The fleet has
+#: never used it (measured: 0 uses at `d8700c60e`); the wall keeps it at zero (issue #2526).
+FORBIDDEN_TRIGGERS = frozenset({"pull_request_target"})
+#: The inline trigger-guard signature the fleet already carries in 32 of 36 files: a step-level
+#: reference to `github.triggering_actor` — the only actor value GitHub cannot let anyone claim on
+#: someone else's behalf (the guard's own comment in `ci.yml`; the shared body is pinned by
+#: `tests/test_workflow_guards.py`, issue #295). A mention inside `run:` script text is not a guard:
+#: the guard must live where GitHub READS it — an `if:` or a step `env:`.
+GUARD_SIGNATURE = re.compile(r"github\.triggering_actor")
+#: A `run:` step line, in BOTH shapes YAML gives it: the standalone key and the step-list form
+#: `- run:` (every real workflow uses the latter — a regex that only matched the former silently
+#: treated script text as gate text). Block style (`|` / `>`, optional `-` chomping) or one plain
+#: line. A block's body is every following line indented deeper than the `run:` key's own indent.
+RUN_LINE = re.compile(r"^(?P<indent>[ \t]*)(?:-\s+)?run:\s*(?P<style>[|>][+-]?)?\s*(?P<rest>.*)$")
+
 _WS = " \t\r\n"
 _OPERATORS = ("==", "!=", "<=", ">=", "&&", "||", "<", ">", "!", "*", "/", "%", "+", "-",
               "(", ")", "[", "]", ",", ".")
@@ -845,13 +874,241 @@ def check_verdict_roster(root: Path = REPO_ROOT) -> list[dict]:
     return _vr().coverage(root)
 
 
+def _outside_run_lines(lines: list[str]) -> list[str]:
+    """The file's lines that are NOT inside a `run:` script body.
+
+    Expressions inside script text are a different surface (the #2505 injection rule reads them);
+    this reader answers the guard question, which lives at the YAML level: does the file evaluate
+    `github.triggering_actor` in a place GitHub itself routes from — an `if:` or a step `env:`? A
+    `run:` body is text handed to a shell, and a mention there is not a gate: the file could read
+    the actor and echo it while gating nothing. A block `run:` swallows every deeper-indented line
+    after it (blank lines included); a one-line `run: cmd` swallows only its own line.
+    """
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        m = RUN_LINE.match(lines[i])
+        if m is None:
+            out.append(lines[i])
+            i += 1
+            continue
+        indent = len(m.group("indent"))
+        i += 1                                        # the `run:` line itself is script text
+        if not m.group("style"):
+            continue                                  # one-line `run: cmd` — already consumed
+        while i < n:                                  # consume the scalar block
+            l = lines[i]
+            if not l.strip():
+                i += 1
+                continue
+            if len(l) - len(l.lstrip()) <= indent:
+                break                                 # back at step level
+            i += 1
+    return out
+
+
+def check_top_level_permissions(root: Path = REPO_ROOT) -> list[dict]:
+    """Every workflow states its own token scope, and none states the widest one (issue #2526, R1).
+
+    Without a column-zero `permissions:` block, every job in the file runs with whatever the
+    repository's default workflow permission is today — a scope no reader of the file can see, and
+    one the org may change under it. The fleet already declares top-level blocks in 34 of 36 files
+    (measured at `d8700c60e`; `ci.yml` and `pipeline.yml` were the gap this change closed).
+    `permissions: write-all` is the same visibility failure taken to its maximum: every scope the
+    context can hold, granted to every job including the ones that checked out untrusted PR code.
+    """
+    out: list[dict] = []
+    for path in workflow_files(root):
+        where = str(path.relative_to(root))
+        lines = path.read_text().splitlines()
+        decl = next((l for l in lines if re.match(r"^permissions:", l)), None)
+        if decl is None:
+            out.append({
+                "key": f"workflow-permissions/{where}",
+                "title": f"ci: {where} declares no top-level `permissions:` block",
+                "evidence": (
+                    f"`{where}` has no column-zero `permissions:` block, so every job in it runs with "
+                    f"the repository's DEFAULT token scope — invisible to anyone reading the file, and "
+                    f"changeable under the file by an org setting. The fleet states its scope in every "
+                    f"other file; declare the minimum this workflow needs at top level "
+                    f"(e.g. `permissions: {{contents: read}}`) and keep job-level elevations for the "
+                    f"jobs that genuinely need more (issue #2526)."
+                ),
+                "where": where,
+            })
+            continue
+        value = decl.split(":", 1)[1].split("#", 1)[0].strip()
+        if value == "write-all":
+            out.append({
+                "key": f"workflow-write-all/{where}",
+                "title": f"ci: {where} requests `permissions: write-all`",
+                "evidence": (
+                    f"`{where}` declares `permissions: write-all`: every scope the GITHUB_TOKEN can "
+                    f"hold, granted to EVERY job in the file — including jobs whose steps run code "
+                    f"checked out from a fork. Declare the explicit scopes the workflow needs, at top "
+                    f"level the minimum and per job the elevation (issue #2526)."
+                ),
+                "where": where,
+            })
+    return out
+
+
+def check_forbidden_triggers(root: Path = REPO_ROOT) -> list[dict]:
+    """No workflow may trigger on `pull_request_target` (issue #2526, R2).
+
+    `pull_request_target` runs the PR's code AND gives it the base repository's write credentials —
+    the one trigger that breaks the owner/collaborator/bot boundary at the platform level. The fleet
+    measured 0 uses at `d8700c60e`; this wall is what keeps the number zero.
+    """
+    out: list[dict] = []
+    for path in workflow_files(root):
+        where = str(path.relative_to(root))
+        triggers = _on_triggers(path.read_text().splitlines())
+        for trig in sorted(set(triggers) & FORBIDDEN_TRIGGERS):
+            out.append({
+                "key": f"workflow-forbidden-trigger/{where}/{trig}",
+                "title": f"ci: {where} triggers on `{trig}`",
+                "evidence": (
+                    f"`{where}` carries `{trig}`. That trigger runs the fork's code with the BASE "
+                    f"repository's write token — the exact hole the three-party rule exists to keep "
+                    f"shut (docs/BOTS.md). Test fork code with `pull_request` (read-only token, "
+                    f"publish skipped, issue #155) or gate the privileged half on `workflow_run` of "
+                    f"the guarded CI run, as `auto-merge.yml` does (issue #2526)."
+                ),
+                "where": where,
+            })
+    return out
+
+
+def _guard_info(root: Path) -> tuple[dict[Path, dict], dict[Path, bool]]:
+    """Per-file start surface + the guarded fixed point, shared by the rule and the report.
+
+    guarded starts at `signature OR internal-only`, and each round marks `workflow_run` followers
+    whose every roster name is already guarded. A roster cycle never reaches the fixed point —
+    circular trust is no trust.
+    """
+    files = workflow_files(root)
+    names = workflow_names(root)                          # `name:` -> file name
+    info: dict[Path, dict] = {}
+    for path in files:
+        lines = path.read_text().splitlines()
+        open_tr = sorted(t for t in _on_triggers(lines) if t in OPEN_TRIGGERS)
+        info[path] = {
+            "open": open_tr,
+            "untrusted": [t for t in open_tr if t != "workflow_run"],
+            "sig": GUARD_SIGNATURE.search("\n".join(_outside_run_lines(lines))) is not None,
+            "roster": [nm for _, listed in workflow_run_lists(path) for nm in listed],
+        }
+    guarded = {p: (info[p]["sig"] or not info[p]["open"]) for p in files}
+    for _ in range(len(files) + 1):                       # monotone fixed point
+        moved = False
+        for p in files:
+            if guarded[p]:
+                continue
+            d = info[p]
+            if not d["open"]:                             # internal-only surface
+                guarded[p] = True
+                moved = True
+                continue
+            if d["untrusted"]:                            # issues/comments/reviews/PRs cannot derive
+                continue
+            if d["roster"] and all(
+                names.get(nm) is not None and guarded.get(root / WORKFLOWS / names[nm], False)
+                for nm in d["roster"]
+            ):
+                guarded[p] = True
+                moved = True
+        if not moved:
+            break
+    return info, guarded
+
+
+def actor_guard_states(root: Path = REPO_ROOT) -> dict[str, str]:
+    """How each workflow file is kept three-party-only: `signature`, `derived`, `internal`, or UNGUARDED."""
+    info, guarded = _guard_info(root)
+    out: dict[str, str] = {}
+    for p, d in info.items():
+        if d["sig"]:
+            out[p.name] = "signature"
+        elif not d["open"]:
+            out[p.name] = "internal"
+        elif guarded[p]:
+            out[p.name] = "derived"
+        else:
+            out[p.name] = "UNGUARDED"
+    return out
+
+
+def check_actor_guards(root: Path = REPO_ROOT) -> list[dict]:
+    """Who can drive each workflow: a guard on every outsider-reachable trigger, or a derived one.
+
+    A file whose trigger surface a non-collaborator can reach (`OPEN_TRIGGERS`) must carry the
+    inline guard signature (`GUARD_SIGNATURE`, outside `run:` script text — the body itself is
+    pinned byte-identical by `tests/test_workflow_guards.py`, issue #295), OR inherit the guard
+    transitively: a `workflow_run` follower adds no reachability of its own, it fires only AFTER
+    the completion of a run whose entry the roster workflows already gate. So a follower is guarded
+    when its only outsider-reachable trigger is `workflow_run` and every name in its roster
+    resolves to a workflow that is itself guarded (signature) or internal-only. This is the
+    reasoning `zero-job-pending.yml`'s header already states (#1410: "a `workflow_run` reaction is
+    not startable by a human"), made checkable: `auto-merge.yml` (roster CI + ci-scope) and
+    `zero-job-pending.yml` (roster ci-requeue) pass by derivation; an unguarded roster source
+    taints its follower, so the fleet has zero exemptions (issue #2526).
+
+    The derivation is a fixed point over the roster graph (see `_guard_info`): guarded starts at
+    signature-or-internal, and each round marks followers whose every roster name is already
+    guarded. A roster cycle (two followers waiting on each other) never reaches the fixed point and
+    both stay reported — a circular "trust" is no trust. Roster existence/staleness is another
+    rule's finding (`check_workflow_run_coverage`, #349); an unresolved name simply never guards
+    anyone.
+    """
+    info, guarded = _guard_info(root)
+    names = workflow_names(root)                          # `name:` -> file name
+    out: list[dict] = []
+    for path in sorted(info):
+        if guarded[path]:
+            continue
+        where = str(path.relative_to(root))
+        d = info[path]
+        if d["untrusted"]:
+            out.append({
+                "key": f"workflow-actor-guard/{where}",
+                "title": f"ci: {where} is reachable from outside but carries no trigger guard",
+                "evidence": (
+                    f"`{where}` triggers on {', '.join('`' + t + '`' for t in d['open'])} — events a "
+                    f"non-collaborator causes — and the file contains no `github.triggering_actor` "
+                    f"outside `run:` script text. Add the fleet's shared guard step (the owner / "
+                    f"collaborator-with-write / bot allowlist pinned by `tests/test_workflow_guards.py`, "
+                    f"issue #295) BEFORE any secret-reading or privileged step (issue #2526)."
+                ),
+                "where": where,
+            })
+        else:
+            bad = [nm for nm in d["roster"]
+                   if names.get(nm) is None or not guarded.get(root / WORKFLOWS / names[nm], False)]
+            out.append({
+                "key": f"workflow-actor-guard/{where}",
+                "title": f"ci: {where}'s guard is only as strong as its unguarded roster",
+                "evidence": (
+                    f"`{where}` derives its guard from `workflow_run` on {', '.join('`' + nm + '`' for nm in d['roster'])}, "
+                    f"but {', '.join('`' + nm + '`' for nm in bad)} is not itself guarded (or names no "
+                    f"workflow): a run that workflow lets start completes, and the follower reacts with "
+                    f"no actor check of its own. Guard the roster source first — the transitive rule is "
+                    f"trust by chain, never trust by assumption (issue #2526)."
+                ),
+                "where": where,
+            })
+    return out
+
+
 def findings(root: Path = REPO_ROOT) -> list[dict]:
     return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
             + check_manual_only(root)
             + check_uses_job_keys(root) + check_scheduled_job_timeouts(root)
             + check_inline_agent_preflight(root) + check_scheduled_crons(root)
-            + check_verdict_roster(root))
+            + check_verdict_roster(root)
+            + check_top_level_permissions(root) + check_forbidden_triggers(root)
+            + check_actor_guards(root))
 
 
 def render(items: list[dict]) -> str:
@@ -863,8 +1120,12 @@ def render(items: list[dict]) -> str:
                 "judgement decision the verdict can name, no `uses:` job carries a job-level "
                 "key GitHub rejects at load time, every job of a schedule-triggered workflow "
                 "declares a `timeout-minutes` ceiling (#2317), every `on.schedule` cron fits "
-                "GitHub's grammar (#2472), and no agent leg inlines the "
-                "agent-leg preflight instead of calling the reusable composite action (#798)")
+                "GitHub's grammar (#2472), no agent leg inlines the "
+                "agent-leg preflight instead of calling the reusable composite action (#798), "
+                "every workflow declares an explicit top-level `permissions:` block and none "
+                "requests `write-all`, no workflow triggers on `pull_request_target`, and every "
+                "outsider-reachable workflow carries the owner/collaborator/bot trigger guard or "
+                "derives it through its `workflow_run` roster (#2526)")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
         lines += ["", f"- {f['title']}", f"  where: {f['where']}", f"  {f['evidence']}"]
@@ -879,8 +1140,17 @@ def report(root: Path = REPO_ROOT) -> str:
         f"[workflows] {len(files)} YAML file(s), {total} `${{{{ ... }}}}` expression(s) validated, "
         f"{len(workflow_files(root))} workflow file(s)",
         "[workflows] rule: every expression parses; every file ends with a newline; every workflow "
-        "declares a top-level `name:`; every `workflow_run` trigger names the workflows it reacts to",
+        "declares a top-level `name:`; every `workflow_run` trigger names the workflows it reacts to; "
+        "every workflow declares a top-level `permissions:` block (never `write-all`), no workflow "
+        "triggers on `pull_request_target`, and every outsider-reachable workflow carries the "
+        "owner/collaborator/bot trigger guard or derives it from its guarded `workflow_run` roster "
+        "(#2526)",
     ]
+    states = actor_guard_states(root)
+    lines.append("[workflows] start surface (who can start each pipeline — owner clarification 2026-11-12):")
+    for path in sorted(workflow_files(root)):
+        trig = ", ".join(sorted(_on_triggers(path.read_text().splitlines())))
+        lines.append(f"  {path.name}: starts-on[{trig}] guard[{states[path.name]}]")
     for f in findings(root):
         lines += ["", f"- {f['title']}", f"  where: {f['where']}"]
     lines += ["", render(findings(root))]
