@@ -1,1 +1,1 @@
-- Security: every shipped Dockerfile (4 shared bases, 32 engine variants, the test image) now serves as uid/gid 1000 instead of root; builds re-enable `USER root` after each `FROM` (issue #2504, trivy DS-0002)
+| 2026-11-11 | Every shipped Dockerfile (4 bases, 32 engine variants, test image) now serves as uid/gid 1000; builds re-enable `USER root` after each FROM (trivy DS-0002 37 -> 0) | [note](agent-wiki/2026-11-11-nonroot-user-dockerfiles-2504.md) | #2504 |
