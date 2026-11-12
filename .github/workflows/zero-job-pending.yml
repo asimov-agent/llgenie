@@ -25,11 +25,15 @@ run-name: zero-job-pending
 # `workflow_dispatch` and no trigger guard.
 # NOTHING else — no pull_request, no non-main branch (a PR-run monitor here would name PRs whose jobs
 # are legitimately not yet instantiated; this is about dispatched run liveness).
-# Flow: on ci-requeue completing -> make check-zero-job-pending FILE=1
-#       -> on a stranded run, force its head RED via the ci-verdict check-run path and file ONE
-#          deduped issue naming it.
-# Never: never in a pull request, never gated by a PR, never merges, never cancels a run, never
-#        weakens a gate.
+# Flow: on ci-requeue completing -> make check-zero-job-pending FILE=1 CANCEL=1
+#       -> on a stranded run, CANCEL it (clearing the queue: GitHub never evicts a zero-job run by
+#          itself, and the 2026-11-12 measurement showed runs named at 08:23Z still queued at 12:19Z,
+#          starving a live 7h-waiting engine build), force its head RED via the ci-verdict check-run
+#          path and file ONE deduped issue naming it (the cancel outcome is stated in the issue body).
+# Cancel safety: the script re-reads the run's jobs AT THE MOMENT of cancelling — a run that
+# instantiated jobs since classification (a runner finally arrived) is SKIPPED, never cancelled.
+# Never: never in a pull request, never gated by a PR, never merges, never cancels a run that has
+#        jobs (only zero-job stranded runs), never weakens a gate.
 on:
   workflow_run:
     workflows:
@@ -38,7 +42,8 @@ on:
 
 permissions:
   contents: read
-  actions: read
+  actions: write  # read for the run scan; WRITE to cancel stranded zero-job runs (--cancel-stranded;
+                  # POST /actions/runs/{id}/cancel needs it. Only zero-job runs are ever cancelled.)
   issues: write   # files the deduped per-run issue
   checks: write   # forces a stranded run's head RED via the ci-verdict check-run path (#1704)
 
@@ -54,9 +59,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Name zero-job pending runs (file one deduped issue per stuck run)
+      - name: Name and clear zero-job pending runs (cancel the zombies, file one deduped issue per stuck run)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          make check-zero-job-pending REPO="${{ github.repository }}" MINUTES=30 FILE=1
+          make check-zero-job-pending REPO="${{ github.repository }}" MINUTES=30 FILE=1 CANCEL=1

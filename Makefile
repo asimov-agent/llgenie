@@ -914,8 +914,8 @@ worktree-prune: ## Remove the worktrees and branches whose work landed on the ba
 	python3 scripts/worktree_prune.py --repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie) --base $(if $(BASE),$(BASE),origin/main) $(if $(DRY),--dry,)
 queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254); COMMENT=1 delivers the report, DRY=1 previews it
 	python3 scripts/queued_run_alarm.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,) $(if $(DRY),--dry,)
-check-zero-job-pending: ## Fail when a dispatched run has been pending/queued longer than MINUTES with ZERO jobs instantiated (none named it: queued-alarm scans job rows, reactor needs a conclusion; issue #1410); FILE=1 files ONE deduped issue per stuck run
-	python3 scripts/check_zero_job_pending.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(filter 1,$(FILE)),--file,)
+check-zero-job-pending: ## Fail when a dispatched run has been pending/queued longer than MINUTES with ZERO jobs instantiated (none named it: queued-alarm scans job rows, reactor needs a conclusion; issue #1410); FILE=1 files ONE deduped issue per stuck run, CANCEL=1 also CANCELS every stranded run (re-reads its jobs first — a run whose runner finally arrived is skipped, never killed; issue #1410 + 2026-11-12 zombie-queue measurement)
+	python3 scripts/check_zero_job_pending.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(filter 1,$(FILE)),--file,) $(if $(filter 1,$(CANCEL)),--cancel-stranded,)
 stale-branch-cleanup: ## Delete non-main branches older than 3 days with no open PR and fully delivered commits (issue #1344); APPLY=1 deletes, default report-only, AGE_DAYS overrides
 	python3 scripts/stale_branch_cleanup.py --repo $(GH_REPO) --age-days $(if $(AGE_DAYS),$(AGE_DAYS),3) $(if $(filter 1,$(APPLY)),--apply,)
 sweep-concurrency-report: ## Report every scheduled workflow whose runs stack instead of superseding, with the measurement and the decision each one needs (issue #917)
