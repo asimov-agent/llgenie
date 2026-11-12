@@ -124,26 +124,24 @@ jobs:
             echo "all committed engine tags published; nothing to dispatch"
             exit 0
           fi
-          # Parse the fleet gate's `NOT PUBLISHED <engine>: <commit-tag>` lines. Two formats may
-          # appear (the #2245 fleet gate, and the #1652 per-backend sweep above):
-          #   [pins]      NOT PUBLISHED ghcr.io/.../vllm:3a4d82f5-9be509b4-cuda (HTTP 404)
-          #   [launchers] NOT PUBLISHED vllm: llgenie/vllm:...-cuda resolves no manifest
-          grep "NOT PUBLISHED" dispatch.out \
-            | grep -oE '(ghcr\.io/[^ :]+[:/])?[^ :]+:[0-9a-f]{8}-[0-9a-f]{8}-[a-z]+' \
-            | sed -E 's#ghcr.io/##' | sort -u > missing-tags.txt
-          if [ ! -s missing-tags.txt ]; then
-            echo "gate red but no NOT PUBLISHED commit tag parseable from dispatch.out:"
+          # Consume ONLY the canonical `[select] <engine-id> <variant> <tag>` lines the
+          # gate emits for unpublished cells. The engine id is the COMMITTED params id
+          # with dots intact — the id is never reconstructed from a package URL, because
+          # package names legally replace dots with dashes (`scripts/engine_image.py:
+          # params['id'].replace('.', '-')`), so `llama.cpp` read back from a package URL
+          # became `llama-cpp`, matched no committed cell, and dispatched a green no-op
+          # (issue #2516). Variant is the arch segment of the committed tag.
+          grep '^\[select\]' dispatch.out | awk '{print $2, $3}' | sort -u > select-cells.txt
+          if [ ! -s select-cells.txt ]; then
+            echo "gate red but no [select] cell parseable from dispatch.out:"
             cat dispatch.out
-            exit 0   # the fleet step already reds the run; dispatch cannot name a tag, so do not fail twice
+            exit 0   # the fleet step already reds the run; dispatch cannot name a cell, so do not fail twice
           fi
-          while read -r tag; do
-            [ -n "$tag" ] || continue
-            engine=$(echo "$tag" | cut -d: -f1 | sed 's#.*/##')
-            # The commit tag is <pin8>-<hash8>-<variant>; the variant is the trailing segment.
-            variant=$(echo "$tag" | cut -d: -f2 | awk -F- '{print $NF}')
-            echo "dispatching engine-build push=true for $engine/$variant (missing tag $tag)"
+          while read -r engine variant; do
+            [ -n "$engine" ] && [ -n "$variant" ] || continue
+            echo "dispatching engine-build push=true for $engine/$variant"
             gh workflow run engine-build.yml --repo "$REPO" --ref main \
               -f engine="$engine" -f arch="$variant" -f push=true \
               || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
-          done < missing-tags.txt
-          echo "dispatched for the missing commit tags; re-run registry-liveness after the build publishes"
+          done < select-cells.txt
+          echo "dispatched for the missing committed cells; re-run registry-liveness after the build publishes"

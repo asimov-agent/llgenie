@@ -677,9 +677,67 @@ def test_build_push_false_routes_from_base_cell_through_internal_stage(tmp_path,
     assert combined.count("AS llgenie-base") == 1
 
 
-# ---------------------------------------------------------------------------
-# the LONG build step streams its log (issue #2089) — never a captured buffer
-# ---------------------------------------------------------------------------
+def test_unscoped_sweep_still_returns_the_placeholder(tmp_path):
+    """`--changed` with nothing moved and a whole-fleet sweep keep the none placeholder no-op.
+
+    The explicit-selection hard-fail (issue #2516) must NOT redden the intentional no-ops: a
+    `--changed` sweep where nothing moved, and a whole-fleet sweep with no --engine/--arch, both
+    still return the single none row that keeps the workflow matrix legal.
+    """
+    # Given an unchanged committed tree
+    repo, sha = _real_build_inputs(tmp_path)
+
+    # When the changed-scoped sweep runs (no explicit engine/arch)
+    changed_rows = _rows(repo, sha)
+
+    # Then it is the placeholder no-op, not a hard error
+    assert changed_rows == [PLACEHOLDER]
+
+    # And the whole-fleet CI sweep with no engine/arch does not raise either
+    fleet = ei.matrix(ci=True)
+    assert fleet, "the whole committed fleet must resolve to real rows"
+    assert all(r["engine"] != "none" for r in fleet)
+
+
+def test_package_spelling_of_dotted_id_is_a_loud_error(tmp_path):
+    """`--engine llama-cpp` (the package spelling) must fail, not fabricate a none/no-op row.
+
+    The aa700cf27 wave: the dispatch reconstructed engine ids from package URLs, whose names
+    legally replace dots with dashes, so `llama.cpp` reached the matrix as `llama-cpp`, matched
+    no committed id, emitted the none placeholder and exited 0 — nine `completed success` runs
+    that built nothing (issue #2516).
+    """
+    # Given the real committed build inputs
+    repo, sha = _real_build_inputs(tmp_path)
+
+    # When the matrix is scoped to the dashed package spelling of a dotted id
+    with pytest.raises(SystemExit) as exc:
+        ei.matrix(ci=True, engine="llama-cpp", arch="cpu",
+                  params_dir=repo / "containers" / "engines" / "params")
+
+    # Then it names the unresolved selection and is a loud error, never a none no-op
+    assert "no committed engine id `llama-cpp`" in str(exc.value)
+    assert "llama-cpp" in str(exc.value)
+
+
+def test_known_engine_with_unknown_variant_fails_loudly(tmp_path):
+    """`--engine llama.cpp --arch metal` names the missing variant and exits non-zero.
+
+    A known committed engine id with an arch that is not one of its committed variants is a
+    selection error, not a no-op: it must name the unresolved variant (issue #2516).
+    """
+    # Given the real committed build inputs (llama.cpp declares cpu/cuda/rocm/vulkan)
+    repo, sha = _real_build_inputs(tmp_path)
+
+    # When the matrix is scoped to a known id with a non-variant arch
+    with pytest.raises(SystemExit) as exc:
+        ei.matrix(ci=True, engine="llama.cpp", arch="metal",
+                  params_dir=repo / "containers" / "engines" / "params")
+
+    # Then it names the unresolved variant, exits non-zero
+    assert "`llama.cpp` has no committed variant `metal`" in str(exc.value)
+    assert "metal" in str(exc.value)
+
 class _FakeProc:
     def __init__(self, returncode: int = 0) -> None:
         self.returncode = returncode

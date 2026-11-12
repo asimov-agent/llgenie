@@ -218,6 +218,37 @@ def test_every_committed_engine_cell_tag_is_published_live():
 
 
 
+def test_all_sweep_emits_canonical_select_line_with_dots_intact(monkeypatch, capsys):
+    """`--all` names an unpublished dotted cell with its committed id, not the package spelling.
+
+    The dispatch step in registry-liveness.yml reads ONLY `[select]` lines, so the engine id on
+    that line is the exact `-f engine=` value sent to engine-build.yml. A dotted id (`llama.cpp`)
+    MUST stay dotted there — the package spelling `llama-cpp` is what fabricated the nine vacuous
+    `engine-build-none-none` runs on the aa700cf27 wave (issue #2516).
+    """
+    engine, variant = "llama.cpp", "cpu"
+    tag = ei.resolve(engine, None, variant)["tag"]
+    ref = f"{COMPANY_REGISTRY}/{tag}"
+    fake, _ = _fake_digest({ref: ""})          # the dotted cell's exact tag 404s
+    rc = cpp.check_committed(digest=fake, registry=COMPANY_REGISTRY,
+                             cells=[(engine, variant)])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert f"[select] {engine} {variant} {tag}" in out, (
+        f"the select line must carry the dotted committed id {engine!r}, got: "
+        + [l for l in out.splitlines() if l.startswith("[select]")][0])
+    assert "llama-cpp" not in [f.split()[1] for f in out.splitlines() if f.startswith("[select]")], \
+        "a dotted cell must never be named with the dashed package spelling"
+
+
+def test_dispatch_consumes_only_select_lines_never_package_urls():
+    """The dispatch builds its gh workflow run inputs only from [select] lines, never a package URL."""
+    wf = (REPO / ".github/workflows/registry-liveness.yml").read_text()
+    # The dispatch reads the canonical select file the gate emitted and dispatches engine-build
+    # with the committed dotted id + variant, never an id parsed out of the GHCR package name.
+    assert "select-cells.txt" in wf and "[select]" in wf
+
+
 def test_the_liveness_workflow_hard_fails_on_a_committed_manifest_unknown():
     """The registry-liveness scheduled gate must FAIL (exit the gate's rc), not exit 0 and
     file issues (the #2190 silent-recurrence: tensorfold/cuda printed NOT PUBLISHED but the
@@ -248,8 +279,15 @@ def test_the_liveness_workflow_dispatches_the_publish_not_just_names_it():
     assert "actions: write" in wf, "the dispatch step needs actions:write to run gh workflow run"
     assert "workflow run engine-build.yml" in wf, "the dispatch must start the engine-build producer"
     assert "-f push=true" in wf or "--field push=true" in wf, "the dispatch must publish (push=true)"
-    # It must parse a variant out of the <pin8>-<hash8>-<variant> committed tag.
-    assert "awk -F- '{print $NF}'" in wf, "the dispatch must derive the arch from the tag suffix"
+    # The dispatch builds its inputs ONLY from the gate's canonical `[select] <engine-id> <variant>
+    # <tag>` lines — engine ids are never carved out of a package URL, which mangled dotted ids
+    # like `llama.cpp` into `llama-cpp` and dispatched a green no-op (issue #2516).
+    assert "grep '^\\[select\\]'" in wf, "the dispatch must consume the [select] lines"
+    assert "awk '{print $2, $3}'" in wf, "the dispatch must read engine-id (field 2) and variant (field 3)"
+    assert "select-cells.txt" in wf, "the dispatch must read the canonical selection file"
+    # The package-URL reconstruction that fabricated `llama-cpp` must be gone.
+    assert "cut -d:" not in wf, "no engine id may be parsed from a package URL (issue #2516)"
+    assert "awk -F- '{print $NF}'" not in wf, "the old variant-from-tag parsing must be gone"
     # Keep the ALL=1 hard-fail: the dispatch step may not weaken or bypass the fleet gate's exit.
     assert 'exit "$rc"' in wf, "ALL=1 hard-fail must be untouched by the dispatch wiring"
 

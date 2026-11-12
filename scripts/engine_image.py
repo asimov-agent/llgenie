@@ -1253,8 +1253,10 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
     # params live in <repo>/containers/engines/params: the repo root is two levels
     # above that dir, and every hashed path is relative to it.
     root = params_dir.parents[2]
+    committed: dict[str, set[str]] = {}  # committed params id -> its declared variant names
     for path in sorted(params_dir.glob("*.json")):
         params = json.loads(path.read_text())
+        committed[params["id"]] = set(params["variants"])
         if engine and params["id"] != engine:
             continue
         for key, v in params["variants"].items():
@@ -1277,12 +1279,38 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
                         "smoke": serve, "test": "serve" if serve else "detect",
                         "chat": "yes" if chat_testable(params["id"], key) else ""})
     if not out:
+        # An EXPLICIT engine/arch selection that resolves to zero committed cells is a
+        # mistake, not an intentional no-op: a mistyped engine id (e.g. the package
+        # spelling `llama-cpp` instead of the id `llama.cpp`) used to synthesize the
+        # `none` placeholder and exit 0, so a scoped dispatch built nothing while
+        # reporting success (issue #2516). Name the unresolved selection and exit
+        # non-zero so the dispatch/runner dies in seconds instead of a green no-op.
+        # The placeholder remains ONLY for the unscoped sweep (`--changed` with nothing
+        # moved, and the whole-fleet sweep) — its documented intentional no-op.
+        if engine or arch:
+            raise SystemExit(_unresolved_selection_error(engine, arch, committed))
         # GitHub fails a workflow whose matrix include list is empty BEFORE the
         # job's if: is evaluated (run 38105450418). One placeholder row keeps the
         # matrix legal; ci.yml skips engine == none and builds nothing.
         out.append({"engine": "none", "backend": "cpu", "variant": "none",
                     "smoke": False, "test": "detect", "chat": ""})
     return out
+
+
+def _unresolved_selection_error(engine: str, arch: str,
+                                committed: dict[str, set[str]]) -> str:
+    """Name the explicit engine/arch selection that resolved to zero committed cells."""
+    if engine and engine not in committed:
+        return f"no committed engine id `{engine}`"
+    if engine and arch and arch not in committed[engine]:
+        return (f"`{engine}` has no committed variant `{arch}` "
+                f"(committed variants: {', '.join(sorted(committed[engine]))})")
+    if engine and not arch:
+        return (f"`{engine}` has no committed CI cell "
+                f"(committed variants: {', '.join(sorted(committed[engine]))})")
+    if arch and not any(arch in vs for vs in committed.values()):
+        return f"no committed engine has variant `{arch}`"
+    return f"no committed cell for engine=`{engine}` arch=`{arch}`"
 
 
 def ci_status(run: str = "", watch: bool = False, interval: int = 60) -> int:

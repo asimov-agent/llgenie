@@ -120,6 +120,12 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
         else:
             missing.append(ref)
             print(f"[pins] NOT PUBLISHED {ref} ({err})")
+            # One machine-readable dispatch line per unpublished cell: the COMMITTED
+            # params id (dots intact) + variant + the exact tag. The dispatch step in
+            # registry-liveness.yml consumes ONLY these lines — never an engine id it
+            # reconstructs from a package URL, which mangled dotted ids like
+            # `llama.cpp` into `llama-cpp` and dispatched a green no-op (issue #2516).
+            print(f"[select] {engine} {variant} {ref.removeprefix(registry + '/')}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {checked} checked): dispatch engine-build with push=true, "
