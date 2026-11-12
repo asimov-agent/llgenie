@@ -31,6 +31,19 @@ FORCES a stranded run's head RED via the `ci-verdict` check-run path (a `pending
 and no-decision is already red — see `scripts/ci_scope.py::verify`), so a truly-unrunnable dispatch
 surfaces as a failed check with a reason instead of an eternal `pending` that reads like a working
 matrix (#1704). The monitor workflow carries `checks: write` so the RED check-run can land.
+
+CLEARING, not just naming (`--cancel-stranded`): naming a stranded run once and then skipping it on
+every later monitor run (the already-filed dedupe) leaves the zombie `pending` forever — GitHub does
+not evict a zero-job run by itself, and the original #1410 case was ended only by a manual cancel.
+Measured 2026-11-12: the 08:23 monitor filing named five runs (issues #2520-#2525) created 2026-11-11
+20:33Z/20:47Z on branches whose PRs (#2500, #2507) merged that same evening; twelve hours later four
+were STILL `queued` with zero jobs and `updated_at` frozen at creation, and `gh run cancel` refused
+them claiming they were "completed" while the run list still showed `queued`. Meanwhile a live
+engine-build job (43149786553 `engine-build-strata-cuda`) waited ~7h behind them for a runner. So with
+`--cancel-stranded` the monitor CANCELS each stranded run — including already-filed ones (the dedupe
+covers filing/RED only) — after re-reading the run's jobs: a run whose jobs instantiated since
+classification (a runner finally arrived) is SKIPPED, never cancelled (the #1822/#1823 live-compile
+class). A cancel that races a conclusion ("...is completed") is benign, not a delivery failure.
 """
 from __future__ import annotations
 
@@ -167,7 +180,48 @@ def already_filed(repo: str, rid: int) -> bool:
     return any(_run_marker(rid) in (i.get("body") or "") for i in found)
 
 
-def file_one_issue(repo: str, r: dict, body: str, dry: bool = False) -> str:
+def _how_steps(r: dict, cancel_action: tuple[str, str] | None) -> list[str]:
+    """`How we fix it` for a per-run zombie issue, honest about what the monitor actually did.
+
+    With `--cancel-stranded` the cancel runs BEFORE filing, so the body states the real outcome
+    (cancelled / skipped-because-a-runner-arrived / already-concluded-race / failed) instead of a
+    promise the monitor may not have kept. Without the flag, only the manual steps are named.
+    """
+    rid = r["run"]
+    action, why = cancel_action or ("", "")
+    steps: list[str] = []
+    if action == "cancelled":
+        steps.append(
+            f"Automatic remedy (monitor with `--cancel-stranded`): run {rid} has **already been "
+            "cancelled** — the monitor re-read its jobs first, so a run whose runner finally "
+            "arrived would have been skipped, never killed. GitHub does not evict a zero-job run "
+            "by itself, and naming one without clearing it leaves the zombie in the queue starving "
+            "live work (measured 2026-11-12: named 08:23Z, still queued 12:19Z)."
+        )
+    elif action == "skipped":
+        steps.append(
+            f"Automatic remedy: the monitor's cancel was **skipped** — {why}. The run got its "
+            "runner at cancel time and is no longer a zero-job run."
+        )
+    elif action == "already":
+        steps.append(
+            f"Automatic remedy: the cancel raced a conclusion — GitHub had already ended run {rid} "
+            "before the cancel was issued; nothing is left pending."
+        )
+    elif action == "failed":
+        steps.append(
+            f"Automatic remedy FAILED: {why} — the cancel did not land; a manual "
+            f"`gh run cancel {rid} --force` is required."
+        )
+    steps.append("Match a runner to the requested labels (a self-hosted runner is offline/unregistered, "
+                 "or the account's hosted-runner capacity for that OS is exhausted).")
+    steps.append("Re-dispatch the run (or the workflow it belongs to) once a runner exists — a cancelled "
+                 "zero-job run does not restart by itself.")
+    return steps
+
+
+def file_one_issue(repo: str, r: dict, body: str, dry: bool = False,
+                   cancel_action: tuple[str, str] | None = None) -> str:
     """File ONE deduped issue for a stuck run; "" when filed or already open.
 
     Files once per run (marker in the body), idempotent: a run already reported is not reported
@@ -197,11 +251,7 @@ def file_one_issue(repo: str, r: dict, body: str, dry: bool = False) -> str:
             "does not have. A stuck dispatch becomes an eternal 'pending' that looks like work in "
             "progress (issue #1410)."
         ),
-        how=[
-            "Match a runner to the requested labels (a self-hosted runner is offline/unregistered, "
-            "or the account's hosted-runner capacity for that OS is exhausted).",
-            "Re-dispatch the run once a runner exists — a zero-job run does not start by itself.",
-        ],
+        how=_how_steps(r, cancel_action),
         benefit=(
             "A runner-starved dispatch becomes ONE filed work item naming the run, instead of a "
             "silent pending placeholder nobody can distinguish from a working matrix."
@@ -253,6 +303,37 @@ def force_red_verdict(repo: str, r: dict) -> str:
     return ""
 
 
+def cancel_stranded(repo: str, r: dict) -> tuple[str, str]:
+    """Clear one stranded zero-job run; returns (action, reason).
+
+    action: "cancelled" (run cancel landed), "skipped" (the jobs re-read found instantiated jobs — a
+    runner finally arrived after classification, so this is not ours to kill: the #1822/#1823 class —
+    reason names it), "already" (the cancel raced a conclusion: GitHub reports the run completed; the
+    run is no longer live and the next scan will not name it), "failed" (reason names the failure —
+    delivery must stay loud, #294).
+
+    The jobs re-read is the safety gate: classification read jobs once; a stranded verdict made at
+    30 minutes must not cancel a build that got a runner at minute 31. Re-reading at the moment of
+    cancelling is what keeps the #917 "never cancel a live compile" rule true across the gap.
+    """
+    rid = r["run"]
+    try:
+        jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"]) or "{}")
+    except RuntimeError as e:
+        return "failed", f"jobs re-read for run {rid} failed: {e}"
+    total = len((jobs.get("jobs") if isinstance(jobs, dict) else None) or [])
+    if total != 0:
+        return "skipped", (f"run {rid}: {total} job(s) instantiated since classification — "
+                           f"a live run is never cancelled")
+    rq = run_ok(["gh", "run", "cancel", str(rid), "--repo", repo, "--force"])
+    if rq.returncode != 0:
+        err = (rq.stderr or "").strip()
+        if "completed" in err:
+            return "already", ""
+        return "failed", f"run cancel for run {rid} failed ({rq.returncode}): {err}"
+    return "cancelled", ""
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Flag dispatched runs pending/queued too long with zero jobs")
     ap.add_argument("--repo", required=True, help="owner/repo")
@@ -261,6 +342,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--file", action="store_true",
                     help="force every stranded run's head RED via ci-verdict and file ONE deduped "
                          "issue per stranded run (idempotent by run-id marker)")
+    ap.add_argument("--cancel-stranded", action="store_true",
+                    help="cancel every stranded run, INCLUDING already-filed ones (the marker dedupe "
+                         "covers filing/RED only); the jobs are re-read at the moment of cancelling "
+                         "and a run that instantiated jobs since classification is skipped, never "
+                         "cancelled")
     args = ap.parse_args(argv)
     try:
         rows = zero_job_pending_runs(args.repo, minutes=args.minutes, limit=args.limit)
@@ -270,27 +356,58 @@ def main(argv: list[str] | None = None) -> int:
     print(render(rows, args.minutes))
     if not rows:
         return 0
-    if args.file:
-        failures = []
+    if args.file or args.cancel_stranded:
+        failures: list[str] = []
+        skipped: list[str] = []
+        n_filed = n_red = 0
+        n_cancelled = n_skipped = n_already = 0
         for r in rows:
             rid = r["run"]
+            # Clear first, name second: with --cancel-stranded the cancel is attempted BEFORE the
+            # issue is written, so the body states the outcome that actually happened (cancelled /
+            # skipped because a runner arrived / raced a conclusion / failed) rather than a promise.
+            # The jobs re-read inside cancel_stranded is the safety gate — a run that instantiated
+            # jobs since classification is never touched (the #1822/#1823 live-compile class).
+            cancel_action: tuple[str, str] | None = None
+            if args.cancel_stranded:
+                cancel_action = cancel_stranded(args.repo, r)
+                action, why = cancel_action
+                if action == "cancelled":
+                    n_cancelled += 1
+                elif action == "skipped":
+                    n_skipped += 1
+                    skipped.append(why)
+                elif action == "already":
+                    n_already += 1
+                else:
+                    failures.append(why)
             # Named once: a run already reported (its marker in an open issue) is not delivered a
             # second time — neither re-filed nor re-forced RED. A fresh stranded run gets exactly one
             # delivery: force its head RED (so the same gates that catch every other red catch this
-            # one) AND file the one deduped issue naming it.
-            if already_filed(args.repo, rid):
-                continue
-            why_red = force_red_verdict(args.repo, r)
-            why_file = file_one_issue(args.repo, r, render([r], args.minutes))
-            for why in (why_red, why_file):
-                if why:
-                    failures.append(why)
+            # one) AND file the one deduped issue naming it. The dedupe guards NAMING only: an
+            # already-filed run is still a zombie today, so --cancel-stranded clears it regardless.
+            if args.file and not already_filed(args.repo, rid):
+                why_red = force_red_verdict(args.repo, r)
+                why_file = file_one_issue(args.repo, r, render([r], args.minutes),
+                                          cancel_action=cancel_action)
+                n_red += 0 if why_red else 1
+                n_filed += 0 if why_file else 1
+                for why in (why_red, why_file):
+                    if why:
+                        failures.append(why)
         if failures:
             for why in failures:
                 print(f"[{MARKER}] DELIVERY FAILED: {why}", file=sys.stderr)
             return 3
-        print(f"[{MARKER}] filed {len(rows)} deduped issue(s) and forced "
-              f"{len(rows)} stranded run(s) RED", flush=True)
+        if args.file:
+            print(f"[{MARKER}] filed {n_filed} deduped issue(s) and forced "
+                  f"{n_red} stranded run(s) RED", flush=True)
+        if args.cancel_stranded:
+            print(f"[{MARKER}] cancelled {n_cancelled} stranded run(s), {n_already} already "
+                  f"concluded, skipped {n_skipped} (jobs instantiated since classification)",
+                  flush=True)
+            for why in skipped:
+                print(f"[{MARKER}] cancel skipped: {why}", flush=True)
     return 1
 
 

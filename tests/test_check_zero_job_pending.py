@@ -162,15 +162,25 @@ def test_file_does_not_double_report_a_run_already_flagged(tmp_path, monkeypatch
 
 
 def _gh_stub_recorded(tmp_path: Path, runs: list[dict], jobs_total: dict[int, int],
-                      open_issues: list[dict], monkeypatch) -> tuple[Path, Path]:
-    """A `gh` answering run list/view, issue list/create AND `api .../check-runs POST`, logging each
-    delivery event to events.json so the guard can assert exact POST counts."""
+                      open_issues: list[dict], monkeypatch,
+                      jobs_second: dict[int, int] | None = None,
+                      cancel_errors: dict[int, str] | None = None) -> tuple[Path, Path]:
+    """A `gh` answering run list/view, issue list/create, `run cancel` AND `api .../check-runs POST`,
+    logging each delivery event to events.json so the guard can assert exact POST counts.
+
+    `jobs_second` makes a run's SECOND `run view` (the re-read `cancel_stranded` does at the moment of
+    cancelling) answer with a different job count than the first — the test seam for "a runner finally
+    arrived between classification and cancel". `cancel_errors` makes `run cancel <rid>` fail with the
+    given stderr (the "already completed" race arm)."""
     bindir = tmp_path / "bin"; bindir.mkdir(exist_ok=True)
     scenario = tmp_path / "sc.json"
     jobs_reply = {str(rid): {"jobs": [{"name": f"j{n}", "status": "in_progress"} for n in range(total)]}
                   for rid, total in jobs_total.items()}
     scenario.write_text(json.dumps(
-        {"runs": runs, "jobs_reply": jobs_reply, "issues": open_issues or []}))
+        {"runs": runs, "jobs_reply": jobs_reply, "issues": open_issues or [],
+         "views": {},
+         "jobs_second": {str(k): v for k, v in (jobs_second or {}).items()},
+         "cancel_errors": {str(k): v for k, v in (cancel_errors or {}).items()}}))
     events = tmp_path / "events.json"
     events.write_text("[]")
     gh = bindir / "gh"
@@ -187,7 +197,21 @@ if a[:2] == ["run", "list"]:
     runs = [r for r in sc["runs"] if r.get("status") == st]
     print(json.dumps(runs)); sys.exit(0)
 if a[:2] == ["run", "view"]:
+    views = sc.setdefault("views", {{}})
+    n = views.get(a[2], 0) + 1
+    views[a[2]] = n
+    pathlib.Path("{scenario}").write_text(json.dumps(sc))  # each gh call is a new process: persist the counter
+    if n >= 2 and a[2] in sc.get("jobs_second", {{}}):
+        t = sc["jobs_second"][a[2]]
+        jr = {{"jobs": [{{"name": "s" + str(i), "status": "in_progress"}} for i in range(t)]}}
+        print(json.dumps(jr)); sys.exit(0)
     print(json.dumps(sc["jobs_reply"].get(a[2], {{"jobs": []}}))); sys.exit(0)
+if a[:2] == ["run", "cancel"]:
+    log("run_cancel:" + a[2])
+    err = sc.get("cancel_errors", {{}}).get(a[2])
+    if err:
+        print(err, file=sys.stderr); sys.exit(1)
+    print("Cancelled run " + a[2]); sys.exit(0)
 if a[:2] == ["issue", "list"]:
     print(json.dumps(sc["issues"])); sys.exit(0)
 if a[:2] == ["issue", "create"]:
@@ -265,3 +289,92 @@ def test_both_statuses_are_scanned(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 1, out  # both zero-job runs past threshold are named (distinct branches → both stranded)
     assert "run 1" in out and "run 2" in out, out
+
+
+# --cancel-stranded: naming a zombie is not clearing it (issue #1410 completion, 2026-11-12).
+# The already-filed dedupe guards FILING only: a run named yesterday is still a zero-job zombie
+# today, GitHub never evicts it, and the queue starves live work behind it.
+
+def test_cancel_stranded_clears_an_already_named_zombie_without_re_naming(tmp_path, monkeypatch, capsys):
+    """The 2026-11-12 pattern: five runs named 08:23Z (issues #2520-#2525) were STILL `queued` with
+    zero jobs at 12:19Z because every later monitor run skipped them (marker present) and nothing
+    cancelled them. --cancel-stranded must CANCEL the already-named run too, while the dedupe still
+    refuses to re-file it or re-post its RED check."""
+    r7 = _run(7, "queued", 60.0); r7["headBranch"] = "feat/a"    # fresh stranded: named AND cleared
+    r9 = _run(9, "queued", 120.0); r9["headBranch"] = "feat/b"   # named yesterday: cleared only
+    gh, events = _gh_stub_recorded(
+        tmp_path, [r7, r9], {7: 0, 9: 0},
+        open_issues=[{"body": "named yesterday <!-- zero-job-pending: run 9 -->"}],
+        monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    ev = _events(events)
+    cancels = sorted(e.split(":", 1)[1] for e in ev if e.startswith("run_cancel"))
+    assert cancels == ["7", "9"], ev                                # BOTH cleared, the named one too
+    assert sum(1 for e in ev if e.startswith("issue_create")) == 1, ev    # only the unnamed run gets an issue
+    assert sum(1 for e in ev if e.startswith("check_runs_post")) == 1, ev  # RED forced once, for run 7
+    assert "cancelled 2 stranded" in out, out
+    assert "filed 1 deduped" in out, out
+    create = json.loads([e for e in ev if e.startswith("issue_create")][0].split(":", 1)[1])
+    body = create[create.index("--body") + 1]
+    assert "has **already been cancelled**" in body, body[:400]  # body states the real outcome
+
+
+def test_cancel_skips_a_run_whose_runner_arrived_between_classification_and_cancel(tmp_path, monkeypatch, capsys):
+    """The cancel safety gate: classification said stranded (zero jobs at scan); at the moment of
+    cancelling the re-read finds jobs instantiated — a runner finally arrived. A LIVE run is never
+    cancelled (the #1822/#1823 class); the skip is reported loudly and the run is still named."""
+    r = _run(7, "queued", 60.0); r["headBranch"] = "feat/a"
+    gh, events = _gh_stub_recorded(tmp_path, [r], {7: 0}, open_issues=[], monkeypatch=monkeypatch,
+                                   jobs_second={7: 2})
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    ev = _events(events)
+    assert not any(e.startswith("run_cancel") for e in ev), ev      # never kill a live compile
+    assert "skipped 1 (jobs instantiated since classification)" in out, out
+    assert "cancel skipped: run 7: 2 job(s) instantiated" in out, out
+    assert sum(1 for e in ev if e.startswith("issue_create")) == 1, ev  # still named; body states the skip
+    create = json.loads([e for e in ev if e.startswith("issue_create")][0].split(":", 1)[1])
+    body = create[create.index("--body") + 1]
+    assert "the monitor's cancel was **skipped**" in body, body[:400]
+
+
+def test_cancel_stranded_never_touches_a_queued_behind_run(tmp_path, monkeypatch, capsys):
+    """#1704's discriminator holds for cancelling too: a zero-job run QUEUED behind an in_progress
+    sibling of the same (workflow, branch) is waiting its turn — it is neither filed nor cancelled.
+    Cancel-only mode (--cancel-stranded without --file) files nothing at all."""
+    holder = _run(210, "in_progress", 60.0)                  # stalled holder: stranded, cleared
+    behind = _run(211, "queued", 60.0)                       # same wf+branch → waiting, never touched
+    other = _run(213, "queued", 60.0); other["headBranch"] = "fix/other"
+    gh, events = _gh_stub_recorded(tmp_path, [holder, behind, other],
+                                   {210: 0, 211: 0, 213: 0}, open_issues=[], monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--cancel-stranded"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    ev = _events(events)
+    cancels = sorted(int(e.split(":", 1)[1]) for e in ev if e.startswith("run_cancel"))
+    assert cancels == [210, 213], ev                          # 211 is never on the cancel list
+    assert not any("211" in e for e in ev), ev
+    assert not any(e.startswith("issue_create") for e in ev), ev  # cancel-only files nothing
+    assert "cancelled 2 stranded" in out, out
+
+
+def test_cancel_racing_a_concluded_run_is_not_a_delivery_failure(tmp_path, monkeypatch, capsys):
+    """GitHub answers `run cancel` with 'already completed' when a run concludes between the scan and
+    the cancel (measured 2026-11-12 on 43096752613-style zombies). That race is benign: no DELIVERY
+    FAILED, the summary counts it 'already concluded', and the filed body states the race honestly."""
+    r = _run(7, "queued", 60.0); r["headBranch"] = "feat/a"
+    gh, events = _gh_stub_recorded(
+        tmp_path, [r], {7: 0}, open_issues=[], monkeypatch=monkeypatch,
+        cancel_errors={7: "run 7 cannot be cancelled. The run has already completed."})
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
+    cap = capsys.readouterr()
+    assert rc == 1, cap.out
+    assert "DELIVERY FAILED" not in cap.out + cap.err, cap.out + cap.err
+    assert "1 already concluded" in cap.out, cap.out
+    ev = _events(events)
+    create = json.loads([e for e in ev if e.startswith("issue_create")][0].split(":", 1)[1])
+    body = create[create.index("--body") + 1]
+    assert "the cancel raced a conclusion" in body, body[:400]
