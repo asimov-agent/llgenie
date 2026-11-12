@@ -403,6 +403,33 @@ def test_the_dispatch_coalesces_a_multi_cell_wave_into_one_sweep():
         "exactly two dispatch shapes: the sweep and the single-cell dispatch"
 
 
+def test_liveness_dispatches_name_their_producer_run():
+    """Issue #2578: a cron-fired dispatch must be attributable. #2570's measured waves were
+    indistinguishable from deliberate human dispatches in the queue — deciding which queued runs
+    to cancel meant log spelunking every time. The fix runs BOTH directions: registry-liveness
+    passes its own run id as `producer_run` on every dispatch shape it fires, and engine-build
+    echoes it from its guard job into the run log AND the step summary, so a producer run names
+    its firing run in one lookup without correlating timestamps.
+    """
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[1]
+    wf = (root / ".github/workflows/registry-liveness.yml").read_text()
+    eb = (root / ".github/workflows/engine-build.yml").read_text()
+
+    # Given both dispatch shapes of the cron lane (#2579 sweep + #2567 single cell)
+    assert wf.count('-f producer_run="${{ github.run_id }}"') == 2, \
+        "both dispatch shapes must name the firing liveness run id"
+
+    # When the producer's side is read
+    inputs = eb.split("inputs:", 1)[1].split("permissions:", 1)[0]
+    assert "producer_run:" in inputs, "engine-build must accept the producer dispatch input"
+    step = eb.split("Dispatch provenance", 1)[1].split("- name:", 1)[0]
+    assert "inputs.producer_run" in step and "GITHUB_STEP_SUMMARY" in step, \
+        "the provenance step must echo the producer into the log and the step summary"
+    assert "dispatched_by_run=" in step and "none-recorded" in step, \
+        "an unattributed (human or PR-lane) dispatch must say so, not stay silent"
+
+
 def test_the_gate_names_every_missing_cell_with_a_canonical_select_line(capsys):
     """Issue #2561: the gate's own machine-readable line is `[select] <engine-id>
     <variant> <tag-suffix>` with the COMMITTED id — dots intact. The registry-liveness

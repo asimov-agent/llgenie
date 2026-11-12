@@ -176,13 +176,13 @@ jobs:
           if [ "$n" -gt 1 ]; then
             echo "coalescing $n missing cells into ONE full-matrix push=true sweep (#2579); sweep cells:"
             cat validated.txt
-            gh workflow run engine-build.yml --repo "$REPO" --ref main -f push=true \
+            gh workflow run engine-build.yml --repo "$REPO" --ref main -f push=true -f producer_run="${{ github.run_id }}" \
               || echo "sweep dispatch failed (rc $?); the tracking issues above stay the record"
           elif [ "$n" = "1" ]; then
             read -r sel engine variant tag < validated.txt
             echo "dispatching engine-build push=true for $engine/$variant (single missing cell)"
             gh workflow run engine-build.yml --repo "$REPO" --ref main \
-              -f engine="$engine" -f arch="$variant" -f push=true \
+              -f engine="$engine" -f arch="$variant" -f push=true -f producer_run="${{ github.run_id }}" \
               || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
           fi
           echo "dispatch shape chosen from $n contract-valid [select] cell(s); re-run registry-liveness after the builds publish"
