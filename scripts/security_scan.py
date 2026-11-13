@@ -145,6 +145,76 @@ def policy() -> dict:
     return merged
 
 
+#: A manifest digest as GHCR reports it (`sha256:<64 hex>`); the shape `image_digest` must carry
+#: so a scan can prove which image it runs (issue #2609).
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def registry_manifest_digests(image_ref: str) -> dict:
+    """The manifest digests the registry serves for a ref: the index digest and its per-platform
+    children (issue #2609). `{}` when the registry cannot answer for this ref."""
+    res = subprocess.run([RUNTIME, "buildx", "imagetools", "inspect", image_ref,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                          "--format", "{{json .Manifest}}"], capture_output=True, text=True)
+    if res.returncode != 0:
+        return {}
+    try:
+        man = json.loads((res.stdout or "").strip())
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(man, dict):
+        return {}
+    children = [str(m.get("digest")) for m in (man.get("manifests") or man.get("children") or [])
+                if isinstance(m, dict) and m.get("digest")]
+    return {"index": str(man.get("digest") or ""), "children": children}
+
+
+def _local_image_digest(image_ref: str) -> str:
+    """What the daemon reports as the id of the image a run would execute."""
+    res = subprocess.run([RUNTIME, "image", "inspect", image_ref, "--format", "{{.Id}}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                         capture_output=True, text=True)
+    return (res.stdout or "").strip()
+
+
+def verify_pinned_digest(tool: str, ref: str, *, built: bool) -> None:
+    """Prove the image about to run IS the image `digests.json` pinned (issue #2609).
+
+    A content-hash tag is re-pushable, and a re-build of the SAME Dockerfile resolves whatever the
+    package repository publishes that day (measured 2026-11-13: `semgrep:5954e2aad609` served
+    `sha256:180c3f7e…` while the same tag cached on a host ran `sha256:7fd77096…`), so the tag
+    alone does not pin what a scan runs. The recorded index digest must equal what the registry
+    serves, and the image the daemon holds must be one of that index's manifests. A mismatch exits
+    non-zero naming BOTH digests; the locally built deferral image (issue #2518) prints its built
+    digest and says the registry pin is not registry-verifiable for an unpublished ref.
+    """
+    recorded = str((digests().get(tool) or {}).get("image_digest") or "")
+    if not DIGEST_RE.fullmatch(recorded):
+        raise SystemExit(f"[security-scan] {tool}: digests.json has no `image_digest` for the pinned "
+                         "image — the scan cannot prove which scanner it runs (issue #2609); "
+                         "run `make pin-scanner-image-digests`")
+    actual = _local_image_digest(ref)
+    if built:
+        print(f"[security-scan] {tool}: executed {ref} built locally (deferral, issue #2518) at "
+              f"digest {actual}; the registry pin {recorded} is not registry-verifiable for an "
+              "unpublished ref")
+        return
+    man = registry_manifest_digests(ref)
+    index = man.get("index") or ""
+    if not index:
+        raise SystemExit(f"[security-scan] {tool}: the registry cannot answer for {ref}, so the "
+                         f"pinned image {recorded} cannot be verified (issue #2609)")
+    if index != recorded:
+        raise SystemExit(f"[security-scan] {tool}: the pinned ref {ref} serves {index} but "
+                         f"digests.json records {recorded} — the tag moved (issue #2609); the scan "
+                         "refuses the moved image")
+    accepted = {index, *man.get("children", [])}
+    if actual and actual not in accepted:
+        raise SystemExit(f"[security-scan] {tool}: the local copy of {ref} is {actual}, not the "
+                         f"pinned image (recorded {recorded}) — a stale local scanner image "
+                         "(issue #2609); delete it so the pinned ref re-pulls")
+    print(f"[security-scan] {tool}: executed image digest {actual or index} for {ref} "
+          f"(pinned {recorded})")
+
+
 def ensure_image(tool: str) -> str:
     """The pinned image, from the registry when it is published, else built from its Dockerfile.
 
@@ -153,14 +223,20 @@ def ensure_image(tool: str) -> str:
     write the base repo's packages. That is not a reason to skip a scan, and it is not a second
     implementation: the SAME Dockerfile — digest-pinned base, exact versions — is built and tagged
     with the SAME immutable ref the workflow asked for, and the log says which path was taken.
+
+    #2609: every pull-path resolution then runs `verify_pinned_digest`, which proves the registry
+    still serves the manifest digest `digests.json` recorded for that ref; a mismatch exits
+    non-zero naming both digests. The deferral build prints its built digest instead.
     """
     ref = image_ref(tool)
     if subprocess.run([RUNTIME, "image", "inspect", ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                       capture_output=True).returncode == 0:
+        verify_pinned_digest(tool, ref, built=False)
         return ref
     pull = subprocess.run([RUNTIME, "pull", ref], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if pull.returncode == 0:
         print(f"[security-scan] pulled {ref}")
+        verify_pinned_digest(tool, ref, built=False)
         return ref
     context = REPO / "containers" / "scanners" / tool
     print(f"[security-scan] {ref} is not published yet — building {context} (the same Dockerfile "
@@ -169,6 +245,7 @@ def ensure_image(tool: str) -> str:
                            capture_output=True, text=True)
     if build.returncode != 0:
         raise SystemExit(f"[security-scan] cannot build {tool}: {build.stderr.strip()[-400:]}")
+    verify_pinned_digest(tool, ref, built=True)
     return ref
 
 
@@ -536,9 +613,12 @@ def check() -> int:
         problems.append("no SBOM tool: Grype would have nothing to match")
     for tool in TOOLS:
         entry = recorded.get(tool) or {}
-        for key in ("version", "tag", "ref"):
+        for key in ("version", "tag", "ref", "image_digest"):
             if not entry.get(key):
-                problems.append(f"digests.json: `{tool}` has no `{key}`")
+                problems.append(f"digests.json: `{tool}` has no `{key}` (issue #2609: the scan "
+                                "cannot prove which image it runs without it)")
+        if entry.get("image_digest") and not DIGEST_RE.fullmatch(str(entry["image_digest"])):
+            problems.append(f"digests.json: `{tool}` image_digest is not `sha256:<64 hex>`")
         if entry.get("tag") and f":{entry['tag']}" not in image_ref(tool):
             problems.append(f"digests.json: `{tool}` tag is not the ref's tag")
     # The SAST rule set is immutability too (issue #1284): the rules a scan runs are pinned by sha in

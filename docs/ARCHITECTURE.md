@@ -520,6 +520,13 @@ missing version pin or a stale `digests.json`. No scanner needs a secret. In CI,
 scanner on every run, publish on a push run only, with the policy in the script rather than a
 scenario-scoped `if:`.
 
+A published scanner tag is re-pushable, so the digest the registry actually serves for it is
+recorded too (issue #2609): `make pin-scanner-image-digests` asks GHCR with
+`docker buildx imagetools inspect` and writes each scanner image's manifest digest into
+`containers/scanners/digests.json` as `image_digest`; `make check-scanner-images` refuses an
+entry without that pin, and a scan refuses to run an image whose executed digest differs from
+it — a moved tag or a stale local copy, both named by digest (`scripts/security_scan.py`).
+
 The scanner publish is idempotent and loud (issue #2453): a content-hash tag is immutable, so
 `publish()` asks the registry FIRST (`docker buildx imagetools inspect <ref>`) and, when it
 already carries every platform in `PLATFORMS`, skips the re-push — a transient multi-arch
