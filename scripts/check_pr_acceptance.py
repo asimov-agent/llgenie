@@ -49,6 +49,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -147,12 +148,64 @@ DISPATCH_FORM = (
     "dispatch), with its own log recorded"
 )
 #: A named CI workflow run — `run=42191377162` — the strongest provable evidence (issue #1858).
-RUN_ID = re.compile(r"\brun\s*=\s*\d+\b")
+RUN_ID = re.compile(r"\brun\s*=\s*(\d+)\b")
 #: The reproducible fold/sync form: a command + its exit code + the measured tree sha, e.g.
 #: `cmp live==tree <path> · agent_profile_sync --check PROFILE=x (rc 0, 4c3ac6f)`. A hash/compare
 #: with no `rc=` (or no sha) is not re-measurable from the issue thread alone (#1784/#1819 class).
 RC_SHA = re.compile(r"\brc(?:\s*=\s*|[\s(])\s*\S+\b")
-GIT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+GIT_SHA = re.compile(r"\b([0-9a-f]{7,40})\b")
+#: Run conclusions that prove NOTHING (issue #2288): a cited run is evidence only when it concluded
+#: `success`. Measured roster: 11 ticks on closed issues cited 4 runs that ended failure/cancelled —
+#: the old rule accepted a run token without ever asking how the run ended.
+RED_CONCLUSIONS = frozenset({"failure", "cancelled", "timed_out", "startup_failure", "startup_error"})
+
+
+def live_run_state(gh: str, repo: str, run_id: int,
+                   _cache: dict[tuple[str, int], "tuple[str, str, str] | None"] = {}) -> "tuple[str, str, str] | None":
+    """The live `(status, conclusion, head_sha)` of `run <run_id>` — the judgement basis for #2288.
+
+    Read through the gate's `--gh` seam (`gh api repos/<repo>/actions/runs/<id>`), the same live-read
+    pattern as `_fetch_issue_meta` (#1589). Returns `None` when the run is unreadable (API error,
+    deleted run, malformed record): an unreadable lookup is never treated as proven. Cached per
+    process so a criterion citing the same run in several ticks costs one API read.
+    """
+    key = (repo, int(run_id))
+    if key in _cache:
+        return _cache[key]
+    r = proc.run_ok([gh, "api", f"repos/{repo}/actions/runs/{run_id}",
+                     "--jq", "[.status, .conclusion, .head_sha] | @tsv"])
+    state: tuple[str, str, str] | None = None
+    if r.returncode == 0:
+        parts = (r.stdout or "").strip().split("\t")
+        status = parts[0].strip() if parts else ""
+        if status and status != "null":
+            state = (status,
+                     (parts[1] if len(parts) > 1 else "").strip(),
+                     (parts[2] if len(parts) > 2 else "").strip())
+    _cache[key] = state
+    return state
+
+
+def _resolve_rev_sha(rev: str, cwd: Path) -> str:
+    """`--rev` resolved to a concrete commit sha (the ADDED spec requirement, issue #2288).
+
+    The stale-head class compares proof heads against the revision the gate measures, so the
+    revision must be a sha, not the token `HEAD`. When the revision cannot be resolved (fixture runs
+    without a git checkout), returns `""` and the stale-head comparisons are skipped — every other
+    rule still applies.
+    """
+    try:
+        out = proc.run_checked(["git", "rev-parse", "--verify", f"{rev or 'HEAD'}^{{commit}}"],
+                               cwd=str(cwd))
+    except (proc.ProcError, OSError):
+        return ""
+    return (out or "").strip().lower()
+
+
+def _sha_matches_any(candidates: set[str], sha: str) -> bool:
+    """True when any candidate equals `sha` or is a prefix of it (abbreviated sha tolerance)."""
+    return any(c == sha or sha.startswith(c) or c.startswith(sha) for c in candidates if c)
+
 
 
 def _requires_own_gate_verdict(criterion: str) -> bool:
@@ -278,7 +331,9 @@ def verdict_evidence(gh: str, repo: str, pr: "int | str", head: str) -> "dict | 
 
 
 def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
-                       verdict: "dict | None" = None) -> list[dict]:
+                       verdict: "dict | None" = None,
+                       run_lookup: "Callable[[int], tuple[str, str, str] | None] | None" = None,
+                       rev_sha: str = "") -> list[dict]:
     """The findings a merged PR closing `issue_body_text` carries.
 
     Three states a close can be in (issue #2187's gate half), plus a fourth for the gate's own loop:
@@ -452,6 +507,114 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
         m = PROVEN_MARKER.search(str(text or ""))
         ref = m.group(1).strip() if m else ""
         if _is_provable_tick(text):
+            # #2288: a `run=` citation proves only when the run CONCLUDED GREEN at a head the tick
+            # flags. The old rule stopped at the token — 11 ticks on closed issues cited 4 runs that
+            # ended failure/cancelled (issue #2288's measured roster). Live judgement through the
+            # gate's gh seam; pure callers (unit fixtures) pass no lookup and keep the old shape.
+            cited = [int(mm.group(1)) for mm in RUN_ID.finditer(ref)]
+            if cited and run_lookup is not None:
+                run_ids = {str(r) for r in cited}
+                named = {mm.group(1) for mm in GIT_SHA.finditer(ref) if mm.group(1) not in run_ids}
+                reds: list[tuple[int, str, str]] = []
+                unreadable: list[int] = []
+                unfinished: list[tuple[int, str]] = []
+                green_heads: set[str] = set()
+                for rid in cited:
+                    st = run_lookup(rid)
+                    if st is None:
+                        unreadable.append(rid)
+                        continue
+                    status, conclusion, run_head = st
+                    cl = (conclusion or "").lower()
+                    if cl in RED_CONCLUSIONS:
+                        reds.append((rid, cl, run_head))
+                    elif cl == "success" and (status or "").lower() == "completed":
+                        if run_head:
+                            green_heads.add(run_head)
+                    else:
+                        unfinished.append((rid, (status or conclusion or "unfinished").lower()))
+                if reds:
+                    rid, cl, run_head = reds[0]
+                    out.append({
+                        "key": "tick-cites-red-run",
+                        "blocking": True,
+                        "title": "ci: a ticked acceptance criterion cites a run that did not end green — the tick cites evidence that failed",
+                        "evidence": (
+                            f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` with a `(proven: …)` "
+                            f"citing run {rid}, whose LIVE conclusion is `{cl}`"
+                            f"{' at head ' + run_head[:12] if run_head else ''}. A red run proves nothing "
+                            f"(issue #2288): re-measure with a green run or a `command rc=<n> <sha>` at the "
+                            f"live head, or un-tick the criterion until something green actually proves it."
+                        ),
+                        "where": f"#{issue}",
+                    })
+                    continue
+                if unreadable:
+                    out.append({
+                        "key": "tick-run-unreadable",
+                        "blocking": True,
+                        "title": "ci: a ticked acceptance criterion cites a run the gate cannot read — unreadable evidence is never proven",
+                        "evidence": (
+                            f"acceptance item {pos} (\u201c{text[:80]}\u201d) cites run "
+                            f"{', '.join(str(r) for r in unreadable)}; `gh api "
+                            f"repos/<repo>/actions/runs/<id>` returned no record. A tick that cites an "
+                            f"unreadable run cannot be re-measured by anyone (issue #2288): cite a run "
+                            f"the API still reports, or a `command rc=<n> <sha>`."
+                        ),
+                        "where": f"#{issue}",
+                    })
+                    continue
+                if green_heads:
+                    if rev_sha and not _sha_matches_any(named, rev_sha) \
+                            and not _sha_matches_any(green_heads, rev_sha):
+                        stale = sorted(green_heads | named)
+                        out.append({
+                            "key": "tick-stale-head-unflagged",
+                            "blocking": True,
+                            "title": "ci: a ticked criterion's proof belongs to a head other than the current one and does not flag the live head",
+                            "evidence": (
+                                f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]`, and its "
+                                f"`(proven: …)` pins the proof to "
+                                f"{', '.join(h[:12] for h in stale[:4]) or 'the cited green runs'} — "
+                                f"none of the named shas equals the current head {rev_sha[:12]}. A proof "
+                                f"measured at an older head does not survive a push (issue #2288): "
+                                f"re-measure at {rev_sha[:12]}, or record the live head alongside the old "
+                                f"one inside the marker."
+                            ),
+                            "where": f"#{issue}",
+                        })
+                    continue
+                if unfinished:
+                    rid, stt = unfinished[0]
+                    out.append({
+                        "key": "acceptance-proven-awaiting-writer",
+                        "blocking": False,
+                        "title": "ci: a ticked criterion cites a run that has not concluded yet — reported as awaiting, not proven",
+                        "evidence": (
+                            f"acceptance item {pos} (\u201c{text[:80]}\u201d) cites run {rid}, currently "
+                            f"`{stt}`. The criterion is not counted proven-green (issue #2288); it clears "
+                            f"when the run concludes `success` at the measured head."
+                        ),
+                        "where": f"#{issue}",
+                    })
+                    continue
+                continue
+            if rev_sha:
+                # No run cited (a command+rc+sha tick): the head-token drift rule stays local.
+                named = {mm.group(1) for mm in GIT_SHA.finditer(ref)}
+                if named and not _sha_matches_any(named, rev_sha):
+                    out.append({
+                        "key": "tick-stale-head-unflagged",
+                        "blocking": True,
+                        "title": "ci: a ticked criterion's proof names a head other than the current one",
+                        "evidence": (
+                            f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` and its "
+                            f"`(proven: …)` names head(s) {', '.join(sorted(named))[:4]}, none equal to "
+                            f"the current head {rev_sha[:12]} (issue #2288). Re-measure at the live head "
+                            f"or flag it in the marker."
+                        ),
+                        "where": f"#{issue}",
+                    })
             continue
         lack = (f"its `(proven: …)` names no CI run and no reproducible `command + rc=<n> + <sha>` "
                 f"(measured text: \u201c{ref[:80]}\u201d)")
@@ -748,6 +911,21 @@ def main(argv: list[str] | None = None) -> int:
     # verdict trail is a PR property shared across every linked issue. A genuine unproven close stays
     # red (`acceptance-unchecked`); only a verdict at the current head downgrades to awaiting-writer.
     verdict = verdict_evidence(args.gh, args.repo, args.pr, args.rev)
+    # #2288: ticked criteria are judged against LIVE run conclusions and the gate's own revision.
+    # The lookup is lazy + cached (`live_run_state`), so a body that cites no `run=` makes zero calls.
+    rev_sha = _resolve_rev_sha(args.rev, str(getattr(args, "cwd", None) or REPO_ROOT))
+    if getattr(args, "gh", "") and rev_sha:
+        print(f"[check-pr-acceptance] measuring criteria against head {rev_sha[:12]} "
+              f"(live-run evidence rules, #2288)")
+
+    # A fresh cache per gate invocation: the shared default-argument cache must never outlive one
+    # run — a later invocation re-asking the same run id gets a fresh live read (#2288).
+    run_cache: dict[tuple[str, int], "tuple[str, str, str] | None"] = {}
+
+    def _run_lookup(rid: int) -> "tuple[str, str, str] | None":
+        gh_bin = getattr(args, "gh", "") or "gh"
+        return live_run_state(gh_bin, args.repo, rid, run_cache)
+
     if verdict:
         print(f"[check-pr-acceptance] trusted approve verdict at head {str(verdict.get('head'))[:12]} "
               f"(run {verdict.get('run')}, reviewer {verdict.get('reviewer')}) — proving criteria, "
@@ -764,7 +942,8 @@ def main(argv: list[str] | None = None) -> int:
                 "where": f"#{n}",
             })
             continue
-        items.extend(acceptance_verdict(issue, body, n, verdict=verdict))
+        items.extend(acceptance_verdict(issue, body, n, verdict=verdict,
+                                        run_lookup=_run_lookup, rev_sha=rev_sha))
         # A close target that is ALREADY closed cannot be closed prematurely, so its lane probe is
         # not a control — measured #1694 (CLOSED 2026-11-04T21:09:51Z) still flagged by a
         # 2026-11-08 run (issue #2088). The acceptance half above stays: a closed issue's unticked

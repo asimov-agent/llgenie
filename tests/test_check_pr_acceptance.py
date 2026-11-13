@@ -191,20 +191,39 @@ def test_body_without_criteria_section_closes_normally():
 # --- CLI: live issue read at merge time ---------------------------------------------------------------
 
 
-def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch, state: str = "OPEN") -> None:
+def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch, state: str = "OPEN",
+             runs: "dict[str, object] | None" = None) -> None:
     """A `gh` on PATH answering the issues API (`api repos/<o>/<r>/issues/N`) from a sidecar file.
 
     The sidecar keeps the issue body's real newlines out of the script source, so the detector cannot
     misread an f-string/escaping artifact for a live response. `state` is served as the issue's live
     state; no `pull_request` key means an ISSUE, exactly as the real API answers.
+
+    `runs` (issue #2288) serves `api repos/<o>/<r>/actions/runs/<id>` as live (status, conclusion,
+    head_sha) TSV: a mapping `{run-id: {status, conclusion, head_sha}}`, or `{run-id: None}` for an
+    UNREADABLE run (exit 1). No sidecar entry answers `completed success` with an empty head — a
+    proven run whose head the gate cannot pin, which the old fixtures never asserted against.
     """
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "issue.json").write_text(json.dumps({"body": issue_body, "state": state}))
+    if runs is not None:
+        (bindir / "runs.json").write_text(json.dumps(runs))
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if len(sys.argv) > 2 and sys.argv[1:2] == ['api'] and 'actions/runs/' in sys.argv[2]:\n"
+        "    rid = sys.argv[2].rsplit('/', 1)[-1]\n"
+        "    rf = here + '/runs.json'\n"
+        "    rr = json.load(open(rf)) if os.path.exists(rf) else {}\n"
+        "    if rid not in rr:\n"
+        "        print('completed\\tsuccess\\t'); sys.exit(0)\n"
+        "    rec = rr[rid]\n"
+        "    if rec is None:\n"
+        "        sys.exit(1)\n"
+        "    print('%s\\t%s\\t%s' % (rec.get('status', 'completed'), rec.get('conclusion', ''),\n"
+        "                           rec.get('head_sha', ''))); sys.exit(0)\n"
         "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
         "    print(open(here + '/issue.json').read()); sys.exit(0)\n"
         "sys.exit(1)\n")
@@ -466,10 +485,21 @@ def _fake_gh_map(tmp_path: Path, mapping: dict[str, dict], monkeypatch) -> None:
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "issues.json").write_text(json.dumps(mapping))
+    (bindir / "runs.json").write_text(json.dumps({}))
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if len(sys.argv) > 2 and sys.argv[1:2] == ['api'] and 'actions/runs/' in sys.argv[2]:\n"
+        "    rid = sys.argv[2].rsplit('/', 1)[-1]\n"
+        "    rr = json.load(open(here + '/runs.json'))\n"
+        "    if rid not in rr:\n"
+        "        print('completed\\tsuccess\\t'); sys.exit(0)\n"
+        "    rec = rr[rid]\n"
+        "    if rec is None:\n"
+        "        sys.exit(1)\n"
+        "    print('%s\\t%s\\t%s' % (rec.get('status', 'completed'), rec.get('conclusion', ''),\n"
+        "                           rec.get('head_sha', ''))); sys.exit(0)\n"
         "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
         "    num = (sys.argv[2].rsplit('/', 1)[-1] if sys.argv[1:2] == ['api'] else sys.argv[3])\n"
         "    m = json.load(open(here + '/issues.json'))\n"
@@ -872,3 +902,174 @@ def test_the_ci_guard_and_scope_steps_pass_the_squash_range():
         assert "git fetch --no-tags --prune origin main" in run, rel
         assert "make check-pr-acceptance" in run, rel
         assert "${{" not in run, rel
+
+
+# --- live run-judgement of ticked criteria (issue #2288) --------------------------------------------
+
+#: A green run's head that is NOT the measured head — the stale-proof shape.
+_ELSEWHERE = "deadbeef" + "0" * 32
+_MEASURED = "e" * 40
+
+
+def _issue_at(ticked: list[int], total: int, head_token: str) -> str:
+    """`_issue` with its tick proven at another head token (live-head drift fixtures)."""
+    return _issue(ticked=ticked, total=total).replace("head=abc1234", f"head={head_token}")
+
+
+def test_tick_citing_a_failure_run_is_red():
+    """The #2288 core: `- [x] … run=… ` whose LIVE conclusion is `failure` is a blocking finding."""
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1, 2], total=2), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "failure", _ELSEWHERE), rev_sha="f" * 40)
+    keys = [f["key"] for f in findings]
+    assert "tick-cites-red-run" in keys
+    assert any(f["blocking"] for f in findings if f["key"] == "tick-cites-red-run")
+
+
+def test_tick_citing_a_cancelled_run_is_red():
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1], total=2), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "cancelled", _ELSEWHERE), rev_sha="f" * 40)
+    assert any(f["key"] == "tick-cites-red-run" and f["blocking"] for f in findings)
+
+
+def test_tick_run_conclusion_is_read_live_not_the_token_alone():
+    """The exact measured defect: the OLD rule stopped at the `run=` token; the lookup now decides.
+
+    Same body, same run id: `success` proves (no finding), `failure` reds. A gate that never reads
+    the conclusion would return identical findings for both — these asserts are the proof it reads.
+    """
+    body, pr = _issue(ticked=[1], total=1), _pr("closes #1000")
+    green = g.acceptance_verdict(body, pr, 1000,
+                                 run_lookup=lambda rid: ("completed", "success", _MEASURED),
+                                 rev_sha=_MEASURED)
+    red = g.acceptance_verdict(body, pr, 1000,
+                               run_lookup=lambda rid: ("completed", "failure", _MEASURED),
+                               rev_sha=_MEASURED)
+    assert green == []
+    assert any(f["key"] == "tick-cites-red-run" for f in red)
+
+
+def test_tick_citing_an_unfinished_run_is_awaiting_not_red():
+    """A cited run still `in_progress` is `proven-awaiting-writer` (non-blocking), never a red."""
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1], total=1), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("in_progress", "", _MEASURED), rev_sha=_MEASURED)
+    assert any(f["key"] == "acceptance-proven-awaiting-writer" and not f["blocking"]
+               for f in findings)
+    assert not any(f["blocking"] for f in findings)
+
+
+def test_tick_run_unreadable_is_red():
+    """`gh api …/runs/<id>` returning no record: unreadable evidence is never proven (blocking)."""
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1], total=2), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: None, rev_sha="f" * 40)
+    assert any(f["key"] == "tick-run-unreadable" and f["blocking"] for f in findings)
+
+
+def test_tick_with_green_run_at_another_head_is_red():
+    """A green run at a head other than the measured one, with no ref token at the measured head,
+    is `tick-stale-head-unflagged`: proof measured at an old head does not survive a push."""
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1], total=1), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "success", _ELSEWHERE), rev_sha="f" * 40)
+    assert any(f["key"] == "tick-stale-head-unflagged" and f["blocking"] for f in findings)
+
+
+def test_tick_with_green_run_at_the_measured_head_is_clean():
+    findings = g.acceptance_verdict(
+        _issue(ticked=[1], total=1), _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "success", _MEASURED), rev_sha=_MEASURED)
+    assert findings == []
+
+
+def test_tick_stale_proven_but_ref_names_the_live_head_is_clean():
+    """The sanctioned alternative: a proof pinned elsewhere that FLAGS the live head inside the
+    marker (the spec's escape hatch) passes the stale class."""
+    body = _issue(ticked=[1], total=1).replace(
+        "run=42191377162", f"run=42191377162 live_head={_MEASURED}")
+    findings = g.acceptance_verdict(
+        body, _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "success", _ELSEWHERE), rev_sha=_MEASURED)
+    assert findings == []
+
+
+def test_tick_without_a_run_citing_a_head_that_moved_is_red():
+    """No `run=` (a command/rc/sha tick): the pure head-token drift rule against rev_sha."""
+    body = _issue(ticked=[1], total=1).replace("run=42191377162", "rc=0")
+    findings = g.acceptance_verdict(body, _pr("closes #1000"), 1000, rev_sha=_MEASURED)
+    assert any(f["key"] == "tick-stale-head-unflagged" for f in findings)
+
+
+def test_tick_at_the_measured_head_without_lookup_stays_clean():
+    """Pure callers that pass no live lookup keep the old shape (unit-fixture compatibility)."""
+    findings = g.acceptance_verdict(_issue(ticked=[1], total=1), _pr("closes #1000"), 1000)
+    assert findings == []
+
+
+def _cli_out(tmp_path, argv):
+    import contextlib
+    out = tmp_path / "out.txt"
+    with open(out, "w") as fh, contextlib.redirect_stdout(fh):
+        rc = run_cli(argv)
+    return rc, out.read_text()
+
+
+def test_cli_tick_citing_a_red_run_is_red(tmp_path, monkeypatch):
+    _fake_gh(tmp_path, _issue(ticked=[1, 2], total=2), monkeypatch,
+             runs={"42191377162": {"status": "completed", "conclusion": "failure",
+                                   "head_sha": _ELSEWHERE}})
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
+    assert rc != 0
+    assert "cites a run that did not end green" in text
+    assert "`failure`" in text
+
+
+def test_cli_tick_run_unreadable_is_red(tmp_path, monkeypatch):
+    _fake_gh(tmp_path, _issue(ticked=[1, 2], total=2), monkeypatch,
+             runs={"42191377162": None})
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
+    assert rc != 0
+    assert "cites a run the gate cannot read" in text
+
+
+def test_cli_tick_with_green_run_at_another_head_is_red(tmp_path, monkeypatch):
+    _fake_gh(tmp_path, _issue(ticked=[1, 2], total=2), monkeypatch,
+             runs={"42191377162": {"status": "completed", "conclusion": "success",
+                                   "head_sha": _ELSEWHERE}})
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
+    assert rc != 0
+    assert "belongs to a head other than the current one" in text
+
+
+def test_cli_tick_citing_an_in_progress_run_stays_green_as_awaiting(tmp_path, monkeypatch):
+    _fake_gh(tmp_path, _issue(ticked=[1, 2], total=2), monkeypatch,
+             runs={"42191377162": {"status": "in_progress", "conclusion": "",
+                                   "head_sha": _ELSEWHERE}})
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
+    assert rc == 0, "a not-yet-concluded cited run is awaiting, never a red the author must clear"
+    assert "proven-awaiting-writer" in text
+
+
+def test_cli_green_run_at_the_measured_head_is_green(tmp_path, monkeypatch):
+    """Fixture repo HEAD is the measured head: a run green AT it with the ref pinning the live head
+    is clean end-to-end through the real `live_run_state` seam."""
+    import subprocess
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(REPO),
+                          capture_output=True, text=True).stdout.strip()
+    _fake_gh(tmp_path, _issue_at(ticked=[1, 2], total=2, head_token=head), monkeypatch,
+             runs={"42191377162": {"status": "completed", "conclusion": "success",
+                                   "head_sha": head}})
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
+    assert rc == 0, text

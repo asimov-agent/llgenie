@@ -2,7 +2,8 @@
 
 Everything here is the real module — `tick_acceptance` / `acceptance_items` / `BodyError` are the
 product. Nothing in `scripts/acceptance_writeback.py` talks to the network or to `gh` inside the
-pure transformation; the `gh api PATCH` wrapper lives behind `main` and is not exercised here.
+pure transformation; the `gh` wrapper behind `main` is exercised here only through a hermetic
+fake-`gh` shim (#2288: the live `writeback` proves every cited run GREEN before a tick is written).
 
 The two acceptance criteria under proof (issue #1644):
 
@@ -15,6 +16,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -23,7 +25,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 from scripts import acceptance_writeback as aw
 
-VERDICT = "llgenie-pr-reviever review=42 head=abc123 run=99"
+#: #2288 grammar floor: every verdict-ref must name a 7–40 hex head sha. `abc1234567` is that token.
+VERDICT = "llgenie-pr-reviever review=42 head=abc1234567 run=99"
 
 # A body in the repository's six-section shape (issue #745) with three acceptance criteria.
 BODY = (
@@ -194,3 +197,142 @@ def test_missing_section_canary_names_actual_headings():
     assert "no `## Acceptance criteria`" in msg
     assert "found headings:" in msg
     assert "Problem" in msg and "Technical" in msg
+
+
+# --- issue #2288: the seam refuses evidence it cannot vouch for -------------------------------
+
+#: A verdict-ref carrying only decimal ids (reviewer name, review id, short comment/run ids):
+#: none of them can be re-checked against a revision, so the seam must refuse one.
+NO_SHA_REF = "reviewer=llgenie-pr-reviever review=42 comment=180 run=99"
+
+
+def _fake_gh(tmp_path, runs: dict, issue_body: str = ""):
+    """Hermetic fake `gh`: answers `actions/runs/<id>` / `issue view` / the PATCH, logs every call.
+
+    `runs` maps a run id to (status, conclusion, head_sha); a None entry makes the run unreadable
+    (exit 1). Every argv is appended to calls.log so tests can assert what WAS and WAS NOT called.
+    """
+    (tmp_path / "runs.json").write_text(json.dumps(runs))
+    (tmp_path / "issue.json").write_text(issue_body)
+    (tmp_path / "calls.log").write_text("")  # exists from setup: a zero-call run reads empty, not missing
+    gh = tmp_path / "gh"
+    gh.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "D = os.path.dirname(os.path.abspath(__file__))\n"
+        "def p(n):\n"
+        "    return os.path.join(D, n)\n"
+        "with open(p('calls.log'), 'a') as fh:\n"
+        "    fh.write(' '.join(sys.argv[1:]) + '\\n')\n"
+        "a = sys.argv[1:]\n"
+        "if a[:1] == ['api'] and any('actions/runs/' in t for t in a):\n"
+        "    rid = [t for t in a if 'actions/runs/' in t][0].rsplit('/', 1)[-1]\n"
+        "    rec = json.loads(open(p('runs.json')).read()).get(rid)\n"
+        "    if rec is None:\n"
+        "        sys.exit(1)\n"
+        "    print('%s\\t%s\\t%s' % (rec[0], rec[1], rec[2]))\n"
+        "    sys.exit(0)\n"
+        "if a[:2] == ['issue', 'view']:\n"
+        "    print(json.dumps({'body': open(p('issue.json')).read()}))\n"
+        "    sys.exit(0)\n"
+        "if a[:1] == ['api'] and 'PATCH' in a:\n"
+        "    bodies = [t[5:] for t in a if t.startswith('body=')]\n"
+        "    if not bodies:\n"
+        "        sys.exit(1)\n"
+        "    open(p('issue.json'), 'w').write(bodies[0])\n"
+        "    sys.exit(0)\n"
+        "sys.exit(1)\n"
+    )
+    gh.chmod(0o755)
+    return gh, tmp_path / "calls.log", tmp_path / "issue.json"
+
+
+def test_verdict_ref_without_a_head_sha_is_refused_before_the_body_is_touched():
+    """Grammar floor (#2288): decimal ids name no measured tree; the seam refuses the ref."""
+
+    with pytest.raises(aw.BodyError) as ei:
+        aw.tick_acceptance(BODY, {1}, NO_SHA_REF)
+    msg = str(ei.value)
+    assert "no measured head sha" in msg and "#2288" in msg
+
+
+def test_head_sha_grammar_accepts_a_seven_char_token():
+    """A 7-hex head token satisfies the floor: the #1644 append-only tick lands unchanged."""
+
+    ref = "reviewer=rr comment=180 head=abc1234 run=99"
+    out = aw.tick_acceptance(BODY, {1}, ref)
+    assert f"- [x] criterion one  (proven: {ref})" in out
+
+
+def test_apply_command_enforces_the_floor_with_no_network(tmp_path):
+    """The offline `apply` command carries the same grammar floor — no gh call, same refusal."""
+
+    f = tmp_path / "body.md"
+    f.write_text(BODY)
+    with pytest.raises(aw.BodyError) as ei:
+        aw.main(["apply", "--body-file", str(f), "--proven", "1", "--verdict-ref", NO_SHA_REF])
+    assert "#2288" in str(ei.value)
+
+
+def test_assert_runs_green_accepts_a_completed_success_run(tmp_path):
+    gh, calls, _ = _fake_gh(tmp_path, {"99": ("completed", "success", "abc1234567" + "0" * 30)})
+    aw.assert_runs_green(str(gh), "o/r", "reviewer=rr head=abc1234567 run=99")
+    assert "actions/runs/99" in calls.read_text()
+
+
+def test_assert_runs_green_refuses_a_failure_run(tmp_path):
+    gh, _, _ = _fake_gh(tmp_path, {"99": ("completed", "failure", "abc1234567" + "0" * 30)})
+    with pytest.raises(aw.BodyError) as ei:
+        aw.assert_runs_green(str(gh), "o/r", "reviewer=rr head=abc1234567 run=99")
+    assert "run 99 concluded `failure`" in str(ei.value) and "#2288" in str(ei.value)
+
+
+def test_assert_runs_green_refuses_a_run_that_never_concluded(tmp_path):
+    gh, _, _ = _fake_gh(tmp_path, {"99": ("in_progress", "", "abc1234567" + "0" * 30)})
+    with pytest.raises(aw.BodyError):
+        aw.assert_runs_green(str(gh), "o/r", "reviewer=rr head=abc1234567 run=99")
+
+
+def test_assert_runs_green_refuses_an_unreadable_run(tmp_path):
+    gh, _, _ = _fake_gh(tmp_path, {"99": None})
+    with pytest.raises(aw.BodyError) as ei:
+        aw.assert_runs_green(str(gh), "o/r", "reviewer=rr head=abc1234567 run=99")
+    assert "unreadable" in str(ei.value) and "#2288" in str(ei.value)
+
+
+def test_assert_runs_green_never_looks_up_a_ref_citing_no_run(tmp_path):
+    """Refs in the reviewer/comment + head-sha form have nothing to look up: zero gh calls."""
+
+    gh, calls, _ = _fake_gh(tmp_path, {})
+    aw.assert_runs_green(str(gh), "o/r", "reviewer=rr comment=180 head=abc1234567")
+    assert calls.read_text() == ""
+
+
+def test_writeback_refuses_a_red_cited_run_before_any_fetch_or_patch(tmp_path):
+    """The AC proof (#2288): a red run stops `writeback` BEFORE the body fetch AND before the PATCH."""
+
+    gh, calls, store = _fake_gh(
+        tmp_path, {"42": ("completed", "failure", "abc1234567" + "0" * 30)}, issue_body=BODY)
+    with pytest.raises(aw.BodyError) as ei:
+        aw.main(["writeback", "--issue", "1", "--proven", "1,2,3",
+                 "--verdict-ref", "reviewer=rr comment=180 head=abc1234567 run=42",
+                 "--repo", "o/r", "--gh", str(gh)])
+    assert "failure" in str(ei.value)
+    log = calls.read_text()
+    assert "actions/runs/42" in log       # the lookup happened
+    assert "issue view" not in log        # the body was never fetched
+    assert "PATCH" not in log             # no tick was written
+    assert store.read_text() == BODY      # the issue body is byte-identical to the untouched input
+
+
+def test_writeback_lands_when_the_cited_run_is_green(tmp_path):
+    """Positive control: a completed `success` run lets the write-back fetch, tick, and PATCH once."""
+
+    gh, calls, store = _fake_gh(
+        tmp_path, {"42": ("completed", "success", "abc1234567" + "0" * 30)}, issue_body=BODY)
+    rc = aw.main(["writeback", "--issue", "1", "--proven", "1,2,3",
+                  "--verdict-ref", "reviewer=rr comment=180 head=abc1234567 run=42",
+                  "--repo", "o/r", "--gh", str(gh)])
+    assert rc == 0
+    assert "PATCH" in calls.read_text()
+    assert store.read_text().count("- [x]") == 3
