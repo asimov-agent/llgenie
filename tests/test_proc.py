@@ -50,6 +50,25 @@ def test_run_ok_never_swallows_a_timeout():
         proc.run_ok([sys.executable, "-c", "import time; time.sleep(5)"], timeout=0.2)
 
 
+def test_input_is_piped_to_the_child_under_every_capture_policy():
+    """A caller that passes a request body means the child to READ it (issue #2632): `run_ok` once
+    swallowed `input` with the other unknown kwargs, so `gh api -F body=@-` saw an empty stdin.
+    Every capturing policy now forwards it; `None` keeps the old inherited-stdin behavior."""
+
+    child = [sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"]
+
+    # run_ok: the body lands on the child's stdin
+    r = proc.run_ok(child, input="the parked issue body\n")
+    assert r.returncode == 0 and r.stdout == "the parked issue body\n"
+
+    # run_text and run_checked pipe it too — one seam, one behavior
+    assert proc.run_text(child, input="b") == "b"
+    assert proc.run_checked(child, input="c") == "c"
+
+    # And a call without input is unchanged
+    assert proc.run_ok(_py_exit(0, "quiet")).stdout == "quiet"
+
+
 # ---------------------------------------------------------------------------
 # run_text / run_checked — stdout, raise on non-zero
 # ---------------------------------------------------------------------------
