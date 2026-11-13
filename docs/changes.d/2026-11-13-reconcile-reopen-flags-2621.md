@@ -1,0 +1,1 @@
+| 2026-11-13 | security-issues reconcile reopens with `gh issue reopen` — `gh issue edit --state open` is not a gh call and reddened 6 consecutive daily security-scan runs; test updated to lock the shape. | [note](agent-wiki/2026-11-13-reconcile-reopen-flags-2621.md) | #2621 |
