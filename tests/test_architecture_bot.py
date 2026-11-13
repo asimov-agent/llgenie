@@ -46,6 +46,13 @@ if args[:2] == ["issue", "create"]:
     sys.stdin.read()
     print("https://github.com/owner/repo/issues/7")
     raise SystemExit(0)
+if args[0] == "api":
+    # `gh api PATCH repos/<repo>/issues/<n> -F body=@-` — the pre-PR tick of the acceptance
+    # mirrors (issue #2632). The request body is parked so a test can read the FINAL issue body.
+    body = sys.stdin.read()
+    pathlib.Path(os.environ["GH_LOG"] + ".issue_body").write_text(body)
+    print("{}")
+    raise SystemExit(0)
 if args[:2] == ["pr", "create"]:
     sys.stdin.read()
     # GH_PR_FAILS makes the first N creates a GitHub 504, so the retry path is exercised for real.
@@ -81,6 +88,9 @@ def _repo(tmp_path: Path, doc: str | None = LONG_DOC) -> Path:
         (root / "docs" / "ARCHITECTURE.md").write_text(doc)
     (root / "scripts" / "foo.py").write_text('"""Foo module: serves foo."""\n')
     (root / "Makefile").write_text("all: ## Do the whole thing\n\t@true\n")
+    # The real tree carries AGENTS.md, and the publish leg reads it at the base tip to state
+    # the AGENTS:/BASE: pair the PR-hygiene gate checks (issue #2632).
+    (root / "AGENTS.md").write_text("# Project Instructions\n\nRead the Makefile before changing anything.\n")
     (root / ".github" / "workflows" / "x.yml").write_text(
         'name: x — does a thing\non:\n  schedule:\n    - cron: "1 2 * * *"\n')
     _git(root, "init", "-q", "-b", "main")
@@ -281,6 +291,37 @@ def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
                  "## Acceptance criteria", "## Technical"):
         assert part in result["issue_body"], part
 
+    # And the commit text is its own block, never the issue body dumped in (issue #2632): it
+    # closes the same issue the PR closes, and mirrors the criteria TICKED — an unticked
+    # criterion in commit text is what reddened `check-pr-closing` on PR #2629.
+    msg = _git(root, "log", "-1", "--format=%B")
+    assert "closes #7" in msg
+    assert "- [ ]" not in msg
+    assert msg.count("- [x]") == 3
+
+    # And the live issue was ticked with proven strings BEFORE the PR opened (issue #2632):
+    # the edit call precedes the create call, every tick names the publish commit, and no
+    # unticked criterion survives on a body a later gate will read.
+    api_idx = [i for i, c in enumerate(calls) if c.startswith("api PATCH")]
+    pr_idx = [i for i, c in enumerate(calls) if c.startswith("pr create")]
+    assert api_idx and pr_idx and max(api_idx) < min(pr_idx), calls
+    issue_final = Path(str(log) + ".issue_body").read_text()
+    assert "- [ ]" not in issue_final
+    assert issue_final.count("- [x]") == 3
+    for line in issue_final.splitlines():
+        if line.startswith("- [x]"):
+            assert result["commit"] in line, line
+
+    # And the PR body mirrors the same ticked criteria and carries the hygiene pair (issue #2632)
+    assert "## Acceptance criteria" in result["pr_body"]
+    assert result["pr_body"].count("- [x]") == 3
+    base_tip = _git(root, "rev-parse", "HEAD~1").strip()  # the main tip the branch was cut from
+    pair = [ln for ln in result["pr_body"].splitlines()
+            if ln.startswith(("AGENTS:", "BASE:"))]
+    assert len(pair) == 2, pair
+    assert pair[0].split()[1] == base_tip and "b" in pair[0] and "l" in pair[0]
+    assert pair[1] == f"BASE: {base_tip} (== origin/main at open)"
+
     # And it never merged and never pushed to main
     assert not any(" merge" in c for c in calls)
     assert not any(c.endswith(" main") for c in calls)
@@ -337,6 +378,11 @@ def test_publish_dry_previews_without_writing_the_pair(tmp_path, monkeypatch):
 
     assert result["action"] == "would-publish"
     assert "closes #0" in result["pr_body"]
+    # The preview shows the FINAL body shape, not the draft (issue #2632): the same ticked
+    # mirrors and the AGENTS:/BASE: pair the wire bodies will carry.
+    assert "- [ ]" not in result["issue_body"] and result["issue_body"].count("- [x]") == 3
+    assert "## Acceptance criteria" in result["pr_body"]
+    assert "AGENTS:" in result["pr_body"] and "BASE:" in result["pr_body"]
     calls = log.read_text().splitlines()
     assert not any(c.startswith(("issue create", "pr create")) for c in calls)
     assert not (root / "agent-wiki").exists() and not (root / "docs" / "changes.d").exists()

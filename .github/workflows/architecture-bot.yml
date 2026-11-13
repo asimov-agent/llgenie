@@ -12,8 +12,11 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make architecture-bot-brief
 #       (real git: the doc's last commit, the drift since it, and the code surface; no model)
 #       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
-#       writable file) -> make architecture-bot-publish (ONE issue, ONE branch, ONE PR that
-#       closes it; nothing at all when the doc already matches HEAD)
+#       writable file) -> make architecture-bot-publish (ONE issue, ONE branch, ONE commit whose
+#       text closes the issue, ONE PR closing the SAME issue; the issue's criteria are ticked
+#       with proven strings naming the publish commit BEFORE the PR opens, so issue body,
+#       commit text and PR body never contradict each other (issue #2632); nothing at all when
+#       the doc already matches HEAD)
 # Never: never merges, never pushes to `main`, never commits anything except the doc and the
 #        note+row pair `check-docs` owes a doc change (issue #2598), never
 #        files a second issue while its own architecture PR is open.

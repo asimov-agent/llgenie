@@ -49,10 +49,11 @@ class ProcError(RuntimeError):
 
 
 def _cmd(cmd: Sequence[str], *, timeout: float | None, cwd: str | None,
-         env: dict[str, str] | None) -> subprocess.CompletedProcess[str]:
-    """Run `cmd` capturing both streams, propagating OSError/TimeoutExpired (never swallowed)."""
+         env: dict[str, str] | None, input: str | None = None) -> subprocess.CompletedProcess[str]:
+    """Run `cmd` capturing both streams, propagating OSError/TimeoutExpired (never swallowed).
+    An `input` is piped to the child's stdin; `None` keeps the inherited-stdin behavior."""
     return subprocess.run(list(cmd), capture_output=True, text=True,
-                          timeout=timeout, cwd=cwd, env=env)
+                          timeout=timeout, cwd=cwd, env=env, input=input)
 
 
 def run_live(cmd: Sequence[str], *, timeout: float | None = None,
@@ -76,26 +77,30 @@ def run_live(cmd: Sequence[str], *, timeout: float | None = None,
 
 def run_ok(cmd: Sequence[str], *, timeout: float | None = None,
            cwd: str | None = None, env: dict[str, str] | None = None,
-           **_: Any) -> subprocess.CompletedProcess[str]:
+           input: str | None = None, **_: Any) -> subprocess.CompletedProcess[str]:
     """Run `cmd`; return the CompletedProcess. Never raises on a non-zero exit — the caller inspects.
 
     This is the policy for "failure is a branch I handle here": return rc/stdout/stderr and let the
     caller decide what a non-zero code means. `OSError`/`TimeoutExpired` still propagate (a command
     that cannot be run is not a return-code the caller can inspect).
+
+    `input` is piped to the child's stdin — a caller that passes a request body (issue #2632:
+    `gh api ... -F body=@-`) means the child to READ it, so the seam forwards it instead of
+    swallowing it with the other unknown kwargs.
     """
-    return _cmd(cmd, timeout=timeout, cwd=cwd, env=env)
+    return _cmd(cmd, timeout=timeout, cwd=cwd, env=env, input=input)
 
 
 def run_text(cmd: Sequence[str], *, timeout: float | None = None,
              cwd: str | None = None, env: dict[str, str] | None = None,
-             **_: Any) -> str:
+             input: str | None = None, **_: Any) -> str:
     """Run `cmd`; return its stdout. A non-zero exit raises `ProcError` (the command's failure is loud).
 
     This is the policy for "I want the text, and a failed command is a defect": version probes, decoded
     JSON, `gh api` output — sites that previously returned `""` for a failure and let the caller read
-    it as "nothing printed".
+    it as "nothing printed". `input`, when given, is piped to the child's stdin.
     """
-    r = _cmd(cmd, timeout=timeout, cwd=cwd, env=env)
+    r = _cmd(cmd, timeout=timeout, cwd=cwd, env=env, input=input)
     if r.returncode != 0:
         raise ProcError(cmd, r.returncode, r.stdout, r.stderr)
     return r.stdout
@@ -103,14 +108,15 @@ def run_text(cmd: Sequence[str], *, timeout: float | None = None,
 
 def run_checked(cmd: Sequence[str], *, timeout: float | None = None,
                 cwd: str | None = None, env: dict[str, str] | None = None,
-                **_: Any) -> str:
+                input: str | None = None, **_: Any) -> str:
     """Run `cmd`; return its stdout. A non-zero exit raises `ProcError` naming the command + stderr.
 
     Check-style, the shape the old checking wrappers hand-rolled: the message names the command and its
     stderr so the failure is legible at the raise site. Prefer this over `run_text` when a caller wants
-    the loud failure to carry the command and its stderr verbatim.
+    the loud failure to carry the command and its stderr verbatim. `input`, when given, is piped to the
+    child's stdin.
     """
-    r = _cmd(cmd, timeout=timeout, cwd=cwd, env=env)
+    r = _cmd(cmd, timeout=timeout, cwd=cwd, env=env, input=input)
     if r.returncode != 0:
         raise ProcError(cmd, r.returncode, r.stdout, r.stderr)
     return r.stdout

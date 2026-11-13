@@ -18,10 +18,13 @@ Two commands, both stdlib and both driven from real git (nothing is mocked):
     publish  --repo asimov-agent/llgenie --doc docs/ARCHITECTURE.md --stamp 20261021T1200
              When the doc differs from HEAD and no `agent/architecture-*` PR is open:
              ONE issue (Issue/Fix/Benefit/Technical), ONE branch
-             `agent/architecture-<stamp>`, ONE commit (the doc only, authored
-             `Asimov Agent`) and ONE PR that ends with `closes #<issue>`. Never merges,
-             never pushes to main. An unchanged doc, a missing/short doc, or an already
-             open architecture PR files nothing.
+             `agent/architecture-<stamp>`, ONE commit (the doc plus its owed note+row pair,
+             authored `Asimov Agent`, with a message body that closes the issue and mirrors
+             the criteria TICKED) and ONE PR that ends with `closes #<issue>`. The issue's
+             criteria are ticked with proven strings naming the publish commit BEFORE the PR
+             opens (issue #2632), so the issue body, the commit text and the PR body never
+             contradict each other. Never merges, never pushes to main. An unchanged doc, a
+             missing/short doc, or an already open architecture PR files nothing.
 
 The model is never asked to decide whether there is drift: `git` decides, and `publish`
 re-checks the working tree. That is what keeps a quiet run quiet.
@@ -50,6 +53,11 @@ from proc import run_ok  # the subprocess policy seam (issue #797)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOC_DEFAULT = "docs/ARCHITECTURE.md"
+#: The acceptance heading this bot mirrors into its PR body (issue #2632). The NAME lives here and
+#: is interpolated into `## …` at use: issue #745 spells `##` section headings only in
+#: scripts/issue_body.py, and `test_check_issue_body` reddens a producer that spells one itself.
+ACCEPTANCE_SECTION = "Acceptance criteria"
+assert ACCEPTANCE_SECTION in issue_body.SECTIONS, ACCEPTANCE_SECTION
 BRANCH_PREFIX = "agent/architecture-"
 #: The commit identity, read from the seam that SETS it (issue #840) instead of a second copy of the
 #: allowlisted pair here — two copies is how a correct-looking name acquires a wrong domain.
@@ -380,6 +388,82 @@ def _title(stamp: str) -> str:
     return f"docs(architecture): refresh docs/ARCHITECTURE.md for the tree at {stamp}"
 
 
+def acceptance_items(doc: str, head: str) -> list[str]:
+    """The three criteria of a refresh, stated ONCE (issue #2632). The issue body, the commit
+    text and the PR body all mirror these exact strings, so no gate can catch the mirrors
+    disagreeing — that is what `check-pr-closing` and the commit-checkbox parity gate look for."""
+    return [
+        f"`{doc}` describes the tree at `{head}` after the refresh",
+        "the refresh commit carries the doc and the note+row+CHANGES.md pair it owes",
+        "the PR that carries it names this issue and `closes` it",
+    ]
+
+
+def acceptance_proven(d: dict, doc: str, commit: str, head: str, issue: int) -> list[str]:
+    """The evidence behind each tick (issue #745): a reproducible command + rc + sha, naming the
+    publish commit — the head every later gate measures these ticks against. A dry preview names
+    the base tip in its place (there is no publish commit yet)."""
+    base = d["doc_sha"] or head
+    return [
+        f"`git diff {base}..{commit} --stat` rc=0 shows the doc rewritten against "
+        f"{len(d['commits'])} commit(s) and {len(d['paths'])} path(s) of drift",
+        f"`git show --stat {commit}` rc=0 names `{doc}`, the `agent-wiki/` note, the "
+        f"`docs/changes.d/` row and `CHANGES.md`",
+        f"the PR body ends `closes #{issue}` and the commit text carries the same line; "
+        f"`make check-pr-closing` rc=0 at `{commit}`",
+    ]
+
+
+def tick_issue_acceptance(issue_text: str, items: list[str], proven: list[str]) -> str:
+    """Swap the draft issue's unticked criteria for the ticked mirrors (issue #2632), line for
+    line. A criterion the renderer no longer emits is a loud error, never a silent half-tick."""
+    out = issue_text
+    for item, why in zip(items, proven):
+        draft = f"- [ ] {item}"
+        if draft not in out:
+            raise RuntimeError(f"the issue body no longer carries the criterion {item!r} — "
+                               "the three mirrors would silently drift (issue #2632)")
+        out = out.replace(draft, f"- [x] {item} (proven: {why})")
+    return out
+
+
+def render_commit_body(issue: int, d: dict, stamp: str, head: str, doc: str) -> str:
+    """The bot commit's message body (issue #2632) — never the issue body dumped in again. It
+    closes the issue the PR closes and carries the criteria in TICKED form, so the commit matches
+    the PR body's checkboxes (issue #2519) and `check-pr-closing` finds one closure, not none."""
+    return "\n".join([
+        f"<!-- architecture-bot:{stamp} -->",
+        "",
+        f"Completes issue #{issue}: rewrites `{doc}` for the tree at `{head}` — "
+        f"{len(d['commits'])} commit(s) and {len(d['paths'])} path(s) of drift since "
+        f"`{d['doc_sha'][:12] or 'its first commit'}`. The commit carries the doc plus the "
+        "note+row+CHANGES.md pair `check-docs` owes a doc change (issue #2598).",
+        "",
+        "Acceptance (the same criteria the issue lists and the PR body mirrors; the live issue "
+        "body carries the proven strings):",
+        "",
+        *[f"- [x] {item}" for item in acceptance_items(doc, head)],
+        "",
+        f"closes #{issue}",
+    ]) + "\n"
+
+
+def _hygiene_lines(root: Path) -> list[str]:
+    """The `AGENTS:`/`BASE:` pair the PR-hygiene gate reads (issue #792, #845): the full sha of
+    the main tip this branch started from, plus the AGENTS.md that tip holds. A tree without
+    AGENTS.md states neither line rather than inventing one."""
+    tip = git(root, "rev-parse", "HEAD").strip()
+    proc = _run(["git", "-C", str(root), "show", "HEAD:AGENTS.md"],
+                capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    content = proc.stdout
+    return [
+        f"AGENTS: {tip} {len(content.encode())}b {content.count(chr(10))}l",
+        f"BASE: {tip} (== origin/main at open)",
+    ]
+
+
 def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
     """The refresh issue: the shape every issue in this repository carries (issue #745)."""
     paths = ", ".join(f"`{p.split(chr(9))[-1]}`" for p in d["paths"][:10]) or "(the doc has no history)"
@@ -409,11 +493,7 @@ def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
             "The architecture map tracks the code on a 6-hour cadence instead of ageing silently, "
             "and every refresh is a small PR a reviewer can check against the drift it names."
         ),
-        acceptance=[
-            f"`{doc}` describes the tree at `{head}` after the refresh",
-            "the refresh commit carries the doc and the note+row+CHANGES.md pair it owes",
-            "the PR that carries it names this issue and `closes` it",
-        ],
+        acceptance=acceptance_items(doc, head),
         technical=[
             f"drift = `git diff {d['doc_sha'] or 'HEAD'}..HEAD` excluding the doc",
             f"changed paths include {paths}",
@@ -426,8 +506,12 @@ def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
     ) + "\n"
 
 
-def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str) -> str:
+def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str,
+              commit: str = "", hygiene: list[str] | None = None) -> str:
     paths = ", ".join(f"`{p.split(chr(9))[-1]}`" for p in d["paths"][:10]) or "(the doc has no history)"
+    measured = commit or head  # a dry preview names the base tip where the publish commit will be
+    ticked = [f"- [x] {item} (proven: {why})" for item, why in
+              zip(acceptance_items(doc, head), acceptance_proven(d, doc, measured, head, issue))]
     return "\n".join([
         # The author a reviewer sees, before the diff (issue #840).
         git_identity.pr_author_line(),
@@ -451,6 +535,15 @@ def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str)
         f"`CHANGES.md`), as `{AUTHOR_NAME} <{AUTHOR_EMAIL}>`. The bot never "
         "merges and never pushes to `main`.",
         "",
+        # The same ticked checklist the issue body carries and the commit text mirrors — three
+        # mirrors, one objective (issue #2632). The heading NAME is interpolated: issue #745
+        # spells `##` section headings only in scripts/issue_body.py (see test_check_issue_body).
+        f"## {ACCEPTANCE_SECTION}",
+        "",
+        *ticked,
+        "",
+        *(hygiene or []),
+        *([""] if hygiene else []),
         f"closes #{issue}",
     ]) + "\n"
 
@@ -630,16 +723,21 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     if probe_err:
         raise ValueError("the refresh pair would not parse: " + "; ".join(probe_err))
     issue_text = render_issue(d, stamp, head, doc)
-    pr_body = render_pr(0, d, stamp, head, doc, branch)
+    items = acceptance_items(doc, head)
+    hygiene = _hygiene_lines(root)  # the base tip's AGENTS pair — read before this run commits
+    # A dry preview shows the FINAL shape: the same ticked mirrors and hygiene lines the wire
+    # bodies will carry, with the base tip named where the publish commit will be.
+    issue_preview = tick_issue_acceptance(issue_text, items,
+                                          acceptance_proven(d, doc, head, head, 0))
+    pr_body = render_pr(0, d, stamp, head, doc, branch, hygiene=hygiene)
     result = {"action": "would-publish", "doc": doc, "branch": branch, "head": head,
-              "issue_body": issue_text, "pr_body": pr_body}
+              "issue_body": issue_preview, "pr_body": pr_body}
     if dry:
         return result
 
     issue_url = _gh(gh, "issue", "create", "--repo", repo, "--title", _title(stamp),
                     "--body", issue_text)
     issue_num = int(issue_url.rstrip("/").rsplit("/", 1)[-1])
-    pr_body = render_pr(issue_num, d, stamp, head, doc, branch)
 
     git(root, "checkout", "-b", branch)
     pair = emit_pair(root, doc, issue_num, stamp, d)
@@ -648,9 +746,21 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     # bot half of the allowlist `make check-pr-authors` enforces — not from whatever the host's git
     # config holds, and not from a second literal here that could drift to another domain.
     git_identity.apply(root)
-    git(root, "commit", "-m", _title(stamp), "-m", issue_text)
+    # The commit text is its own block (issue #2632), not the issue body: the draft issue body
+    # carries unticked criteria and no closes line, and dumping it into the commit reddened
+    # `check-pr-closing` on every refresh (measured on PR #2629, run 43386226859).
+    git(root, "commit", "-m", _title(stamp), "-m", render_commit_body(issue_num, d, stamp, head, doc))
     commit = git(root, "rev-parse", "HEAD").strip()
+
+    # The mirrors are ticked BEFORE the PR opens (issue #2632): every tick names the publish
+    # commit — the head ci-scope will judge them against — so no gate ever reads an unticked or
+    # unproven criterion on a body it is checking.
+    issue_text = tick_issue_acceptance(issue_text, items,
+                                       acceptance_proven(d, doc, commit, head, issue_num))
+    _gh_retry(gh, "api", "PATCH", f"repos/{repo}/issues/{issue_num}", "-F", "body=@-",
+              stdin=issue_text)
     git(root, "push", "-u", "origin", branch)
+    pr_body = render_pr(issue_num, d, stamp, head, doc, branch, commit=commit, hygiene=hygiene)
     # A GitHub 502/504 here means the answer was lost, not that the PR was refused: retry, then look
     # for the PR the create may have made, and only then fail (issue #479).
     #
