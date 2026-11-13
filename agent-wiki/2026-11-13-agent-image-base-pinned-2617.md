@@ -1,6 +1,6 @@
 # Agent image base has no `:latest` default (issue #2617)
 
-Date: 2026-11-13 · Branch: `feat/agent-image-base-pinned` · OpenSpec: `agent-image-base-pinned` · Issue: #2617 · PR: #PRNUM
+Date: 2026-11-13 · Branch: `feat/agent-image-base-pinned` · OpenSpec: `agent-image-base-pinned` · Issue: #2617 · PR: #2618
 
 ## What was verified against the spec
 
