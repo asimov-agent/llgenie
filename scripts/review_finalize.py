@@ -134,6 +134,50 @@ def _live_head(gh: str, repo: str, pr: int) -> str:
     return (json.loads(out).get("headRefOid") or "").lower()
 
 
+#: `run=<id>` citations inside a verdict-ref (#2288): finalize checks their live conclusion at the
+#: judged head through the same `gh` seam BEFORE `aw.tick_acceptance` stamps any tick.
+RUN_REF = re.compile(r"\brun\s*=\s*(\d+)")
+
+
+def _run_state(gh: str, repo: str, run_id: int) -> "tuple[str, str, str] | None":
+    """Live (status, conclusion, head_sha) of a cited run through the seam's `gh`; None if unreadable."""
+    try:
+        out = _gh(gh, ["api", f"repos/{repo}/actions/runs/{run_id}",
+                       "--jq", "[.status, .conclusion, .head_sha] | @tsv"])
+    except SystemExit:
+        return None
+    parts = (out or "").strip().split("\t")
+    if not parts or not parts[0].strip() or parts[0].strip() == "null":
+        return None
+    return (parts[0].strip(),
+            (parts[1] if len(parts) > 1 else "").strip(),
+            (parts[2] if len(parts) > 2 else "").strip())
+
+
+def verdict_ref_runs_ok(gh: str, repo: str, ref: str, head: str) -> tuple[bool, str]:
+    """True only when every `run=<id>` cited in `ref` concluded `success` at the judged head (#2288).
+
+    A cited run the seam cannot read, a run that ended failure/cancelled/timed_out, or a green run
+    belonging to a different head each refuse the write-back: a tick may not cite evidence that did
+    not prove the very head the tick claims. A verdict-ref citing no run (reviewer/comment + head sha
+    form) has nothing to look up and passes to the seam's grammar floor.
+    """
+    for m in RUN_REF.finditer(str(ref or "")):
+        rid = int(m.group(1))
+        st = _run_state(gh, repo, rid)
+        if st is None:
+            return False, (f"run {rid} is unreadable via `gh api repos/{repo}/actions/runs/{rid}` — "
+                           "a verdict-ref may not cite what the seam cannot read (issue #2288)")
+        status, conclusion, run_head = st
+        if conclusion.lower() != "success" or status.lower() != "completed":
+            return False, (f"run {rid} concluded `{conclusion or status}` — only a completed `success` "
+                           "run proves a tick (issue #2288)")
+        if head and run_head and run_head.lower() != head:
+            return False, (f"run {rid} belongs to head {run_head[:12]}, not the judged head "
+                           f"{head[:12]} (issue #2288)")
+    return True, ""
+
+
 def finalize(gh: str, repo: str, pr: int, issue: int, head: str, criteria: int,
              proven: set[int], verdict_ref: str, comment_id: str,
              dry: bool = False) -> int:
@@ -151,6 +195,13 @@ def finalize(gh: str, repo: str, pr: int, issue: int, head: str, criteria: int,
               f"{criteria}/{criteria} ticked, all (proven: comment={comment_id}); "
               f"reusing existing comment, no post, no PATCH (idempotent no-op)")
         return 0
+
+    # #2288 verification-first: every `run=<id>` in the verdict-ref must have concluded GREEN at the
+    # judged head before any tick is computed. Unreadable or red lookups return 2 with NO PATCH made.
+    ok_runs, why = verdict_ref_runs_ok(gh, repo, verdict_ref or "", head)
+    if not ok_runs:
+        print(f"[review-finalize] refusing: {why}; no write-back issued", file=sys.stderr)
+        return 2
 
     # The seam's one write (tick + PATCH). No weakening: `proven` is explicit, ref required.
     out = aw.tick_acceptance(body, proven, verdict_ref)

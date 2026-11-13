@@ -147,6 +147,14 @@ def _unticked_text(line: str) -> str:
     return m.group("rest").strip() if m else ""
 
 
+#: Grammar floor (#2288): a verdict-ref must name the tree its evidence measured — a 7–40-char hex
+#: head sha. Reviewer names, review ids and run ids are decimal identifiers, not shas; a ref with
+#: no sha cannot be re-checked against any revision, so the seam refuses to stamp one.
+HEAD_SHA_REF = re.compile(r"\b[0-9a-f]{7,40}\b")
+#: Run citations inside a verdict-ref; the `writeback` command proves each GREEN live before a tick (#2288).
+RUN_REF = re.compile(r"\brun\s*=\s*(\d+)")
+
+
 def tick_acceptance(body: str, proven: set[int], verdict_ref: str) -> str:
     """Return `body` with acceptance items at 1-based `proven` positions ticked.
 
@@ -168,6 +176,9 @@ def tick_acceptance(body: str, proven: set[int], verdict_ref: str) -> str:
     ref = str(verdict_ref).strip()
     if not ref:
         raise BodyError("a write-back must name the proving verdict (reviewer/review/sha/run)")
+    if not HEAD_SHA_REF.search(ref):
+        raise BodyError("the verdict-ref names no measured head sha — a tick must pin the tree it "
+                        "measured (issue #2288): reviewer/comment/run ids are not shas")
 
     lines = body.splitlines()
     start, end = _bounds(body)
@@ -215,6 +226,30 @@ def _fetch_body(gh: str, repo: str, issue: int) -> str:
     return json.loads(out)["body"]
 
 
+def assert_runs_green(gh: str, repo: str, ref: str) -> None:
+    """Every `run=<id>` a verdict-ref cites must have CONCLUDED GREEN before a tick is written (#2288).
+
+    Measured roster: 11 accepted ticks cited 4 runs that ended failure/cancelled — the seam stamped
+    whatever `--verdict-ref` it was handed. This refuses with `BodyError` naming the run and its
+    conclusion (issue #2288: the seam raises evidence it cannot vouch for), so no tick is ever
+    stamped from evidence that failed; refs citing no run (reviewer/comment + head sha form) pass
+    through to the grammar floor in `tick_acceptance`.
+    """
+    for m in RUN_REF.finditer(str(ref or "")):
+        rid = int(m.group(1))
+        r = run_ok([gh, "api", f"repos/{repo}/actions/runs/{rid}",
+                    "--jq", "[.status, .conclusion, .head_sha] | @tsv"])
+        parts = (r.stdout or "").strip().split("\t") if r.returncode == 0 else []
+        status = parts[0].strip() if parts else ""
+        if r.returncode != 0 or not status or status == "null":
+            raise BodyError(f"run {rid} is unreadable via `gh api repos/{repo}/actions/runs/{rid}` "
+                            f"— a verdict-ref may not cite what the writer cannot read (issue #2288)")
+        conclusion = (parts[1] if len(parts) > 1 else "").strip().lower()
+        if conclusion != "success" or status.lower() != "completed":
+            raise BodyError(f"run {rid} concluded `{conclusion or status}` — only a completed "
+                            f"`success` run proves a ticked criterion (issue #2288)")
+
+
 def _proven(arg: str) -> set[int]:
     out = set()
     for token in arg.split(","):
@@ -254,6 +289,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(out)
         return 0
 
+    # #2288: the live write-back proves each cited run GREEN before any tick is computed or PATCHed.
+    assert_runs_green(args.gh, args.repo, args.verdict_ref)
     body = _fetch_body(args.gh, args.repo, args.issue)
     out = tick_acceptance(body, _proven(args.proven), args.verdict_ref)
     _write(args.gh, args.repo, args.issue, out, args.dry)
