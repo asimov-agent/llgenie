@@ -13,6 +13,7 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 CI = REPO / ".github" / "workflows" / "ci.yml"
 
 LINUX_PAIRS = {
@@ -84,7 +85,7 @@ def test_every_variant_runs_a_test_stage_on_the_openai_api():
     # Then every image row has a test (serve on cpu, detect on GPU)
     # one step for every image (no skipped step): make picks serve or detect from matrix.test
     assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in build_steps
-    stage = (REPO / "Makefile").read_text().split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
+    stage = makefiles_text(REPO).split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) test-engine ENGINE=" in stage and "$(MAKE) test-engine-image ENGINE=" in stage
     assert all(r["test"] in ("serve", "detect") for r in rows)
     assert {r["test"] for r in rows if r["engine"].startswith("llama.cpp") and r["variant"] == "cpu"} == {"serve"}
@@ -94,7 +95,7 @@ def test_variant_build_streams_its_log():
     """The CUDA compile is visible in CI instead of discarded."""
 
     # Given the Makefile build-variant recipe
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     start = text.index("build-variant:")
     recipe = text[start:text.index("\n# Serve an already-built", start)]
 
@@ -179,7 +180,7 @@ def test_uninstall_removes_install_artifacts_and_not_repo_source():
     start script and the llama-server shim; never repo source or other files."""
 
     # Given the uninstall recipe
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     start = text.index("\nuninstall:") + 1
     recipe = text[start:text.index("\n# ---- ci-<job>", start)]
 
@@ -222,7 +223,7 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     llama-server, and make uninstall."""
 
     # Given the test-install-ci recipe and the CI install job
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     start = text.index("test-install-ci:")
     recipe = text[start:text.index("\ntest-top-tier:", start)]
     install = text[text.index("\ninstall:"):].split("\n", 2)[1]

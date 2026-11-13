@@ -17,8 +17,9 @@ import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 WORKFLOW = REPO / ".github" / "workflows" / "engine-build.yml"
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text(REPO)
 
 from scripts import engine_image as ei
 
@@ -252,7 +253,7 @@ def test_a_serving_cell_still_probes_its_binary_first():
     """TEST=serve must not skip the binary check: a cpu cell is proven by flags THEN by serving."""
 
     # Given the stage target in the Makefile
-    stage = (REPO / "Makefile").read_text().split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
+    stage = makefiles_text(REPO).split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
 
     # When  its serve branch is read
     serve = stage.split("serve)", 1)[1].split(";;", 1)[0]

@@ -14,6 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 import scripts.engine_image as ei  # noqa: E402
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 
 def _spec() -> dict:
@@ -653,7 +654,7 @@ def test_build_engines_forwards_force_to_every_row():
     """The whole sweep can be forced: each row's make build-engine carries FORCE=1."""
 
     # Given the build-engines recipe
-    recipe = (REPO / "Makefile").read_text().split("\nbuild-engines:", 1)[1].split("\n\n", 1)[0]
+    recipe = makefiles_text(REPO).split("\nbuild-engines:", 1)[1].split("\n\n", 1)[0]
 
     # When  its per-row invocation is read
     # Then  FORCE is forwarded next to PUSH and VERIFY

@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 WF = REPO / ".github" / "workflows"
 
 
@@ -470,7 +471,7 @@ def test_ci_pull_tags_the_local_name(tmp_path):
     ref = calls[0].split()[1]
     assert calls == [f"pull {ref}", f"tag {ref} llgenie/test:latest"]
     assert re.fullmatch(r"ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", ref), ref
-    assert "TEST_IMG := llgenie/test:latest" in (REPO / "Makefile").read_text()
+    assert "TEST_IMG := llgenie/test:latest" in makefiles_text(REPO)
 
 
 def test_pull_defers_to_a_local_build_for_a_pull_request_run(tmp_path):
@@ -728,7 +729,7 @@ def test_every_pipeline_job_runs_one_ci_make_target():
 
     # Given pipeline.yml and the Makefile
     jobs = _jobs("pipeline.yml")
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When each job's steps are read
     targets = {n: [t for t in _make_targets(j) if t != "ci-free-disk"] for n, j in jobs.items()}
@@ -858,7 +859,7 @@ def test_no_ci_step_or_job_is_skipped():
                         "github.event_name == 'pull_request'"), key
 
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert re.search(r"^ci-free-disk:", mk, re.M) and re.search(r"^test-engine-stage:", mk, re.M)
     stage = mk.split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
     assert "serve)  $(MAKE) test-engine-image " in stage and "detect) $(MAKE) test-engine-image " in stage
@@ -1070,7 +1071,7 @@ def test_the_publish_job_proves_the_push_before_it_builds():
 
     # Given the publish job's steps and the Makefile
     steps = _jobs("publish-agent-image.yml")["publish"]["steps"]
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the pre-flight step and the publish step are located
     runs = [st.get("run", "") or "" for st in steps]

@@ -121,7 +121,7 @@ def test_built_engine_test_still_fails_a_crashed_engine(tmp_path):
 # runtime: docker, the same CLI on Linux and macOS (Colima's docker runtime)
 # ---------------------------------------------------------------------------
 def _makefile_runtime_block() -> str:
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     start = text.index("# ---- container runtime")
     return text[start:text.index("OS_IMG", start)]
 
@@ -301,7 +301,7 @@ def test_linux_and_macos_run_the_same_pipeline():
     jobs = yaml.safe_load((wf / "ci.yml").read_text())["jobs"]
     pipeline = yaml.safe_load((wf / "pipeline.yml").read_text())["jobs"]
     docker = yaml.safe_load((REPO / ".github/actions/docker/action.yml").read_text())
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the triggers and the callers of each shared pipeline are read
     ci = yaml.safe_load((wf / "ci.yml").read_text())
@@ -577,7 +577,7 @@ def test_agents_read_builds_its_own_python312_venv():
     runs the scan and the guard's tests in it; CI only provides python3.12 and calls make."""
 
     # Given the Makefile and the shared CI pipeline
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     jobs = yaml.safe_load((REPO / ".github/workflows/pipeline.yml").read_text())["jobs"]
 
     # When the test-agents-read recipe and the venv rule are read
@@ -613,7 +613,7 @@ import scripts.check_bash as cb  # noqa: E402
 
 
 def _makefile_shell_block() -> str:
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     start = text.index("SHELL    := $(shell")
     return text[start:text.index("HOME    := $(shell", start)]
 
@@ -755,7 +755,7 @@ def test_macos_make_installs_bash5_when_missing(monkeypatch, capsys):
     assert capsys.readouterr().out.strip() == "/opt/homebrew/bin/bash"
 
     # And the Makefile takes SHELL from that resolver
-    assert "SHELL    := $(shell python3 scripts/check_bash.py --resolve" in (REPO / "Makefile").read_text()
+    assert "SHELL    := $(shell python3 scripts/check_bash.py --resolve" in makefiles_text(REPO)
 
 
 def test_pure_make_surface_runs_the_python_script():
@@ -786,7 +786,7 @@ def test_engine_stage_is_one_make_target():
     # Given the producer workflow and the Makefile
     wf = REPO / ".github" / "workflows"
     eb = (wf / "engine-build.yml").read_text()
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the engine install stage is read (engine-build owns it, on the row's just-published image)
     # Then the producer runs the install target AFTER it published the image
@@ -869,7 +869,7 @@ def test_macos_ci_does_not_run_docker_github_actions():
     pipeline = yaml.safe_load((wf / "pipeline.yml").read_text())["jobs"]
     ci = yaml.safe_load((wf / "ci.yml").read_text())["jobs"]
     docker = (REPO / ".github/actions/docker/action.yml").read_text()
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the Docker steps and the install/health recipes are read
     docker_steps = [st for jobs in (pipeline,) for j in jobs.values()
@@ -994,7 +994,7 @@ def test_macos_make_test_stages_run_in_the_311_venv_not_a_container():
     """macOS runs every test stage natively in the Python 3.11 venv; Linux in llgenie/test (issue #120)."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the test runner's own OS conditional is read. It is picked by CONTENT, not by
     # position: any target may branch on the OS, so the first ifeq in the file is not
@@ -1021,7 +1021,7 @@ def test_macos_test_env_installs_uv_before_make_install():
     """macOS test-env puts uv on PATH before make install; Linux does not brew (issue #120)."""
 
     # Given the Makefile test-env recipe
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     env = mk.split("\ntest-env:", 1)[1].split("\n\n", 1)[0]
     darwin, linux = env.split("ifeq ($(HOST_OS),Darwin)\n", 1)[1].split("\nelse\n", 1)
     linux = linux.split("\nendif", 1)[0]

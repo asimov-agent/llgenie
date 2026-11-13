@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 from scripts import unit_tests as ut
 
 CLI = REPO / "scripts" / "unit_tests.py"
@@ -90,7 +91,7 @@ def test_every_test_file_in_the_real_tree_is_in_the_suite_or_recorded():
         for field in ("reason", "issue", "decided", "target"):
             assert e.get(field), f"{doc} lacks {field}"
         assert len(e["reason"]) > 40, doc
-        assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
+        assert f"{e['target']}:" in makefiles_text(REPO), doc
 
     # And the roster's own consistency check reports nothing
     assert ut.check(REPO) == []

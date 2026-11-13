@@ -15,6 +15,8 @@ import re
 
 from pathlib import Path
 
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2456)
+
 REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = REPO / "Makefile"
 
@@ -86,7 +88,7 @@ def test_every_pytest_in_a_make_recipe_runs_through_the_test_seam():
     """A recipe that needs pytest must get it from the test image (or the venv), never from the host."""
 
     # Given every recipe line in the Makefile, continuations joined
-    recipes = _logical_recipe_lines(MAKEFILE.read_text())
+    recipes = _logical_recipe_lines(makefiles_text(REPO))  # include-resolved: recipes live in mk/*.mk too
 
     # When  the lines that run pytest are read
     pytest_lines = [(t, c) for t, c in recipes if _PYTEST.search(c)]
@@ -95,7 +97,7 @@ def test_every_pytest_in_a_make_recipe_runs_through_the_test_seam():
     assert pytest_lines, "no pytest invocation found in the Makefile: the parser or the targets changed"
 
     # And  every single one runs through a seam that provides pytest
-    bad = offenders(MAKEFILE.read_text())
+    bad = offenders(makefiles_text(REPO))  # include-resolved (issue #2456)
     assert not bad, (
         "a make recipe runs pytest on a bare host python (issue #621 — the runner has no pytest):\n"
         + "\n".join(f"  {t}: {c}" for t, c in bad)

@@ -19,6 +19,7 @@ import yaml
 os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
 import scripts.engine_bump_rebase as ebr  # noqa: E402
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 
 def _pr(n, ref="chore/engine-bump-tensorfold", behind=True, repo="asimov-agent/llgenie"):
@@ -230,7 +231,7 @@ class TestWorkflowYaml:
         # Given the workflow file and the make target behind its step
         root = Path(__file__).resolve().parent.parent
         text = (root / ".github/workflows/engine-bump-rebase.yml").read_text()
-        makefile = (root / "Makefile").read_text()
+        makefile = makefiles_text(root)  # include-resolving reader: engine targets live in mk/engines.mk
         # Then it runs on its OWN daily minute (the minute moved with issue #275: every bot owns a
         # slot, and pinning one here would just go stale again), checks out with BUMP_TOKEN, and
         # reaches the entrypoint through `make` (a workflow step calls a make target and nothing

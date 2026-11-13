@@ -63,16 +63,52 @@ RETIRED_RULES_FILE = Path("scripts") / "fix_bot_rules.md"
 INLINE_UNATTENDED = "NEVER ask a question"
 #: The preflight every unattended leg owes before it reads anything else (issue #792).
 PREFLIGHT_OBLIGATION = "make bot-preflight"
+#: Scan scope: the top `Makefile` FOLLOWED BY ITS `include` DIRECTIVES (mk/*.mk — the engine
+#: domain split, issue #2456) and `scripts/*.sh` — the shell legs. `scripts/hermes_smoke.py`
+#: invokes the same CLI from Python to prove tool use; it carries no bot contract and is
+#: covered by its own test.
 LEG_SOURCES = ("Makefile", "scripts/*.sh")
 _SKILL_FLAG = re.compile(r"(?:^|\s)(?:-s|--skills)[\s=]+(\S+)")
+_INCLUDE_DIRECTIVE = re.compile(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$")
+
+
+def makefile_chain(root: Path) -> list[Path]:
+    """The top `Makefile` and every file it `include`s, in include order (issue #2456).
+
+    A leg that lives behind an `include` is still a leg; a guard that reads only the top file
+    reports the skills it preloads as unused. The walk mirrors `check_wiring._makefile_list`:
+    queue, wildcard-safe, deduplicated, deterministic.
+    """
+    order: list[Path] = []
+    seen: set[Path] = set()
+    queue = [root / "Makefile"]
+    while queue:
+        mk = queue.pop(0)
+        if not mk.is_file() or mk in seen:
+            continue
+        seen.add(mk)
+        order.append(mk)
+        try:
+            lines = mk.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = _INCLUDE_DIRECTIVE.match(line)
+            if m:
+                queue.extend(sorted(root.glob(m.group(1))))
+    return order
 
 
 def leg_sources(root: Path) -> list[Path]:
     """The files that can carry an agent leg, in a stable order."""
-    files = [root / name for name in LEG_SOURCES if "*" not in name]
-    for pattern in LEG_SOURCES:
-        if "*" in pattern:
-            files.extend(sorted(root.glob(pattern)))
+    files: list[Path] = []
+    for name in LEG_SOURCES:
+        if "*" in name:
+            files.extend(sorted(root.glob(name)))
+        elif name == "Makefile":
+            files.extend(makefile_chain(root))
+        else:
+            files.append(root / name)
     return [p for p in files if p.is_file()]
 
 
@@ -111,15 +147,15 @@ def make_vars(root: Path) -> dict[str, str]:
     has to expand those the way make would, or it reads `$(SKILLS)` as a skill name.
     """
     values: dict[str, str] = {}
-    mk = root / "Makefile"
-    try:
-        lines = mk.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return values
-    for line in lines:
-        m = _MAKE_ASSIGN.match(line)
-        if m and not line.startswith((" ", "\t")):
-            values.setdefault(m.group(1), m.group(2).strip())
+    for mk in makefile_chain(root):
+        try:
+            lines = mk.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = _MAKE_ASSIGN.match(line)
+            if m and not line.startswith((" ", "\t")):
+                values.setdefault(m.group(1), m.group(2).strip())
     return values
 
 

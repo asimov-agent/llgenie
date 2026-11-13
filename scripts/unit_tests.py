@@ -139,18 +139,45 @@ def argv(root: str | Path | None = None, python: str | None = None,
     return args
 
 
+def _makefiles(root: Path) -> list[Path]:
+    """The makefiles that together define the recipes, in include order (issue #800, #2457;
+    the resolver matches `check_wiring._makefile_list`): the top `Makefile` is first, then
+    every `mk/*.mk` its `include` directives name (a wildcard expands to every matching file,
+    sorted, as GNU make does), then `tools/Makefile`. A target that moves behind an include
+    stays discoverable — the split cannot make this roster check blind."""
+    out: list[Path] = []
+    seen: set[str] = set()
+    queue = [root / MAKEFILE]
+    while queue:
+        path = queue.pop(0)
+        rel = str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
+        if rel in seen or not path.exists():
+            continue
+        seen.add(rel)
+        out.append(path)
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", path.read_text(), re.M):
+            inc = m.group(1)
+            if any(ch in inc for ch in "*?["):
+                queue.extend(sorted(root.glob(inc)))
+            else:
+                queue.append(root / inc)
+    tools = root / "tools" / "Makefile"
+    if tools.exists() and str(tools) not in seen:
+        out.append(tools)
+    return out
+
+
 def _make_recipes(root: Path) -> dict[str, str]:
-    """`{target: its recipe block}` for the Makefile, so a roster entry's `target` claim is
-    checked against the recipe that would actually run the file."""
-    path = root / MAKEFILE
-    if not path.exists():
-        return {}
-    text = path.read_text()
-    spans = [(m.group(1), m.start()) for m in re.finditer(r"^([a-z0-9][a-z0-9._-]*):", text, re.M)]
-    out = {}
-    for i, (name, start) in enumerate(spans):
-        end = spans[i + 1][1] if i + 1 < len(spans) else len(text)
-        out[name] = text[start:end]
+    """`{target: its recipe block}` for the Makefile and every makefile it includes, so a
+    roster entry's `target` claim is checked against the recipe that would actually run the
+    file (issue #2456: engine-domain recipes now live in `mk/engines.mk`)."""
+    out: dict[str, str] = {}
+    for path in _makefiles(root):
+        text = path.read_text()
+        spans = [(m.group(1), m.start()) for m in re.finditer(r"^([a-z0-9][a-z0-9._-]*):", text, re.M)]
+        for i, (name, start) in enumerate(spans):
+            end = spans[i + 1][1] if i + 1 < len(spans) else len(text)
+            out[name] = text[start:end]
     return out
 
 

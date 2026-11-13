@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 import scripts.check_engine_pins_published as cpp  # noqa: E402  (the repo's one import root, issue #796)
 import scripts.engine_image as ei  # noqa: E402
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 REGISTRY = "ghcr.io/asimov-agent"
 
@@ -236,7 +237,7 @@ def test_repinned_cells_names_only_the_cell_whose_tag_moved(tmp_path):
 
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert "$(MAKE) check-engine-pins-published" in mk, "ci-unit must run the gate"
     # .PHONY spans backslash-continuation lines (issue #883): read the whole block
     phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
@@ -302,7 +303,7 @@ def test_committed_sweeps_every_non_disabled_cell(monkeypatch):
 
 def test_committed_wired_into_make_and_phony():
     """The committed-set sweep has its own runnable make target and is .PHONY."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     target = re.search(r"^check-engine-pins-valid:.*(?=^\S)", mk, re.MULTILINE | re.DOTALL)
     assert target and "check --all" in target.group(0), \
         "check-engine-pins-valid must invoke the committed-set sweep"

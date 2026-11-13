@@ -22,6 +22,7 @@ import scripts.engine_skills as es
 import scripts.proc as proc
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 FIXTURE = REPO / "tests" / "fixtures" / "trending-models.json"
 
 ADA_16GB = {"os": "linux", "arch": "amd64", "machine": "x86_64", "backend": "cuda",
@@ -812,7 +813,7 @@ def test_ci_checks_params_are_fresh():
 
     # Given the CI unit job (one make target, issue #117)
     steps = " ".join(str(st.get("run", "")) for st in yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]["steps"])
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When its steps and its make target are read
     recipe = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
@@ -1383,7 +1384,7 @@ def test_post_build_test_stage_runs_engine_version_alias():
     assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in eb
     assert "def test_engine_cpu_image_answers_hi(" in tr
     assert "def test_engine_binary_reports_a_version(" in (REPO / "tests" / "test_engine_version.py").read_text()
-    assert "test-engine-image" in open(REPO / "Makefile").read()
+    assert "test-engine-image" in makefiles_text(REPO)
     assert "engine_runner.py detect params.json" in ep
 
 
@@ -1422,7 +1423,7 @@ def test_install_writes_container_start_scripts(tmp_path, monkeypatch):
     assert "llgenie/llama-cpp-prism:" in prism
     assert 'name="llgenie-prism-server-$port"' in prism and 'name="llgenie-llama-server-$port"' in stock
     # And make test-built-engine drives the --version check
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert "install: bash-check venv-install engine-launchers link test-built-engine smoke provision-agent-profiles" in mk
     assert "install_engine_launchers.py --bin \"$(BIN)\" --test" in mk
 
@@ -1589,7 +1590,7 @@ def test_published_images_are_tested_again_as_a_separate_matrix_stage():
     jobs = yaml.safe_load((REPO / ".github" / "workflows" / "engine-build.yml").read_text())["jobs"]
     build = jobs["build"]
     order = [st.get("run", "") for st in build["steps"] if st.get("run")]
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     # When the build job's steps are read
     # Then it tests before it pushes
@@ -1712,7 +1713,7 @@ def test_post_build_tests_run_in_the_test_image_not_on_the_bare_runner():
     via host python."""
     eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
     assert eb.index("run: make test-image-pull") < eb.index("run: make test-engine-stage ENGINE=")
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk.split("\ntest-engine-image:", 1)[1].split("\n\n", 1)[0].split("\ntest-", 1)[0]
     assert "$(call engine_test," in recipe and "tests/test_engine_version.py" in recipe
     assert "$(PY) -m pytest" not in recipe
@@ -1733,7 +1734,7 @@ def test_top_tier_serve_ci_model_dir_is_visible_to_the_engine_container():
     """The llama-server shim runs the engine image through the HOST docker and
     mounts the model's dir; pytest's /tmp inside the test container does not
     exist on the host, so the model must live under the repo-mounted CI home."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     line = next(l for l in mk.splitlines() if "tests/test_top_tier_serve.py" in l and "ENGINE_TEST_RUN" in l)
     assert "--basetemp=$$HOME/" in line
 
@@ -1756,7 +1757,7 @@ def test_every_published_image_is_started_and_answers_hi():
     CI never starts a server for an inference test. The serve conformance test is host-only — run manually
     by the llgenie-engine-improver via make test-engine-host (the smallest model that fits) or the explicit
     --serve tier make test-engine-serve."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
     assert "pull-published" in recipe
     assert "$(MAKE) test-engine-image" in recipe  # test-engine-image runs the -h/--version binary probe
@@ -1973,7 +1974,7 @@ def test_ensure_pulls_one_engine_on_first_use(tmp_path, monkeypatch):
 
 
 def test_make_install_defaults_pull_from_the_published_registry():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert "export LLGENIE_REGISTRY ?= ghcr.io/asimov-agent" in mk
     recipe = mk.split("\nengine-launchers:", 1)[1].split("\n\n", 1)[0]
     assert "$(if $(BUILD),--build,)" in recipe and "--no-build" not in recipe
@@ -2009,7 +2010,7 @@ def test_install_published_lives_in_the_engine_build_producer_not_the_ci_pipelin
     assert wf.index("run: make push-engine") < wf.index("run: make test-engine-install"), \
         "the producer's install leg must run AFTER it published the image"
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
     for needle in ("engine-install", "test-built-engine", "ci-install-uninstall"):
         assert needle in recipe, needle
@@ -2022,7 +2023,7 @@ def test_pre_publish_jobs_build_and_the_pull_only_install_runs_last():
     pulls the published images (BUILD=1 on the 7 GB macos-15-intel runner builds
     the engine images until GitHub kills the job, run 37957085562, issue #120).
     install-published proves the pull-only install per backend."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     for target in ("test-top-tier-serve-ci:", "test-health:"):
         recipe = mk.split("\n" + target, 1)[1].split("\n\n", 1)[0]
         assert "make install BUILD=1" in recipe or "--build --engines" in recipe, target
@@ -2042,7 +2043,7 @@ def test_published_install_step_runs_gpu_images_on_cpu():
     runs = [st.get("run", "") for st in job["steps"]]
     assert "make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in runs
     assert "ubuntu" in str(job["runs-on"])
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
     assert "ci-install-uninstall" in recipe and "ci-install-dry" not in recipe
 
@@ -2078,7 +2079,7 @@ def test_engine_images_default_to_the_published_registry_without_make():
     assert registry() == "'ghcr.io/asimov-agent'"
     assert registry(LLGENIE_REGISTRY="ghcr.io/AndyHolst/") == "'ghcr.io/andyholst'"
     assert registry(LLGENIE_REGISTRY="") == "''"
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert "export LLGENIE_REGISTRY ?= ghcr.io/asimov-agent" in mk   # same default via make
 
 

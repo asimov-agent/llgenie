@@ -23,6 +23,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 
 from scripts import registry_keys as RK
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 POST_1 = "https://lightbrd.com/u/status/1"
 POST_2 = "https://lightbrd.com/u/status/2"
@@ -378,7 +379,7 @@ def test_rules_and_wiring_are_documented():
 
     # Given  the repo rulebook and Makefile
     agents = (ROOT / "AGENTS.md").read_text()
-    makefile = (ROOT / "Makefile").read_text()
+    makefile = makefiles_text(ROOT)
 
     # When   the additive-only rule is looked up
     # Then   AGENTS.md states it and points at the guard
