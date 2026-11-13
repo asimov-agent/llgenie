@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -43,7 +44,10 @@ ORG_REPO = "asimov-agent/llgenie"
 def run(*a, timeout=180):
     try:
         return subprocess.run(a, cwd=REPO, capture_output=True, text=True, timeout=timeout)  # proc-allow: callers inspect `.returncode` (out() returns "" only on rc==0), #797; tracked remainder for #2229 migration
-    except subprocess.SubprocessError:
+    except (subprocess.SubprocessError, OSError):
+        # A missing binary raises FileNotFoundError (an OSError), not SubprocessError: in the
+        # gh-less unit-test container `run("gh", ...)` used to escape as a raw traceback
+        # (issue #2638). Treat it as a failed call — out() yields "" and main() degrades.
         return None
 
 
@@ -114,6 +118,12 @@ def main() -> int:
     # PR maps keyed by head ref name.
     raw = out("gh", "pr", "list", "--repo", ORG_REPO, "--state", "all", "--limit", "600",
               "--json", "number,state,headRefName,headRefOid,mergedAt")
+    if not raw and shutil.which("gh") is None:
+        # No `gh` (unit-test container, minimal image — issue #2638): the PR-identity legs get
+        # no data, so every orphan's added paths stay "unique" (held_by_pr is never set). That
+        # is conservative degradation, stated loudly instead of crashing: the audit still runs.
+        print("NOTE: `gh` unavailable — PR identity not checked; orphan added paths are "
+              "classified conservatively (all treated as unique).", file=sys.stderr)
     prs = json.loads(raw) if raw.strip() else []
     head_pr: dict[str, dict] = {}
     for p in prs:

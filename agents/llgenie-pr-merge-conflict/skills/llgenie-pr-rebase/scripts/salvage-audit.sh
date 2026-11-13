@@ -22,8 +22,8 @@
 # Usage: salvage-audit.sh [<repo>]
 #   default: $LLGENIE_REPO, else the nearest parent of this script containing .git, else cwd.
 #   Never a hardcoded host path: this script ships to every checkout and to CI, where the
-#   repository lives at a different absolute path (measured: the python sibling pinned
-#   /home/asimov/... and would have failed on every runner).
+#   repository lives at a different absolute path (measured: a hardcoded home path in the
+#   python sibling would have failed on every runner).
 # Exit 0 always unless git itself fails; this is a report, not a gate.
 
 set -uo pipefail
