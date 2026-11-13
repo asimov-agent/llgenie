@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -43,7 +44,11 @@ ORG_REPO = "asimov-agent/llgenie"
 def run(*a, timeout=180):
     try:
         return subprocess.run(a, cwd=REPO, capture_output=True, text=True, timeout=timeout)  # proc-allow: callers inspect `.returncode` (out() returns "" only on rc==0), #797; tracked remainder for #2229 migration
-    except subprocess.SubprocessError:
+    except (subprocess.SubprocessError, OSError):
+        # A command absent from PATH (gh in the unit-test container, git on a minimal image)
+        # raises FileNotFoundError — an OSError, NOT a SubprocessError — so the old guard let
+        # it traceback instead of returning the "failed call" answer. Treat it like any other
+        # failed call so out() returns "" and the audit degrades instead of dying (issue #2638).
         return None
 
 
@@ -111,7 +116,12 @@ def main() -> int:
         print("refs/remotes/origin/main missing", file=sys.stderr)
         return 2
 
-    # PR maps keyed by head ref name.
+    # PR maps keyed by head ref name. gh is absent from the unit-test container and many
+    # minimal images: out() now returns "" for it (issue #2638), so degrade with a note rather
+    # than a traceback — the merge-base classification below still runs.
+    if shutil.which("gh") is None:
+        print("note: gh not found on PATH — PR identity could not be checked; "
+              "branches are classed by merge-base alone", file=sys.stderr)
     raw = out("gh", "pr", "list", "--repo", ORG_REPO, "--state", "all", "--limit", "600",
               "--json", "number,state,headRefName,headRefOid,mergedAt")
     prs = json.loads(raw) if raw.strip() else []

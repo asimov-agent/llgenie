@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -30,6 +31,32 @@ SCRIPTS = (REPO / "agents" / "llgenie-pr-merge-conflict" / "skills"
 # on the next legitimate addition.
 EXPECTED = {"post-rebase-verify.sh", "salvage-audit.sh", "salvage-four-bucket.py",
             "test-revert-detector.sh"}
+
+
+def _path_with_gh_unresolvable(tmp_path: Path) -> str:
+    """A PATH on which the audit cannot resolve `gh`, while git and python still run.
+
+    `gh` and git share one dir on most hosts (/usr/bin), so merely DROPPING that dir would
+    drop git too; merely PREPENDING a shadow dir leaves the real gh reachable. So the helper
+    (1) drops every dir that contains an executable `gh`, and (2) re-stages the executables
+    the audit actually needs (git and its shell) into an isolated bin dir placed first on the
+    path. `shutil.which("gh")` then returns None (the note fires) and subprocess's own lookup
+    raises the OSError the guard is meant to survive, while git, sh and bash resolve from the
+    staged dir exactly as on the real host.
+    """
+    staged = tmp_path / "bin"
+    staged.mkdir(exist_ok=True)
+    for exe in ("git", "sh", "bash", "env"):
+        p = shutil.which(exe)
+        if p and not (staged / exe).exists():
+            try:
+                os.symlink(p, staged / exe)
+            except FileExistsError:
+                pass
+    cleaned = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+               if d and not (os.path.isfile(os.path.join(d, "gh"))
+                             and os.access(os.path.join(d, "gh"), os.X_OK))]
+    return str(staged) + os.pathsep + os.pathsep.join(cleaned)
 
 
 def _shell_scripts() -> list[Path]:
@@ -456,6 +483,63 @@ def test_the_salvage_audit_states_the_orphan_predicate():
     # Content carried by an open PR head is NOT unique: deleting the branch loses nothing
     # reviewable. This is the predicate that made the two shipped audit tools disagree (6 vs 21).
     assert not any(r.get("held_by_pr") for r in uniq), "a PR-carried branch was called unique"
+
+
+def test_the_audit_degrades_when_gh_is_absent(tmp_path):
+    """A missing `gh` is a degraded audit with a note, never a traceback (issue #2638).
+
+    Measured: the audit calls `gh pr list` through run(); in the unit-test container (which
+    ships no gh) on a dirty multi-worktree host, subprocess raised FileNotFoundError — an
+    OSError, which the old guard (subprocess.SubprocessError only) did not catch — and a raw
+    traceback escaped. That reddened the no-traceback gate exactly where verification happens
+    while CI stayed green because GitHub runners ship gh: the defect was loud only in the one
+    place that could notice. Now run() treats a missing executable like any other failed call,
+    the audit prints the degraded note and still classifies branches by merge-base alone.
+    """
+    import subprocess as sp
+
+    # # Given a fixture repo with `main` (pushed so refs/remotes/origin/main exists)
+    git = shutil.which("git")
+    assert git, "git absent — the fixture needs a real repo"
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.example",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.example"}
+    remote = tmp_path / "remote.git"
+    work = tmp_path / "work"
+    work.mkdir()
+    r = sp.run(["git", "init", "-q", "--bare", str(remote)], env=env)
+    assert r.returncode == 0
+
+    def git_(*a):
+        p = sp.run(["git", "-C", str(work), *a], capture_output=True, text=True, env=env)
+        assert p.returncode == 0, p.stdout + p.stderr
+
+    git_("init", "-q", "-b", "main")
+    (work / "main.txt").write_text("main\n")
+    git_("add", ".")
+    git_("commit", "-qm", "main")
+    git_("remote", "add", "origin", str(remote))
+    git_("push", "-q", "-u", "origin", "main")
+
+    # # Given additionally an orphan branch whose content main has never held (classification leg)
+    git_("checkout", "-qb", "feature/dirty")
+    (work / "only-here.txt").write_text("x\n")
+    git_("add", ".")
+    git_("commit", "-qm", "wip")
+
+    # # When the audit runs in a shell where gh cannot be resolved
+    r = sp.run([sys.executable, str(SCRIPTS / "salvage-four-bucket.py")],
+               capture_output=True, text=True, timeout=120, cwd=work,
+               env={**os.environ, "PATH": _path_with_gh_unresolvable(tmp_path),
+                    "LLGENIE_REPO": str(work)})
+    combined = r.stdout + r.stderr
+
+    # # Then it still reaches a verdict, never tracebacks, and names the degradation
+    assert r.returncode == 0, combined[-400:]
+    assert "Traceback" not in combined, "a gh-less run surfaces a raw traceback:\n" + combined[-400:]
+    assert "gh not found" in combined, "the degraded note is missing:\n" + combined[-400:]
+    # the classification leg actually ran with gh absent (the branch is classed, from
+    # merge-base, not skipped)
+    assert "feature/dirty" in combined, "the orphan classification did not run:\n" + combined[-400:]
 
 
 def test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree():
