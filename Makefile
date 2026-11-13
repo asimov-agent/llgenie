@@ -1360,7 +1360,11 @@ TEST_IMG := llgenie/test:latest
 GIT_WORKTREE_PARENT := $(shell sed -nE 's|^gitdir: +||p' .git 2>/dev/null | sed 's|/.git/worktrees/.*||')
 WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_WORKTREE_PARENT):rw,)
 # Token names only. docker copies the values from the environment; they stay off argv.
-TEST_OPTS := --rm -u root -v "$(ROOT)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN $(WORKTREE_MOUNT)
+# Non-root container stages (issue #2563): run as the uid:gid that owns the
+# bind-mounted checkout — uid 1000 (== the image default) on this host, the
+# runner's uid on CI — so cache/bytecode writes land as the checkout's owner.
+# HOME comes from the image (ENV HOME=/tmp), not a root-only override.
+TEST_OPTS := --rm -u "$(shell id -u):$(shell id -g)" -v "$(ROOT)":/repo:rw -w /repo -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN $(WORKTREE_MOUNT)
 # Install/health tests start engine images through the HOST docker. The install
 # HOME lives inside the repo mount at the SAME path on host and in the container,
 # so bind mounts the container asks the host docker for (-v <models>:/models)
@@ -1378,13 +1382,18 @@ engine_test = $(VENV_GUARD) env HOME="$(CI_HOME)" RUNTIME=docker PATH="$(VENV)/b
 ENGINE_TEST_RUN := $(call engine_test,)
 CI_HOME_CLEAN := rm -rf "$(CI_HOME)"
 else
+# Engine-driven stages KEEP `-u root` on purpose (issue #2563): this container
+# reaches the HOST docker daemon through /var/run/docker.sock, which is
+# `srw-rw---- root:docker` on this host — the plain uid mapping of TEST_OPTS
+# could not connect. The image's non-root default stands for the plain stages.
 ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
 	-v /var/run/docker.sock:/var/run/docker.sock -v "$(ROOT)":"$(ROOT)":rw -w "$(ROOT)" \
 	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
 engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
 ENGINE_TEST_RUN := $(call engine_test,)
-# .ci-home is written by root inside the container: remove it from a container too.
-CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
+# .ci-home is written by root inside the engine container: remove it as root too,
+# or the mapped uid cannot delete a root-owned tree (issue #2563).
+CI_HOME_CLEAN := $(RUNTIME) run --rm -u root -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 endif
 
