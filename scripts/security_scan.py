@@ -91,6 +91,9 @@ SCANNER_BASELINE: dict[str, str] = {
     "trivy": "0.70.0-r5",
     "grype": "0.121.2-r1",
 }
+#: A recorded scanner digest — `sha256:<64 hex>` — the immutable index digest of the image CI
+#: publishes, recorded beside each ref in `containers/scanners/digests.json` (issue #2609).
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 #: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
 #: `semgrep.rules_captured_at` — the ISO date the pack was last resolved from upstream `p/default`.
@@ -145,8 +148,66 @@ def policy() -> dict:
     return merged
 
 
+def scanner_digest(tool: str) -> str:
+    """The immutable `sha256:<64 hex>` recorded for a scanner, or '' when absent (issue #2609).
+
+    The digest is the index digest of the image CI publishes — what a `buildx imagetools inspect`
+    of the ref returns. A scan verifies the image it is about to run against this value.
+    """
+    entry = digests().get(tool) or {}
+    raw = entry.get("digest", "")
+    return raw if DIGEST_RE.fullmatch(raw) else ""
+
+
+def resolved_digest(tool: str) -> str:
+    """The index digest the pinned ref currently resolves to in the registry.
+
+    Read what `docker buildx imagetools inspect <ref>` names as the index `Digest:`. This is the
+    SAME measurement `make scanner-digests` records, so a scan can compare the image it WOULD run
+    against the digest recorded when the ref was pinned. A non-zero exit (ref not yet published)
+    is an empty answer, never an exception: the scan still names what it measured.
+    """
+    ref = image_ref(tool)
+    res = subprocess.run([RUNTIME, "buildx", "imagetools", "inspect", ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                         capture_output=True, text=True)
+    if res.returncode != 0:
+        return ""
+    m = re.search(r"^Digest:\s+(sha256:[0-9a-f]{64})\s*$",
+                  f"{res.stdout or ''}\n{res.stderr or ''}", re.M)
+    return m.group(1) if m else ""
+
+
+def verify_digest(tool: str) -> str:
+    """Fail loudly when the scanner the scan is about to run is not the recorded digest.
+
+    The scan's immutability promise (issue #2609): the ref is content-hashed, but a content-hash
+    TAG is re-pushable — GHCR can repoint the same tag at different bytes, and a host can hold a
+    stale local build under it. The recorded `digest` is the one immutable name. If the ref's
+    current index digest differs from the recorded one, a `pinned` scan would mean different images
+    on CI and on a host, so the run refuses and names BOTH digests. An unresolved ref (not yet
+    published / a build-only path) cannot drift from a recorded digest, and is not a refusal.
+    """
+    recorded = scanner_digest(tool)
+    current = resolved_digest(tool)
+    if recorded and current and current != recorded:
+        raise SystemExit(
+            f"[security-scan] {tool}: {image_ref(tool)} currently resolves to {current}, but "
+            f"digests.json records {recorded} — a 'pinned' scan is not one image across CI and a "
+            f"host. Refuse: this verdict would not be reproducible over a re-push (issue #2609).\n"
+            f"  reconcile: re-publish the image so the tag's index digest is {recorded}, or fix "
+            f"digests.json with `make scanner-digests` after the image's real digest settles.")
+    print(f"[security-scan] {tool}: executing scanner image digest {current or recorded} "
+          f"({'ref matches the recorded digest' if current and current == recorded else 'recorded digest (ref not resolvable here)' if not current else 'MISMATCH: not run'}))")
+    return current or recorded
+
+
 def ensure_image(tool: str) -> str:
     """The pinned image, from the registry when it is published, else built from its Dockerfile.
+
+    Before resolving, the run verifies the scanner's recorded immutable digest against the ref's
+    current index digest (issue #2609) — a re-pushable tag must not silently change what a `pinned`
+    scan executes. `verify_digest` raises (naming both digests) on a mismatch; a ref that cannot be
+    resolved here (build-only / not yet published) is not a drift and is not a refusal.
 
     A pull is the normal path. It fails for a `pull_request` run before the first publish (the
     `scanner-images` job publishes on a push to main only), and for a fork run, whose token cannot
@@ -154,6 +215,7 @@ def ensure_image(tool: str) -> str:
     implementation: the SAME Dockerfile — digest-pinned base, exact versions — is built and tagged
     with the SAME immutable ref the workflow asked for, and the log says which path was taken.
     """
+    verify_digest(tool)
     ref = image_ref(tool)
     if subprocess.run([RUNTIME, "image", "inspect", ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                       capture_output=True).returncode == 0:
@@ -536,11 +598,15 @@ def check() -> int:
         problems.append("no SBOM tool: Grype would have nothing to match")
     for tool in TOOLS:
         entry = recorded.get(tool) or {}
-        for key in ("version", "tag", "ref"):
+        for key in ("version", "tag", "ref", "digest"):
             if not entry.get(key):
                 problems.append(f"digests.json: `{tool}` has no `{key}`")
         if entry.get("tag") and f":{entry['tag']}" not in image_ref(tool):
             problems.append(f"digests.json: `{tool}` tag is not the ref's tag")
+        if entry.get("digest") and not DIGEST_RE.fullmatch(str(entry["digest"])):
+            problems.append(f"digests.json: `{tool}` digest {entry['digest']!r} is not a "
+                            "`sha256:<64 hex>` digest — record the image's index digest "
+                            "(issue #2609)")
     # The SAST rule set is immutability too (issue #1284): the rules a scan runs are pinned by sha in
     # the SAME digests.json that pins the binaries, and the pinned engine versions must not lag the
     # declared current-release baseline. `make check-security-scan` fails on either, so a scan that

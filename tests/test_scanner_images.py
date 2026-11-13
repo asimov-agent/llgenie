@@ -122,6 +122,44 @@ def test_write_records_the_content_hash_and_version(tmp_path, monkeypatch):
     assert data["trivy"]["ref"].endswith(f"trivy:{si.content_hash('trivy')}")
 
 
+def test_write_records_the_published_digest(tmp_path, monkeypatch):
+    """`write` records the image's index digest beside the ref, so digests.json regenerates with
+    the one immutable name a scan verifies against (issue #2609)."""
+
+    # Given a tree with one scanner and a registry that reports a digest for its ref
+    root = _tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"]})
+    sentinel = "sha256:" + "ab" * 32
+    monkeypatch.setattr(si, "_published_digest", lambda _s: sentinel)
+
+    # When  digests are written
+    si.write()
+
+    # Then  the entry carries the digest, shaped `sha256:<64 hex>`
+    data = json.loads((root / "containers" / "scanners" / "digests.json").read_text())
+    assert data["trivy"]["digest"] == sentinel
+
+
+def test_a_digestless_digests_file_fails_check(tmp_path, monkeypatch):
+    """A scanner ref without a recorded digest is a scan that cannot attest its image — `check`
+    must fail it (issue #2609)."""
+
+    # Given a digests.json whose entry omits the digest
+    root = _tree(tmp_path)
+    digests = root / "containers" / "scanners" / "digests.json"
+    digests.write_text(json.dumps({
+        "trivy": {"version": "0.70.0-r5", "tag": si.content_hash("trivy"),
+                  "ref": si.ref("trivy")}}), encoding="utf-8")
+    monkeypatch.setattr(si, "REPO", root)
+
+    # When  the gate reads it
+    rc = si.check("trivy")
+
+    # Then  it fails, naming the missing immutable digest
+    assert rc == 1
+
+
 def test_the_content_hash_moves_with_the_dockerfile(tmp_path, monkeypatch):
     """The tag is the immutability: a changed Dockerfile must be a different tag."""
 

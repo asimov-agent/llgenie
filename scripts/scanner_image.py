@@ -142,6 +142,23 @@ def _published_platforms(ref: str) -> set[str]:
     return set(re.findall(r"Platform:\s*(linux/\S+)", text))
 
 
+def _published_digest(scanner: str) -> str:
+    """The index digest the scanner's ref currently resolves to in the registry (issue #2609).
+
+    `make scanner-digests` records it beside the ref so a scan can verify the image it is about to
+    run (`scripts/security_scan.py::verify_digest`). The measurement is the same one CI publishes:
+    `docker buildx imagetools inspect <ref>` names the index `Digest:`. A tag the registry has not
+    yet published exits non-zero → empty string (a first import has no published digest yet, which
+    is a scan-time refusal, not a write-time one).
+    """
+    res = _run([RUNTIME, "buildx", "imagetools", "inspect", ref(scanner)])
+    if res.returncode != 0:
+        return ""
+    m = re.search(r"^Digest:\s+(sha256:[0-9a-f]{64})\s*$",
+                  f"{res.stdout or ''}\n{res.stderr or ''}", re.M)
+    return m.group(1) if m else ""
+
+
 def build(scanner: str, tag: str | None = None) -> str:
     tag = tag or f"llgenie/scanner-{scanner}:{content_hash(scanner)}"
     res = _run([RUNTIME, "build", "-t", tag, str(dockerfile(scanner).parent)])
@@ -204,16 +221,20 @@ def publish(scanner: str) -> int:
 
 def write() -> int:
     """Rewrite digests.json: the version pin and the immutable tag per scanner, plus the
-    content-addressed sha256 of the semgrep rules pack a scan actually runs (issue #1284)."""
+    content-addressed sha256 of the semgrep rules pack a scan actually runs (issue #1284). Each
+    scanner also records the index `digest` of the image CI publishes (issue #2609) so the file
+    regenerates with its immutability proof, not without it."""
     semgrep_pack = REPO / SCANNER_DIR / "semgrep" / "rules" / "default.yml"
     rules_sha = ""
     if semgrep_pack.is_file():
         rules_sha = hashlib.sha256(semgrep_pack.read_bytes()).hexdigest()
+    digest = _published_digest
     data = {
         scanner: {
             "version": pinned_version(scanner),
             "tag": content_hash(scanner),
             "ref": ref(scanner),
+            "digest": digest(scanner),
             "dockerfile": f"{SCANNER_DIR}/{scanner}/Dockerfile",
         }
         for scanner in SCANNERS
@@ -268,6 +289,12 @@ def check(scanner: str = "all") -> int:
                                 f"the Dockerfile hashes to {content_hash(sid)!r}")
             if not (entry.get("ref") or "").endswith(f"/{sid}:{content_hash(sid)}"):
                 problems.append(f"{sid}: digests.json ref does not end with the content-hash tag")
+            if not entry.get("digest"):
+                problems.append(f"{sid}: digests.json omits `digest` — the image's index digest is "
+                                "required beside the ref (issue #2609)")
+            elif not re.fullmatch(r"sha256:[0-9a-f]{64}", entry["digest"]):
+                problems.append(f"{sid}: digests.json digest {entry['digest']!r} is not a "
+                                "`sha256:<64 hex>` index digest (issue #2609)")
             # A scanner version older than the declared current-release baseline is a freshness
             # finding (issue #1284): the engines must advance through `make scanner-digests` + PR.
             baseline = RELEASE_BASELINE.get(sid)

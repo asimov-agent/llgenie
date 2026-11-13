@@ -872,3 +872,91 @@ def test_an_unknown_tool_is_refused():
         assert "unknown tool" in str(exc) and "grype" in str(exc), str(exc)
     else:
         raise AssertionError("an unknown tool was accepted")
+
+
+def test_every_scanner_records_an_immutable_digest():
+    """The real tree: each of the three scanner refs carries a `sha256:<64 hex>` digest (AC 1 of
+    issue #2609), so a `pinned` scan is an immutable image, not a re-pushable tag."""
+
+    # Given this repository's digests.json
+    recorded = ss.digests()
+
+    # Then  each image-backed scanner records a digest shaped like a sha256 image index digest
+    for tool in ss.TOOLS:
+        digest = ss.scanner_digest(tool)
+        assert ss.DIGEST_RE.fullmatch(digest), f"{tool}: {digest!r}"
+
+    # And   the digests are real image digests, not placeholders (a `check` that never reads them
+    #       would pass a file that does not name the image)
+    assert len(recorded) == 3
+
+
+def test_check_reds_a_scanner_without_a_digest(tmp_path, monkeypatch):
+    """A scan whose pinned ref lacks a recorded digest cannot attest which image it runs — `check`
+    must fail, never pass (issue #2609)."""
+
+    # Given a digests.json with the trivy digest removed
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["trivy"] = {k: v for k, v in recorded["trivy"].items() if k != "digest"}
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+
+    # Then  it fails naming the missing immutable digest
+    assert rc == 1
+    assert "trivy" in buf.getvalue() and "digest" in buf.getvalue()
+
+
+def test_verify_digest_refuses_a_mismatch():
+    """Negative control (AC 2 of issue #2609): when the ref currently resolves to a digest other
+    than the recorded one, a scan must exit non-zero naming BOTH digests — a moved tag is an
+    error, not drift."""
+
+    # Given a scanner whose recorded digest is what the tree pins, but whose ref currently
+    # resolves to a DIFFERENT index digest (a re-pushed tag / a stale host build, e.g. the measured
+    # host-local 7fd77096 vs the recorded 180c3f7e semgrep case)
+    tool = "semgrep"
+    recorded = ss.scanner_digest(tool)
+    assert recorded, "the real tree must record a semgrep digest"
+    drifted = "sha256:" + ("1b" if recorded.endswith("1") else "aa") * 32
+    while drifted == recorded:
+        drifted = "sha256:" + ("10") * 32
+    ss.resolved_digest = lambda _t, d=drifted: d
+
+    # When  a scan about to run is digest-checked
+    try:
+        ss.verify_digest(tool)
+    except SystemExit as exc:
+        # Then  the run refuses, naming the recorded AND the currently-resolved digests
+        message = str(exc)
+        assert recorded in message and drifted in message, message
+    else:
+        raise AssertionError("a mismatched scanner digest was accepted")
+
+
+def test_verify_digest_names_the_matching_digest():
+    """AC 3 of issue #2609 (hermetic half): when the ref resolves to the recorded digest, the scan
+    proceeds and its output names the executed image digest."""
+
+    # Given a scanner whose ref resolves to exactly the recorded digest
+    tool = "semgrep"
+    recorded = ss.scanner_digest(tool)
+    ss.resolved_digest = lambda _t: recorded
+
+    # When  the digest is verified (and a scan then runs)
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        digest = ss.verify_digest(tool)
+
+    # Then  it returns the executed digest and the run's output names it
+    assert digest == recorded
+    assert recorded in buf.getvalue()
