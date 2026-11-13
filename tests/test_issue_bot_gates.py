@@ -28,6 +28,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 
 from scripts import issue_bot_gates
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2458)
 
 #: What the issues name, in that order: an independent pin on the list. #475 fixed the original six;
 #: issue #2484 adds `check-file-hygiene` because its acceptance requires the gate to run in `make
@@ -48,7 +49,7 @@ def _real_tree(tmp_path: Path, workflow: str | None = None) -> Path:
     """A copy of the real Makefile (optionally edited) and workflow, as a scratch checkout."""
     root = tmp_path / "tree"
     (root / ".github" / "workflows").mkdir(parents=True)
-    (root / "Makefile").write_text((REPO / "Makefile").read_text())
+    (root / "Makefile").write_text(makefiles_text(REPO))
     (root / ".github" / "workflows" / "issue-bot.yml").write_text(
         workflow if workflow is not None else WF.read_text())
     return root
@@ -104,7 +105,7 @@ def test_the_issue_bot_runs_the_gate_between_detection_and_push():
 def test_the_target_runs_the_gate_script():
     """A target that stopped naming the script would report success having checked nothing."""
     # Given the real Makefile
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
 
     # When  make is asked what the target would do (a dry run, nothing executes)
     out = subprocess.run(["make", "-n", "issue-bot-gates"], cwd=REPO, capture_output=True, text=True)
@@ -119,7 +120,7 @@ def test_a_runner_ci_unit_stopped_calling_is_a_finding(tmp_path):
     """The runner and its own check must be reached from `ci-unit`, or they are dead code."""
     # Given checkouts whose ci-unit no longer calls one of the guard's own targets
     for target in ("issue-bot-gates", "issue-bot-gates-check"):
-        text = (REPO / "Makefile").read_text().replace(f"\t$(MAKE) {target}\n", "", 1)
+        text = makefiles_text(REPO).replace(f"\t$(MAKE) {target}\n", "", 1)
         root = _real_tree(tmp_path / target)
         (root / "Makefile").write_text(text)
 
@@ -133,7 +134,7 @@ def test_a_runner_ci_unit_stopped_calling_is_a_finding(tmp_path):
 def test_a_new_ci_unit_gate_nobody_classified_reds_the_check(tmp_path):
     """The requested lock: adding a gate to ci-unit must force a fast/deferred decision."""
     # Given a checkout whose ci-unit runs one more gate than the guard classifies
-    text = (REPO / "Makefile").read_text().replace(
+    text = makefiles_text(REPO).replace(
         "\t$(MAKE) issue-bot-gates-check\n",
         "\t$(MAKE) issue-bot-gates-check\n\t$(MAKE) brand-new-gate\n", 1)
     root = _real_tree(tmp_path)
@@ -151,7 +152,7 @@ def test_a_new_ci_unit_gate_nobody_classified_reds_the_check(tmp_path):
 def test_a_stale_deferred_entry_is_named(tmp_path):
     """A classification for a gate ci-unit no longer runs has to be deleted, not left to rot."""
     # Given a checkout whose ci-unit dropped a gate DEFERRED still records
-    text = (REPO / "Makefile").read_text().replace("\t$(MAKE) check-strata-models\n", "", 1)
+    text = makefiles_text(REPO).replace("\t$(MAKE) check-strata-models\n", "", 1)
     root = _real_tree(tmp_path)
     (root / "Makefile").write_text(text)
 
