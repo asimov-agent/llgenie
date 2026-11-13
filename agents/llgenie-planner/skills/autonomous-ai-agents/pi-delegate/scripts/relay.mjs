@@ -555,15 +555,25 @@ function installPreflightSignalHandlers(opts, run, writeResult, getChild) {
 }
 
 function dispatchToPi(opts, brief, run, writeResult) {
-  const child = spawn("pi", buildArgv(opts), {
-    cwd: opts.cd,
-    stdio: ["pipe", "pipe", "pipe"],
-    // shell:true on win32 so the pi.cmd shim resolves. Safe: the brief is fed
-    // via stdin — never argv — and argv holds only the fixed flag names and
-    // token-validated --provider/--model/--session values.
-    shell: process.platform === "win32",
-    detached: process.platform !== "win32", // POSIX: lead a new process group so killChild can fell the whole tree
-  });
+  // win32 has no bare `pi` to exec: the installed command is the pi.cmd batch
+  // shim, and Node refuses to spawn .cmd shims without a shell. Resolve the shim
+  // through an explicit `cmd.exe /d /s /c pi <flags>` — the same command
+  // shell:true compiles to, requested with argv built in code, so no shell
+  // option is passed and no shell parses or word-splits anything (issue #2577:
+  // the spawn-shell-true audit matches the `shell:` option itself). Safe on
+  // every path: the brief is fed via stdin — never argv — and argv holds only
+  // the fixed flag names and token-validated --provider/--model/--session values.
+  const win32 = process.platform === "win32";
+  const child = spawn(
+    win32 ? "cmd.exe" : "pi",
+    win32 ? ["/d", "/s", "/c", "pi", ...buildArgv(opts)] : buildArgv(opts),
+    {
+      cwd: opts.cd,
+      stdio: ["pipe", "pipe", "pipe"],
+      // POSIX: lead a new process group so killChild can fell the whole tree.
+      ...(win32 ? {} : { detached: true }),
+    },
+  );
 
   let sessionId = null;
   let actualProvider = null;
