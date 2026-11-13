@@ -757,7 +757,10 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     # unproven criterion on a body it is checking.
     issue_text = tick_issue_acceptance(issue_text, items,
                                        acceptance_proven(d, doc, commit, head, issue_num))
-    _gh_retry(gh, "api", "PATCH", f"repos/{repo}/issues/{issue_num}", "-F", "body=@-",
+    # The verb travels as `--method`, never as a positional argument: gh 2.103.3 stopped accepting
+    # `gh api PATCH <endpoint>` ("accepts 1 arg(s), received 2") and reddened the whole publish leg
+    # on run 43498203622, while `gh api --method PATCH` parses on every gh (issue #2645).
+    _gh_retry(gh, "api", "--method", "PATCH", f"repos/{repo}/issues/{issue_num}", "-F", "body=@-",
               stdin=issue_text)
     git(root, "push", "-u", "origin", branch)
     pr_body = render_pr(issue_num, d, stamp, head, doc, branch, commit=commit, hygiene=hygiene)
