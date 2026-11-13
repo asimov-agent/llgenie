@@ -14,6 +14,7 @@ import yaml
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 EB = REPO / ".github/workflows/engine-build.yml"
 
 
@@ -50,7 +51,7 @@ def test_the_none_placeholder_row_never_runs_the_legs():
 def test_the_install_leg_installs_versions_and_uninstalls_the_just_published_image():
     """Install + the installed launcher's engine version + uninstall (no product `llgenie --dry` — the
     producer is product-LESS #1027; the product tool installs and dry-runs in pipeline.yml's ci-install)."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
     for needle in ("engine-install", "test-built-engine", "ci-install-uninstall"):
         assert needle in recipe, needle
@@ -60,7 +61,7 @@ def test_the_install_leg_installs_versions_and_uninstalls_the_just_published_ima
 def test_the_serve_leg_serves_the_published_image():
     """Pull the just-published image (digest == :ARCH) and verify the BINARY answers -h/--version only
     (issue #2319) — no server starts in CI. The serve conformance test is host-only (make test-engine-host)."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
     assert "pull-published" in recipe
     assert "test_published_engine_binary.py" in recipe

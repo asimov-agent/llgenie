@@ -26,6 +26,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 from scripts import engine_skills as es
 from scripts import engine_skill_scaffold as scaf
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 SCRIPT = REPO / "scripts" / "engine_skill_scaffold.py"
 
@@ -248,7 +249,7 @@ def test_the_make_target_hands_engine_id_backends_out_and_dry_to_the_script():
     """The target is the entry point a bot uses: no flag may be silently dropped."""
 
     # Given the Makefile and the scaffold script
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     script = (REPO / "scripts" / "engine_skill_scaffold.py").read_text()
 
     # When the engine-skill-scaffold recipe is read

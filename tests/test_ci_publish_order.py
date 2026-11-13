@@ -28,6 +28,7 @@ PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 import base_ref  # noqa: E402  (the base ref resolver, issue #925)
 import scripts.check_engine_pins_published as cpp  # noqa: E402  (the shared tag-identity repin diff, issue #2559)
 import scripts.install_engine_launchers as iel  # noqa: E402
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2456)
 
 # `install_engine_launchers` imports its sibling as the top-level `engine_image`;
 # patch THAT module object, or the gate keeps calling the unpatched one.
@@ -96,7 +97,7 @@ def _publish_after(monkeypatch, clock: "_FakeClock", at_s: float) -> None:
 
 def _recipe(target: str) -> str:
     """One Makefile target's recipe, exactly as `make <target>` runs it."""
-    return (REPO / "Makefile").read_text().split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
+    return makefiles_text(REPO).split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
 
 
 def _install_ci_targets() -> list[str]:
@@ -157,7 +158,7 @@ def test_the_install_target_keeps_its_darwin_branch_for_host_use():
     # And the gate is defined AFTER `HOST_OS := $(shell uname -s)`: make evaluates ifeq
     # while it parses the file, so a conditional placed earlier sees an empty HOST_OS and
     # would take the Linux branch on macOS too
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
     assert mk.find("HOST_OS := $(shell uname -s)") < mk.find("\nci-wait-engine-images:")
 
 

@@ -27,6 +27,7 @@ import scripts.engine_skills as es
 import scripts.unit_tests as ut
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 
 #: The engine whose release archive is verified live. Its `ref` is the ONLY version source: the pin a
@@ -1685,7 +1686,7 @@ def test_linux_test_containers_forward_the_github_token():
     """
 
     # Given the two Linux container runners
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)
     opts = text.split("TEST_OPTS :=", 1)[1].split("\n", 1)[0]
     engine = text.split("ENGINE_TEST_ARGS :=", 1)[1].split("\nendif", 1)[0]
 
@@ -2044,7 +2045,7 @@ def test_unit_recipe_keeps_the_image_build_out():
     # And the live release reads are de-selected by exact node id, not silently run
     deselect = ut.load_roster(REPO)["deselect"].get("tests/test_engine_bump.py", {})
     assert "test_the_pinned_release_archive_unpacks_and_runs" in deselect
-    live = (REPO / "Makefile").read_text().split("\ntest-engine-bump-live:", 1)[1].split("\n\n", 1)[0]
+    live = makefiles_text(REPO).split("\ntest-engine-bump-live:", 1)[1].split("\n\n", 1)[0]
     assert "test_the_pinned_release_archive_unpacks_and_runs" in live
     # The live archive download is the bump pipeline's proof, after the new pin is written.
     # ci.yml's unit job (pipeline.yml) does not run it (issue #995).

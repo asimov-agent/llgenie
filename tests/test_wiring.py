@@ -78,7 +78,7 @@ def test_the_real_tree_has_no_unwired_document():
     for doc, e in exceptions["documents"].items():
         assert (doc.startswith("tests/") or doc.startswith("scripts/")) and (REPO / doc).exists(), doc
         assert len(e["reason"]) > 40 and e["decided"] and e["target"], doc
-        assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
+        assert f"{e['target']}:" in makefiles_text(REPO), doc
 
 
 def test_the_report_names_every_document_and_the_host_only_decisions():
