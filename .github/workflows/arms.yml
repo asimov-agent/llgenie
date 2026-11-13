@@ -2,9 +2,14 @@
 name: arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)
 #
 # Rule 16 (owner directive 2026-10-29): the producing lane arms auto-merge when the work is DONE — a
-# mergeable, non-draft PR on the default branch must carry `autoMergeRequest` or it is invisible to every
-# `auto-merge` sweep. `make check-arms` (scripts/check_arms.py) is the gate; this sweep is its consumer, so
-# an unarmed finished PR becomes a red run a lane can see instead of a definition nobody runs.
+# finished, non-draft PR on the default branch must be inside the merge lane or it is invisible to every
+# sweep. Queue semantics (issue #2378): FINISHED means the check rollup is terminal and GREEN — a PR with
+# IN_PROGRESS/QUEUED rows, no rows yet, a RED rollup, or a review chain still in flight is work in progress,
+# not a finding; and mergeStateStatus CLEAN *is* the queue the CI auto-merge job lands (AGENTS.md: the agent
+# never runs `gh pr merge`, so `autoMergeRequest` cannot be the only accepted form). A PR that is green,
+# approved-chain-complete, and neither armed nor CLEAN-queued (BLOCKED/BEHIND) is the finding.
+# `make check-arms` (scripts/check_arms.py) is the gate; this sweep is its consumer, so a stuck finished PR
+# becomes a red run a lane can see instead of a definition nobody runs.
 #
 # It must NOT run on pull_request: the board today has finished-but-unarmed PRs from every lane, so a per-PR
 # run would red every open PR at once. It is schedule + hand-dispatch only.
@@ -12,9 +17,10 @@ name: arms — fails when an open, mergeable, default-based PR is finished but c
 # Trigger surface: daily at `13 1 * * *` (minute 13, 01:13 UTC — free of every other cron on this board,
 # issue #275: no bot shares a minute), plus `workflow_dispatch`.
 # Flow: guard -> make check-arms (scripts/check_arms.py): list every open PR, filter in code (never a
-#       `--label` narrowed fetch), fail naming each finished-but-unarmed PR; report prints the armed count.
+#       `--label` narrowed fetch), print each PR's state (armed / queued / in-flight / in-CI / red / finding),
+#       and fail naming each finished PR that is neither armed nor queued.
 # Never: never arms a PR itself (arming is the PRODUCING lane's closing move, rule 16), never cancels a run,
-#       never merges — it reports, and the run-failure-reactor routes the red to the lane that must arm them.
+#       never merges — it reports, and the run-failure-reactor routes the red to the lane that must act.
 # dispatch: no inputs — it audits the whole board; a hand run just re-checks what the daily sweep checks.
 on:
   schedule:
@@ -89,7 +95,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Fail on any finished PR that carries no auto-merge (fleet rule 16, #873)
+      - name: Fail on any finished PR neither armed nor in the auto-merge queue (fleet rule 16, #873, #2378)
         env:
           GH_TOKEN: ${{ github.token }}
         run: make check-arms
