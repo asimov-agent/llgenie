@@ -145,14 +145,17 @@ jobs:
           echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
 
       - name: Dispatch provenance (#2578 — every engine-build run names the run that fired it)
+        env:
+          PRODUCER_RUN: ${{ inputs.producer_run }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
         run: |
-          producer="${{ inputs.producer_run }}"
+          producer="$PRODUCER_RUN"
           if [ -n "$producer" ]; then
             echo "dispatched_by_run=$producer"
             echo "Dispatched by run $producer (producer_run dispatch input, issue #2578)." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "dispatched_by_run=none-recorded actor=${{ github.triggering_actor }}"
-            echo "No producer run recorded; dispatched by ${{ github.triggering_actor }} (human or PR-lane re-drive)." >> "$GITHUB_STEP_SUMMARY"
+            echo "dispatched_by_run=none-recorded actor=$TRIGGERING_ACTOR"
+            echo "No producer run recorded; dispatched by $TRIGGERING_ACTOR (human or PR-lane re-drive)." >> "$GITHUB_STEP_SUMMARY"
           fi
 
   matrix:
