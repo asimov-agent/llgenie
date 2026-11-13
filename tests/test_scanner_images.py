@@ -122,6 +122,85 @@ def test_write_records_the_content_hash_and_version(tmp_path, monkeypatch):
     assert data["trivy"]["ref"].endswith(f"trivy:{si.content_hash('trivy')}")
 
 
+def test_write_carries_the_image_digest_forward(tmp_path, monkeypatch):
+    """`write` rebuilds the record from the Dockerfiles; it must not drop the pin `pin` recorded
+    (issue #2609). Same Dockerfile → same tag → the digest of the image that tag serves survives."""
+
+    # Given a written record whose tag has had its published digest pinned
+    root = _tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    si.write()
+    data = json.loads(digest_path.read_text())
+    data["trivy"]["image_digest"] = "sha256:" + "ab" * 32
+    digest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    # When  digests are re-written over the same Dockerfile (the tag has not moved)
+    si.write()
+
+    # Then  the entry carries its tag and keeps its image digest
+    data = json.loads(digest_path.read_text())
+    assert data["trivy"]["tag"] == si.content_hash("trivy")
+    assert data["trivy"]["image_digest"] == "sha256:" + "ab" * 32
+
+
+def test_a_moved_tag_drops_the_old_image_digest(tmp_path, monkeypatch):
+    """The carry-forward is identity-checked: a changed Dockerfile is a new tag, and the old
+    tag's digest must not be inherited by it (issue #2609)."""
+
+    # Given a pinned record written for one Dockerfile
+    root = _tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    si.write()
+    data = json.loads(digest_path.read_text())
+    data["trivy"]["image_digest"] = "sha256:" + "ab" * 32
+    digest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    # When  the Dockerfile is bumped (a different tag) and digests are re-written
+    (root / "containers" / "scanners" / "trivy" / "Dockerfile").write_text(
+        DOCKERFILE_OK.replace("0.70.0-r5", "0.71.0-r0"), encoding="utf-8")
+    si.write()
+
+    # Then  the new tag's entry carries no digest until it is pinned
+    data = json.loads(digest_path.read_text())
+    assert data["trivy"]["tag"] == si.content_hash("trivy")
+    assert "image_digest" not in data["trivy"]
+
+
+def test_an_entry_without_an_image_digest_fails(tmp_path, monkeypatch, capsys):
+    """`check` is the gate a scan workflow trusts: a record that pins only the Dockerfile, not
+    the published image, fails it (issue #2609)."""
+
+    # Given a fixture tree whose record was written but never pinned
+    root = _tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"]})
+    si.write()
+
+    # When  the gate reads the record
+    rc = si.check("trivy")
+
+    # Then  it fails, naming the missing image pin
+    assert rc == 1
+    assert "image_digest" in capsys.readouterr().out
+
+
+def test_the_real_digests_record_pins_every_published_scanner_image():
+    """The real tree: every scanner entry names the manifest digest of the image its content-hash
+    tag serves — measured live with `make pin-scanner-image-digests` (issue #2609)."""
+
+    # Given this repository's scan record
+    data = json.loads((REPO / "containers" / "scanners" / "digests.json").read_text())
+
+    # When  each scanner entry is read
+    for sid in si.SCANNERS:
+        # Then  it carries a manifest digest in sha256:<64 hex> form
+        assert si.DIGEST_PIN.fullmatch(str(data[sid].get("image_digest") or "")), (sid, data[sid])
+
+
 def test_the_content_hash_moves_with_the_dockerfile(tmp_path, monkeypatch):
     """The tag is the immutability: a changed Dockerfile must be a different tag."""
 

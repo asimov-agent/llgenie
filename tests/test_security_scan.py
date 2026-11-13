@@ -562,9 +562,34 @@ def test_the_workflow_uses_the_digests_and_a_manual_form():
     assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref) for ref in refs), refs
 
 
+def _manifest_json(index: str, child: str) -> str:
+    """What `docker buildx imagetools inspect --format {{json .Manifest}}` prints: the index
+    digest plus the per-platform children the host actually runs (issue #2609)."""
+    return json.dumps({
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "digest": index,
+        "manifests": [{"digest": child,
+                       "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                       "platform": {"architecture": "amd64", "os": "linux"}}],
+    })
+
+
+def _digest_pair(tool: str, index: str | None = None) -> dict:
+    """A manifest/index pair consistent with `digests.json`'s pinned digest for `tool` — or,
+    with an explicit `index`, one for a tag whose published image has moved off the record."""
+    recorded = str(ss.digests()[tool]["image_digest"])
+    index = index or recorded
+    child = "sha256:" + "".join(reversed(index[7:]))  # deterministic synthetic child manifest
+    return {"manifest": _manifest_json(index, child), "child": child, "recorded": recorded}
+
+
 def _docker_stub(tmp_path: Path, monkeypatch, *, pull_ok: bool, build_ok: bool = True,
-                 inspect_ok: bool = False) -> Path:
-    """A real executable standing in for `docker`, so which branch the code takes is observable."""
+                 inspect_ok: bool = False, image: dict | None = None) -> Path:
+    """A real executable standing in for `docker`, so which branch the code takes is observable.
+    `buildx inspect` answers with a manifest index consistent with `digests.json` (issue #2609:
+    `ensure_image` verifies the executed digest); `image` overrides one tool with
+    `{"manifest": ..., "id": ...}` — the id makes the LOCAL copy report that image id, which is
+    how a stale-copy or moved-tag scenario is constructed."""
     log = tmp_path / "docker.log"
     stub = tmp_path / "docker"
     stub.write_text(
@@ -573,6 +598,14 @@ def _docker_stub(tmp_path: Path, monkeypatch, *, pull_ok: bool, build_ok: bool =
         "open(os.environ['DOCKER_STUB_LOG'], 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
         "which = sys.argv[1]\n"
         "ok = os.environ.get('DOCKER_STUB_' + which.upper(), '0') == '1'\n"
+        "man = json.loads(os.environ.get('DOCKER_STUB_MANIFESTS', '{}'))\n"
+        "ref = next((a for a in sys.argv if a.startswith('ghcr.io/')), '')\n"
+        "tool = ref.rsplit('/', 1)[-1].split(':')[0]\n"
+        "rec = man.get(tool) or {}\n"
+        "if which == 'buildx' and rec.get('manifest'):\n"
+        "    sys.stdout.write(rec['manifest'])\n"
+        "if which == 'image' and rec.get('id'):\n"
+        "    sys.stdout.write(rec['id'] + '\\n')\n"
         "sys.exit(0 if ok else 1)\n",
         encoding="utf-8")
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
@@ -580,6 +613,13 @@ def _docker_stub(tmp_path: Path, monkeypatch, *, pull_ok: bool, build_ok: bool =
     monkeypatch.setenv("DOCKER_STUB_INSPECT", "1" if inspect_ok else "0")
     monkeypatch.setenv("DOCKER_STUB_PULL", "1" if pull_ok else "0")
     monkeypatch.setenv("DOCKER_STUB_BUILD", "1" if build_ok else "0")
+    monkeypatch.setenv("DOCKER_STUB_BUILDX", "1")
+    pinned = {t: {"manifest": _digest_pair(t)["manifest"]} for t in ss.TOOLS}
+    for tool, spec in (image or {}).items():
+        pinned[tool] = dict(spec)
+        if spec.get("id"):
+            monkeypatch.setenv("DOCKER_STUB_IMAGE", "1")
+    monkeypatch.setenv("DOCKER_STUB_MANIFESTS", json.dumps(pinned))
     monkeypatch.setattr(ss, "RUNTIME", str(stub))
     return log
 
@@ -629,6 +669,120 @@ def test_a_failed_build_is_loud(tmp_path, monkeypatch):
         assert "cannot build trivy" in str(exc)
     else:
         raise AssertionError("a scanner that could not be obtained was accepted")
+
+
+# --- the executed image digest is verified (issue #2609) ---
+
+
+def test_every_scanner_digest_entry_carries_an_image_digest():
+    """The real tree: every scanner entry pins the published image's manifest digest, so a scan
+    can prove WHICH bytes it ran — not just which tag it asked for."""
+
+    # Given this repository
+    # When  the scan module reads its pinned scanner records
+    for tool in ss.TOOLS:
+        digest = str(ss.digests()[tool].get("image_digest") or "")
+
+        # Then  each carries a manifest digest in sha256:<64 hex> form
+        assert ss.DIGEST_RE.fullmatch(digest), (tool, digest)
+
+
+def test_a_scan_names_the_executed_image_digest(tmp_path, monkeypatch, capsys):
+    """Every resolved image prints the digest it will actually run (issue #2609 criterion 2)."""
+
+    # Given a registry that answers with the pinned image's manifest
+    _docker_stub(tmp_path, monkeypatch, pull_ok=True)
+    recorded = _digest_pair("trivy")["recorded"]
+
+    # When  the image is resolved
+    ss.ensure_image("trivy")
+
+    # Then  the run names that digest
+    assert recorded in capsys.readouterr().out
+
+
+def test_a_moved_tag_stops_the_scan(tmp_path, monkeypatch):
+    """A tag that has been re-pushed under a different digest is the exact drift issue #2609
+    measured live (semgrep:5954e2aad609 served two different digests): the scan refuses, naming
+    both digests."""
+
+    # Given a local copy from the pinned build and a registry whose tag now serves a new digest
+    recorded_pair = _digest_pair("trivy")
+    moved = _digest_pair("trivy", index="sha256:" + "e" * 64)
+    _docker_stub(tmp_path, monkeypatch, pull_ok=True,
+                 image={"trivy": {"manifest": moved["manifest"], "id": recorded_pair["child"]}})
+
+    # When  the image is resolved
+    try:
+        ss.ensure_image("trivy")
+    except SystemExit as exc:
+        # Then  it refuses, naming the registry's new digest AND the pinned record it no longer
+        # matches — the exact drift issue #2609 measured live
+        message = str(exc)
+        assert "the tag moved" in message
+        assert "sha256:" + "e" * 64 in message
+        assert recorded_pair["recorded"] in message
+    else:
+        raise AssertionError("a scanner image that differs from the pinned digest was accepted")
+
+
+def test_a_stale_local_copy_is_refused(tmp_path, monkeypatch):
+    """`docker run <ref>` picks whatever the daemon last pulled under that tag. If that copy is
+    not the pinned image, the scan must say so instead of scanning on the stale bytes."""
+
+    # Given a registry that answers with the pinned manifest but a local copy with a foreign id
+    pinned = _digest_pair("trivy")
+    _docker_stub(tmp_path, monkeypatch, pull_ok=True,
+                 image={"trivy": {"manifest": pinned["manifest"], "id": "sha256:" + "f" * 64}})
+
+    # When  the image is resolved
+    try:
+        ss.ensure_image("trivy")
+    except SystemExit as exc:
+        # Then  the stale copy is named, together with the digest it should have had
+        message = str(exc)
+        assert "stale local scanner" in message
+        assert "sha256:" + "f" * 64 in message
+        assert pinned["recorded"] in message
+    else:
+        raise AssertionError("a stale local scanner copy was accepted")
+
+
+def test_the_deferred_build_names_its_digest(tmp_path, monkeypatch, capsys):
+    """A fork run builds the deferral locally; the digest it prints is the pinned one, from the
+    built manifest — not a claim about a registry it cannot read."""
+
+    # Given no registry access (pull fails, local build succeeds)
+    _docker_stub(tmp_path, monkeypatch, pull_ok=False, build_ok=True)
+    recorded = _digest_pair("trivy")["recorded"]
+
+    # When  the image is resolved
+    ss.ensure_image("trivy")
+
+    # Then  the built locally, at the recorded digest
+    out = capsys.readouterr().out
+    assert "built locally" in out
+    assert recorded in out
+
+
+def test_a_digest_entry_without_image_digest_refuses_to_run(tmp_path, monkeypatch):
+    """A record missing the image pin cannot certify anything: the scan refuses to launch."""
+
+    # Given the stub first (it needs the real digests), then a record stripped of image_digest
+    _docker_stub(tmp_path, monkeypatch, pull_ok=True)
+    original = ss.digests()
+    monkeypatch.setattr(ss, "digests", lambda: {
+        tool: {k: v for k, v in entry.items() if k != "image_digest"}
+        for tool, entry in original.items()})
+
+    # When  the image is resolved
+    try:
+        ss.ensure_image("trivy")
+    except SystemExit as exc:
+        # Then  the refusal names the missing field and the command that fills it
+        assert "image_digest" in str(exc)
+    else:
+        raise AssertionError("a scanner record without an image digest was accepted")
 
 
 def test_semgrep_uses_the_committed_content_addressed_pack(tmp_path, monkeypatch):

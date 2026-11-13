@@ -50,6 +50,9 @@ SCANNERS: dict[str, dict[str, str]] = {
 }
 #: A base image must be pinned by digest: `FROM image@sha256:<64 hex>`.
 FROM_DIGEST = re.compile(r"^FROM\s+(\S+)@sha256:([0-9a-f]{64})\s*$", re.M)
+#: The shape of `digests.json`'s `image_digest` field — the manifest digest of the published
+#: image a content-hash tag serves (issue #2609); the tag pins a Dockerfile, this pins the image.
+DIGEST_PIN = re.compile(r"sha256:[0-9a-f]{64}")
 #: A floating base: a `FROM` with a tag but no digest (the digest form is matched above, so a
 #: lazy `\S+?` plus the negative lookahead keeps `image@sha256:<hex>` out of this rule).
 FROM_FLOAT = re.compile(r"^FROM\s+(?!\S*@sha256:)(\S+?):(\w[\w.-]*)\s*$", re.M)
@@ -226,12 +229,59 @@ def write() -> int:
             1 for line in semgrep_pack.read_text(encoding="utf-8").splitlines()
             if line.startswith("- id: ")))
     path = REPO / DIGESTS
+    # `image_digest` survives a rewrite of the same tag (issue #2609): the pin describes the
+    # published image for THAT content hash, and regenerating from the Dockerfile must not drop it.
+    prior = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    for scanner, entry in data.items():
+        old = prior.get(scanner) or {}
+        if old.get("tag") == entry["tag"] and DIGEST_PIN.fullmatch(str(old.get("image_digest") or "")):
+            entry["image_digest"] = old["image_digest"]
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"[scanner-image] wrote {DIGESTS} ({len(data)} scanners"
           + (f"; semgrep rules {rules_sha[:12]}" if rules_sha else "; NO semgrep rules pack!") + ")")
     if "semgrep" in data and not rules_sha:
         raise SystemExit("[scanner-image] no committed semgrep rules pack — "
                          f"{SCANNER_DIR}/semgrep/rules/default.yml is required (issue #1284)")
+    return 0
+
+
+def pin(scanner: str = "all") -> int:
+    """Record, per scanner, the manifest digest the registry serves for its content-hash tag
+    (issue #2609).
+
+    The content-hash tag pins a Dockerfile; `image_digest` pins the image the tag actually serves.
+    A tag is re-pushable and a rebuild of the same Dockerfile resolves whatever the package
+    repository publishes that day, so a scan cannot prove what it ran until the digest is written
+    down. Run this after `make publish-scanner-images` (or `make scanner-digests` + a publish) so
+    the pin matches what GHCR holds for the tag; re-run it whenever a scanner image is republished.
+    """
+    path = REPO / DIGESTS
+    if not path.is_file():
+        raise SystemExit(f"[scanner-image] {DIGESTS} is missing — run `make scanner-digests` first")
+    recorded = json.loads(path.read_text(encoding="utf-8"))
+    ids = list(SCANNERS) if scanner == "all" else [scanner]
+    problems: list[str] = []
+    for sid in ids:
+        entry = recorded.get(sid)
+        if not entry:
+            problems.append(f"{sid}: {DIGESTS} does not name it")
+            continue
+        target = entry.get("ref") or ref(sid)
+        res = _run([RUNTIME, "buildx", "imagetools", "inspect", target,
+                    "--format", "{{json .Manifest.Digest}}"])
+        digest = (res.stdout or "").strip().strip('"')
+        if res.returncode != 0 or not DIGEST_PIN.fullmatch(digest):
+            problems.append(f"{sid}: {target} has no published manifest digest — publish it "
+                            "(`make publish-scanner-images`) before pinning")
+            continue
+        entry["image_digest"] = digest
+        print(f"[scanner-image] {sid} {target} -> {digest}")
+    if problems:
+        for item in problems:
+            print(f"[scanner-image] cannot pin: {item}")
+        return 1
+    path.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"[scanner-image] pinned image_digest for {len(ids)} scanner(s) in {DIGESTS}")
     return 0
 
 
@@ -268,6 +318,12 @@ def check(scanner: str = "all") -> int:
                                 f"the Dockerfile hashes to {content_hash(sid)!r}")
             if not (entry.get("ref") or "").endswith(f"/{sid}:{content_hash(sid)}"):
                 problems.append(f"{sid}: digests.json ref does not end with the content-hash tag")
+            # The tag pins a Dockerfile; `image_digest` pins the published image the tag serves
+            # (issue #2609). Without it a scan cannot prove which image it actually ran.
+            if not DIGEST_PIN.fullmatch(str(entry.get("image_digest") or "")):
+                problems.append(f"{sid}: digests.json has no valid `image_digest` "
+                                "(sha256:<64 hex>) — run `make pin-scanner-image-digests` "
+                                "after the publish (issue #2609)")
             # A scanner version older than the declared current-release baseline is a freshness
             # finding (issue #1284): the engines must advance through `make scanner-digests` + PR.
             baseline = RELEASE_BASELINE.get(sid)
@@ -315,12 +371,14 @@ def ci() -> int:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("command", choices=("digest", "ref", "build", "test", "publish", "write", "check", "ci"))
+    ap.add_argument("command", choices=("digest", "ref", "build", "test", "publish", "write", "pin", "check", "ci"))
     ap.add_argument("scanner", nargs="?", default="all")
     args = ap.parse_args(argv)
     sid = args.scanner
     if args.command in ("digest", "ref", "build", "test", "publish") and sid not in SCANNERS:
         raise SystemExit(f"[scanner-image] unknown scanner `{sid}`; known: {', '.join(SCANNERS)}")
+    if args.command == "pin" and sid not in SCANNERS and sid != "all":
+        raise SystemExit(f"[scanner-image] unknown scanner `{sid}`; known: {', '.join(SCANNERS)}, or all")
     if args.command == "digest":
         print(content_hash(sid))
         return 0
@@ -328,7 +386,7 @@ def main(argv: list[str]) -> int:
         print(ref(sid))
         return 0
     return {"build": lambda: 0 if build(sid) else 0, "test": lambda: test(sid),
-            "publish": lambda: publish(sid), "write": write,
+            "publish": lambda: publish(sid), "write": write, "pin": lambda: pin(sid),
             "check": lambda: check(sid), "ci": ci}[args.command]()
 
 
