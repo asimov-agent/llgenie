@@ -48,7 +48,7 @@ if args[:2] == ["issue", "create"]:
     print("https://github.com/owner/repo/issues/7")
     raise SystemExit(0)
 if args[0] == "api":
-    # `gh api PATCH repos/<repo>/issues/<n> -F body=@-` — the pre-PR tick of the acceptance
+    # `gh api --method PATCH repos/<repo>/issues/<n> -F body=@-` — the pre-PR tick of the acceptance
     # mirrors (issue #2632). The request body is parked so a test can read the FINAL issue body.
     body = sys.stdin.read()
     pathlib.Path(os.environ["GH_LOG"] + ".issue_body").write_text(body)
@@ -303,7 +303,7 @@ def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
     # And the live issue was ticked with proven strings BEFORE the PR opened (issue #2632):
     # the edit call precedes the create call, every tick names the publish commit, and no
     # unticked criterion survives on a body a later gate will read.
-    api_idx = [i for i, c in enumerate(calls) if c.startswith("api PATCH")]
+    api_idx = [i for i, c in enumerate(calls) if c.startswith("api --method")]
     pr_idx = [i for i, c in enumerate(calls) if c.startswith("pr create")]
     assert api_idx and pr_idx and max(api_idx) < min(pr_idx), calls
     issue_final = Path(str(log) + ".issue_body").read_text()
@@ -626,3 +626,21 @@ def test_the_brief_states_the_rename_rule(tmp_path):
     # Then  it tells the agent about the rename guard, without spelling the forbidden name
     assert "retired CLI module" in text, text
     assert not ab.module_name_guard.offenders(text), "the brief itself must stay clean"
+
+
+def test_no_gh_api_call_carries_a_positional_verb():
+    """gh 2.103 stopped accepting `gh api PATCH <endpoint>`; the bot's publish died on it (#2645).
+
+    A gh release that drops the positional verb+endpoint form must not be able to break the
+    publish leg silently: the call shape is locked at the source, not only through the fixture.
+    """
+    import inspect
+    import re
+
+    source = inspect.getsource(ab)
+    offenders = re.findall(r'"api",\s*"(?:GET|POST|PATCH|PUT|DELETE)"', source)
+    assert not offenders, (
+        "gh api verbs travel as --method (positional verbs are refused by gh 2.103.3, "
+        f"issue #2645): {offenders}"
+    )
+
