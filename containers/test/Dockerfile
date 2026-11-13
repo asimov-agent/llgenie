@@ -31,9 +31,18 @@ COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /u
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git lsof make procps \
     && rm -rf /var/lib/apt/lists/* \
-    # the repo is bind-mounted from the host (owned by a different uid); mark it
-    # safe so `git ls-files` in the lint stage works as root in the container.
-    && git config --global --add safe.directory '*'
+    # the repo is bind-mounted from the host (owned by the uid that runs the
+    # container); safe.directory lives in the SYSTEM gitconfig so `git ls-files`
+    # works for whatever uid the stage runs as, not only root's ~/.gitconfig
+    # (issue #2563).
+    && git config --system --add safe.directory '*'
 
+# Non-root default (issue #2563, trivy DS-0002 — closes the last finding of the
+# tree-wide sweep #2504). HOME must be writable by the mapped uid and /tmp is the
+# world-writable choice baked into the image; `$(TEST_OPTS)` runs the stages as
+# the checkout owner's uid:gid, so writes land as the user who owns the checkout
+# instead of as root.
+ENV HOME=/tmp
 WORKDIR /repo
 CMD ["--help"]
+USER 1000:1000

@@ -1,0 +1,1 @@
+| 2026-11-13 | The test image ships non-root: `containers/test/Dockerfile` ends with `USER 1000:1000` (last tree-wide `DS-0002`), `TEST_OPTS` maps the container uid to the checkout owner, and the PR rides the #2518 publish-deferral lane as its live proof | [note](agent-wiki/2026-11-13-test-image-user-fold-2563.md) | #2563 |
