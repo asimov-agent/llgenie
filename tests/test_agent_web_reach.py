@@ -25,6 +25,7 @@ import re
 import subprocess
 import threading
 from pathlib import Path
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 REPO = Path(__file__).resolve().parent.parent
 SMOKE = REPO / "scripts" / "fetch_smoke.py"
@@ -71,7 +72,7 @@ def _smoke(env: dict, *args) -> subprocess.CompletedProcess:
 # the key: one list, forwarded by name
 # ---------------------------------------------------------------------------
 def test_firecrawl_is_in_the_one_agent_shell_list():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # Then the key the fetch leg uses travels through the seam #358 built
     line = next(l for l in mk.splitlines() if l.startswith("AGENT_SHELL_KEYS"))
@@ -89,7 +90,7 @@ def test_firecrawl_is_in_the_one_agent_shell_list():
 def test_the_fetch_prompt_reads_the_key_by_name_and_forbids_printing_it():
     """The fetch contract is the `agent-fetch` skill, which the leg preloads (issue #577)."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     recipe = next(l for l in mk.splitlines() if l.lstrip().startswith("hermes -z")
                   and "-s agent-fetch" in l)
     skill = (REPO / ".hermes" / "skills" / "agent-fetch" / "SKILL.md").read_text()
@@ -104,7 +105,7 @@ def test_the_fetch_prompt_reads_the_key_by_name_and_forbids_printing_it():
 
 
 def test_the_leg_is_a_make_target_and_the_smoke_is_reachable():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     assert re.search(r"(?m)^agent-fetch:", mk) and re.search(r"(?m)^_agent-fetch:", mk)
     assert re.search(r"(?m)^search-smoke:", mk)
@@ -263,7 +264,7 @@ def test_the_bot_leg_forwards_the_key_by_name_and_gates_first():
     """The leg's first gate proves the AGENT's shell sees the key (#358), and the key travels as a
     NAME — a leg that spends a fetch without that gate is green while doing nothing."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     refiner = mk.split("\nissue-refiner:", 1)[1].split("\n\n", 1)[0]
 
     # Then the credential is proven visible before anything is fetched ...

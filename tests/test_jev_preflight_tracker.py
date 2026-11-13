@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import issue_body
 import jev_preflight_tracker as tracker
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 #: The exact line the preflight's `require_env.py` guard printed in the two failing runs.
 KEY_MISSING_LOG = (
@@ -258,7 +259,7 @@ def test_the_dedupe_leg_receives_the_provider_key_like_the_refiner_does():
     """The same omission existed one layer down: the dedup container got no JEV key (issue #802)."""
 
     # Given the Makefile the workflow drives
-    makefile = (Path(__file__).resolve().parents[1] / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When  the `issue-dedup` recipe (up to its internal `_issue-dedup` target) is read
     recipe = makefile.split("\nissue-dedup:", 1)[1].split("\n_issue-dedup:", 1)[0]

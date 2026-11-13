@@ -26,6 +26,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import issue_implementer as ii  # noqa: E402
 import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 OWNER = "asimov-agent"
 REPO_NAME = "llgenie"
@@ -266,7 +267,7 @@ def test_force_issue_that_is_closed_does_not_dispatch(tmp_path):
 
 def test_the_dispatcher_and_tests_are_wired():
     """A new script/test must be reachable from make, never dead (AGENTS.md wiring rule)."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     assert "issue-bot-dispatch:" in mk and "issue-bot-open-pr:" in mk and "implement-issue:" in mk
     # The test file is in the unit suite the aggregator computes (issue #393), so it runs in the gate.
     assert "tests/test_issue_implementer.py" in ut.select(REPO)
@@ -284,7 +285,7 @@ def test_the_implementer_runs_inside_the_agent_image():
     "command not found". Both targets now run the shared agent image, which installs Hermes at
     build time, and the secrets travel as run-time env.
     """
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     lines = makefile.splitlines()
 
     def recipe(target: str) -> str:
@@ -355,7 +356,7 @@ def test_the_agent_call_uses_the_image_alias_not_a_bogus_flag():
     flag, so `-m "Reply with exactly: ok"` sets the model to that sentence; and `--max-steps`
     does not exist. The working form is `-z <prompt> -m <alias> --reasoning <level> --yolo`.
     """
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     # The alias name lives once, and the flag form is derived from it (issue #407).
     assert "nous-model := nous-deepseek" in makefile
     assert "nous-alias := -m $(nous-model)" in makefile
@@ -766,7 +767,7 @@ def test_the_workflow_gates_push_and_failure_on_the_tree():
         "the loud failure must cover a failed agent AND a tree that changed nothing"
 
     # Then  the Makefile target exists, is phony, and reaches the subcommand
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
     assert "\nissue-bot-changed:" in makefile
     assert "issue-bot-changed" in makefile.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "scripts/issue_implementer.py changed" in makefile

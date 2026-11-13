@@ -42,6 +42,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 INSTALL = REPO / "scripts" / "install_nerve_ci.sh"
 PREFLIGHT = REPO / "scripts" / "agent_jev_preflight.sh"
 DOCKERFILE = REPO / "containers" / "agent" / "Dockerfile"
@@ -743,7 +744,7 @@ def test_the_key_reaches_the_container_through_make_targets():
     """The make targets are the only path into the image, so they carry the `-e`."""
 
     # Given the Makefile
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text()
 
     # When each bot target's docker run is read
     # Then each passes the provider key by NAME (never a value), and the preflight is reachable
@@ -802,7 +803,7 @@ def test_the_preflight_is_documented_for_the_reader():
     """`make help` and the README say what it is, and it is a declared phony target."""
 
     # Given the Makefile and the README
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text()
     readme = (REPO / "README.md").read_text() + "\n" + (REPO / "docs" / "BOTS.md").read_text()
 
     # When the target's documentation is read
@@ -942,7 +943,7 @@ def test_the_bot_image_runs_the_hosts_nerve_profile_and_gate():
         "the checker must be in the agent image's build context (ci_images.IMAGES['agent'])"
 
     # And  `make nerve-profile-check` exercises the rule without an install
-    makefile = MAKEFILE.read_text()
+    makefile = makefiles_text()
     assert re.search(r"^nerve-profile-check:.*\n\tpython3 scripts/nerve_profile_check\.py --self-test",
                      makefile, re.M)
 

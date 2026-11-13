@@ -33,7 +33,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import issue_implementer as ii  # noqa: E402
 
-MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+MAKEFILE = makefiles_text()
 WORKFLOW = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
 STEPS = {s.get("name"): s for s in yaml.safe_load(WORKFLOW)["jobs"]["implement"]["steps"] if s.get("name")}
 

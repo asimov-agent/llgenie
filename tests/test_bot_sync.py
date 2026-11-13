@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "bot_sync_main.sh"
@@ -122,7 +123,7 @@ def test_the_bots_wire_the_sync_into_their_workflows():
     fix_bot = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
     assert "bot-sync-main" in issue_bot, "the implementer must sync before opening a PR"
     assert "bot-sync-branch" in fix_bot, "the fix-bot must sync the PR before repairing it"
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     for target in ("bot-sync-main:", "bot-sync-branch:"):
         assert target in mk, f"{target} is not a make target"
 
