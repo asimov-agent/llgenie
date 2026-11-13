@@ -18,7 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+MAKEFILE = makefiles_text()
 
 
 def _target_body(name: str) -> str:

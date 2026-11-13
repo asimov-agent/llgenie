@@ -21,6 +21,7 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 from scripts import bot_claims as bc
 from scripts import issue_refiner as ir
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 OWNER, NAME = "asimov-agent", "llgenie"
 
@@ -295,7 +296,7 @@ def test_the_refiner_gates_the_run_on_jev():
     preflight = text.index(".github/actions/agent-leg")   # the preflight uses-step, before the review
     review = text.index("Review the issue (Hermes reads refine-in.md")
     assert preflight < review, "the gate must run before the agent"
-    mk = (repo / "Makefile").read_text()
+    mk = makefiles_text(repo)
     recipe = mk[mk.index("issue-refiner:"):mk.index("_issue-refiner:")]
     assert "TYPESAFE_API_KEY" in recipe, "the key must reach the container at run time"
 
@@ -358,7 +359,7 @@ def test_the_refiner_recipe_forwards_only_defined_keys():
     repo does not define; the run then carried a blank value into the container."""
 
     # Given the Makefile
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
 
     # When every agent recipe is read
     # Then none forwards a key the repo does not define ...

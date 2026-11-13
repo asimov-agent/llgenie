@@ -24,6 +24,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "scrub_log.py"
@@ -193,7 +194,7 @@ _inject:
 # the wiring: every public agent leg uses the macro, and only the redacted log is published
 # ---------------------------------------------------------------------------
 def _public_agent_legs() -> list[tuple[str, str]]:
-    mk = (ROOT / "Makefile").read_text()
+    mk = makefiles_text()
     legs = []
     for m in re.finditer(r"(?m)^([a-z0-9][a-z0-9._-]*):.*?$", mk):
         start = m.end()
@@ -214,7 +215,7 @@ def test_every_public_agent_leg_goes_through_the_macro():
 
 
 def test_the_internal_hermes_calls_are_inside_a_leg_that_redacts():
-    mk = (ROOT / "Makefile").read_text()
+    mk = makefiles_text()
 
     # Then the macro is defined ONCE, with the redactor and the gitignored paths
     assert "define scrubbed_run" in mk and mk.count("define scrubbed_run") == 1

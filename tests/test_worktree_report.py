@@ -22,6 +22,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
 REPO = Path(__file__).resolve().parents[1]
 
 GIT_ENV = {
@@ -344,7 +346,7 @@ def test_every_agent_leg_forwards_the_bot_marker(tmp_path):
     """The guard is only real if a bot leg can receive a marker: every agent-image run forwards BOT=1."""
 
     # Given the repository's Makefile, one logical line per command
-    text = (REPO / "Makefile").read_text()
+    text = makefiles_text(REPO)  # agent legs move behind `include mk/bots.mk` (#2460)
     lines = _logical_lines(text)
 
     # When  every command that boots the agent image is collected

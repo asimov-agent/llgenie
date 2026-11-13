@@ -30,7 +30,8 @@ from scripts import bot_preflight as bp
 from scripts import check_pr_hygiene as hygiene
 from scripts import issue_implementer as ii
 
-MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+MAKEFILE = makefiles_text()
 WORKFLOWS = {p.name: p.read_text() for p in (REPO / ".github" / "workflows").glob("*.yml")}
 
 RECORD = {

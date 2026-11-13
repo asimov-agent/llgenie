@@ -30,6 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 from scripts import unit_tests as ut
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 SCRIPT = ROOT / "scripts" / "agent_shell_keys_check.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
@@ -73,7 +74,7 @@ def _keys() -> list[str]:
 
 def _agent_legs() -> list[tuple[str, str]]:
     """(target, recipe body) for every make target that starts the agent image."""
-    mk = (ROOT / "Makefile").read_text()
+    mk = makefiles_text()
     legs = []
     for m in re.finditer(r"(?m)^([a-z0-9][a-z0-9._-]*):.*?$", mk):
         start = m.end()
@@ -224,7 +225,7 @@ def test_every_bot_job_proves_the_agent_shell():
 
 
 def test_the_check_is_wired_to_a_make_target_ci_runs():
-    mk = (ROOT / "Makefile").read_text()
+    mk = makefiles_text()
 
     # Then the internal target runs the script with the ONE list as its default
     assert "python3 scripts/agent_shell_keys_check.py $(AGENT_SHELL_CHECK_KEYS)" in mk
@@ -267,7 +268,7 @@ def _jobs(text: str) -> dict[str, str]:
 
 def _leg_keys(target: str) -> set[str]:
     """The credential NAMEs a make target forwards with `-e` (the forced twins excluded)."""
-    mk = (ROOT / "Makefile").read_text()
+    mk = makefiles_text()
     body = _agent_legs_body(mk, target)
     keys = {k for k in re.findall(r"-e\s+([A-Z][A-Z0-9_]*)\b", body)}
     return keys - set(NON_CREDENTIAL_ENV) - {k[len(FORCE):] for k in keys if k.startswith(FORCE)}

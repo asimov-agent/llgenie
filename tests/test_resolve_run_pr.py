@@ -20,6 +20,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import resolve_run_pr as rr
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 WORKFLOW = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
 BRANCH = "fix/rebase-gate-mount"
@@ -220,7 +221,7 @@ def test_the_fix_bot_workflow_no_longer_resolves_a_run():
 
     # Given the real fix-bot workflow and the real make targets
     fix_bot = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text()
 
     # When  the workflow and targets are read
     lenient = makefile.split("fix-bot-resolve:", 1)[1].split(chr(10) * 2, 1)[0]

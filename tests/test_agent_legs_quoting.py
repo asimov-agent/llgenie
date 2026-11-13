@@ -15,15 +15,15 @@ import re
 import subprocess
 
 from pathlib import Path
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 REPO = Path(__file__).resolve().parents[1]
-MAKEFILE = REPO / "Makefile"
 
 
 def _legs() -> list[str]:
     """Every target whose recipe goes through `$(call scrubbed_run,…)`."""
     targets, current = [], ""
-    for line in MAKEFILE.read_text().splitlines():
+    for line in makefiles_text().splitlines():
         m = re.match(r"^([A-Za-z0-9_.%-]+):", line)
         if m:
             current = m.group(1)
@@ -74,7 +74,7 @@ def test_the_skills_come_from_a_variable_not_a_literal_comma():
     """A literal comma inside the call is the defect; the variable is the fix."""
 
     # Given the rebase-bot recipe in the Makefile
-    text = MAKEFILE.read_text()
+    text = makefiles_text()
     recipe = text.split("\nrebase-bot-agent:", 1)[1].split("\n# Hermes runs directly", 1)[0]
 
     # When  the leg's scrubbed_run call is read

@@ -28,7 +28,8 @@ REPO = Path(__file__).resolve().parent.parent
 from scripts import bot_preflight as bp
 from scripts import issue_implementer as ii
 
-MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+MAKEFILE = makefiles_text()
 
 #: The rulebook measurement the `AGENTS:`/`BASE:` stamp is written from (issues #792/#845/#2050).
 RECORD = {

@@ -20,6 +20,7 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 from scripts import rebase_bot_sweep as rb
 
 OWNER, NAME = "asimov-agent", "llgenie"
@@ -1096,7 +1097,7 @@ def test_the_agent_recipe_runs_hermes_directly_inside_the_image():
     """The container must not re-read the conflicted Makefile to launch the agent."""
 
     # Given the Makefile's rebase agent leg
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     recipe = mk.split("rebase-bot-agent:", 1)[1].split("\nrebase-bot:", 1)[0]
 
     # Then it runs Hermes inline, inside the redacting public leg, with the model pin's one alias
@@ -1162,7 +1163,7 @@ def test_the_abort_target_resets_the_tree_to_main():
     """`make rebase-bot-abort` is a documented, phony target that leaves the tree on main."""
 
     # Given the Makefile, README and .PHONY block
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()
     readme = (REPO / "README.md").read_text()
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
 
