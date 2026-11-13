@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 from scripts import sync_registry as sr
+from scripts import registry_keys as rk
 
 
 def _store(*rows: dict) -> dict:
@@ -168,3 +169,49 @@ def test_a_format_written_in_another_spelling_is_still_that_format():
     # And   what is NOT a format is still dropped (never guessed into one)
     for junk in ("Ornith 1.5", "LLM (MoE)", "", None):
         assert sr._canon_format(junk) is None
+
+
+# ---------------------------------------------------------------------------
+# the alias row property (issue #2647)
+# ---------------------------------------------------------------------------
+def test_normalise_keeps_measurement_model_aliases_on_the_row_that_carries_it():
+    """The upstream contract's optional `measurement_model_aliases` (producer commit
+    447a9fa83; live row `qwen3.6-35b-a3b -> ["qwen3-8-27b"]`) survives normalisation.
+    `normalise()` copies each row wholly (`row = dict(row)`) and the top level wholly
+    (`out = dict(data)`); this test locks that, so a rebuild-style refactor cannot
+    silently drop the attribution the 2026-11-13 contract change introduced."""
+
+    # Given an upstream store where one row carries the alias property
+    store = _store(
+        _row("qwen3-6-35b-a3b", "Qwen3.6-35B-A3B", [{"name": "Qwen3.6-35B-A3B"}]),
+        _row("plain-8b", "Plain 8B", [{"name": "Plain 8B"}]),
+    )
+    store["models"][0]["measurement_model_aliases"] = ["qwen3-8-27b"]
+
+    # When the store is normalised
+    out, _notes = sr.normalise(store)
+
+    # Then the alias survives verbatim, and no alias-free row gains one
+    aliased = next(m for m in out["models"] if m["id"] == "qwen3-6-35b-a3b")
+    assert aliased["measurement_model_aliases"] == ["qwen3-8-27b"]
+    plain = next(m for m in out["models"] if m["id"] == "plain-8b")
+    assert "measurement_model_aliases" not in plain
+
+
+def test_the_additive_compare_reports_an_alias_loss_if_a_rebuild_drops_the_key():
+    """The #2317 guard is what makes the preservation visible: a committed row that
+    carried `measurement_model_aliases` vs a rebuilt row that lost it is a LOUD
+    finding, and normalise() is proven not to be the culprit."""
+
+    # Given a committed row with the alias and a rebuilt row without it
+    committed = _store(_row("qwen3-6-35b-a3b", "Qwen3.6-35B-A3B", [{"name": "Qwen3.6-35B-A3B"}]))
+    committed["models"][0]["measurement_model_aliases"] = ["qwen3-8-27b"]
+    rebuilt = _store(_row("qwen3-6-35b-a3b", "Qwen3.6-35B-A3B", [{"name": "Qwen3.6-35B-A3B"}]))
+
+    # When the additive compare runs over both the rebuild and the real pipeline
+    dropped = rk.compare(committed, rebuilt)
+    preserved, _ = sr.normalise(committed)
+
+    # Then the hypothetical drop is named, and normalise() reports no alias loss
+    assert any("measurement_model_aliases" in f for f in dropped), dropped
+    assert not [f for f in rk.compare(committed, preserved) if "measurement_model_aliases" in f]
