@@ -1,0 +1,1 @@
+| 2026-11-13 | architecture-bot now commits the agent-wiki note + changes.d row its doc refresh owes, instead of the doc alone (its own publish leg was reddening its ci-scope) | [2026-11-13-archbot-note-pair-2598.md](agent-wiki/2026-11-13-archbot-note-pair-2598.md) | #2598 |

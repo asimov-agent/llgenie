@@ -206,6 +206,11 @@
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
   },
   {
+   "from": "architecture_bot",
+   "to": "changes_index",
+   "reason": "the architecture refresh owes `check-docs` an agent-wiki note + docs/changes.d row (issue #1123); the bot pays that pair (issue #2598) by rendering the fragment, parsing it, and rebuilding CHANGES.md through the ONE index renderer rather than restating its format."
+  },
+  {
    "from": "auto_merge",
    "to": "check_pr_hygiene",
    "reason": "the merge lane re-runs the hygiene gate's own commit_text_findings (issue #2519) immediately before gh pr merge: one parity rule, one implementation, so the lane and the lane gate cannot disagree."

@@ -14,7 +14,8 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 #       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
 #       writable file) -> make architecture-bot-publish (ONE issue, ONE branch, ONE PR that
 #       closes it; nothing at all when the doc already matches HEAD)
-# Never: never merges, never pushes to `main`, never commits a file other than the doc, never
+# Never: never merges, never pushes to `main`, never commits anything except the doc and the
+#        note+row pair `check-docs` owes a doc change (issue #2598), never
 #        files a second issue while its own architecture PR is open.
 on:
   schedule:
