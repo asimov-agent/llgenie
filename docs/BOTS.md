@@ -1799,6 +1799,30 @@ Pausing a bot leg is legitimate. Pausing the merge path is the defect #874 is ab
 published one. (`bench-disk` also reads `disabled_manually` but has no file in the tree — a stale
 registration, not a workflow a pause can touch.)
 
+## The acceptance-tick audit — closed-issue ticks stay honest (issue #2631, follow-up #2288)
+
+`#2288` made NEW acceptance ticks provable; this tool owns the WHOLE corpus:
+it re-measures every closed issue's ticked criteria against the LIVE conclusion
+of the runs they cite, and resolves the recorded-stale ones append-only with
+supersession notes — never by rewriting a tick or re-minting one without a
+green run.
+
+```bash
+make audit-ticks        # re-measure all closed issues; exit 0 only at zero unsuperseded stale ticks
+make audit-ticks-notes  # render the supersession note bodies (the one renderer) into audit-out/notes
+make audit-ticks-post   # post each note once per issue; marker-idempotent, never edits an issue body
+```
+
+- **The denominator excludes covered ticks.** A criterion is stale only when no
+  cited run is `completed/success` AND no `<!-- SUPERSEDE-2288 -->` comment on
+  the issue quotes it; the counting method is printed with every run and stored
+  in the roster.
+- **Supersession, not rewrite.** 172 stale criteria on 44 closed issues
+  (measured 2026-11-13 over 1308 closed issues; 40 cited runs at 39 distinct
+  heads, zero green runs of the cited workflows there) resolve as notes that
+  record the measured conclusions and per-head green surveys; `post` skips any
+  issue that already carries the marker, so re-runs are no-ops.
+
 ## The architecture bot — `docs/ARCHITECTURE.md` follows the code (issue #449)
 
 The repository's other recurring readers (issue-bot, code-review, registry-sync, engine-bump)

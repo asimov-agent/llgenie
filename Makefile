@@ -87,7 +87,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report tester-fold-live provision-agent-profiles \
 	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
-	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep bots-restore-health targets-coverage
+	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep bots-restore-health audit-ticks audit-ticks-notes audit-ticks-post targets-coverage
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -811,6 +811,21 @@ architecture-bot: ## Run the architecture bot locally end to end: brief -> doc -
 	@$(MAKE) architecture-bot-brief DOC="$(DOC)"
 	@$(MAKE) architecture-bot-doc DOC="$(DOC)"
 	@$(MAKE) architecture-bot-publish REPO="$(REPO)" DOC="$(DOC)" $(if $(DRY),DRY=1,)
+
+# ---- the acceptance-tick audit (issue #2631, follow-up #2288) -----------------
+# #2288 made NEW acceptance ticks honest; this tool re-measures the WHOLE closed-issue
+# corpus and resolves the recorded-stale ticks append-only: supersession notes, never
+# rewrites. `audit` exits 0 only when zero unsuperseded stale ticks remain.
+AUDIT_OUT ?= audit-out
+
+audit-ticks: ## Re-measure the acceptance-tick corpus over all closed issues; exit 0 only when zero unsuperseded stale ticks remain (issue #2631)
+	python3 scripts/audit_acceptance_ticks.py audit --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json"
+
+audit-ticks-notes: ## Render the supersession note bodies for the roster's remaining stale ticks (AUDIT_OUT=; append-only, ticks stay as written) — issue #2631
+	python3 scripts/audit_acceptance_ticks.py notes --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json" --notes-dir "$(AUDIT_OUT)/notes"
+
+audit-ticks-post: ## Post each rendered supersession note once per issue; marker-idempotent, never edits an issue body (AUDIT_OUT=) — issue #2631
+	python3 scripts/audit_acceptance_ticks.py post --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json" --notes-dir "$(AUDIT_OUT)/notes"
 
 # The run-failure reactor (issue #286): a bot that reacts to a FAILED CI run — any run, not just
 # a PR check — and routes it to a remedy. The route decision lives in scripts/run_failure_reactor.py

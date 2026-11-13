@@ -98,6 +98,7 @@ hermes-run.scrubbed.log
 fetched/
 # scan reports (issue #715): written into the checkout, never committed
 security-reports/
+audit-out/
 
 # per-run bot preflight record (make bot-preflight); names the commit that run measured
 /preflight.txt
