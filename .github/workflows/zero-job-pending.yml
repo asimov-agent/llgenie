@@ -30,6 +30,11 @@ run-name: zero-job-pending
 #          itself, and the 2026-11-12 measurement showed runs named at 08:23Z still queued at 12:19Z,
 #          starving a live 7h-waiting engine build), force its head RED via the ci-verdict check-run
 #          path and file ONE deduped issue naming it (the cancel outcome is stated in the issue body).
+#       -> when the cancel ANSWERS `already completed` while the run LIST row still says `queued`
+#          (phantom rows GitHub never evicts; issue #2600), the refusal is the truth: the run is
+#          RETIRED with a deduped record (marker `zero-job-zombie-retired: run N`), never filed
+#          stranded, never forced RED, never re-cancelled — every later scan reads records open OR
+#          closed and exits 0 when only retired phantoms remain.
 # Cancel safety: the script re-reads the run's jobs AT THE MOMENT of cancelling — a run that
 # instantiated jobs since classification (a runner finally arrived) is SKIPPED, never cancelled.
 # Never: never in a pull request, never gated by a PR, never merges, never cancels a run that has

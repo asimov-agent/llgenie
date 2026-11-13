@@ -44,12 +44,30 @@ engine-build job (43149786553 `engine-build-strata-cuda`) waited ~7h behind them
 covers filing/RED only) — after re-reading the run's jobs: a run whose jobs instantiated since
 classification (a runner finally arrived) is SKIPPED, never cancelled (the #1822/#1823 live-compile
 class). A cancel that races a conclusion ("...is completed") is benign, not a delivery failure.
+
+ZOMBIE RETIREMENT (issue #2600, measured 2026-11-13 on main 2180f3cec): the cancel refusal is not
+always a race. Five 2026-11-11 runs (43096752613, 43096752703, 43098130674, 43098130679,
+43098130785) are PHANTOM records: the run list AND the single-run REST row both still report
+`status=queued, conclusion=null, updated_at == created_at` twelve days after GitHub ended them,
+while the cancel endpoint answers `Cannot cancel a workflow run that is completed` — the cancel
+answer is the only endpoint that tells the truth about them. `DELETE /actions/runs/{id}`, GitHub's
+designed cleanup for runs pending > 24 h with no jobs, returns 403 for every write-level identity
+this monitor carries (andyholst collaborator and `github.token` alike), so the phantoms stay in the
+list forever. Without retirement the gate is PERMANENTLY RED and every scan re-faces the same
+zombies — the mechanism that produced the #2584–#2588 issue spam. Retirement: a fix-mode cancel
+refused with `already completed` confirms the run CONCLUDED and records it with the marker
+`<!-- zero-job-zombie-retired: run N -->` in a deduped retirement issue; every later scan (read or
+fix mode) reads the markers (issues open OR closed) and reports matching candidates as
+zombie-retired — named, never counted, never cancelled, never filed, never forced RED. A run that
+is still genuinely queued/in_progress with zero jobs, or cancelled/skipped at cancel time, stays a
+live starvation finding exactly as before (#1410/#1704).
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -60,11 +78,36 @@ import issue_body  # noqa: E402  (the one issue shape, #745)
 from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 MARKER = "zero-job-pending"
+ZOMBIE_MARKER = "zero-job-zombie-retired"
 
 
 def _run_marker(run_id: int) -> str:
     """The dedupe marker for one RUN: a newly stuck run is news, the same run is not."""
     return f"<!-- {MARKER}: run {run_id} -->"
+
+
+def _zombie_marker(run_id: int) -> str:
+    """The RETIREMENT marker for one confirmed-concluded phantom (issue #2600): permanent knowledge."""
+    return f"<!-- {ZOMBIE_MARKER}: run {run_id} -->"
+
+
+def zombie_retired_run_ids(repo: str) -> set[int]:
+    """Run ids already retired by a confirmed conclusion (issue #2600).
+
+    The retirement record lives in an issue marker because no token the monitor carries may delete
+    the phantom run row (403 admin-only). Retirement is PERMANENT knowledge, so the read covers
+    issues open OR closed — unlike the stranded-issue dedupe, which asks about open work.
+    """
+    try:
+        found = json.loads(_gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "300",
+                                "--search", f"{ZOMBIE_MARKER} in:body", "--json", "body"]) or "[]")
+    except (RuntimeError, ValueError):
+        return set()
+    ids: set[int] = set()
+    for issue in found:
+        for m in re.finditer(rf"{ZOMBIE_MARKER}: run (\d+)", issue.get("body") or ""):
+            ids.add(int(m.group(1)))
+    return ids
 
 
 def _gh(args: list[str]) -> str:
@@ -89,8 +132,13 @@ def _age_minutes(created: str | None, now: dt.datetime) -> float | None:
 
 
 def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | None = None,
-                          limit: int = 100) -> list[dict]:
+                          limit: int = 100,
+                          retired: frozenset[int] = frozenset()) -> tuple[list[dict], list[dict]]:
     """Runs in this repo still `queued`/`in_progress` with zero jobs, past `minutes`.
+
+    Returns `(findings, zombies)`. A candidate whose id is in `retired` — a retirement record filed
+    by an earlier confirmed conclusion (issue #2600) — joins `zombies`: reported by name, never
+    counted, no `run view` round-trip spent on it.
 
     A zero-job run is STRANDED when no sibling of the same workflow+branch is currently `in_progress`
     with the same concurrency intent — it should have got a runner and did not (issue #1410). It is
@@ -120,6 +168,7 @@ def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | N
                 in_progress.add((run.get("workflowName", ""), run.get("headBranch", "")))
             candidates.append(run)
     out: list[dict] = []
+    zombies: list[dict] = []
     for run in candidates:
         key = (run.get("workflowName", ""), run.get("headBranch", ""))
         # A QUEUED run behind an in_progress sibling that holds the same concurrency group is waiting
@@ -130,6 +179,16 @@ def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | N
         if run.get("status") == "queued" and key in in_progress:
             continue
         rid = run.get("databaseId")
+        if rid in retired:
+            # A retirement record confirmed this run concluded earlier (issue #2600): the stale list
+            # row reappears forever, but it is no longer a finding. Named, never counted.
+            zombies.append({"run": rid,
+                            "workflow": run.get("workflowName", ""),
+                            "branch": run.get("headBranch", ""),
+                            "head": (run.get("headSha") or "")[:12],
+                            "created": run.get("createdAt", ""),
+                            "url": run.get("url", "")})
+            continue
         jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"]) or "{}")
         # `gh run view --json jobs` returns `{"jobs":[...]}` — the jobs ARRAY, with NO `total_count`
         # key (measured 2026-11-06: run 42141213441 reported 3 live jobs, the key was absent). Counting
@@ -150,7 +209,7 @@ def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | N
                     "created": run.get("createdAt", ""),
                     "url": run.get("url", ""),
                     "minutes": age})
-    return sorted(out, key=lambda r: -r["minutes"])
+    return sorted(out, key=lambda r: -r["minutes"]), zombies
 
 
 def render(rows: list[dict], minutes: float) -> str:
@@ -303,13 +362,77 @@ def force_red_verdict(repo: str, r: dict) -> str:
     return ""
 
 
+def file_retirement_issue(repo: str, r: dict) -> str:
+    """Record a CONFIRMED-concluded phantom once (issue #2600); "" when recorded or already on file.
+
+    The evidence is GitHub's own refusal — the cancel answers `already completed` while the run
+    list row says `queued` forever. DELETE /actions/runs/{id} (GitHub's designed cleanup for runs
+    pending > 24 h with no jobs) is admin-only and 403 for every identity this monitor carries, so
+    the record persists in an issue marker `<!-- zero-job-zombie-retired: run N -->` that every
+    later scan reads (issues open OR closed) to retire the run from its findings. Dedupe is by the
+    retirement marker; returns the failure reason otherwise, so delivery stays loud (#294).
+    """
+    rid = r["run"]
+    marker = _zombie_marker(rid)
+    try:
+        found = json.loads(_gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "300",
+                                "--search", f"\"{marker}\" in:body", "--json", "body"]) or "[]")
+    except (RuntimeError, ValueError):
+        found = []
+    if any(marker in (i.get("body") or "") for i in found):
+        return ""
+    text = issue_body.render(
+        problem=(
+            f"run {rid} (workflow `{r['workflow']}`, branch `{r['branch']}`, head {r['head']}, "
+            f"created {r['created']}) is still listed `queued` with zero jobs, while GitHub's "
+            "cancel endpoint answers `Cannot cancel a workflow run that is completed`: the run "
+            "record is a phantom — REST says queued, GitHub's own execution state says concluded."
+        ),
+        why=(
+            "the alarm re-faces the same phantoms on every scan and can never clear: the gate "
+            "stays permanently red and each confirmation cycle re-files issues (the #2584–#2588 "
+            "spam; issue #2600 names the mechanism and the five measured runs)."
+        ),
+        how=[
+            f"this record retires run {rid}: the marker below makes every later scan report it as "
+            "zombie-retired — named once, never counted, never cancelled, never filed, never "
+            "forced RED",
+            "deleting the phantom row itself is admin-only (403 for every identity the monitor "
+            "carries) and is tracked as its own linked issue",
+        ],
+        benefit=(
+            "the zero-job gate can report zero findings on a board full of confirmed phantoms, so "
+            "the only thing that reddens it is real starvation."
+        ),
+        acceptance=[
+            f"run {rid} is retired by this marker: a later scan names it zombie-retired and counts "
+            "no finding",
+        ],
+        technical=[
+            "producer: scripts/check_zero_job_pending.py (file_retirement_issue + "
+            "zero-job-zombie-retired marker; spec openspec/changes/zombie-run-retire/)",
+            f"measured: gh run cancel {rid} -> `Cannot cancel a workflow run that is completed`",
+            f"measured: gh api -X DELETE repos/{repo}/actions/runs/{rid} -> HTTP 403 "
+            "(permission-level identity)",
+        ],
+    )
+    title = (f"ci: run {rid} confirmed concluded per the cancel API — zombie-retired, "
+             "never counted again")
+    rq = run_ok(["gh", "issue", "create", "--repo", repo, "--title", title,
+                 "--body", f"{text}\n\n{marker}"])
+    if rq.returncode != 0:
+        return f"retirement record for run {rid} failed ({rq.returncode}): {rq.stderr.strip()}"
+    return ""
+
+
 def cancel_stranded(repo: str, r: dict) -> tuple[str, str]:
     """Clear one stranded zero-job run; returns (action, reason).
 
     action: "cancelled" (run cancel landed), "skipped" (the jobs re-read found instantiated jobs — a
     runner finally arrived after classification, so this is not ours to kill: the #1822/#1823 class —
     reason names it), "already" (the cancel raced a conclusion: GitHub reports the run completed; the
-    run is no longer live and the next scan will not name it), "failed" (reason names the failure —
+    run is no longer live: the refusal IS the truth about these runs (issue #2600) — the caller
+    retires the run with a record instead of counting it), "failed" (reason names the failure —
     delivery must stay loud, #294).
 
     The jobs re-read is the safety gate: classification read jobs once; a stranded verdict made at
@@ -349,10 +472,15 @@ def main(argv: list[str] | None = None) -> int:
                          "cancelled")
     args = ap.parse_args(argv)
     try:
-        rows = zero_job_pending_runs(args.repo, minutes=args.minutes, limit=args.limit)
+        rows, zombies = zero_job_pending_runs(args.repo, minutes=args.minutes, limit=args.limit,
+                                              retired=frozenset(zombie_retired_run_ids(args.repo)))
     except RuntimeError as e:
         print(f"[{MARKER}] github read failed: {e}", file=sys.stderr)
         return 2
+    if zombies:
+        print(f"[{MARKER}] zombie-retired {len(zombies)} run(s): retirement records on issue markers "
+              f"(confirmed concluded per the cancel endpoint, issue #2600) — named, never counted: "
+              + ", ".join(f"run {z['run']} ({z['workflow']})" for z in zombies), flush=True)
     print(render(rows, args.minutes))
     if not rows:
         return 0
@@ -360,7 +488,7 @@ def main(argv: list[str] | None = None) -> int:
         failures: list[str] = []
         skipped: list[str] = []
         n_filed = n_red = 0
-        n_cancelled = n_skipped = n_already = 0
+        n_cancelled = n_skipped = n_already = n_retired = 0
         for r in rows:
             rid = r["run"]
             # Clear first, name second: with --cancel-stranded the cancel is attempted BEFORE the
@@ -381,6 +509,16 @@ def main(argv: list[str] | None = None) -> int:
                     n_already += 1
                 else:
                     failures.append(why)
+            if cancel_action and cancel_action[0] == "already":
+                # GitHub's own cancel answer confirms this candidate concluded: a phantom list row,
+                # not starvation (issue #2600). A retirement record is what later scans retire it
+                # from — no stranded filing, no forced RED, no repeated cancel spam.
+                why_retire = file_retirement_issue(args.repo, r)
+                if why_retire:
+                    failures.append(why_retire)
+                else:
+                    n_retired += 1
+                continue
             # Named once: a run already reported (its marker in an open issue) is not delivered a
             # second time — neither re-filed nor re-forced RED. A fresh stranded run gets exactly one
             # delivery: force its head RED (so the same gates that catch every other red catch this
@@ -403,11 +541,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{MARKER}] filed {n_filed} deduped issue(s) and forced "
                   f"{n_red} stranded run(s) RED", flush=True)
         if args.cancel_stranded:
-            print(f"[{MARKER}] cancelled {n_cancelled} stranded run(s), {n_already} already "
-                  f"concluded, skipped {n_skipped} (jobs instantiated since classification)",
+            print(f"[{MARKER}] cancelled {n_cancelled} stranded run(s), {n_retired} confirmed-concluded "
+                  f"run(s) retired with records on file, {n_already - n_retired} confirmed-concluded "
+                  f"records failed, skipped {n_skipped} (jobs instantiated since classification)",
                   flush=True)
             for why in skipped:
                 print(f"[{MARKER}] cancel skipped: {why}", flush=True)
+        # Confirmed phantoms do not hold the gate red once their retirement is on record: when
+        # every candidate this scan confirmed concluded AND every one has a record, the findings
+        # set is empty and the gate clears (issue #2600). Without --file a confirmation cannot
+        # persist, so the gate stays red on purpose — the next scan would re-face the same zombies.
+        if args.cancel_stranded and n_already == len(rows) and n_retired == n_already:
+            return 0
     return 1
 
 
