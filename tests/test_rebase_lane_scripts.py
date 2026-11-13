@@ -20,6 +20,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -242,6 +243,74 @@ def test_every_python_script_is_executable_and_prints_usage_without_args():
             assert "usage" in combined.lower(), (
                 f"{p.name} reads sys.argv[1] but prints no usage line when invoked without it:\n"
                 f"{combined[:300]}")
+
+
+def test_salvage_audit_degrades_without_gh(tmp_path):
+    """Issue #2638: the salvage audit must not traceback when the `gh` binary is absent.
+
+    `run()` caught only SubprocessError, but a missing binary raises FileNotFoundError (an
+    OSError). In the gh-less unit-test container the argument-less invocation died at
+    `out("gh", "pr", "list", ...)` -- the very invocation the no-traceback gate above makes
+    every python script take -- so the gate itself reds any battery whose container ships no
+    `gh` (measured on the feat/makefile-split-bots battery). The script now catches OSError,
+    and main() names the degradation it is performing instead of crashing.
+
+    The control is hermetic: a scratch repo with a real refs/remotes/origin/main (so main()
+    reaches the gh leg at all) and an orphan branch (so the degraded classification leg runs),
+    with PATH reduced to git + python3 so `which gh` can find nothing on any host.
+    """
+    src = (SCRIPTS / "salvage-four-bucket.py").read_text()
+    assert "OSError" in src, "run() must catch OSError beside SubprocessError (a missing gh)"
+    assert 'shutil.which("gh")' in src, "main() must detect the missing gh and degrade loudly"
+
+    bare = tmp_path / "origin.git"
+    repo = tmp_path / "repo"
+    ident = ["-c", "user.email=t@t.example", "-c", "user.name=t"]
+
+    def git(*a, cwd=None):
+        r = subprocess.run(["git", *a], cwd=str(cwd or tmp_path), capture_output=True, text=True)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+    git("init", "--bare", str(bare))
+    git("symbolic-ref", "HEAD", "refs/heads/main", cwd=bare)
+    git("clone", str(bare), str(repo))
+    (repo / "a.txt").write_text("a\n")
+    git("add", "a.txt", cwd=repo)
+    git(*ident, "commit", "-m", "init", cwd=repo)
+    git("push", "origin", "main", cwd=repo)
+    git("checkout", "-b", "orphan-unique", cwd=repo)
+    (repo / "only-here.md").write_text("content only here\n")
+    git("add", "only-here.md", cwd=repo)
+    git(*ident, "commit", "-m", "orphan", cwd=repo)
+
+    # A PATH with only git + the running interpreter: no `gh` on any host layout (mise, brew,
+    # pacman or the test image) can leak back in through inherited directories.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    git_bin = shutil.which("git")
+    assert git_bin, "git is absent — the salvage control cannot run"
+    os.symlink(git_bin, bindir / "git")
+    os.symlink(sys.executable, bindir / "python3")
+    os.symlink("/bin/sh", bindir / "sh")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env.update(PATH=str(bindir), HOME=str(tmp_path), LLGENIE_REPO=str(repo),
+               GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_SYSTEM="/dev/null")
+    assert shutil.which("gh", path=str(bindir)) is None, "the control's PATH must not carry gh"
+
+    r = subprocess.run([str(SCRIPTS / "salvage-four-bucket.py")],
+                       capture_output=True, text=True, timeout=120, env=env)
+    combined = r.stdout + r.stderr
+    assert r.returncode == 0, (
+        "the audit must complete with rc=0 when gh is absent, not crash:\n"
+        f"rc={r.returncode}\n{combined[-600:]}")
+    assert "Traceback" not in combined, (
+        f"a missing gh surfaced a raw traceback:\n{combined[-600:]}")
+    assert "PR identity not checked" in r.stderr, (
+        "the degraded note must state what could not be verified:\n" + r.stderr[-400:])
+    # The git-only legs still produced a real audit, conservatively classifying the orphan.
+    assert "SALVAGE AUDIT" in r.stdout and "orphan-unique" in r.stdout, (
+        "the git-only audit must still run and still preserve the unique orphan:\n"
+        + r.stdout[-600:])
 
 
 def test_the_fleet_splice_does_not_depend_on_a_scratch_path():
