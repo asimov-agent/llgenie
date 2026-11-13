@@ -17,8 +17,9 @@ reads every site that references the gitleaks image and fails when:
   another is a pin that can never have been reviewed),
 - the pinned reference is not `@sha256:<64 hex>` (a malformed pin is silently-unsatisfiable).
 
-The source of truth is `scripts/secret_scan.py:GITLEAKS_IMAGE`; the Makefile `GITLEAKS_IMAGE` and the
-self-test's literal must equal it exactly. Satisfiability (that the pinned digest actually resolves and
+The source of truth is `scripts/secret_scan.py:GITLEAKS_IMAGE`; every resolved makefile's
+`GITLEAKS_IMAGE` (top `Makefile` + its `include mk/*.mk` set, #2459) and the self-test's literal
+must equal it exactly. Satisfiability (that the pinned digest actually resolves and
 runs) is proven at scan time: `make secret-scan-self-test` runs the pinned image against a planted
 credential and fails if the image cannot run or does not catch it.
 
@@ -42,6 +43,43 @@ REF = re.compile(r"(ghcr\.io/gitleaks/gitleaks)@(sha256:[0-9a-f]{64})")
 #: A bare mutable tag reference — the defect this issue exists to make impossible.
 TAG_REF = re.compile(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*")
 
+#: `GITLEAKS_IMAGE := <value>` (the Makefile-site spelling of the pin).
+ASSIGN = re.compile(r"GITLEAKS_IMAGE\s*:?=\s*(\S+)")
+
+
+def _makefile_list() -> list[str]:
+    """The makefiles that together carry the secret-scan recipes, in include order (#800, #2459).
+
+    Mirrors `check_wiring._makefile_list` (merged under #2457): the top `Makefile` first, then
+    every `mk/*.mk` its `include` directives name, then `tools/Makefile`. The security split moves
+    the `secret-scan` / `_secret-scan` recipes behind `include mk/security.mk`; a pin guard that
+    read only the top file would miss a bare tag re-added in a moved recipe — the split cannot
+    make the gate blind.
+    """
+    out: list[str] = []
+    pending = ["Makefile"]
+    seen: set[str] = set()
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        path = REPO / rel
+        if not path.exists():
+            continue
+        out.append(rel)
+        for m in re.finditer(r"^\s*include\s+(\S+)(?:\s+#.*)?\s*$", path.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(p.relative_to(REPO).as_posix()
+                                      for p in REPO.glob(inc)))
+            else:
+                pending.append(inc)
+    for extra in ("tools/Makefile",):
+        if extra not in seen and (REPO / extra).exists():
+            out.append(extra)
+    return out
+
 
 def _ref_sites() -> list[tuple[str, Path, str]]:
     """(site_name, file, extract) for every place the gitleaks image is addressed."""
@@ -55,8 +93,9 @@ def _ref_sites() -> list[tuple[str, Path, str]]:
                   re.compile(r"GITLEAKS_IMAGE\s*=\s*\"([^\"]+)\""))
     sites += make("secret_scan_self_test.py", SELF_TEST,
                   re.compile(r"\"(ghcr\.io/gitleaks/gitleaks@[^\"]+)\""))
-    sites += make("Makefile", MAKEFILE,
-                  re.compile(r"GITLEAKS_IMAGE\s*:?=\s*(\S+)"))
+    # every resolved makefile (top + mk/*.mk includes, #2459): the assignment spelling of the pin
+    for rel in _makefile_list():
+        sites += make(rel, REPO / rel, ASSIGN)
     return sites
 
 
@@ -81,8 +120,8 @@ def check() -> int:
         truth = None
 
     # 1. No site names a bare mutable tag.
-    for name, path, _cfg in (("Makefile", MAKEFILE, None), (str(SELF_TEST), SELF_TEST, None),
-                             (str(SECRET_SCAN), SECRET_SCAN, None)):
+    for name, path, _cfg in ([(str(SELF_TEST), SELF_TEST, None), (str(SECRET_SCAN), SECRET_SCAN, None)]
+                             + [(rel, REPO / rel, None) for rel in _makefile_list()]):
         text = path.read_text(encoding="utf-8")
         for t in TAG_REF.finditer(text):
             problems.append(f"{name}: gitleaks addressed by a mutable tag {t.group(0)!r} — "
@@ -103,7 +142,7 @@ def check() -> int:
         return 1
     digest = truth.split("@", 1)[1] if truth and "@" in truth else "?"
     print(f"[check-gitleaks-pin] OK: gitleaks pinned by digest {digest} identically in "
-          "secret_scan.py, the Makefile and the self-test; no bare tag reference")
+          "secret_scan.py, every resolved makefile and the self-test; no bare tag reference")
     return 0
 
 
