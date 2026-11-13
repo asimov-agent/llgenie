@@ -380,10 +380,13 @@ def test_a_merged_pr_closes_never_clears_a_still_reported_scan_evidence_issue(tm
                  sha="abc123")
 
     calls = _calls(log)
-    reopens = [c for c in calls if c[:2] == ["issue", "edit"] and "9" in c]
+    reopens = [c for c in calls if c[:2] == ["issue", "reopen"] and "9" in c]
     comments = [c for c in calls if c[:2] == ["issue", "comment"] and "9" in c]
     assert len(reopens) == 1, reopens
-    assert reopens[0][3:5] == ["--state", "open"], reopens
+    assert reopens[0][2] == "9", reopens
+    # issue #2621: the old form `gh issue edit <n> --state open` is not a valid gh call
+    # (`gh issue edit` has no --state flag) and reddened every daily reconcile for 6 runs.
+    assert not any(c[:2] == ["issue", "edit"] and "--state" in c for c in calls), calls
     assert len(comments) == 1, comments
     joined = " ".join(comments[0])
     assert "does not satisfy a scan-evidence acceptance box" in joined, joined

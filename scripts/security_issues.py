@@ -413,7 +413,9 @@ def reconcile(findings: list[Finding], repo: str, run_url: str = "", sha: str = 
             if dry:
                 reopened.append(f"#{number} ({key})")
                 continue
-            res = _gh(["issue", "edit", str(number), "--state", "open"], repo)
+            # `gh issue edit` has NO --state flag (issue #2621: the daily reconcile
+            # crashed for 6 runs on `unknown flag: --state`). Reopen is its own subcommand.
+            res = _gh(["issue", "reopen", str(number)], repo)
             if res.returncode != 0:
                 raise SystemExit(f"[security-issues] cannot reopen #{number}: {res.stderr.strip()}")
             _gh(["issue", "comment", str(number), "--body",
