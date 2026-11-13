@@ -58,8 +58,11 @@
 # scripts/agent_jev_preflight.sh (run at the start of every bot run) reports whether the
 # decision layer is available; it never blocks a run, because the bots are autonomous.
 # The repo's test image is hash-tagged on GHCR; locally `make test-image` produces the
-# `llgenie/test:latest` alias, and CI passes the resolved hash tag through --build-arg.
-ARG TEST_IMAGE=llgenie/test:latest
+# `llgenie/test:latest` alias, and every wired builder passes the resolved hash tag through
+# --build-arg. That build-arg is MANDATORY: it has no default, so a bare `docker build` that
+# omits TEST_IMAGE fails loudly on the empty base name instead of silently resolving to the
+# mutable :latest alias (issue #2617).
+ARG TEST_IMAGE
 FROM ${TEST_IMAGE}
 
 # The official installer (docs: hermes-agent.nousresearch.com/install.sh); overridable so a

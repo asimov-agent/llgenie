@@ -1,0 +1,1 @@
+| 2026-11-13 | The agent image's `TEST_IMAGE` base build-arg loses its mutable `:latest` default (`ARG TEST_IMAGE`, no value), so a bare build without `--build-arg` fails loudly instead of silently baking a moving tag into the bots — the last trivy dockerfile misconfig on `main` | [2026-11-13-agent-image-base-pinned.md](agent-wiki/2026-11-13-agent-image-base-pinned.md) | #2617 |

@@ -279,6 +279,28 @@ def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
     assert set(ctx[5:].split()) == expected, ctx
 
 
+def test_agent_dockerfile_test_image_arg_has_no_default():
+    """The agent Dockerfile's TEST_IMAGE base build-arg is MANDATORY (no `=value` default, no
+    `:latest`), so a bare `docker build` that omits it fails loudly on the empty base name instead
+    of silently resolving to the mutable :latest alias (issue #2617)."""
+
+    # Given the agent Dockerfile
+    dockerfile = (REPO / "containers/agent" / "Dockerfile").read_text()
+
+    # When we read the line that enters the test-image base
+    arg_line = next(line for line in dockerfile.splitlines() if re.match(r"^ARG TEST_IMAGE(\s*=|\s*$)", line.strip()))
+
+    # Then it declares ARG TEST_IMAGE with NO default value
+    assert re.fullmatch(r"ARG TEST_IMAGE(?:[ \t]*)", arg_line.strip()), arg_line
+
+    # And no `:latest` alias tags the base on that ARG line
+    assert ":latest" not in arg_line, arg_line
+
+    # And every wired builder still passes the hashed ref (issue #2617, unchanged)
+    import ci_images
+    assert "--build-arg" in ci_images.build_args("agent") and "TEST_IMAGE=" in ci_images.build_args("agent")[1]
+
+
 def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
     """The agent tag folds in the test image's tag, so a rebuilt base re-tags the agent."""
 
