@@ -110,6 +110,8 @@ def test_a_zero_job_run_on_a_different_branch_is_not_queued_behind(tmp_path, mon
     out = capsys.readouterr().out
     assert "run 501" in out, out  # not queued behind main's sibling → stranded on its own branch
 
+
+def test_a_zero_job_run_younger_than_the_threshold_is_not_flagged(tmp_path, monkeypatch):
     """A zero-job run younger than the threshold is not yet a stall."""
     _gh_stub(tmp_path, [_run(111, "in_progress", 5.0)], {111: 0}, monkeypatch)
     rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
@@ -164,7 +166,8 @@ def test_file_does_not_double_report_a_run_already_flagged(tmp_path, monkeypatch
 def _gh_stub_recorded(tmp_path: Path, runs: list[dict], jobs_total: dict[int, int],
                       open_issues: list[dict], monkeypatch,
                       jobs_second: dict[int, int] | None = None,
-                      cancel_errors: dict[int, str] | None = None) -> tuple[Path, Path]:
+                      cancel_errors: dict[int, str] | None = None,
+                      issue_create_error: str | None = None) -> tuple[Path, Path]:
     """A `gh` answering run list/view, issue list/create, `run cancel` AND `api .../check-runs POST`,
     logging each delivery event to events.json so the guard can assert exact POST counts.
 
@@ -180,7 +183,8 @@ def _gh_stub_recorded(tmp_path: Path, runs: list[dict], jobs_total: dict[int, in
         {"runs": runs, "jobs_reply": jobs_reply, "issues": open_issues or [],
          "views": {},
          "jobs_second": {str(k): v for k, v in (jobs_second or {}).items()},
-         "cancel_errors": {str(k): v for k, v in (cancel_errors or {}).items()}}))
+         "cancel_errors": {str(k): v for k, v in (cancel_errors or {}).items()},
+         "issue_create_error": issue_create_error}))
     events = tmp_path / "events.json"
     events.write_text("[]")
     gh = bindir / "gh"
@@ -215,7 +219,10 @@ if a[:2] == ["run", "cancel"]:
 if a[:2] == ["issue", "list"]:
     print(json.dumps(sc["issues"])); sys.exit(0)
 if a[:2] == ["issue", "create"]:
-    log("issue_create:" + json.dumps(a)); print("https://github.com/x/issues/999"); sys.exit(0)
+    log("issue_create:" + json.dumps(a))
+    if sc.get("issue_create_error"):
+        print(sc["issue_create_error"], file=sys.stderr); sys.exit(1)
+    print("https://github.com/x/issues/999"); sys.exit(0)
 if a[0] == "api" and any("check-runs" in x for x in a):
     # POST head_sha is in --input file; log the check-run POST
     infile = a[a.index("--input") + 1]
@@ -361,20 +368,83 @@ def test_cancel_stranded_never_touches_a_queued_behind_run(tmp_path, monkeypatch
     assert "cancelled 2 stranded" in out, out
 
 
-def test_cancel_racing_a_concluded_run_is_not_a_delivery_failure(tmp_path, monkeypatch, capsys):
-    """GitHub answers `run cancel` with 'already completed' when a run concludes between the scan and
-    the cancel (measured 2026-11-12 on 43096752613-style zombies). That race is benign: no DELIVERY
-    FAILED, the summary counts it 'already concluded', and the filed body states the race honestly."""
-    r = _run(7, "queued", 60.0); r["headBranch"] = "feat/a"
+def test_cancel_refusal_retires_the_run_with_a_record_and_clears_the_gate(tmp_path, monkeypatch, capsys):
+    """Zombie retirement (issue #2600): GitHub answers `run cancel` with 'already completed' while the
+    run LIST row stays `queued` forever (measured on 43096752613/43098130674: REST queued, cancel
+    refuses 'completed', delete 403). The refusal confirms conclusion: the run is RETIRED with a
+    deduped retirement record (marker `zero-job-zombie-retired`), never filed stranded, never forced
+    RED — and when every candidate retired, the gate exits 0. This is what makes 'the same run is
+    never reported a second time' (#2588's criterion) mechanically true."""
+    r = _run(7, "queued", 1600.0); r["headBranch"] = "feat/a"
     gh, events = _gh_stub_recorded(
         tmp_path, [r], {7: 0}, open_issues=[], monkeypatch=monkeypatch,
         cancel_errors={7: "run 7 cannot be cancelled. The run has already completed."})
     rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
     cap = capsys.readouterr()
-    assert rc == 1, cap.out
+    assert rc == 0, cap.out + cap.err          # confirmed-concluded + record on file → gate clears
     assert "DELIVERY FAILED" not in cap.out + cap.err, cap.out + cap.err
-    assert "1 already concluded" in cap.out, cap.out
+    assert "1 confirmed-concluded run(s) retired" in cap.out, cap.out
     ev = _events(events)
-    create = json.loads([e for e in ev if e.startswith("issue_create")][0].split(":", 1)[1])
+    assert any(e.startswith("run_cancel") for e in ev), ev          # truth-probe attempted
+    creates = [e for e in ev if e.startswith("issue_create")]
+    assert len(creates) == 1, ev                                    # exactly one retirement record
+    assert not any(e.startswith("check_runs_post") for e in ev), ev  # a concluded run is not forced RED
+    create = json.loads(creates[0].split(":", 1)[1])
     body = create[create.index("--body") + 1]
-    assert "the cancel raced a conclusion" in body, body[:400]
+    assert "<!-- zero-job-zombie-retired: run 7 -->" in body, body[:400]
+    assert "confirmed concluded per the cancel API" in create[create.index("--title") + 1], create
+
+
+def test_a_retired_run_is_never_counted_again(tmp_path, monkeypatch, capsys):
+    """Read-only scan, one week later: the phantom list row still says `queued`, but its retirement
+    marker is on an issue (open OR closed). The scan names it zombie-retired, counts no finding,
+    spends no cancel, files nothing, and exits 0 — the gate clears for good (issue #2600)."""
+    r = _run(9, "queued", 1600.0); r["headBranch"] = "feat/b"
+    gh, events = _gh_stub_recorded(
+        tmp_path, [r], {9: 0},
+        open_issues=[{"body": "retired earlier <!-- zero-job-zombie-retired: run 9 -->"}],
+        monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "zombie-retired 1 run(s)" in out, out
+    assert "run 9" in out, out
+    assert "ZERO jobs" not in out, out          # not counted as a finding
+    ev = _events(events)
+    assert not any(e.startswith(("run_cancel", "issue_create", "check_runs_post")) for e in ev), ev
+
+
+def test_live_starvation_stays_red_alongside_a_retired_zombie(tmp_path, monkeypatch, capsys):
+    """The retirement must not soften the alarm: a NEW stranded run in the same scan is cancelled,
+    filed and forced RED as before (rc 1), while the marker-retired zombie is only named."""
+    live = _run(7, "queued", 60.0); live["headBranch"] = "feat/a"
+    zombie = _run(9, "queued", 1600.0); zombie["headBranch"] = "feat/b"
+    gh, events = _gh_stub_recorded(
+        tmp_path, [live, zombie], {7: 0, 9: 0},
+        open_issues=[{"body": "retired <!-- zero-job-zombie-retired: run 9 -->"}],
+        monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "zombie-retired 1 run(s)" in out, out
+    assert "cancelled 1 stranded" in out, out
+    ev = _events(events)
+    cancels = [e.split(":", 1)[1] for e in ev if e.startswith("run_cancel")]
+    assert cancels == ["7"], ev                                       # the zombie is never re-cancelled
+    assert sum(1 for e in ev if e.startswith("issue_create")) == 1, ev  # only the live run is filed
+    assert sum(1 for e in ev if e.startswith("check_runs_post")) == 1, ev  # RED only for the live head
+
+
+def test_a_retirement_record_that_fails_to_land_keeps_the_gate_loud(tmp_path, monkeypatch, capsys):
+    """Delivery stays loud (#294): a confirmed-concluded run whose retirement issue fails is a
+    DELIVERY FAILED exit 3 — the gate never greens on an unrecorded confirmation."""
+    r = _run(7, "queued", 1600.0); r["headBranch"] = "feat/a"
+    gh, events = _gh_stub_recorded(
+        tmp_path, [r], {7: 0}, open_issues=[], monkeypatch=monkeypatch,
+        cancel_errors={7: "run 7 cannot be cancelled. The run has already completed."},
+        issue_create_error="issues: rate limit exceeded")
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file", "--cancel-stranded"])
+    cap = capsys.readouterr()
+    assert rc == 3, cap.out + cap.err
+    assert "DELIVERY FAILED" in cap.err, cap.err
+    assert "retirement record for run 7 failed" in cap.err, cap.err
