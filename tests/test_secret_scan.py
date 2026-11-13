@@ -23,6 +23,7 @@ SELF_TEST = REPO / "scripts" / "secret_scan_self_test.py"
 WORKFLOW = REPO / ".github" / "workflows" / "pipeline.yml"
 
 from scripts import check_secret_output as cso
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, #2459)
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +133,9 @@ def test_gitleaks_is_pinned_by_digest_in_every_site_and_the_guard_reds_on_a_widt
 # the wiring: three targets, and the job that runs them
 # ---------------------------------------------------------------------------
 def test_the_three_targets_exist_and_name_real_inputs():
-    mk = (REPO / "Makefile").read_text()
+    # the secret-scan targets now live behind `include mk/security.mk` (#2459): read the
+    # include-resolved makefile set, not just the top file
+    mk = makefiles_text()
     scanner = (REPO / "scripts" / "secret_scan.py").read_text()
 
     # Then a working-tree scan, a history scan and a self-test exist
@@ -212,7 +215,7 @@ def test_the_wrapper_separates_a_finding_from_a_scan_that_could_not_run():
     """A scanner that cannot run produced NO verdict: it must never be reported as "a credential is
     present", and never as clean (issue #382 — the exit code is the signal)."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text()  # include-resolved set (#2459): secret-scan lives in mk/security.mk
     recipe = mk.split("\nsecret-scan:", 1)[1].split("\n\n", 1)[0]
 
     # Then the finding case is exit 1, named as a credential ...
