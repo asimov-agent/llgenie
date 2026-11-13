@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
 REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = REPO / "Makefile"
 
@@ -24,7 +26,7 @@ CONTAINERIZED = "TEST_RUN"
 
 def _recipe(target: str) -> str:
     """The recipe lines of `target:`, without the target line itself."""
-    text = MAKEFILE.read_text()
+    text = makefiles_text(REPO)  # test-install-* now live behind `include mk/install.mk` (#2461)
     match = re.search(rf"^{re.escape(target)}:[^\n]*\n((?:\t[^\n]*\n|\n(?=\t))*)", text, re.M)
     assert match, f"no recipe for `{target}:` in the Makefile"
     return match.group(1)
