@@ -249,9 +249,9 @@ jobs:
         run: make test-image-pull
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         if: ${{ matrix.engine != 'none' }}
-      - name: hf CLI (tiny test model)
+      - name: "hf CLI (tiny test model): make hf-cli-install — installs the EXACT huggingface_hub version tools/requirements.in pins (issue #2380); a floating >= drifted to a 2.x, and the stale [cli] extra is gone"
         if: ${{ matrix.engine != 'none' }}
-        run: uv tool install "huggingface_hub[cli]>=0.30"
+        run: make hf-cli-install
       - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the engine binary smoke — the binary in the built image answers the flags it documents (issue #1717), never a serving-readiness wait; detect: the binary reports its version and answers the flags a user types; serving is NOT exercised in CI — the one and only engine gate is the binary answering -h/--version (issue #2319); the OpenAI-serving conformance tier is a host-only command (the `make test-engine-serve` target, run manually by the engine improver))"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}

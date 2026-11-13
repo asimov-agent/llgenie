@@ -68,7 +68,7 @@ def _find_hf() -> str:
     venv_hf = (Path.home() / "llama-gguf-tools" / ".venv" / "bin" / "hf")
     if venv_hf.is_file():
         return str(venv_hf)
-    raise SystemExit("ERROR: 'hf' CLI not found on PATH and no repo venv hf. Set HF_BIN or install huggingface_hub[cli].")
+    raise SystemExit("ERROR: 'hf' CLI not found on PATH and no repo venv hf. Set HF_BIN or install huggingface_hub (issue #2380: no [cli] extra exists anymore).")
 
 
 def _wait_healthy(url: str, timeout: float = 180.0) -> bool:

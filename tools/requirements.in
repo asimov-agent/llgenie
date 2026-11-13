@@ -12,7 +12,9 @@ gguf==0.19.0
 # `--download-top-tier`, scripts/hf_download.py, and download_test_model.py.
 # Installing it into the venv makes the launcher self-contained so top-tier
 # download works on any fresh machine regardless of what's in ~/models.
-huggingface_hub[cli]==1.30.0
+# No `[cli]` extra (issue #2380): current huggingface_hub ships `hf` in the
+# base package and dropped the extra — keeping it only prints a warning.
+huggingface_hub==1.30.0
 # The versions the daily security scan (issue #754) reports as the MINIMUM that clears an advisory.
 # They reach requirements.txt transitively, so the resolver — not this file — used to decide them.
 # Stating the report's own `fixed` value here makes pip-compile compile at or above it, and makes a

@@ -82,7 +82,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-engine-pins-published check-engine-pins-valid engine-pins-published-report engine-build-pr-trigger engine-build-pr-trigger-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix test-engine-host ci-lint ci-unit ci-agents-read \
-	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict verdict-roster test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
+	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict verdict-roster test-engine-stage hf-cli-install bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report tester-fold-live provision-agent-profiles \
@@ -1840,6 +1840,12 @@ ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner:
 engine-capability-serve: ## Does ENGINE declare ARCH in engine-capabilities.json archs (issue #1214)? The serve-vs-flags decision (issue #1748): exit 0 -> the engine may serve on this arch (serve-leg/host-verify run), exit 1 -> binary-flags-only (never serve), exit 2 -> usage (ENGINE/ARCH). The workflow gates its serve legs on this target so every CI command is a make target, not an inline script (AGENTS.md).
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make engine-capability-serve ENGINE=<id> ARCH=<arch>"; exit 2; }
 	@python3 scripts/engine_capability.py serve "$(ENGINE)" "$(ARCH)"
+
+hf-cli-install: ## Provision the `hf` downloader the engine-build tiny-test-model step uses (issue #2380): install the EXACT huggingface_hub version pinned in tools/requirements.in — never a floating `>=`, which drifted to a 2.x whose `cli` extra was removed (AGENTS.md: every CI command is a make target).
+	@spec="$$(grep '^huggingface_hub==[0-9]' tools/requirements.in || true)"; \
+	test -n "$$spec" || { echo "[hf-cli-install] tools/requirements.in pins no huggingface_hub==<version>"; exit 1; }; \
+	echo "[hf-cli-install] uv tool install $$spec (from tools/requirements.in)"; \
+	uv tool install "$$spec"
 
 test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the engine binary smoke (make test-engine, the --image path's DEFAULT gate — never a serving readiness wait, issue #1717); TEST=detect -> binary flags only (make test-engine-image). The OpenAI-serving conformance tier is the explicit --serve opt-in (make test-engine-serve / the push serve-leg), and the workflow's serve legs run only for cells whose engine declares the arch (serve-vs-flags decision, issue #1748).
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }

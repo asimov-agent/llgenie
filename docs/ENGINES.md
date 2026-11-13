@@ -282,7 +282,10 @@ do the same locally.
   `make test-engine-stage ENGINE=… ARCH=… TEST=<row.test>` — `serve` for cpu (the engine binary
   smoke `make test-engine` — the DEFAULT gate, never a serving-readiness wait, issue #1717), `detect`
   for GPU (the binary reports its version and answers the flags a user types). Same make path as CI,
-  so the verification is identical.
+  so the verification is identical. The tiny-test-model downloader is provisioned by
+  `make hf-cli-install`, which installs the exact `huggingface_hub` version
+  `tools/requirements.in` pins (issue #2380) — the step no longer runs a floating `uv tool install`,
+  and the stale `[cli]` extra (removed upstream) is dropped from the compile input.
 - after `make push-engine` (when `push=true`), each row runs its serve-leg
   (`make test-published-engine`: re-pull AS published, digest == `:<arch>`, re-check the binary,
   serve) and its install-leg (`make test-engine-install`: install + the installed launcher's
