@@ -1,4 +1,4 @@
-# zero-job zombie retirement (issue #2600, PR #TODO)
+# zero-job zombie retirement (issue #2600, PR #2607)
 
 The five 2026-11-11 zero-job runs (43096752703, 43096752613, 43098130679,
 43098130674, 43098130785) are phantoms: `gh run list` reports `queued,
