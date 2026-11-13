@@ -102,7 +102,8 @@ def test_the_shim_is_gone_and_the_real_cli_still_runs():
 
 
 def test_the_installed_artifacts_point_at_the_new_module():
-    mk = (REPO / "Makefile").read_text()
+    from conftest import makefiles_text  # noqa: PLC0415  # issue #2461: install targets live in mk/install.mk
+    mk = makefiles_text(REPO)
     assert "scripts/llgenie_serve.py" in mk
     assert OLD_MODULE.search(mk) is None, "the Makefile must name the module by its new name"
 

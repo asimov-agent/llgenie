@@ -8,6 +8,7 @@ cancelled during stock CUDA after the 100-minute job cap.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -179,10 +180,16 @@ def test_uninstall_removes_install_artifacts_and_not_repo_source():
     """make uninstall undoes make install: the launcher, llgenie.py, every engine
     start script and the llama-server shim; never repo source or other files."""
 
-    # Given the uninstall recipe
+    # Given the uninstall recipe (`uninstall:` now lives behind `include mk/install.mk`,
+    # #2461: the block ends at its NEXT target header, not at the ci-<job> banner; the
+    # next-header search must start AFTER the header line itself -- `^` also matches at the
+    # start of a mid-string window and would otherwise self-match the target's own header)
     text = makefiles_text(REPO)
-    start = text.index("\nuninstall:") + 1
-    recipe = text[start:text.index("\n# ---- ci-<job>", start)]
+    hdr = re.search(r"^uninstall:[^\n]*\n", text, re.M)
+    assert hdr, "no `uninstall:` target header"
+    nxt = re.search(r"^[A-Za-z0-9_.%$()/a-zA-Z0-9-]+:(?:[^=]|$)", text[hdr.end():], re.M)
+    assert nxt, "no target header after `uninstall:`"
+    recipe = text[hdr.start(): hdr.end() + nxt.start()]
 
     # When the removals are read
     # Then the launcher + llgenie.py are removed, the engine files go through the
@@ -224,8 +231,14 @@ def test_install_ci_runs_make_install_and_make_uninstall():
 
     # Given the test-install-ci recipe and the CI install job
     text = makefiles_text(REPO)
-    start = text.index("test-install-ci:")
-    recipe = text[start:text.index("\ntest-top-tier:", start)]
+    hdr = re.search(r"^test-install-ci:[^\n]*\n", text, re.M)
+    assert hdr, "no `test-install-ci:` target header"
+    # The original span ran to the next family header (`test-top-tier:` pre-#2458) because the
+    # assertions cover the chained proof in `test-uninstalled:` and `test-health-host:` too.
+    # Post-#2461 that same proof ends at the `test-install-trend:` header that follows them.
+    nxt = re.search(r"^test-install-trend:[^\n]*\n", text[hdr.end():], re.M)
+    assert nxt, "no `test-install-trend:` header after `test-install-ci:`"
+    recipe = text[hdr.start(): hdr.end() + nxt.start()]
     install = text[text.index("\ninstall:"):].split("\n", 2)[1]
     job = _run_scripts(_pipeline()["jobs"]["install"])
 

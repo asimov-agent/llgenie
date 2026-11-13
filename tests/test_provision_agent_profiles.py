@@ -18,6 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "provision_agent_profiles.py"
 
@@ -65,7 +67,7 @@ def test_make_seam_provisions_and_gates(tmp_path):
 
 def test_install_invokes_provisioning(tmp_path):
     # The real wiring: `make install` depends on `provision-agent-profiles`.
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)  # `install:` now lives behind `include mk/install.mk` (#2461)
     assert "install: bash-check venv-install engine-launchers link test-built-engine smoke provision-agent-profiles" in mk
 
 

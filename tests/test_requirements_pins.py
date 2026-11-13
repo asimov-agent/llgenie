@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS = REPO_ROOT / "tools"
 RUNTIME_IN = TOOLS / "requirements.in"
@@ -159,7 +161,7 @@ def test_the_ci_hf_downloader_installs_the_pinned_spec_through_make() -> None:
 
     # Given the workflow and the Makefile that must now share one pin source
     workflow = (REPO_ROOT / ".github" / "workflows" / "engine-build.yml").read_text(encoding="utf-8")
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    makefile = makefiles_text(REPO_ROOT)  # hf-cli-install now lives behind `include mk/install.mk` (#2461)
 
     # When  the hf provisioning step is read
     parts = workflow.split('- name: "hf CLI (tiny test model)', 1)
