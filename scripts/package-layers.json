@@ -127,6 +127,7 @@
    "agent_shell_keys_check",
    "architecture_bot",
    "arm_auto_merge",
+   "audit_acceptance_ticks",
    "auto_merge",
    "auto_merge_channel",
    "base_ref",
@@ -177,6 +178,11 @@
  "allowed_edges": [
   {
    "from": "acceptance_writeback",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "audit_acceptance_ticks",
    "to": "proc",
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
   },
