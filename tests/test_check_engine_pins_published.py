@@ -449,6 +449,17 @@ def test_liveness_dispatches_name_their_producer_run():
         "the provenance step must echo the producer into the log and the step summary"
     assert "dispatched_by_run=" in step and "none-recorded" in step, \
         "an unattributed (human or PR-lane) dispatch must say so, not stay silent"
+    # #2622: the same step must not interpolate the dispatch input INSIDE the shell.
+    # `producer="${{ inputs.producer_run }}"` is semgrep run-shell-injection: a dispatch
+    # value with shell metacharacters executes inside the double quotes. Values reach the
+    # shell only through `env:`. The provenance step is the guard job's LAST step, so its
+    # extent ends at the `matrix:` job header, not at a `- name:` (there is none after it).
+    prov = step.split("\n  matrix:", 1)[0]
+    shell_body = prov.split("run: |", 1)[1]
+    assert "${{" not in shell_body, \
+        "the provenance step's shell must read the input from env, not from ${{ }} text"
+    assert "PRODUCER_RUN: ${{ inputs.producer_run }}" in prov and "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in prov, \
+        "both values must be passed via the step's env block"
 
 
 def test_tracking_issues_name_their_dispatched_engine_build_run():

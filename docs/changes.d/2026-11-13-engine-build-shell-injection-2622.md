@@ -1,0 +1,1 @@
+| 2026-11-13 | ci(workflows): engine-build's Dispatch provenance passes `producer_run`/actor through `env:` — the quoted `${{ }}` assignment was semgrep run-shell-injection, the last blocking finding in the scheduled verdict (issue #2622) | [note](agent-wiki/2026-11-13-engine-build-shell-injection-2622.md) | #2622 |
