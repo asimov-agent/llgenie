@@ -45,4 +45,12 @@ battery whose container has no `gh`, and GitHub runners (which ship `gh`) never 
 ## Current status
 
 OpenSpec `salvage-gh-guard` validated; tasks ticked against measured rc=0 proofs; PR CI
-tracked in the PR body. This closes only #2638; #2460/#2461 keep their own PRs.
+tracked in the PR body. This closes only #2638; the install lane keeps its own PR.
+
+Fold addendum: `make sync-agent-profile PROFILE=llgenie-pr-merge-conflict` first REFUSED —
+the live profile's `salvage-audit.sh` had been edited (2026-11-08) to generalize a comment
+that still claimed the python sibling "pinned /home/asimov/...", and that claim is stale on
+this branch (the python audit resolves its repo root dynamically). The live wording is the
+correct one, so the file folds live→tree byte-identically (precedent #2355/#2388) and the
+sync then passes: 39 files copied and read back, rc=0 — satisfying the #1724 `SYNC:` rule
+for this PR's `agents/` change.

@@ -21,3 +21,8 @@
 ## 5. CI
 
 - [x] 5.1 PR CI green on the PR head; this PR closes only issue #2638
+
+## 6. Live profile re-sync (issue #1724 rule)
+
+- [x] 6.1 fold the live `salvage-audit.sh` comment generalization live→tree byte-identically (the tree's "pinned /home/asimov/..." claim is stale on this branch)
+- [x] 6.2 `make sync-agent-profile PROFILE=llgenie-pr-merge-conflict` rc=0 (39 files copied and read back), reported in the PR body `SYNC:` line
