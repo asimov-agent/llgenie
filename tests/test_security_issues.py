@@ -380,10 +380,13 @@ def test_a_merged_pr_closes_never_clears_a_still_reported_scan_evidence_issue(tm
                  sha="abc123")
 
     calls = _calls(log)
-    reopens = [c for c in calls if c[:2] == ["issue", "edit"] and "9" in c]
+    # `gh issue edit` has no --state flag (issue #2608/#2610); the reopen MUST be `gh issue reopen`.
+    reopens = [c for c in calls if c[:2] == ["issue", "reopen"] and "9" in c]
     comments = [c for c in calls if c[:2] == ["issue", "comment"] and "9" in c]
     assert len(reopens) == 1, reopens
-    assert reopens[0][3:5] == ["--state", "open"], reopens
+    assert reopens[0][2] == "9", reopens
+    # And the broken `issue edit --state open` form never appears in the reconcile leg
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]], calls
     assert len(comments) == 1, comments
     joined = " ".join(comments[0])
     assert "does not satisfy a scan-evidence acceptance box" in joined, joined
