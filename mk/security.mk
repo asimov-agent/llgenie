@@ -136,8 +136,3 @@ check-renovate: ## CI: fail when renovate.json automerges more than low-risk upd
 
 renovate-report: ## Show every Renovate package rule, its managers, its automerge state and the ignored paths
 	python3 scripts/check_renovate.py report
-# UNSUPPORTED=<file>: upstream engines with no skill are omitted from the trend
-# offer (no image). Passing the decisions file tolerates ONLY the engines recorded
-# there with a dated decision (issue #229); an engine with no skill and no decision
-# is "new and unresolved" and FAILS, naming it. Without --unsupported every
-# registry engine with no skill is an error, so the pinned fixture stays strict.

@@ -888,6 +888,11 @@ MODE ?= full
 PR_HEAD ?= HEAD
 ci-scanner-images: ## CI job scanner-images: build and version-test every scanner image, publish on a push run only (policy in the script)
 	python3 scripts/scanner_image.py ci
+# UNSUPPORTED=<file>: upstream engines with no skill are omitted from the trend
+# offer (no image). Passing the decisions file tolerates ONLY the engines recorded
+# there with a dated decision (issue #229); an engine with no skill and no decision
+# is "new and unresolved" and FAILS, naming it. Without --unsupported every
+# registry engine with no skill is an error, so the pinned fixture stays strict.
 UNSUPPORTED ?=
 # ALLOW_NEW_ENGINES=1 is the DATA-CARRYING scope (issue #683): the weekly registry-sync must be
 # able to land a store that first names an engine llgenie does not ship — its next step opens
