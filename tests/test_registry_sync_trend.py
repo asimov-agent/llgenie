@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parent.parent
 from scripts import engine_skills as es
 from scripts import model_engine_pick as mp
 from scripts import sync_registry as sr
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2458)
 
 BEFORE = REPO / "tests" / "fixtures" / "registry-before"
 BEFORE_MODELS = BEFORE / "models.json"
@@ -485,7 +486,7 @@ def test_the_sync_job_validates_the_registry_it_just_synced():
     wf = yaml.safe_load(WORKFLOW.read_text())
     step = next(s for s in wf["jobs"]["sync"]["steps"]
                 if "skills-validate" in (s.get("run") or ""))
-    ci_lines = [l.strip() for l in (REPO / "Makefile").read_text().splitlines()
+    ci_lines = [l.strip() for l in makefiles_text(REPO).splitlines()
                 if "skills-validate" in l and "REGISTRY=data/models.json" in l]
 
     # When the sync job's invocation is read

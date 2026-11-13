@@ -22,7 +22,8 @@ from pathlib import Path
 from scripts import check_empty_files as gate
 
 REPO = Path(__file__).resolve().parent.parent
-MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2458)
+MAKEFILE = makefiles_text(REPO)
 
 
 def _git(root: Path, *args: str) -> None:

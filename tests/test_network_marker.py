@@ -26,6 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import unit_tests as ut  # noqa: E402
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2458)
 
 
 def tracked_markdown() -> set[str]:
@@ -130,7 +131,7 @@ def test_ci_unit_reaches_the_not_network_seam():
     Makefile, ci.yml and unit_tests.py: `ci-unit` -> `test-unit` -> `unit_tests.py run` (default
     `-m "not network"`), and `test-unit-network` -> `--marker network`. The hermetic gate excludes
     network-marked tests only if this chain holds end-to-end, not just in unit_tests.py alone."""
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)
 
     def target_recipe(t):
         m = re.search(r"(?m)^%s:.+\n((?:\t[^\n]*\n)+)" % t, mk)
