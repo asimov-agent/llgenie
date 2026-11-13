@@ -122,6 +122,20 @@ This is the heart of the contract. Each measurement:
 - `date` — measurement date (YYYY-MM-DD).
 - `source_post` — the X post (lightbrd.com) the figure came from.
 
+### Optional model keys (additive, never `required`)
+
+- `engine_aliases` — `{posted engine name: registry engine name}` for a model that
+  only runs on a fork of an engine (applied at ingest and every sort).
+- `measurement_model_aliases` (issue #652) — a list of **store model ids** whose
+  names a measurement on this row may legitimately mention: the *documented
+  exception* to the measurement-attribution refusal (a variant row naming its base
+  model, a bake-off row naming the model it compares against). It lives here as
+  reviewable data — never as a code literal — because a data diff shows a reviewer
+  exactly which exceptions were taken, a refresh carries them forward, and
+  `check_measurement_alias_map` refuses a counterpart id that is not a model id in
+  the store. Ingest (`misattributed_measurement_reason`) reads the incoming row's
+  key and the same-id store row's.
+
 ## Rules enforced by `scripts/validate.py`
 
 1. **No duplicate models** (by `id` or `name`).

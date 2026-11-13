@@ -400,6 +400,16 @@
               "minLength": 1
             },
             "description": "Optional {posted engine name: registry engine name}. Applied on ingest and every sort, e.g. Bonsai 2 27B maps 'llama.cpp' to 'llama.cpp (PrismML fork)' because its ternary GGUFs only run on that fork."
+          },
+          "measurement_model_aliases": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.\\-]*$",
+              "minLength": 2
+            },
+            "uniqueItems": true,
+            "description": "Optional list of STORE model ids whose names a measurement on this row may legitimately mention (a variant row naming its base model, a bake-off row naming the model it compares against). The documented exception to the measurement-attribution refusal (issue #652): it lives on the row as reviewable data, never as a code literal. Every counterpart must be a model id in the store (check_measurement_alias_map)."
           }
         },
         "additionalProperties": false
