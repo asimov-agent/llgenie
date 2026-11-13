@@ -57,9 +57,13 @@
 # scripts/install_nerve_ci.sh REFUSES a build that has a provider key in its environment, and
 # scripts/agent_jev_preflight.sh (run at the start of every bot run) reports whether the
 # decision layer is available; it never blocks a run, because the bots are autonomous.
-# The repo's test image is hash-tagged on GHCR; locally `make test-image` produces the
-# `llgenie/test:latest` alias, and CI passes the resolved hash tag through --build-arg.
-ARG TEST_IMAGE=llgenie/test:latest
+# The repo's test image is hash-tagged on GHCR, and EVERY wired build path (ci_images.py
+# ensure/_build_local/_buildx_push, via `make agent-image` and every CI leg) passes the exact
+# resolved hash tag through --build-arg. There is deliberately NO default here: a bare
+# `docker build -f containers/agent/Dockerfile` must fail loudly instead of silently basing the
+# agent on the mutable `:latest` alias (trivy ':latest tag used', the last dockerfile misconfig
+# on main; issue #2617).
+ARG TEST_IMAGE
 FROM ${TEST_IMAGE}
 
 # The official installer (docs: hermes-agent.nousresearch.com/install.sh); overridable so a

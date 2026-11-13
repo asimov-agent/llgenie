@@ -279,6 +279,17 @@ def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
     assert set(ctx[5:].split()) == expected, ctx
 
 
+def test_agent_dockerfile_has_no_latest_base_default():
+    """(issue #2617) `FROM ${TEST_IMAGE}` may not default to the mutable `llgenie/test:latest`
+    alias: every wired build path passes the hashed ref via `build_args`, so the Dockerfile
+    carries NO default and a bare `docker build` fails loudly instead of baking a moving base."""
+
+    dockerfile = (Path(__file__).resolve().parent.parent / "containers" / "agent" / "Dockerfile").read_text()
+    arg_lines = [ln for ln in dockerfile.splitlines() if re.match(r"ARG TEST_IMAGE", ln)]
+    assert arg_lines == ["ARG TEST_IMAGE"], arg_lines
+    assert "llgenie/test:latest" not in dockerfile.split("FROM ${TEST_IMAGE}")[0].split("ARG TEST_IMAGE")[-1]
+
+
 def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
     """The agent tag folds in the test image's tag, so a rebuilt base re-tags the agent."""
 
