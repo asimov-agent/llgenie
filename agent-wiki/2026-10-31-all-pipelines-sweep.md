@@ -36,3 +36,4 @@ workflow; the sweep reports `DISABLED`, it does not re-enable.
 ## Refs
 
 Issue: #1102 · PR: #1179
+<!-- verify-1484: synthetic vehicle line for the engine-bump-rebase dispatch proof (issue #2383 follow-up, kanban t_9be95ad4); this vehicle PR closes after the evidence lands -->
