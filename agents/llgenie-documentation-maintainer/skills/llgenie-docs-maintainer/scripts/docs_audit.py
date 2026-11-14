@@ -85,7 +85,11 @@ def scripts_named() -> None:
 
 def make_targets() -> None:
     """`make <token>` in the docs must be a real target or covered by a `target-%:` pattern."""
+    # post-make-split (issue #2635 family): targets live in mk/*.mk, not only the root
+    # Makefile — a Makefile-only grep reports every moved target as missing (false positive).
     mk = pathlib.Path("Makefile").read_text()
+    for _mkf in sorted(pathlib.Path("mk").glob("*.mk")):
+        mk += "\n" + _mkf.read_text()
     anchors = set(re.findall(r"^([A-Za-z0-9_.%-]+):(?!=)", mk, re.M))
     pats = [a[:-1] for a in anchors if a.endswith("%")]
     plain = {a for a in anchors if "%" not in a}
