@@ -46,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import changes_index  # the note/row pair this bot owes every doc change renders through (issue #2598)
+import bot_preflight  # the ONE stamp authority for the AGENTS:/BASE: pair (issue #2050, #2110)
 import git_identity  # the ONE source of the commit identity (issue #840)
 import issue_body  # the one issue shape every producer renders through (issue #745)
 import module_name_guard  # the shared rename rule (#573): the same check `make test-unit` runs
@@ -448,22 +449,6 @@ def render_commit_body(issue: int, d: dict, stamp: str, head: str, doc: str) -> 
     ]) + "\n"
 
 
-def _hygiene_lines(root: Path) -> list[str]:
-    """The `AGENTS:`/`BASE:` pair the PR-hygiene gate reads (issue #792, #845): the full sha of
-    the main tip this branch started from, plus the AGENTS.md that tip holds. A tree without
-    AGENTS.md states neither line rather than inventing one."""
-    tip = git(root, "rev-parse", "HEAD").strip()
-    proc = _run(["git", "-C", str(root), "show", "HEAD:AGENTS.md"],
-                capture_output=True, text=True)
-    if proc.returncode != 0:
-        return []
-    content = proc.stdout
-    return [
-        f"AGENTS: {tip} {len(content.encode())}b {content.count(chr(10))}l",
-        f"BASE: {tip} (== origin/main at open)",
-    ]
-
-
 def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
     """The refresh issue: the shape every issue in this repository carries (issue #745)."""
     paths = ", ".join(f"`{p.split(chr(9))[-1]}`" for p in d["paths"][:10]) or "(the doc has no history)"
@@ -507,12 +492,15 @@ def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
 
 
 def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str,
-              commit: str = "", hygiene: list[str] | None = None) -> str:
+              *, commit: str = "", record: dict) -> str:
+    """The PR body — stamped at composition (issue #2110): `render_pr` returns
+    `bot_preflight.stamp_body(body, record)`, the same shape `security_bot.pr_body` uses, so no
+    call site can forget the pair and `pr_agents_line_findings` judges this very string `[]`."""
     paths = ", ".join(f"`{p.split(chr(9))[-1]}`" for p in d["paths"][:10]) or "(the doc has no history)"
     measured = commit or head  # a dry preview names the base tip where the publish commit will be
     ticked = [f"- [x] {item} (proven: {why})" for item, why in
               zip(acceptance_items(doc, head), acceptance_proven(d, doc, measured, head, issue))]
-    return "\n".join([
+    return bot_preflight.stamp_body("\n".join([
         # The author a reviewer sees, before the diff (issue #840).
         git_identity.pr_author_line(),
         "",
@@ -542,10 +530,8 @@ def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str,
         "",
         *ticked,
         "",
-        *(hygiene or []),
-        *([""] if hygiene else []),
         f"closes #{issue}",
-    ]) + "\n"
+    ]), record) + "\n"
 
 
 # ---------------------------------------------------------------------- publishing
@@ -676,6 +662,11 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
     gh = gh or shutil.which("gh") or "gh"
 
+    # The stamp pair's record is measured BEFORE any GitHub write, branch, or commit exists
+    # (issue #2110): the one authority `bot_preflight` refuses a checkout whose `main` it cannot
+    # resolve, naming the refs it tried — a PR must not open with a pair it cannot stand behind.
+    record = bot_preflight.resolve_record(root, refs=("main",))
+
     text = doc_text(root, doc)
     if not text.strip():
         raise ValueError(f"{doc} is missing or empty — nothing to publish")
@@ -724,12 +715,11 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
         raise ValueError("the refresh pair would not parse: " + "; ".join(probe_err))
     issue_text = render_issue(d, stamp, head, doc)
     items = acceptance_items(doc, head)
-    hygiene = _hygiene_lines(root)  # the base tip's AGENTS pair — read before this run commits
-    # A dry preview shows the FINAL shape: the same ticked mirrors and hygiene lines the wire
+    # A dry preview shows the FINAL shape: the same ticked mirrors and stamp pair the wire
     # bodies will carry, with the base tip named where the publish commit will be.
     issue_preview = tick_issue_acceptance(issue_text, items,
                                           acceptance_proven(d, doc, head, head, 0))
-    pr_body = render_pr(0, d, stamp, head, doc, branch, hygiene=hygiene)
+    pr_body = render_pr(0, d, stamp, head, doc, branch, record=record)
     result = {"action": "would-publish", "doc": doc, "branch": branch, "head": head,
               "issue_body": issue_preview, "pr_body": pr_body}
     if dry:
@@ -763,7 +753,8 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     _gh_retry(gh, "api", "--method", "PATCH", f"repos/{repo}/issues/{issue_num}", "-F", "body=@-",
               stdin=issue_text)
     git(root, "push", "-u", "origin", branch)
-    pr_body = render_pr(issue_num, d, stamp, head, doc, branch, commit=commit, hygiene=hygiene)
+    pr_body = render_pr(issue_num, d, stamp, head, doc, branch, commit=commit,
+                        record=record)
     # A GitHub 502/504 here means the answer was lost, not that the PR was refused: retry, then look
     # for the PR the create may have made, and only then fail (issue #479).
     #
@@ -840,6 +831,8 @@ def main(argv=None) -> int:
     if args.dry and result["action"] == "would-publish":
         print("--- issue body ---")
         print(result["issue_body"])
+        print("--- pr body ---")
+        print(result["pr_body"])
     return 0
 
 

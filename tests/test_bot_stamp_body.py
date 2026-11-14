@@ -11,14 +11,17 @@ So this file locks the two halves of the fix:
 * `bot_preflight.stamp_body` is the ONE stamper: it inserts or REPLACES the pair, flush-left, and the
   result passes the gate's own `agents_line_findings` — proven against a real git repository, with the
   unstamped body as the negative control;
-* every bot producer calls it at open — the issue-bot's `render_pr_body`, `engine-bump.yml`,
-  `registry-sync.yml`, `security_bot`, `security_bumps` — and the fix-bot re-stamps a repaired PR and
-  only claims a push when the push step produced a sha.
+* every bot producer calls it at open — and the roster of who that is is DERIVED from the tree
+  (#2110): the python modules whose code carries the `gh pr create` call form (`issue_implementer`,
+  `security_bot`, `security_bumps`, `architecture_bot`) and the workflows whose non-comment steps
+  run it (`engine-bump.yml`, `registry-sync.yml`, `semgrep-rules-refresh.yml`) — and the fix-bot
+  re-stamps a repaired PR and only claims a push when the push step produced a sha.
 
 NO-SKIP POLICY: every case runs the real functions; none is skipped.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -64,6 +67,35 @@ def _bot_repo(tmp_path: Path, agents: str = "# Rules\r\n\r\n## Problem\r\n") -> 
     _git(repo, "add", "work.txt")
     _git(repo, "commit", "-m", "feat: work")
     return repo
+
+
+# The derived producer roster (#2110): who opens a bot PR is read off the tree, not remembered.
+# A python module is a producer when its CODE carries the call form `"pr", "create"` — prose in a
+# docstring never opens a PR. A workflow is a producer when a NON-COMMENT line runs `gh pr create`.
+_CALL_FORM = re.compile(r'"pr",\s*"create"')
+
+
+def _py_pr_openers(scripts_dir: Path) -> list[str]:
+    return [p.name for p in sorted(scripts_dir.glob("*.py"))
+            if _CALL_FORM.search(p.read_text(encoding="utf-8"))]
+
+
+def _unstamped_py(scripts_dir: Path) -> list[str]:
+    return [name for name in _py_pr_openers(scripts_dir)
+            if "bot_preflight.stamp_body" not in (scripts_dir / name).read_text(encoding="utf-8")]
+
+
+def _unstamped_workflows(workflows_dir: Path) -> list[str]:
+    bad: list[str] = []
+    for wf in sorted(workflows_dir.glob("*.yml")):
+        lines = [ln.strip() for ln in wf.read_text(encoding="utf-8").splitlines()]
+        opens = [i for i, ln in enumerate(lines) if "gh pr create" in ln and not ln.startswith("#")]
+        if not opens:
+            continue
+        stamps = [i for i, ln in enumerate(lines) if "make bot-stamp-body" in ln]
+        if not stamps or min(stamps) > min(opens):
+            bad.append(wf.name)
+    return bad
 
 
 def test_the_stamp_is_flush_left_at_the_end_and_beside_itself():
@@ -180,21 +212,73 @@ def test_open_pr_refuses_to_open_a_body_it_cannot_stamp(tmp_path, monkeypatch):
 
 
 def test_every_bot_pr_producer_stamps_before_it_opens_or_edits():
-    """The producers that open/edit a bot PR call the ONE stamper before the `gh pr` write."""
+    """The producer roster is DERIVED from the tree (#2110), not remembered from a run: every
+    module/leg that opens a bot PR is a producer by construction, and every producer stamps."""
 
-    # Given the workflow producers that create or edit a bot PR body in shell
+    # Given the derived rosters: python modules carrying a real `gh pr create` call-form, and
+    # workflows whose NON-COMMENT steps run `gh pr create` (a doc comment is not a producer)
+    openers = sorted(_py_pr_openers(REPO / "scripts"))
+    assert openers, "the call-form scan found no PR-opener at all — the scan itself broke"
+    for name in ("architecture_bot.py", "issue_implementer.py", "security_bot.py",
+                 "security_bumps.py"):
+        assert name in openers, f"{name} is a producer the derived roster no longer sees"
+
+    # Then every python producer calls the pair authority from a resolved ref — none restates it
+    unstamped = _unstamped_py(REPO / "scripts")
+    assert unstamped == [], f"unstamped PR producers: {unstamped}"
+    for name in openers:
+        src = (REPO / "scripts" / name).read_text()
+        assert "bot_preflight.resolve_record" in src, f"{name} stamps from an unproven ref"
+
+    # And every opener workflow runs `make bot-stamp-body` before its first `gh pr create`
+    bad_wf = _unstamped_workflows(REPO / ".github" / "workflows")
+    assert bad_wf == [], f"workflows that open before they stamp: {bad_wf}"
     for name in ("engine-bump.yml", "registry-sync.yml"):
-        text = WORKFLOWS[name]
-        assert "make bot-stamp-body" in text, f"{name} opens a PR body without stamping it"
-        assert text.index("make bot-stamp-body") < text.index("gh pr create"), \
-            f"{name} stamps AFTER it opens the PR"
-        assert "--body-file /tmp/pr-body.md" in text, f"{name} still passes an unstamped --body"
+        assert "--body-file /tmp/pr-body.md" in WORKFLOWS[name], f"{name} still passes an unstamped --body"
 
-    # And the python producers call the same pair authority, not a restated copy
-    for module in ("issue_implementer.py", "security_bot.py", "security_bumps.py"):
-        src = (REPO / "scripts" / module).read_text()
-        assert "bot_preflight.stamp_body" in src, f"{module} composes a bot PR body without stamping"
-        assert "bot_preflight.resolve_record" in src, f"{module} stamps from an unproven ref"
+
+def test_an_unstamped_new_producer_reds_the_derived_roster(tmp_path):
+    """The negative control AC3 names: a NEW module that opens a PR without stamping — or a
+    workflow that creates before it stamps — is NAMED by the scan, which is what reddens
+    `make test-unit`. A comment that merely mentions `gh pr create` is not a producer."""
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "issue_implementer.py").write_text(
+        'def open_pr(gh):\n'
+        '    rec = bot_preflight.resolve_record()\n'
+        '    body = bot_preflight.stamp_body(BODY, rec)\n'
+        '    return _gh(gh, ["pr", "create", "--repo", "o/r", "--body", body])\n')
+    (scripts / "ghost_pr.py").write_text(
+        'def open_pr(gh):\n'
+        '    return _gh(gh, ["pr", "create", "--repo", "o/r"])\n')
+    (scripts / "check_pr_hygiene.py").write_text(
+        '"""The gate reads a body. It never opens a PR: `gh pr create` appears only as prose."""\n')
+    (scripts / "gh_reader.py").write_text(
+        'def view(gh):\n    return _gh(gh, ["pr", "view", "12"])\n')
+
+    assert _py_pr_openers(scripts) == ["ghost_pr.py", "issue_implementer.py"]
+    assert _unstamped_py(scripts) == ["ghost_pr.py"]
+
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "good.yml").write_text(
+        "steps:\n"
+        "  - run: make bot-stamp-body BODY=/tmp/pr-body.md\n"
+        "  - run: gh pr create --body-file /tmp/pr-body.md\n")
+    (workflows / "late.yml").write_text(
+        "steps:\n"
+        "  - run: gh pr create --body x\n"
+        "  - run: make bot-stamp-body BODY=/tmp/pr-body.md\n")
+    (workflows / "nostamp.yml").write_text(
+        "steps:\n"
+        "  - run: gh pr create --body x\n")
+    (workflows / "comment-only.yml").write_text(
+        "# this leg used to say: gh pr create; today it only reads\n"
+        "steps:\n"
+        "  - run: gh pr view 12\n")
+
+    assert _unstamped_workflows(workflows) == ["late.yml", "nostamp.yml"]
 
 
 def test_the_fix_bot_re_stamps_a_repair_and_only_claims_a_push_it_made():
