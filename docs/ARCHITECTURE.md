@@ -19,7 +19,10 @@ This document is the map of the shipped path and the machinery around it. The us
 this doc's last commit, `make architecture-bot-doc` rewrites this file with Hermes inside the
 agent image (the doc is the only writable file, and the transcript is redacted), and
 `make architecture-bot-publish` files ONE issue + ONE linked PR for the change (`DRY=1`
-previews). Nothing is published without drift, and the bot never merges.
+previews), stamping the PR body at composition with the `AGENTS:`/`BASE:` pair measured at
+`origin/main` through `bot_preflight.stamp_body` (`make bot-stamp-body`), the same shape the
+security bot's PR uses — so the bot's own PR never opens unstamped (issues #2050, #2110).
+Nothing is published without drift, and the bot never merges.
 
 ## The shipped path
 
@@ -158,12 +161,12 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 5692 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
-`README.md`), `containers/` 60, `tests/` 308, `scripts/` 176, `openspec/` 1961, `agent-wiki/`
-831, `docs/` 841 and `agents/` 1400 (13 profile dirs plus `manifest.json`,
+The tree is 5716 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
+`README.md`), `containers/` 60, `tests/` 308, `scripts/` 176, `openspec/` 1977, `agent-wiki/`
+835, `docs/` 845 and `agents/` 1400 (13 profile dirs plus `manifest.json`,
 `standing-rules.md`, `fleet-block-exemptions.json` and `README.md`). The nine named content dirs sum to
-5608; the remaining 84 tracked files are `.github/`, `.hermes/`, `tools/`,
-`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `298552b58`)
+5632; the remaining 84 tracked files are `.github/`, `.hermes/`, `tools/`,
+`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `fc39b418`)
 
 | Path | Role |
 |---|---|
@@ -179,8 +182,8 @@ The tree is 5692 tracked files: `data/` 13, `skills/` 18 (17 engine directories 
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`): its `Dockerfile` only — the two lockfiles are copied from `tools/` into a temp build context and are never tracked here (a committed copy is a stale pin the scan can never clear, issue #787) |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (503 changes) |
-| `agent-wiki/` | dated work record (831 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (507 changes) |
+| `agent-wiki/` | dated work record (835 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
 | `tests/` | 261 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `mk/` | the include-split of the top `Makefile` (issue #800, reopened #2456–#2460): the domain targets now live in their own files — `gates.mk` (host/gate/coverage/lint, moved byte-identical out), `bots.mk` (the bot legs and their sweeps, issue #2460), `install.mk` (install/uninstall and the `ci-install-*` steps, issue #2461), `ci.mk` (the `ci-*` pipeline job targets, issue #2458), `security.mk` (the scan/secret supply-chain targets, issue #2459) and `engines.mk` (the engine-image/build/serve targets, issue #2456) — each `include mk/<domain>.mk`, so every target keeps its `##` help line under the top entry point |
@@ -1108,7 +1111,7 @@ in the git-ignored `security-reports/`.
 | `semgrep-rules-refresh.yml` | `17 6 15 * *` | re-resolves the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, rewrites `containers/scanners/semgrep/rules/default.yml` + re-stamps `digests.json`, and opens a `chore/semgrep-rules-refresh` re-pin PR only when the pack changed (`make semgrep-rules-refresh`, `scripts/semgrep_rules.py`; issue #2283 criterion 2) — never merges, never touched by a PR or push (issue #738) |
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` (`scripts/queued_run_alarm.py`) |
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works (`scripts/fetch_smoke.py`) |
-| `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR (`scripts/architecture_bot.py`) |
+| `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR whose body is stamped at composition (`scripts/architecture_bot.py`, issue #2110) |
 | `run-failure-reactor.yml` | — (`workflow_dispatch` only) | routes the ONE failed run a person hands it (`inputs.run_id`; optional `context`): a PR it can push (this repository, or the owner's fork) becomes a fix-bot dispatch, made with the owner PAT because that bot's guard refuses a bot actor (issues #555, #556); anything else becomes ONE marker-deduped issue labelled `agent:implement` (`scripts/run_failure_reactor.py`, issue #286). It is MANUAL-ONLY (owner directive 2026-11-08, #2293): its former `workflow_run` roster is gone (each dropped workflow is recorded with a dated reason in `tests/fixtures/workflow-run-exemptions.json`), so a red PR is no longer an automatic issue factory — a person (or the all-pipelines sweep) dispatches it; a re-added auto trigger fails `make check-workflows` (#2293). The dedupe search builds the marker phrase with every `"` stripped (`filed_phrase()`), because GitHub's issue search cannot express a double-quote inside a quoted phrase and a marker built from a workflow display name like `ci-verdict — … says "no verdict" out loud` embeds one — the verbatim marker never matched, so a duplicate was filed for every failing run (issue #1990) |
 | `auto-merge.yml` | `3,33 * * * *` + `workflow_run` on `CI` + `ci-scope` | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval and for GitHub's mergeability to settle, and its `recheck` job retries a deferral without a push at the head it still has |
 
