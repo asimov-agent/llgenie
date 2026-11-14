@@ -249,6 +249,32 @@ def _thread(gh: str, repo: str, num: int) -> dict:
     return json.loads(out or "{}")
 
 
+def _remote_lane_branches(gh: str, repo: str, num: int) -> list[str]:
+    """Remote branches carrying this issue's branch shape `agent/issue-<n>` / `agent/issue-<n>-…`.
+
+    Issue #2671: lanes push `agent/issue-<number>-<slug>` branches (AGENTS.md's own shape), and a
+    bot pick that collides with one burns a ~40-minute implement leg dying at
+    `git push ... [rejected] (fetch first)` — measured on #744, 3 known-bad dispatches in 48h.
+
+    `gh api repos/<repo>/git/refs/heads/<prefix>` answers an exact ref, an ARRAY of refs under a
+    prefix, or 404. Absence is a legitimate answer here, so the probe swallows `_gh`'s
+    SystemExit: a probe that cannot answer must never abort a pick (fail-open).
+    """
+    try:
+        out = _gh(gh, ["api", f"repos/{repo}/git/refs/heads/{BOT_BRANCH_PREFIX}{num}"])
+    except SystemExit:
+        return []
+    try:
+        data = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return []
+    items = data if isinstance(data, list) else [data]
+    exact, prefixed = f"{BOT_BRANCH_PREFIX}{num}", f"{BOT_BRANCH_PREFIX}{num}-"
+    return [name for name in (str(i.get("ref") or "").removeprefix("refs/heads/")
+                              for i in items if isinstance(i, dict))
+            if name == exact or name.startswith(prefixed)]
+
+
 def _pick(cands: list[dict]) -> dict | None:
     """The oldest candidate that has not already been decided (closed) — a refined one is still open work."""
     for issue in sorted(cands, key=lambda i: i.get("createdAt") or ""):
@@ -259,13 +285,19 @@ def _pick(cands: list[dict]) -> dict | None:
     return None
 
 
-def _pick_free(gh: str, repo: str, cands: list[dict]) -> dict | None:
+def _pick_free(gh: str, repo: str, cands: list[dict],
+               skips: "list[int] | None" = None) -> dict | None:
     """The oldest candidate nobody else is on.
 
     A bot that is going to refine or implement an issue says so ON THE ISSUE, and any recent
     comment that has not been concluded by a `done` comment means someone is on it - so this run
     skips THAT issue and takes the next one in the list (scripts/bot_claims.py). The implementer's
     own `pr-open` marker counts too, so an implemented issue is never implemented twice.
+
+    Issue #2671 adds the branch half of the same rule: an open issue whose `agent/issue-<n>…`
+    branch already exists on the remote belongs to the lane that pushed it. The skip is NAMED
+    (`branch-exists`, with the branch), and the skipped number lands in `skips` so the caller can
+    say why a pick came back empty.
     """
     for issue in sorted(cands, key=lambda i: i.get("createdAt") or ""):
         names = [l.get("name") for l in (issue.get("labels") or []) if l.get("name")]
@@ -282,6 +314,13 @@ def _pick_free(gh: str, repo: str, cands: list[dict]) -> dict | None:
                                    is_live=lambda rid: bot_claims.run_is_live(rid, lambda args: _gh(gh, args)))
         if gone:
             print(f"[issue-implementer] #{num}: {gone}")
+        hits = _remote_lane_branches(gh, repo, num)
+        if hits:
+            print(f"[issue-implementer] #{num} already carries the lane branch {hits[0]} on the "
+                  f"remote (branch-exists): skipping it and taking the next one")
+            if skips is not None:
+                skips.append(num)
+            continue
         return issue
     return None
 
@@ -340,14 +379,33 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
         if (detail.get("state") or "").strip().lower() != "open":
             print(f"[issue-implementer] forced issue #{force_issue} is '{detail.get('state')}', not open")
             return {"action": "none", "count": n, "issue": None}
+        # Issue #2671: even a pin lands on a collision. A lane already owns this issue's
+        # `agent/issue-<n>…` branch; refusing here costs the run nothing, while a pinned pick
+        # burns the full implement leg and dies at push like the #744 dispatches did.
+        hits = _remote_lane_branches(gh, repo, force_issue)
+        if hits:
+            print(f"[issue-implementer] forced issue #{force_issue} already carries the lane "
+                  f"branch {hits[0]} on the remote (branch-exists): refusing it — the branch's "
+                  "owner works that issue")
+            return {"action": "none", "count": n, "issue": None,
+                    "reason": "branch-exists", "skipped": [force_issue]}
         title = detail["title"]
         num = detail["number"]
     else:
         # Labeled `agent:implement` first (oldest label first); else the oldest `agent:ready`.
-        issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:implement"))
+        # Issue #2671: the skips list carries issues excluded because their lane branch exists,
+        # so an empty pick can name the reason instead of pretending the queue was empty.
+        skips: list[int] = []
+        issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:implement"), skips)
         if issue is None:
-            issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:ready"))
+            issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:ready"), skips)
         if issue is None:
+            if skips:
+                print(f"[issue-implementer] every remaining candidate already carries an "
+                      f"agent/issue-<n> lane branch on the remote (branch-exists): "
+                      f"{', '.join('#' + str(s) for s in skips)} — nothing to dispatch")
+                return {"action": "none", "count": n, "issue": None,
+                        "reason": "branch-exists", "skipped": skips}
             print("[issue-implementer] no issue labelled agent:implement or agent:ready left "
                   "(closed issues carry agent:closed and are skipped; a refined one is still queued)")
             return {"action": "none", "count": n, "issue": None}
@@ -687,6 +745,10 @@ def main(argv=None) -> int:
                        Path(args.out), force_issue=args.force_issue)
         # Machine-readable lines the workflow parses after the human log line.
         print(f"action={res.get('action')}")
+        # Issue #2671: a `none` pick that was empty because lane branches cover every candidate
+        # says so (`reason=branch-exists`); the workflow maps any `action=none` to dispatch=false.
+        if res.get("reason"):
+            print(f"reason={res['reason']}")
         if res.get("issue"):
             print(f"issue={res['issue']}")
             print(f"branch={res['branch']}")

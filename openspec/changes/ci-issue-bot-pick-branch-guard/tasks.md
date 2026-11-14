@@ -1,0 +1,8 @@
+# Tasks
+
+- [x] 1. `scripts/issue_implementer.py`: add `_remote_lane_branches(gh, repo, num)` — a refs-prefix probe (`gh api repos/<repo>/git/refs/heads/agent/issue-<n>`) that treats 404/error as "no branch" (not routed through `_gh`, which SystemExits on non-zero) and returns exact `agent/issue-<n>` or `agent/issue-<n>-…` ref names
+- [x] 2. `_pick_free`: after the claim checks, skip a candidate whose lane branch exists on the remote (named log line `branch-exists`, naming the branch); collect skipped numbers via an optional `skips` list parameter
+- [x] 3. `dispatch`: pass the skips list through both pick calls; when the candidate set is exhausted by branch-skips return `{"action": "none", "reason": "branch-exists", "skipped": [...]}`; refuse a forced pinned issue the same way; CLI prints `reason=` for a reasoned `none`
+- [x] 4. `tests/test_issue_implementer.py`: extend `_fake_gh` to answer the refs probe from a `branches` opt (seeded → JSON list, unseeded → exit 1 like a real 404); seed a foreign `agent/issue-7-…` branch and assert the pick takes the next issue, a branch-covered set yields `action=none` + `reason=branch-exists`, a forced issue with a lane branch is refused, and no branch answers dispatch unchanged
+- [x] 5. Note trio: `agent-wiki/2026-11-14-issue-bot-pick-branch-guard.md`, a `docs/changes.d/2026-11-14-issue-bot-pick-branch-guard.md` row, and the regenerated `CHANGES.md`
+- [x] 6. Verification: the unit suite for this module passes in the hermetic container, `make openspec-validate NAME=ci-issue-bot-pick-branch-guard`, `make openspec-tasks-check`, `make check-docs`, `make lane-preflight`
