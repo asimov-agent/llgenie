@@ -126,6 +126,14 @@ COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
 COPY nerve_profile_check.py /usr/local/bin/nerve_profile_check.py
 COPY agent_jev_preflight.sh /usr/local/bin/agent_jev_preflight.sh
 COPY agent_lanes_check.py /usr/local/bin/agent_lanes_check.py
+# The ONE lane installer (issue #2669): the same multi-lane seam the host runs via
+# `make provision-agent-profiles` is installed here beside the two modules it imports (it
+# sys.path.inserts its own directory), so the image CANNOT install lanes through a different code
+# path than the host. The old inline `cp -r` loop is gone: this seam writes, then reads every file
+# back byte-for-byte against the tree.
+COPY provision_agent_profiles.py /opt/llgenie/bin/provision_agent_profiles.py
+COPY agent_profile_sync.py /opt/llgenie/bin/agent_profile_sync.py
+COPY check_agent_profiles.py /opt/llgenie/bin/check_agent_profiles.py
 # The fleet's lane profiles (issue #2181). Before this image held NONE: no agents/ reference, no
 # profile, so a bot job asking for a named lane resolved against an empty profile home. This tree
 # (agents/manifest.json + one <name>/ per lane) is what the lane-install step below installs, and
@@ -173,24 +181,28 @@ RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflig
     && ! env | grep -qE '^(TYPESAFE|OPENROUTER|OPENCODE)_API_KEY=' \
     && echo "[agent-image] JEV layer installed; provider key arrives at run time (scripts/agent_jev_preflight.sh wires it in)"
 
-# The llgenie lane profiles (issue #2181). This is the step the issue is about: before it, the
-# image carried NO lane — the Hermes CLI was installed but a bot job asking for a named profile
-# resolved against an empty profile home. Here each lane declared by agents/manifest.json is
-# copied into ${HERMES_HOME}/profiles/<name>/ (its SOUL.md + skills), mirroring how the host's
-# `make sync-agent-profile` populates ~/.hermes/profiles/<name>. Then scripts/agent_lanes_check.py
-# re-reads that same manifest against the installed profiles and FAILS THE BUILD when a declared
-# lane did not land — a container that would run a lane with no rulebook is the failure mode the
-# issue names, and it must be visible at build time, not inside a bot run.
+# The llgenie lane profiles (issue #2181, installer unified by issue #2669). This is the step the
+# issues are about: before #2181 the image carried NO lane — the Hermes CLI was installed but a bot
+# job asking for a named profile resolved against an empty profile home; and until #2669 this step
+# installed the lanes with its own inline `cp -r` loop, a second code path the host's seam
+# (scripts/provision_agent_profiles.py) never shared, with a gate that only checked SOUL.md.
+# Now the step IS that seam: it writes every lane declared by agents/manifest.json into
+# ${HERMES_HOME}/profiles/<name>/, reads every tree file back byte-for-byte, and --resolve proves
+# each lane's skills resolve through `hermes -p <lane> skills list --source local`. Then
+# scripts/agent_lanes_check.py re-reads that same manifest against the installed profiles,
+# reconciles the skills subtree file by file, and FAILS THE BUILD when a declared lane or any of
+# its skill files did not land — a container that would run a lane with no rulebook, or with a
+# rulebook whose skillbooks cannot load, is the failure mode the issues name, visible at build
+# time, not inside a bot run.
 RUN set -eux; \
-    mkdir -p "${HERMES_HOME}/profiles"; \
-    for profile in $(python3 -c 'import json,sys; print(" ".join(p["name"] for p in json.load(open(sys.argv[1]))["profiles"]))' /opt/llgenie/agents/manifest.json); do \
-        mkdir -p "${HERMES_HOME}/profiles/${profile}"; \
-        cp -r "/opt/llgenie/agents/${profile}/." "${HERMES_HOME}/profiles/${profile}/"; \
-    done; \
-    python3 /usr/local/bin/agent_lanes_check.py \
+    python3 /opt/llgenie/bin/provision_agent_profiles.py \
+        --root /opt/llgenie \
+        --dest "${HERMES_HOME}/profiles" \
+        --resolve \
+    && python3 /usr/local/bin/agent_lanes_check.py \
         --agents /opt/llgenie/agents \
         --profiles "${HERMES_HOME}/profiles" \
-    && echo "[agent-image] llgenie lanes installed into ${HERMES_HOME}/profiles (agent_lanes_check.py passed)"
+    && echo "[agent-image] llgenie lanes installed into ${HERMES_HOME}/profiles through the host's own seam (provision_agent_profiles.py --resolve) and agent_lanes_check.py passed"
 
 # The repo is checked out by the workflow (the agent edits the working tree); this is only
 # the default working dir, and `git config` is left to the workflow so the bot's identity

@@ -109,3 +109,81 @@ def test_the_committed_agents_tree_carries_every_manifest_lane():
         assert not missing, f"manifest declares lanes missing a SOUL.md in the tree: {missing}"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ---- the skill-book half of the gate (issue #2669) --------------------------------------------
+
+def _with_skills(agents: Path, name: str, *skill_paths: str) -> None:
+    """Give a tree lane skills: a SKILL.md under each relative path (agents/<name>/skills/… )."""
+    for rel in skill_paths:
+        p = agents / name / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"# {rel} rulebook for {name}\n")
+
+
+def test_installed_soul_without_the_tree_skills_reds_the_build(tmp_path, capsys):
+    """Issue #2669's exact failure: the old `cp -r` loop could land a lane's SOUL.md while its
+    skills subtree silently missed. A tree lane carrying SKILL.md files and an installed home
+    without them must RED the build, naming the lane and 'skillbooks'."""
+    agents, profiles = _tree(tmp_path, ["llgenie-planner"], ["llgenie-planner"])
+    _with_skills(agents, "llgenie-planner", "skills/llgenie-bot-orchestration/SKILL.md")
+    findings = lanes.findings(agents, profiles)
+    assert len(findings) == 1 and "llgenie-planner" in findings[0]
+    assert "skillbooks" in findings[0]
+    rc = lanes.run_cli(["--agents", str(agents), "--profiles", str(profiles)])
+    err = capsys.readouterr().err
+    assert rc == 1 and "llgenie-bot-orchestration" in err
+
+
+def test_installed_skill_that_diverges_from_the_tree_reds(tmp_path, capsys):
+    """Byte-identity is the contract: an installed SKILL.md whose bytes differ from the tree's is
+    a finding naming the relative path — the image must not run a stale skill."""
+    agents, profiles = _tree(tmp_path, ["llgenie-planner"], ["llgenie-planner"])
+    _with_skills(agents, "llgenie-planner", "skills/bot-skill/SKILL.md")
+    installed = profiles / "llgenie-planner" / "skills" / "bot-skill" / "SKILL.md"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("# an OLD copy the image kept from a previous build\n")
+    findings = lanes.findings(agents, profiles)
+    assert findings and "skills/bot-skill/SKILL.md" in findings[0] and "differs" in findings[0]
+    assert lanes.run_cli(["--agents", str(agents), "--profiles", str(profiles)]) == 1
+
+
+def test_tree_skills_installed_byte_identical_green(tmp_path):
+    """The positive control: every tree SKILL.md present and identical in the home greens the gate."""
+    agents, profiles = _tree(tmp_path, ["llgenie-planner"], ["llgenie-planner"])
+    _with_skills(agents, "llgenie-planner", "skills/a-skill/SKILL.md",
+                 "skills/b-skill/SKILL.md")
+    for rel in ("skills/a-skill/SKILL.md", "skills/b-skill/SKILL.md"):
+        target = profiles / "llgenie-planner" / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((agents / "llgenie-planner" / rel).read_bytes())
+    assert lanes.findings(agents, profiles) == []
+    assert lanes.run_cli(["--agents", str(agents), "--profiles", str(profiles)]) == 0
+
+
+def test_lane_without_tree_skills_stays_green(tmp_path):
+    """A lane the tree gives no skills is not a skill finding: the gate proves what the tree
+    carries, it does not invent a requirement the fleet never declared."""
+    agents, profiles = _tree(tmp_path, ["llgenie-security"], ["llgenie-security"])
+    assert lanes.findings(agents, profiles) == []
+
+
+def test_real_tree_provisioned_by_the_seam_passes_the_skill_gate(tmp_path):
+    """Cross-seam proof on the REAL tree: provision_agent_profiles.py writes every declared lane
+    into a fresh home, and the extended agent_lanes_check gate — which now compares every tree
+    SKILL.md byte-for-byte — passes it. A lane whose skills the installer failed to copy would
+    red THIS assertion, which is the #2669 build behaviour, proven without a container build."""
+    import shutil
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    r = subprocess.run(
+        [sys.executable, str(root / "scripts" / "provision_agent_profiles.py"),
+         "--root", str(root), "--dest", str(tmp_path)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    items = lanes.findings(root / "agents", tmp_path)
+    assert items == [], items
+    shutil.rmtree(tmp_path, ignore_errors=True)
