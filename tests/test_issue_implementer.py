@@ -63,6 +63,10 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     #: of every reference it cites (issue #521). A number absent here answers non-zero, the way a PR
     #: number, a typo or a deleted issue does.
     issues = opts.get("issues", {})
+    #: issue number -> branch names under `agent/issue-<n>` that the fake remote holds. The refs
+    #: probe (`gh api repos/<repo>/git/refs/heads/agent/issue-<n>`, issue #2671) answers these as
+    #: a ref array; an unseeded number answers 404 (exit 1), the way GitHub does for no match.
+    branches = opts.get("branches", {})
     pr_url = opts.get("pr_url", "https://github.com/acme/llgenie/pull/99")
 
     gh = tmp_path / "gh"
@@ -74,6 +78,7 @@ LABELED = {json.dumps(labeled)}
 READY = {json.dumps(ready)}
 VIEW = {json.dumps(view)}
 ISSUES = {json.dumps(issues)}
+BRANCHES = {json.dumps(branches)}
 PR_URL = {json.dumps(pr_url)}
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -83,6 +88,13 @@ if args[:2] == ["pr", "list"]:
                         "createdAt": "2026-10-14T09:00:00Z"}} for n in PRS]))
 elif args[:2] == ["search", "prs"]:
     print(json.dumps([{{"number": n}} for n in PRS]))
+elif args[0] == "api" and "/git/refs/heads/" in args[1]:
+    q = args[1].split("/git/refs/heads/", 1)[1]
+    hits = sorted(b for bs in BRANCHES.values() for b in bs if b == q or b.startswith(q + "-"))
+    if not hits:
+        print("gh: Not Found (HTTP 404)", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps([{{"ref": "refs/heads/" + b}} for b in hits]))
 elif args[:2] == ["issue", "list"] and "--label" in args:
     lab = args[args.index("--label") + 1]
     print(json.dumps(LABELED) if lab == "agent:implement" else json.dumps(READY))
@@ -196,6 +208,95 @@ def test_it_falls_back_to_the_oldest_ready_issue(tmp_path):
     # It listed agent:implement first, then agent:ready.
     lists = [c for c in _calls(log) if c[:2] == ["issue", "list"] and "--label" in c]
     assert [c[c.index("--label") + 1] for c in lists] == ["agent:implement", "agent:ready"]
+
+
+def test_dispatch_skips_an_issue_whose_lane_branch_exists_on_the_remote(tmp_path, capsys):
+    """#2671: a pre-existing `agent/issue-7…` branch is treated like a live claim — #7 is
+    skipped by name and the pick takes the next candidate (#11).
+
+    Measured (issue #2671): lanes push AGENTS.md's own branch shape `agent/issue-<number>-<slug>`;
+    on #744 every dispatch since 11 Nov picked the issue, ran ~40 minutes, and died at
+    `git push ... [rejected] (fetch first)` against two lane branches. 3 known-bad dispatches
+    in the last 48h.
+    """
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [],
+        "labeled": [
+            {"number": 7, "title": "CI security P0 finds", "createdAt": "2026-10-12T00:00:00Z"},
+            {"number": 11, "title": "Fix the thing", "createdAt": "2026-10-13T00:00:00Z"},
+        ],
+        "ready": [],
+        "view": {"number": 11, "title": "Fix the thing", "body": "Implement it."},
+        "branches": {"7": ["agent/issue-7-ci-security-p0-finds"]},
+    })
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    dry=True, today="2026-10-14", out_path=tmp_path / "issue.md")
+    assert r["action"] == "dispatch" and r["issue"] == 11, \
+        "the branched #7 is skipped and the next candidate is taken"
+    out = capsys.readouterr().out
+    assert "branch-exists" in out and "agent/issue-7-ci-security-p0-finds" in out, \
+        "the skip is NAMED, with the branch it skipped on"
+    probes = [c for c in _calls(log) if c[:1] == ["api"]
+              and "git/refs/heads/agent/issue-7" in c[1]]
+    assert probes, "the pick probes the remote branch namespace before claiming"
+
+
+def test_dispatch_reports_branch_exists_when_lane_branches_cover_every_candidate(tmp_path, capsys):
+    """An exhausted pick names WHY it is empty: action=none, reason=branch-exists, the skipped set."""
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [],
+        "labeled": [
+            {"number": 7, "title": "CI security P0 finds", "createdAt": "2026-10-12T00:00:00Z"},
+            {"number": 11, "title": "Fix the thing", "createdAt": "2026-10-13T00:00:00Z"},
+        ],
+        "ready": [],
+        "branches": {"7": ["agent/issue-7-ci-security-p0-finds"],
+                     "11": ["agent/issue-11-ci-issue-bot-picks"]},
+    })
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    dry=True, today="2026-10-14", out_path=tmp_path / "issue.md")
+    assert r["action"] == "none" and r["issue"] is None
+    assert r.get("reason") == "branch-exists"
+    assert sorted(r.get("skipped") or []) == [7, 11]
+    out = capsys.readouterr().out
+    assert "branch-exists" in out and "#7" in out and "#11" in out
+    assert not [c for c in _calls(log) if c[:2] == ["issue", "comment"]], \
+        "an exhausted branch-exists pick claims nothing"
+
+
+def test_forced_dispatch_refuses_an_issue_that_already_carries_its_lane_branch(tmp_path, capsys):
+    """#2671: even the explicit pin refuses when the lane branch exists — refused BEFORE the
+    claim comment is written, so the forced leg burns nothing."""
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [],
+        "view": {"number": 11, "title": "Fix the thing", "body": "Implement it.",
+                 "state": "OPEN"},
+        "branches": {"11": ["agent/issue-11-fix-the-thing"]},
+    })
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    today="2026-10-14", out_path=tmp_path / "issue.md", force_issue=11)
+    assert r["action"] == "none" and r.get("reason") == "branch-exists"
+    assert r.get("skipped") == [11]
+    assert "refusing it" in capsys.readouterr().out
+    assert not [c for c in _calls(log) if c[:2] == ["issue", "comment"]], \
+        "the refusal happens before any claim is written"
+    assert not (tmp_path / "issue.md").exists()
+
+
+def test_a_missing_lane_branch_answers_no_branch_and_never_aborts_the_pick(tmp_path):
+    """A 404 refs probe (the fake answers exit 1 for unseeded numbers) must fail-open: the
+    dispatch proceeds exactly as before the guard existed."""
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [],
+        "labeled": [{"number": 11, "title": "Fix the thing", "createdAt": "2026-10-14T00:00:00Z"}],
+        "ready": [],
+        "view": {"number": 11, "title": "Fix the thing", "body": "Implement it."},
+    })
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    dry=True, today="2026-10-14", out_path=tmp_path / "issue.md")
+    assert r["action"] == "dispatch" and r["issue"] == 11
+    probes = [c for c in _calls(log) if c[:1] == ["api"] and "/git/refs/heads/" in c[1]]
+    assert probes, "the probe ran; its 404 answered 'no branch', not a crash"
 
 
 def test_open_pr_links_the_issue_and_never_merges(tmp_path):
