@@ -9,7 +9,7 @@ Procedure:
 4. If nothing merged but PRs are green+BLOCKED: for the green blocked set, run
    make auto-merge-explain REPO=asimov-agent/llgenie PR=<n>
    and state exactly which gate holds each.
-5. Record on the tick card (id cc5d2bd4083a) or on issue #2101: counts approved, merged, deferred, plus the deferral reason per PR.
+5. Record ONCE per run on the rolling record tracker issue #2652 (open, never closed): first line exactly "[sweep <UTC-stamp>] merged=N approved=N deferred=N", then one line per deferred PR with its deferral reason.
 6. Never force a merge an identity cannot legally do; never gh pr review --approve an owner-authored PR (server 422 is expected and is not a defect); never cancel a live run; do not open branches or PRs (this is a sweep, not an implementer).
 
 Report one line: merged=N approved=N deferred=N (reasons).
