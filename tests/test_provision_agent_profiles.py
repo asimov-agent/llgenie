@@ -157,3 +157,98 @@ def test_no_delete_path(tmp_path):
     # one-way (tree files must match); a live-only extra is a finding, not a red.
     gate = _run(tmp_path, "--check")
     assert gate.returncode == 0, gate.stdout + gate.stderr
+
+
+# ---- --resolve: copied is not loadable (issue #2669) -------------------------------------------
+
+def _prov():
+    import scripts.provision_agent_profiles as prov  # noqa: PLC0415  (the real seam)
+    return prov
+
+
+def test_tree_skill_names_reads_every_skill_the_lane_carries():
+    """The resolution proof's denominator is the TREE: every `skills/**/SKILL.md` a lane carries
+    becomes an expected skill name. The planner's orchestration skill — present in the tree yet
+    unresolvable in the live profile when #2669 was filed — must be named by this function."""
+    prov = _prov()
+    names = prov.tree_skill_names(REPO / "agents", "llgenie-planner")
+    assert names, "the planner lane's tree carries SKILL.md files; the seam must enumerate them"
+    assert any("orchestration" in n for n in names), names
+
+
+def test_resolve_reports_every_tree_skill_the_lister_does_not_resolve(tmp_path):
+    """resolve_skills pairs (lane, skill) for each tree skill absent from the lane's resolved
+    list; a lister that resolves everything returns []. This is the exact red/green pair the
+    agent image build relies on."""
+    prov = _prov()
+    agents = tmp_path / "agents"
+    for skill in ("alpha-skill", "beta-skill"):
+        p = agents / "lane" / "skills" / skill / "SKILL.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("# rule\n")
+    assert prov.resolve_skills(agents, ["lane"], lambda n: "alpha-skill") == [("lane", "beta-skill")]
+    assert prov.resolve_skills(agents, ["lane"],
+                               lambda n: "alpha-skill\nbeta-skill") == []
+
+
+def test_elided_table_names_count_as_resolved():
+    """`hermes skills list` elides long names at its column width; a prefix + ellipsis is a hit.
+    A near-match that is NOT a prefix-ellipsis (a different skill sharing the stem) is not."""
+    prov = _prov()
+    assert prov._skill_resolved("│ containerized-repo-… │", "containerized-repo-maintainer")
+    assert not prov._skill_resolved("containerized-other-maintainer", "containerized-repo-maintainer")
+    assert not prov._skill_resolved("", "containerized-repo-maintainer")
+
+
+def test_cli_resolve_greens_when_every_lane_skill_resolves(tmp_path, monkeypatch, capsys):
+    """In-process CLI run against the REAL tree with an injected lister that resolves every tree
+    skill: rc 0 and the resolve line prints. The agent image build invokes exactly this path."""
+    prov = _prov()
+    agents = REPO / "agents"
+    monkeypatch.setattr(prov, "hermes_lane_skills",
+                        lambda name: "\n".join(prov.tree_skill_names(agents, name)))
+    rc = prov.main(["--root", str(REPO), "--dest", str(tmp_path), "--resolve"])
+    out = capsys.readouterr().out
+    assert rc == 0, out
+    assert "resolve: every skill" in out
+
+
+def test_cli_resolve_reds_when_a_lane_skill_is_unresolved(tmp_path, monkeypatch, capsys):
+    """A lane whose skills never resolve (the state the Dockerfile `cp -r` loop could ship):
+    rc 1, naming the lane and the skill — never a silent pass."""
+    prov = _prov()
+    monkeypatch.setattr(prov, "hermes_lane_skills", lambda name: "")
+    rc = prov.main(["--root", str(REPO), "--dest", str(tmp_path), "--resolve"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "RESOLVE FAIL" in err
+    assert "orchestration" in err  # a real planner tree skill the empty lister cannot resolve
+
+
+def test_cli_resolve_aborts_when_the_resolver_is_missing(tmp_path, monkeypatch, capsys):
+    """No hermes CLI means no proof: exit 2 naming the cause, never a skipped proof that looks
+    green (the same no-silent-pass contract the gate uses for a missing manifest)."""
+    prov = _prov()
+    monkeypatch.setattr(prov.shutil, "which", lambda p: None)
+    rc = prov.main(["--root", str(REPO), "--dest", str(tmp_path), "--resolve"])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "hermes CLI" in err
+
+
+def test_agent_image_installs_lanes_through_this_seam_not_a_private_copy():
+    """#2669's core claim, checked in the repo: the agent image's lane install RUNS this seam
+    with --resolve, the seam + its imported modules are hashed image inputs (a change to the
+    installer moves the image tag), and the private inline `cp -r` loop is gone from the Dockerfile's
+    executable lines."""
+    import scripts.ci_images as ci  # noqa: PLC0415
+
+    df = (REPO / "containers" / "agent" / "Dockerfile").read_text()
+    live = [ln for ln in df.splitlines() if not ln.strip().startswith("#")]
+    live_text = "\n".join(live)
+    assert "provision_agent_profiles.py" in live_text and "--resolve" in live_text
+    assert "cp -r" not in live_text, "the second install path must not survive in the image"
+    for script in ("scripts/provision_agent_profiles.py", "scripts/agent_profile_sync.py",
+                   "scripts/check_agent_profiles.py"):
+        assert script in ci.IMAGES["agent"][1], f"{script} must be a hashed agent-image input"
+    assert "scripts/agent_lanes_check.py" in ci.IMAGES["agent"][1]

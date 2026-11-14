@@ -109,12 +109,19 @@ IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     # a changed SOUL.md or skill must move the agent tag, or a stale image keeps running a lane
     # the repo no longer describes. scripts/agent_lanes_check.py is a hash input because the build
     # RUNS it to prove every manifest lane landed.
+    # (issue #2669) the build now installs the lanes through the HOST's own seam, so the seam and
+    # the two modules it imports are hash inputs too: an edit to the installer, the per-profile
+    # writer/checker, or the byte-comparator must move the agent tag, exactly like an install-script
+    # edit does — the image is the code of THIS commit, including the code path it installs with.
     "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",
                                               "scripts/hermes_skills_register.py",
                                               "scripts/install_nerve_ci.sh",
                                               "scripts/nerve_profile_check.py",
                                               "scripts/agent_jev_preflight.sh",
                                               "scripts/agent_lanes_check.py",
+                                              "scripts/provision_agent_profiles.py",
+                                              "scripts/agent_profile_sync.py",
+                                              "scripts/check_agent_profiles.py",
                                               "agents")),
 }
 

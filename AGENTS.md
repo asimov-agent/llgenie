@@ -1390,6 +1390,28 @@ nothing is masked in a log a job uploads itself. So no leg prints its stream raw
 - **A leg that calls `hermes` outside the macro is a defect**, and so is a workflow that uploads the
   raw `$(HERMES_LOG)` — the raw file holds the unredacted stream by construction.
 
+## Hermes cron jobs never run on the host (MANDATORY, durable)
+
+No Hermes profile cron job may dispatch on this host — not the planner's tick, not auto-approve,
+not auto-rebase, not any lane monitor. The host is where the agent works interactively, one
+issue/PR at a time; a cron-dispatched agent run races the interactive one, fans out into parallel
+sub-agent lanes, and feeds the kanban board the very parallelism this repo forbids (one task at a
+time). Measured on 2026-11-14: three active planner cron legs plus gateway-spawned kanban/cron
+workers were dispatching on the host while the interactive session worked the same board.
+
+- **Scheduled bot legs live in CI** (`.github/workflows` `schedule:` lanes, the `scrubbed_run`
+  container legs) or are dispatched by the interactive agent itself one at a time — never by a
+  Hermes profile cron store on the host.
+- **Every Hermes profile cron store on this host stays empty or paused**: `~/.hermes/cron/` and
+  `~/.hermes/profiles/*/cron/` carry no `[active]` job. When sweeping, check
+  `hermes -p <profile> cron list` for every profile; a live job is stopped (`cron pause`) before
+  any other work proceeds, and its kanban cards are cancelled, never left queued for a worker.
+- **No lane may be launched through the host kanban worker pool** (the gateway's
+  `kanban_worker_client` / `agent.managed_worker` spawn loop): an empty, non-claimable board is
+  the steady state between tasks.
+- Hermes profile cron machinery is exercised ONLY in CI/test fixtures (e.g. the planner-cron ACs
+  run as bounded `cron run` proofs or containerised tests, never as a live host scheduler).
+
 ## Record of work
 
 Track progress in `agent-wiki/` as dated `YYYY-MM-DD-<name>.md` entries (what was
