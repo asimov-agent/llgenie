@@ -214,6 +214,53 @@ def test_nothing_to_do_is_reported_as_none(tmp_path):
     assert res["action"] == "none" and "no open PR needs rebasing" in res["reason"]
 
 
+# --- aimed dispatch (`--pr <n>`, issue #2446) ---------------------------------------------
+# The board-wide sweep can only exercise action=rebase when some PR happens to be behind, so
+# #1494's AC2 could never be verified on demand. An aimed run decides only for its target —
+# the same invariants, aimed at a safe vehicle.
+
+def test_an_aimed_run_decides_only_for_its_target(tmp_path):
+    """The older behind PR is never evaluated when the run is aimed at a younger one."""
+    gh, log = _fake_gh(tmp_path, {"search": [], "prs": [
+        _pr(1, "BEHIND", created="2026-09-01T00:00:00Z"),
+        _pr(42, "BEHIND", created="2026-09-10T00:00:00Z")]})
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   target=42)
+    assert res["action"] == "rebase" and res["pr"] == 42, res
+    joined = " | ".join(res["reasons"])
+    assert "#1" not in joined and "#1" not in res["reason"], res
+
+
+def test_an_aimed_run_refuses_an_ineligible_target_by_name(tmp_path):
+    """A fresh target is passed over with ITS reason; the board is not consulted instead."""
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [
+        _pr(1, "BEHIND", created="2026-09-01T00:00:00Z"),
+        _pr(42, "CLEAN", created="2026-09-10T00:00:00Z")]})
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   target=42)
+    assert res["action"] == "none" and res["pr"] is None, res
+    joined = " | ".join(res["reasons"])
+    assert "#42 is CLEAN" in joined and "#1" not in joined, res
+
+
+def test_an_aimed_run_on_a_closed_target_names_it(tmp_path):
+    """A target that is not in the open set answers none, exit-clean, with the target named."""
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(1, "BEHIND")]})
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   target=42)
+    assert res["action"] == "none" and "targeted PR #42 is not open" in res["reason"], res
+
+
+def test_an_aimed_run_passes_over_a_held_target(tmp_path):
+    """The aim does not override bot coexistence: another bot's live claim still holds."""
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(42, "BEHIND")],
+                                   "comments_by_pr": {"42": [_claim(bot="fix-bot")]}})
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   target=42)
+    assert res["action"] == "none" and res["pr"] is None, res
+    assert any("held by another bot" in r for r in res["reasons"]), res["reasons"]
+
+
 def _calls(log: Path) -> list[list[str]]:
     return [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
 
