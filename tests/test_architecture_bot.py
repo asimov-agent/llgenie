@@ -16,11 +16,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 
 from scripts import architecture_bot as ab
+from scripts import check_pr_hygiene  # the gate the architecture bot's stamp must satisfy (#2110)
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
 WORKFLOW = REPO / ".github" / "workflows" / "architecture-bot.yml"
@@ -284,7 +286,11 @@ def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
     assert f"[{stem}.md](agent-wiki/{stem}.md)" in (root / "CHANGES.md").read_text()
     author = _git(root, "log", "-1", "--format=%an <%ae>").strip()
     assert author == "Asimov Agent <support@docondee.com>"
-    assert result["pr_body"].rstrip().endswith("closes #7")
+    # The pair is stamped by `bot_preflight.stamp_body`, so it is the LAST thing on the body and
+    # `closes #7` precedes it (issue #2110): the pair's flush-left shape is what the gate reads.
+    body_lines = result["pr_body"].rstrip().splitlines()
+    assert body_lines[-2].startswith("AGENTS: ") and body_lines[-1].startswith("BASE: ")
+    assert body_lines.index("closes #7") < len(body_lines) - 2
     for part in ("Issue:", "Fix:", "Benefit:", "Technical:"):
         assert part in result["pr_body"]
     # And the issue carries the shape every issue carries (issue #745)
@@ -326,6 +332,65 @@ def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
     # And it never merged and never pushed to main
     assert not any(" merge" in c for c in calls)
     assert not any(c.endswith(" main") for c in calls)
+
+
+def test_publish_stamp_pair_passes_the_gate_that_judges_it(tmp_path, monkeypatch):
+    """Issue #2110 AC: the body `publish` opens is measured CLEAN by the very gate that will
+    judge it, and dirty the moment the stamp pair is stripped."""
+
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+
+    result = ab.publish(root, "owner/repo", DOC, stamp="20261021T1210", gh=str(gh))
+    body = result["pr_body"]
+
+    # The gate's own entry point, over the real range it will see (bot commit on the branch,
+    # base `origin/main`): a stamped body carries no finding.
+    assert check_pr_hygiene.pr_agents_line_findings(
+        root, result["commit"], "origin/main", body) == []
+
+    # The same body without the pair is the failure shape the gate was written for.
+    stripped = "\n".join(ln for ln in body.splitlines()
+                         if not ln.startswith(("AGENTS:", "BASE:")))
+    keys = [f["key"] for f in check_pr_hygiene.pr_agents_line_findings(
+        root, result["commit"], "origin/main", stripped)]
+    assert keys == ["agents-line"], keys
+
+
+def test_publish_refuses_before_any_write_when_main_is_unmeasurable(tmp_path, monkeypatch):
+    """Issue #2110 AC: a checkout with no resolvable `main` refuses at the stamp authority,
+    naming the refs it tried, BEFORE any issue, branch, commit, or `gh` call exists."""
+
+    # Given a real repo whose only branch is `trunk` and which has no remote at all
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "docs").mkdir()
+    (root / "docs" / "ARCHITECTURE.md").write_text(LONG_DOC)
+    _git(root, "init", "-q", "-b", "trunk")
+    _git(root, "config", "user.name", "Andy Holst")
+    _git(root, "config", "user.email", "andy.holst@protonmail.com")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "feat: seed the tree")
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+
+    # When publish runs — and the class caught is the one the producer itself raises:
+    # architecture_bot stamps through its top-level `bot_preflight` seam, so the expectation
+    # reads `ab.bot_preflight` (one module object, one PreflightError class).
+    with pytest.raises(ab.bot_preflight.PreflightError) as exc:
+        ab.publish(root, "owner/repo", DOC, stamp="20261021T1220", gh=str(gh))
+
+    # Then it names the refs it tried...
+    assert "origin/main" in str(exc.value) and "main" in str(exc.value)
+    # ...made no GitHub call at all...
+    assert log.read_text() == ""
+    # ...created no branch beyond the checkout it was given...
+    branches = [ln.strip().lstrip("* ") for ln in _git(root, "branch", "--list").splitlines()]
+    assert branches == ["trunk"], branches
+    # ...and committed nothing new.
+    assert _git(root, "rev-list", "--count", "HEAD").strip() == "1"
 
 
 def test_publish_files_nothing_without_drift(tmp_path, monkeypatch):
