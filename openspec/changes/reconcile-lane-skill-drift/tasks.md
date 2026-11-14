@@ -10,7 +10,7 @@
 - [x] 4. Re-sync the seven drift lanes from the reconciled tree
       (`make sync-agent-profile PROFILE=<lane>`) and prove
       `make check-agent-profiles` exits 0 with zero per-lane FAIL lines.
-- [ ] 5. Sync issue #2679 body + PR body to the reconciled acceptance (referee
+- [x] 5. Sync issue #2679 body + PR body to the reconciled acceptance (referee
       rule), tick ACs with replayable proven strings.
-- [ ] 6. Final verification at head: `make check-agent-profiles`,
+- [x] 6. Final verification at head: `make check-agent-profiles`,
       `make check-docs`, `make lane-preflight` all green.

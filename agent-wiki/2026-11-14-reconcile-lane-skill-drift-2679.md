@@ -1,6 +1,6 @@
 # Reconcile lane skill drift (issue #2679)
 
-Issue: #2679. OpenSpec change: `reconcile-lane-skill-drift`.
+Issue: #2679. OpenSpec change: `reconcile-lane-skill-drift`. PR: #2687.
 
 ## What was measured
 
@@ -40,7 +40,7 @@ Classification against tree history settled the direction for every finding:
 ## Verified state
 
 - `make check-agent-profiles` → OK rc=0 at head (13 host profiles, zero
-  per-lane FAILs) after the seven lanes were re-synced from the reconciled tree.
+  per-lane FAILs) after the seven lanes were re-synced from the reconciled tree (PR #2687).
 - docs-lane `docs_audit.py` compiles (`py_compile` OK); its mk-glob matches the
   live fix byte-for-byte.
 - `make check-docs`, `make openspec-validate NAME=reconcile-lane-skill-drift` → rc=0.
