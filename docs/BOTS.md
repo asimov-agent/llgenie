@@ -2287,7 +2287,11 @@ make check-strata-models     # fail when data/strata_models.json differs from St
                              # never neither — is now reported by family and defect, not just as a diff
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
-                       # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
+                       # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews.
+                       # It also prints and (with COMMENT=1) files a RUN-LEVEL ghost-queue squat report (issue #2656):
+                       # orphan-queued runs (no OPEN PR, head branch deleted / 404) and runs stuck `in_progress`
+                       # whose job records have all concluded (read as JOB EXPIRY, #1889 — never a live matrix),
+                       # reported ONCE PER EPISODE and NEVER cancelled by this alarm
 make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
                        # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
                        # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
@@ -2297,6 +2301,18 @@ make check-zero-job-pending  # fail when a dispatched run has been pending/queue
                        # originally rode queued-alarm (:07/:37), but queued-alarm is disabled_manually and
                        # never completes, so the monitor never fired (#1442); re-pointed onto ci-requeue
                        # (:15/:45, active) so the run-level sweep follows the requeue sweep
+# ---- Orphan-queued runs: the handling rule (issue #2656) ------------------------------------
+# A run that sits non-terminal far past the `--minutes` threshold with NO open pull request AND a head
+# branch GitHub answers 404 for (deleted) is an ORPHAN-queued run: the stale leftover of finished/past
+# work squatting the queue. A run still `in_progress` whose job records have ALL concluded is JOB EXPIRY
+# (#1889 wording): its verdict is expired, and it is never counted as a live matrix.
+#   * Reporting — the queued-alarm reports the squat ONCE PER EPISODE (a deduped issue keyed on the sorted
+#     run-id set), naming the run ids and the orphan/live/expired split; a newly-added run is a fresh episode.
+#   * Cancellation is the OWNER'S word, always — this alarm never cancels nor deletes any run (the fleet
+#     standing rule; see #817). To clear an orphan/expired run a human runs `gh run cancel <id>` (and, for
+#     the confirmed-concluded phantoms that 404 even a cancel, marks them retired per issue #2600).
+#   * A deleted phantom row is admin-only; the zero-job zombie retirement (issue #2600) is the pattern for
+#     keeping a confirmed-concluded run out of every later scan without a delete arm.
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold

@@ -18,8 +18,14 @@ A workflow RUN ID is not an issue number: posting to `/repos/{repo}/issues/{run_
 running it live). So every delivery is checked, and a delivery that fails is LOUD: the failures go
 to stderr and the exit code says the report did not land.
 
-Exit codes: 0 = nothing stuck, 1 = at least one job is stuck (so a scheduled job goes red), 2 = the
-GitHub read failed, 3 = jobs are stuck AND the report could not be delivered.
+also prints a RUN-LEVEL ghost-queue squat report (issue #2656): orphan-queued runs (no open PR, head
+branch deleted) and runs stuck `in_progress` whose job records have all concluded (job expiry, #1889,
+read as expiry, never a live matrix). The squat is reported ONCE PER EPISODE (a deduped issue keyed on
+the run-id set) and is never cancelled by this alarm — cancellation is the owner's explicit word.
+
+Exit codes: 0 = nothing stuck and no squat, 1 = at least one job is stuck or a ghost-run squat (so a
+scheduled job goes red), 2 = the GitHub read failed, 3 = stuck/squat found AND the report could not be
+delivered.
 """
 from __future__ import annotations
 
@@ -128,6 +134,38 @@ def render(rows: list[dict], minutes: float) -> str:
     return "\n".join(lines)
 
 
+def render_squat(orphans: list[dict], expired: list[dict], minutes: float) -> str:
+    """The run-level ghost-queue squat report: run ids and the orphan / live / expired split.
+
+    A permanently `in_progress` run whose jobs have all concluded is READ AS JOB EXPIRY (#1889
+    wording): its verdict is expired, not a live matrix, and it never counts toward the live
+    queued/in_progress supply.
+    """
+    if not orphans and not expired:
+        return (f"no ghost-run squat: no orphan-queued run and no expired in_progress run "
+                f"past {minutes:.0f} minutes")
+    lines = ["", "GHOST-RUN SQUAT (run-level, issue #2656):"]
+    if orphans:
+        lines.append(f"  {len(orphans)} orphan-queued run(s) (> {minutes:.0f} min, no open PR, head "
+                     f"branch deleted):")
+        for r in orphans:
+            lines.append(f"    run {r['run']}  {r['workflow']}  branch={r['branch']}  head {r['head']}  "
+                         f"created {r['created']}  ({r['minutes']:.1f} min)")
+    if expired:
+        lines.append(f"  {len(expired)} run(s) stuck `in_progress` whose job records have all "
+                     f"concluded (job expiry, #1889):")
+        for r in expired:
+            lines.append(f"    run {r['run']}  {r['workflow']}  branch={r['branch']}  head {r['head']}  "
+                         f"created {r['created']}  ({r['minutes']:.1f} min)")
+    lines.append("")
+    lines.append("Handling rule: an orphan-queued run is reported ONCE PER EPISODE, naming the run ids "
+                 "and the orphan/live split above. It is NEVER cancelled by this alarm — the fleet "
+                 "standing rule reserves cancellation for the owner's explicit word (docs/BOTS.md). "
+                 "A permanently `in_progress` run whose jobs all concluded is job expiry (#1889): its "
+                 "verdict is expired, not a live matrix, so it is not counted in the live queue.")
+    return "\n".join(lines)
+
+
 def run_marker(run_id: int) -> str:
     """The dedupe marker for one RUN: a newly stuck run is news, the same run is not."""
     return f"<!-- {MARKER}: run {run_id} -->"
@@ -137,6 +175,109 @@ def label_marker(label: str) -> str:
     """The dedupe marker for one runner LABEL (the fallback issue's marker)."""
     return f"<!-- {MARKER}: label {label} -->"
 
+
+#: The run-level ghost-queue squat (issue #2656): orphan-queued runs (no open PR, head branch
+#: deleted) and runs stuck `in_progress` whose job records have all concluded (job expiry, #1889).
+SQUAT_MARKER = "queued-run-squat"
+
+
+def episode_marker(run_ids: tuple[int, ...]) -> str:
+    """The dedupe marker for ONE EPISODE: the same set of squatted run ids is one report, so the
+    episode is keyed on the SORTED ids — adding a new squatted run makes the next report a fresh
+    episode instead of silently being swallowed by the first one's marker."""
+    return f"<!-- {MARKER}: {SQUAT_MARKER} episode {','.join(map(str, sorted(run_ids)))} -->"
+
+
+def _run_list(repo: str, status: str, limit: int) -> list[dict]:
+    """The repo's runs of one status with the fields the run-level classification needs."""
+    return json.loads(_gh(["run", "list", "--repo", repo, "--status", status,
+                           "--limit", str(limit),
+                           "--json", "databaseId,workflowName,headBranch,headSha,createdAt,url,status"])
+                      or "[]")
+
+def open_prs_for_branch(repo: str, branch: str) -> list[int]:
+    """The OPEN pull request numbers whose head is `branch` — empty when none (or no branch).
+
+    The orphan classifier needs OPEN-only (unlike `run_prs` which falls back to a closed PR for
+    delivery routing): a PR that merged leaving its branch deleted is exactly the just-finished
+    work whose stale run is an orphan, not live work.
+    """
+    if not branch:
+        return []
+    prs = json.loads(_gh(["pr", "list", "--repo", repo, "--state", "all", "--head", branch,
+                          "--json", "number,state"]) or "[]")
+    return [p["number"] for p in prs if p.get("state") == "OPEN"]
+
+
+def branch_resolved(repo: str, branch: str) -> bool:
+    """Does the head branch still exist? Only a 404 (deleted) answers no.
+
+    A transient read failure is treated as PRESENT, so a live run is never mis-called orphan on a
+    network error: the 404 that the ghost-queue issue measures is an affirmative answer from GitHub
+    that the ref is gone, and nothing else is that affirmative.
+    """
+    if not branch:
+        return False
+    try:
+        _gh(["api", f"/repos/{repo}/git/ref/heads/{branch}"])
+        return True
+    except RuntimeError as err:
+        return "404" not in str(err)
+
+
+def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30) -> tuple[list[dict], list[dict]]:
+    """Classify the runs still non-terminal past `minutes` into (orphans, expired).
+
+    ORPHAN: a run whose head branch has been deleted (404) and that no OPEN pull request tracks —
+    the stale run of finished/past work squatting the queue (the 2026-11-11 ghost runs).
+
+    EXPIRED: a run still `in_progress` whose job records have ALL concluded (every job has a
+    conclusion; the ci-verdict self row is the residue). The run can never conclude on its own and
+    must be read as JOB EXPIRY (#1889 wording), not as a live matrix — it does not count toward the
+    live queued/in_progress supply.
+
+    Neither is ever cancelled here: the fleet standing rule reserves cancellation for the owner's
+    explicit word (see docs/BOTS.md).
+    """
+    now = dt.datetime.now(dt.timezone.utc)
+    seen: set[int] = set()
+    runs: list[dict] = []
+    for status in ("queued", "in_progress"):
+        for run in _run_list(repo, status, limit):
+            rid = run.get("databaseId")
+            if rid is None or rid in seen:
+                continue
+            seen.add(rid)
+            runs.append(run)
+    orphans: list[dict] = []
+    expired: list[dict] = []
+    for run in runs:
+        rid = run.get("databaseId")
+        age = _age_minutes(run.get("createdAt"), now)
+        if age is None or age < minutes:
+            continue
+        branch = run.get("headBranch", "")
+        jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"])
+                          or "{}").get("jobs") or []
+        row = {"run": rid,
+               "workflow": run.get("workflowName", ""),
+               "branch": branch,
+               "head": (run.get("headSha") or "")[:12],
+               "created": run.get("createdAt", ""),
+               "url": run.get("url", ""),
+               "minutes": age}
+        if run.get("status") == "in_progress" and not any(
+                (j.get("status") or "") in ("queued", "in_progress") for j in jobs):
+            # Every job record concluded but the run stays in_progress: the job-expiry trap (#1889).
+            expired.append(row)
+            continue
+        if open_prs_for_branch(repo, branch):
+            continue
+        if branch and not branch_resolved(repo, branch):
+            # 404 on the head ref + no open PR: an orphan from finished work squatting queued.
+            orphans.append(row)
+    return (sorted(orphans, key=lambda r: -r["minutes"]) or [],
+            sorted(expired, key=lambda r: -r["minutes"]) or [])
 
 def run_prs(repo: str, run_id: int) -> list[int]:
     """The PR(s) this run reports on — empty when it is not a pull_request run.
@@ -249,6 +390,85 @@ def file_label_issue(repo: str, label: str, body: str, dry: bool = False,
     return ""
 
 
+def file_squat_issue(repo: str, orphans: list[dict], expired: list[dict], minutes: float,
+                     dry: bool = False) -> str:
+    """File ONE deduped issue per EPISODE of ghost-queue squat; \"\" when already on file.
+
+    The episode is keyed on the sorted run-id set, so the alarm reports the same squat once; a NEW
+    squatted run joins the ring and the next report is a fresh episode (never swallowed by an old
+    marker). The dedupe reads issues open OR closed — a squat that persists after an issue closes is
+    not re-spammed daily (the #2584 phantom-spam pattern); a changed run set is a fresh episode.
+    Rendered through the one issue-body renderer. Never cancels any run.
+    """
+    ids = sorted({r["run"] for r in orphans} | {r["run"] for r in expired})
+    if not ids:
+        return ""
+    marker = episode_marker(tuple(ids))
+    try:
+        found = json.loads(_gh(["issue", "list", "--repo", repo, "--state", "all", "--limit", "300",
+                                "--search", f'"{marker}" in:body', "--json", "body"]) or "[]")
+    except (RuntimeError, ValueError):
+        found = []
+    if any(marker in (i.get("body") or "") for i in found):
+        return ""
+    if dry:
+        return ""
+    rows = orphans + expired
+    text = issue_body.render(
+        problem=(
+            f"{len(rows)} CI run(s) have squatted in non-terminal states past "
+            f"{minutes:.0f} minutes while this alarm fires: "
+            f"{len(orphans)} orphan-queued run(s) (no open PR, head branch deleted: "
+            + ", ".join(f"`{r['run']}`" for r in orphans) + ")"
+            + (f" and {len(expired)} run(s) stuck `in_progress` whose jobs have all concluded "
+               f"(job expiry): " + ", ".join(f"`{r['run']}`" for r in expired) if expired else "")
+            + "."
+        ),
+        why=(
+            "Squatted runs poison queue telemetry: an eternal `in_progress` run misreads as a live "
+            "matrix and days-old orphan-queued rows make the queued count untrustworthy "
+            "(issue #2656)."
+        ),
+        how=[
+            "Name the runs below and classify each as orphan queued (no open PR, head "
+            "branch deleted) or expired in_progress (job records all concluded, #1889).",
+            "The alarm NEVER cancels any run it names: the fleet standing rule reserves "
+            "cancellation for the owner's explicit word — a manual `gh run cancel <id>` is the "
+            "only path.",
+            "A permanently `in_progress` run whose job records have concluded is job expiry "
+            "(#1889): its verdict is expired, not gate damage, and it no longer counts toward the "
+            "live queue.",
+            "Re-dispatch or clean up the runs only with the owner's decision; deleting a phantom "
+            "row is admin-only (see the zero-job zombie retirement, issue #2600).",
+        ],
+        benefit=(
+            "Queue telemetry becomes trustworthy: `queued`/`in_progress` counts reflect work that "
+            "can actually start, and a ghost-run squat is reported once per episode instead of "
+            "being indistinguishable from a live queue."
+        ),
+        acceptance=[
+            "the run ids below are reported once per episode with the orphan/expired split",
+            "the runs are never cancelled by this alarm",
+            "an expired in_progress run is not counted as a live matrix",
+        ],
+        technical=[
+            "producer: scripts/queued_run_alarm.py (file_squat_issue; episode marker `queued-run-squat`; "
+            "spec openspec/changes/ci-queued-squat-classify/)",
+            "episode marker: " + marker,
+            "threshold: non-terminal past {:.0f} minutes".format(minutes),
+            render_squat(orphans, expired, minutes),
+        ],
+    )
+    title = (f"ci: {len(rows)} ghost run(s) squat queued/in_progress — "
+             f"{len(orphans)} orphan queued, {len(expired)} expired in_progress (job expiry)")
+    r = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                        "--body", f"{text}\n\n_{marker}_"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return f"issue create for squat episode failed ({r.returncode}): {r.stderr.strip()}"
+    return ""
+
+
 def deliver(repo: str, rows: list[dict], minutes: float, dry: bool = False) -> list[str]:
     """Send the report where a human will read it; return the deliveries that FAILED.
 
@@ -309,18 +529,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[queued-alarm] {err}", file=sys.stderr, flush=True)
         return 2
     print(f"[queued-alarm] {render(rows, a.minutes)}", flush=True)
-    if not rows:
+
+    try:
+        orphans, expired = squat_runs(a.repo, a.minutes, limit=a.limit)
+    except RuntimeError as err:
+        print(f"[queued-alarm] squat read failed: {err}", file=sys.stderr, flush=True)
+        return 2
+    print(render_squat(orphans, expired, a.minutes), flush=True)
+
+    has_squat = bool(orphans or expired)
+    if not rows and not has_squat:
         return 0
 
     if a.comment or a.dry:
         failures = deliver(a.repo, rows, a.minutes, dry=a.dry)
+        why_squat = file_squat_issue(a.repo, orphans, expired, a.minutes, dry=a.dry)
+        if why_squat:
+            failures.append(why_squat)
         if failures:
             # The alarm whose report goes nowhere was #294: a delivery failure is never silent.
             for why in failures:
                 print(f"[queued-alarm] DELIVERY FAILED: {why}", file=sys.stderr, flush=True)
             return 3
+        squat_note = (f", squat episode {len(orphans) + len(expired)} run(s)" if has_squat else "")
         print(f"[queued-alarm] report {'would be ' if a.dry else ''}delivered "
-              f"({len(rows)} stuck job(s), {len({r['run'] for r in rows})} run(s))", flush=True)
+              f"({len(rows)} stuck job(s), {len({r['run'] for r in rows})} run(s)"
+              f"{squat_note})", flush=True)
     return 1
 
 
