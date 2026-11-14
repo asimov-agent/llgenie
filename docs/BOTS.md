@@ -1767,6 +1767,42 @@ and FAILS the sweep, so a stopped weekly watcher is as red as a stopped daily sc
 longer read as "nothing to report" merely because it stopped running.
 
 
+### A queue is not a verdict — measure runner supply before any merge, rebase or cancel (issue #817)
+
+A CI run that sits `queued` or `in_progress` is, first, a runner that has not started — it is **not**
+a signal that the PR it carries is broken. On 2026-10-28 a saturated runner pool made 18 runs
+`queued` with 0 `in_progress`, every open PR read `BLOCKED`, and `auto-merge` / `fix-bot` /
+`rebase-bot` correctly did nothing: a backlog of PRs read like a backlog of broken ones, and one
+recommendation was to *merge to drain the queue*, which cannot work. The rule that stops that
+misread is the sentence in the heading: **a queue is not a verdict on the PR it carries.** (The
+written rule is this lane's own proposal on issue #2655; carrier PR #825 was closed unmerged by the
+owner and its diff is not revived verbatim.)
+
+Measure supply before touching anything — two commands answer "is the queue the problem?":
+
+- `gh run list --limit 100 --json status` — the status mix. Repo-wide `queued` with nothing
+  `in_progress` is runner supply; a **single** PR with an empty check-rollup and
+  `mergeStateStatus: DIRTY` is a branch needing a rebase. The two lookalikes are told apart by
+  scope, not by patience.
+- `gh run view <id> --json jobs` — the per-job wait, to see the one matrix cell that starved.
+
+Then the no-push rule, with its measured cost (#817): `ci.yml` sets `cancel-in-progress` on the
+`pull_request` trigger, so a push re-queues the whole matrix and deepens the queue it was meant to
+clear. **Freeing a queue is not a fix; letting one long matrix finish is.** Do not "merge to drain
+the queue", do not cancel a live matrix to free slots, and do not open a fresh PR against a healthy
+branch to route around a starved one. A job cancelled mid-flight and one that never started look
+identical from an alarm. When the defence already exists, use it: `make queued-alarm`
+(`scripts/queued_run_alarm.py`, `minutes` default 30) and the restore measurement
+(`make bots-restore-health CMD=measure`) make the same read; trust their verdict over re-deriving
+the distinction.
+
+One queue shape is not supply at all but a **ghost squat — its own issue, the sibling of this rule
+(#2656)**: runs parked `queued`/`in_progress` for days with no linked PR and a deleted head branch
+(or whose job records have expired, so `in_progress` can never conclude). That shape reads like
+starvation but is neither a broken PR nor a live matrix — report it for owner action and let the
+alarm classify the squat. Never cancel ghosts on your own authority: the fleet reserves cancellation
+for the owner's explicit word.
+
 ### The pause is recorded as data; the restore condition is a measurement (issue #902)
 
 The 2026-10-28 pause (16 bot workflows `disabled_manually`, 15:50–15:51Z, under runner starvation
