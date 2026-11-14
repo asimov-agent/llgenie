@@ -36,9 +36,10 @@ OWNER = "asimov-agent"
 def gh_stub(tmp_path: Path, runs, jobs: dict, existing_comments: dict | None = None,
             fail=False, job_details: dict | None = None, run_meta: dict | None = None,
             pr_list: dict | None = None, open_issues: list | None = None,
-            fail_post=False, fail_run_meta=False) -> Path:
+            fail_post=False, fail_run_meta=False, branches: dict | None = None) -> Path:
     """A `gh` answering run list / run view / the REST run object / pr list / comments / issue
-    list, logging every mutating call so the TARGET can be asserted."""
+    list, logging every mutating call so the TARGET can be asserted. `branches` maps a head branch
+    to whether it exists (default: yes); a missing branch answers HTTP 404."""
     bin_dir = tmp_path / "bin"; bin_dir.mkdir(exist_ok=True)
     scenario = tmp_path / "scenario.json"
     scenario.write_text(json.dumps({"runs": runs, "jobs": jobs,
@@ -46,7 +47,8 @@ def gh_stub(tmp_path: Path, runs, jobs: dict, existing_comments: dict | None = N
                                     "details": job_details or {},
                                     "run_meta": run_meta or {},
                                     "pr_list": pr_list or {},
-                                    "issues": open_issues or []}))
+                                    "issues": open_issues or [],
+                                    "branches": branches or {}}))
     log = tmp_path / "gh-calls"; log.write_text("")
     gh = bin_dir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
@@ -80,6 +82,13 @@ elif a[:2] == ["issue", "list"]:
     print(json.dumps(sc["issues"]))
 elif a[:1] == ["api"] and "/actions/jobs/" in a[1]:
     print(json.dumps(sc["details"].get(a[1].split("/")[-1], {{}})))
+elif a[:1] == ["api"] and "/git/ref/heads/" in a[1]:
+    branch = a[1].split("/git/ref/heads/")[-1]
+    if sc["branches"].get(branch, True):
+        print(json.dumps({{"ref": branch}}))
+    else:
+        print("HTTP 404: Not Found", file=sys.stderr)
+        sys.exit(1)
 elif a[:1] == ["api"]:
     rid = a[1].rstrip("/comments").split("/")[-1]
     print(json.dumps(sc["comments"].get(rid, [])))
@@ -300,3 +309,99 @@ def test_the_age_is_computed_from_the_job_start():
     assert alarm._age_minutes("2026-10-14T04:22:35Z", now) == 97.4
     assert alarm._age_minutes(None, now) is None
     assert alarm._age_minutes("not a date", now) is None
+
+
+# ---- ghost-queue squat classification (issue #2656) -----------------------
+
+def ghost_run(rid, status, branch, created="2026-11-11T20:33:00Z", workflow="CI"):
+    """A full non-terminal run row for the run-level squat classifier."""
+    return {"databaseId": rid, "workflowName": workflow, "headBranch": branch,
+            "headSha": "f" * 40, "createdAt": created, "url": "u", "status": status}
+
+
+def test_an_orphan_queued_run_is_classified_orphan(tmp_path):
+    """A queued run with no open PR and a deleted head branch (404) is an orphan squat."""
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(501, "queued", branch)], {"501": []},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "GHOST-RUN SQUAT" in r.stdout and "orphan-queued" in r.stdout and "run 501" in r.stdout
+    assert any("/git/ref/heads/" in c for c in log.read_text().splitlines()), (
+        "the orphan evidence is the head branch 404"
+    )
+
+
+def test_a_live_queued_run_is_not_an_orphan(tmp_path):
+    """A queued run whose head branch still exists (no open PR) is live, not an orphan."""
+    branch = "feat/live"
+    gh_stub(tmp_path, [ghost_run(502, "queued", branch)], {"502": []},
+            pr_list={branch: []}, branches={branch: True})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "no ghost-run squat" in r.stdout
+
+
+def test_an_open_pr_makes_a_deleted_branch_run_live(tmp_path):
+    """A run is NOT an orphan when an OPEN pull request still tracks its head branch."""
+    branch = "feat/active"
+    gh_stub(tmp_path, [ghost_run(503, "queued", branch)], {"503": []},
+            pr_list={branch: [{"number": 9, "state": "OPEN"}]}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "no ghost-run squat" in r.stdout
+
+
+def test_an_in_progress_run_with_only_concluded_jobs_is_job_expiry(tmp_path):
+    """A run still in_progress whose jobs have all concluded is job expiry (#1889), not a live matrix."""
+    gh_stub(tmp_path, [ghost_run(504, "in_progress", "main")],
+            {"504": [{"name": "ci-verdict", "status": "completed", "conclusion": "failure"}]},
+            pr_list={"main": []}, branches={"main": True})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "job expiry" in r.stdout and "run 504" in r.stdout and "#1889" in r.stdout
+    assert "whose job records have all concluded" in r.stdout, r.stdout
+
+
+def test_a_live_in_progress_run_is_not_expired(tmp_path):
+    """A healthy in_progress run has live jobs — it is not job expiry."""
+    gh_stub(tmp_path, [ghost_run(505, "in_progress", "main")],
+            {"505": [{"name": "linux / unit", "status": "in_progress"}]},
+            pr_list={"main": []}, branches={"main": True})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "no ghost-run squat" in r.stdout
+
+
+def test_the_squat_is_reported_once_per_episode_and_never_cancelled(tmp_path):
+    """The squat files ONE deduped episode issue and never cancels a run."""
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(506, "queued", branch)], {"506": []},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    raw = log.read_text()
+    creates = [c for c in raw.splitlines() if c.startswith("issue create")]
+    assert len(creates) == 1, f"exactly one episode issue, got {creates}"
+    assert not [c for c in raw.splitlines() if c.startswith("run cancel")], (
+        "the alarm never cancels: cancellation is the owner's explicit word"
+    )
+    filed = raw.split(" --body ", 1)[1]
+    assert issue_body.headings(filed) == list(issue_body.SECTIONS), filed
+    assert alarm.episode_marker((506,)) in filed, filed
+
+    # Same episode again (marker already in an open issue) -> no second filing
+    marker = alarm.episode_marker((506,))
+    log2 = gh_stub(tmp_path, [ghost_run(506, "queued", branch)], {"506": []},
+                   pr_list={branch: []}, branches={branch: False},
+                   open_issues=[{"number": 21, "body": "x\n" + marker}])
+    r2 = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r2.returncode == 1, r2.stdout + r2.stderr
+    assert not [c for c in log2.read_text().splitlines() if c.startswith("issue create")]
+
+
+def test_the_episode_marker_is_sorted_by_run_id():
+    """The episode marker names the sorted run-id set, so a bigger squat is a fresh episode."""
+    marker = alarm.episode_marker((507, 501))
+    assert "501,507" in marker, marker
+    assert "queued-run-squat" in marker, marker
