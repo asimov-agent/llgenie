@@ -161,12 +161,12 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 5730 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
-`README.md`), `containers/` 60, `tests/` 308, `scripts/` 176, `openspec/` 1985, `agent-wiki/`
-838, `docs/` 848 and `agents/` 1400 (13 profile dirs plus `manifest.json`,
+The tree is 5803 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
+`README.md`), `containers/` 60, `tests/` 310, `scripts/` 176, `openspec/` 2025, `agent-wiki/`
+852, `docs/` 862 and `agents/` 1402 (13 profile dirs plus `manifest.json`,
 `standing-rules.md`, `fleet-block-exemptions.json` and `README.md`). The nine named content dirs sum to
-5646; the remaining 84 tracked files are `.github/`, `.hermes/`, `tools/`,
-`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `b0347c6b`)
+5718; the remaining 85 tracked files are `.github/`, `.hermes/`, `tools/`,
+`docker-compose-files/`, `bots/`, `mk/` and the root-level files. (measured at `d43b1df8`)
 
 | Path | Role |
 |---|---|
@@ -182,10 +182,10 @@ The tree is 5730 tracked files: `data/` 13, `skills/` 18 (17 engine directories 
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`): its `Dockerfile` only — the two lockfiles are copied from `tools/` into a temp build context and are never tracked here (a committed copy is a stale pin the scan can never clear, issue #787) |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (509 changes) |
-| `agent-wiki/` | dated work record (838 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (519 changes) |
+| `agent-wiki/` | dated work record (852 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
-| `tests/` | 261 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 262 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `mk/` | the include-split of the top `Makefile` (issue #800, reopened #2456–#2460): the domain targets now live in their own files — `gates.mk` (host/gate/coverage/lint, moved byte-identical out), `bots.mk` (the bot legs and their sweeps, issue #2460), `install.mk` (install/uninstall and the `ci-install-*` steps, issue #2461), `ci.mk` (the `ci-*` pipeline job targets, issue #2458), `security.mk` (the scan/secret supply-chain targets, issue #2459) and `engines.mk` (the engine-image/build/serve targets, issue #2456) and `tests.mk` (the host/user `test-*` suite targets moved byte-identical, issue #2677; the `ci-*` job targets stay in `ci.mk`) — each `include mk/<domain>.mk`, so every target keeps its `##` help line under the top entry point |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
@@ -1290,8 +1290,8 @@ leftovers are reported with their `sudo rm -rf` remedy rather than retried (issu
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (261
-files today, 242 in the gate); a file is in the gate the moment it exists, and an exclusion is a dated entry
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (262
+files today, 243 in the gate); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
 (`test-install`, `test-health`, `test-engine`, `test-published-engine`,

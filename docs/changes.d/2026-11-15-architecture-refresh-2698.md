@@ -1,0 +1,1 @@
+| 2026-11-15 | architecture-bot rebuilt `docs/ARCHITECTURE.md` from the tree — 0 commit(s), 0 path(s) since the doc's last commit (d43b1df8b496) | [2026-11-15-architecture-refresh-2698.md](agent-wiki/2026-11-15-architecture-refresh-2698.md) | #2698 |
