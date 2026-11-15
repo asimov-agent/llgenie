@@ -87,7 +87,9 @@ def test_the_hermetic_unit_gate_never_runs_the_network_set():
     one-expression boundary at the Makefile/seam level so neither side can drift into the other.
     """
 
-    mk = (REPO / "Makefile").read_text()
+    from conftest import makefiles_text  # the test-unit* pair now lives in mk/tests.mk (#2677)
+
+    mk = makefiles_text(REPO)
     seam = (REPO / "scripts" / "unit_tests.py").read_text()
 
     # The seam target exists (the workflow depends on it) and selects the network set

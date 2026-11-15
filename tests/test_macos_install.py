@@ -581,8 +581,11 @@ def test_agents_read_builds_its_own_python312_venv():
     jobs = yaml.safe_load((REPO / ".github/workflows/pipeline.yml").read_text())["jobs"]
 
     # When the test-agents-read recipe and the venv rule are read
-    recipe = mk[mk.index("\ntest-agents-read:"):mk.index("\ntest-install:")]
-    venv_rule = mk[mk.index("\n$(AGENTS_READ_STAMP):"):mk.index("\ntest-agents-read:")]
+    # issue #2677 moved this cluster into mk/tests.mk: slice to the next blank-line block
+    _i = mk.index("\ntest-agents-read:")
+    _j = mk.index("\n$(AGENTS_READ_STAMP):")
+    recipe = mk[_i:].split("\n\n", 1)[0]
+    venv_rule = mk[_j:].split("\n\n", 1)[0]
 
     # Then test-agents-read depends on the venv, built with python3.12 and the pinned deps
     assert recipe.split("\n")[1].startswith("test-agents-read: agents-read-venv")
