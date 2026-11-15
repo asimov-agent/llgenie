@@ -20,4 +20,4 @@
 
 ## 5. Verification
 - [x] 5.1 `make check-security-scan`, `make check-scanner-images` and the scanner/security test modules pass locally (rc=0)
-- [ ] 5.2 `make openspec-validate NAME=scanner-pin-refresh-syft-baseline` exits 0 and `make test-unit` is green with the new tests collected
+- [x] 5.2 `make openspec-validate NAME=scanner-pin-refresh-syft-baseline` exits 0 and `make test-unit` is green with the new tests collected (rc 0; 3864 passed, new tests collected)
