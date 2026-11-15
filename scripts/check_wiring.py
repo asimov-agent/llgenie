@@ -99,7 +99,28 @@ def _makefile_list(root: Path) -> list[str]:
         if extra not in seen and (root / extra).exists():
             out.append(extra)
     return out
+
+
+def _declarations(root: Path) -> dict[str, list[str]]:
+    """target name -> the makefiles that declare it, in include order (issue #2674).
+
+    Scope: `Makefile` + `mk/*.mk` — the split #800 produced. `tools/Makefile` is a separate
+    graph reached via `make -C tools` and stays out of the duplicate scope. A name declared
+    in two files means make keeps ONE recipe and silently drops the other — the #460
+    "conflicted Makefile mid-run" class #800 was filed to prevent.
+    """
+    out: dict[str, list[str]] = {}
+    for rel in _makefile_list(root):
+        if rel == "tools/Makefile":
+            continue
+        for m in TARGET_RE.finditer((root / rel).read_text()):
+            out.setdefault(m.group(1), []).append(rel)
+    return out
+
+
 EXCEPTIONS = "tests/fixtures/host-only-wiring.json"
+#: Issue #2674 (#800 criterion 4): the committed line budget — one source of truth.
+BUDGETS = "tests/fixtures/makefile-line-budgets.json"
 #: The unit-suite aggregator (issue #393): a target that runs it runs the files it selects.
 AGGREGATOR = "scripts/unit_tests.py"
 
@@ -349,9 +370,15 @@ def graph(root: Path = REPO) -> dict:
     while frontier:
         frontier = {c for t in frontier for c in calls.get(t, set())} - seen
         seen |= frontier
+    declared = _declarations(root)
+    duplicates = {n: fs for n, fs in declared.items() if len(fs) > 1}
+    budgets, budget_errors = load_budgets(root / BUDGETS)
+    line_counts = {rel: len((root / rel).read_text().splitlines()) for rel in _makefile_list(root)}
     return {
         "root": str(root), "recipes": recipes, "calls": calls, "docs": docs,
         "claim_targets": claims, "ci_target_closure": sorted(seen),
+        "duplicates": duplicates, "budgets": budgets, "budget_errors": budget_errors,
+        "line_counts": line_counts,
         "tests": [d for d in docs if d.startswith("tests/")],
         "scripts": [d for d in docs if d.startswith("scripts/")],
         "workflow_targets": workflow_targets, "ci_targets": ci_targets,
@@ -401,6 +428,114 @@ def load_exceptions(path: Path) -> dict:
             if not e.get(k):
                 raise SystemExit(f"[check-wiring] {path}: target {tgt!r} lacks {k}")
     return {"path": str(path), "documents": docs, "targets": tgts, "not_phony": not_phony}
+
+
+def load_budgets(path: Path) -> tuple[dict | None, list[str]]:
+    """The committed line budget (issue #2674), validated the way `load_exceptions` validates
+    decisions: every recorded ceiling is a dated decision with a reason.
+
+    Shape: `{mk_default, files: {rel: {ceiling, baseline?, reason, decided}},
+    ratchet_raisings: [{file, from, to, reason, decided}]}`. `baseline` marks a RATCHET file
+    (the top `Makefile`): its ceiling may sit at or below the baseline freely — a raise above
+    it must be a contiguous chain of dated entries in `ratchet_raisings` ending at the ceiling.
+    Returns `(budgets, structure_errors)`; a missing file returns `(None, [])` and the finding
+    is raised by `_budget_findings` only when the tree actually carries `mk/` files, so scratch
+    trees without a split stay clean while a real split can never delete its guard silently."""
+    if not path.exists():
+        return None, []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, [f"{BUDGETS}: unreadable ({exc})"]
+    if not isinstance(data, dict):
+        return None, [f"{BUDGETS}: must be an object"]
+    errors: list[str] = []
+    mk_default = data.get("mk_default")
+    if not isinstance(mk_default, int) or mk_default < 1:
+        errors.append(f"{BUDGETS}: 'mk_default' must be a positive integer ceiling")
+    files = data.get("files")
+    if not isinstance(files, dict):
+        errors.append(f"{BUDGETS}: 'files' must be an object")
+        files = {}
+    for rel, e in files.items():
+        if not isinstance(e, dict) or not isinstance(e.get("ceiling"), int) or e["ceiling"] < 1:
+            errors.append(f"{BUDGETS}: {rel} needs an integer 'ceiling'")
+            continue
+        for k in ("reason", "decided"):
+            if not e.get(k):
+                errors.append(f"{BUDGETS}: {rel} lacks {k} — a ceiling is a dated decision")
+    raisings = data.get("ratchet_raisings")
+    if raisings is None:
+        raisings = []
+    if not isinstance(raisings, list):
+        errors.append(f"{BUDGETS}: 'ratchet_raisings' must be a list")
+        raisings = []
+    for r in raisings:
+        if not (isinstance(r, dict) and r.get("file") and r.get("reason") and r.get("decided")
+                and isinstance(r.get("from"), int) and isinstance(r.get("to"), int)):
+            errors.append(f"{BUDGETS}: every ratchet raising needs file, from, to, reason, decided")
+            continue
+        if r["to"] <= r["from"]:
+            errors.append(f"{BUDGETS}: ratchet raising for {r['file']} must increase "
+                          f"(from {r['from']} -> to {r['to']})")
+    return ({"mk_default": mk_default if isinstance(mk_default, int) else 0,
+             "files": files, "ratchet_raisings": [r for r in raisings if isinstance(r, dict)]}), errors
+
+
+def _budget_findings(root: Path, budgets: dict | None, structure_errors: list[str],
+                     line_counts: dict[str, int]) -> list[str]:
+    """Over-ceiling files, the ratchet rule, and the budget file itself (issue #2674).
+
+    `mk/*.mk` files fit `mk_default` unless a committed entry gives them their own dated
+    ceiling; the top `Makefile` must have a committed ratchet entry. `tools/Makefile` is out
+    of scope (a separate graph, see `_declarations`)."""
+    rels = _makefile_list(root)
+    if budgets is None:
+        if any(rel.startswith("mk/") for rel in rels):
+            return [f"{BUDGETS} is missing while the tree carries mk/ files: the line budget "
+                    f"cannot be silently deleted — restore it (issue #2674)"]
+        return []
+    errors = list(structure_errors)
+    for rel in rels:
+        if rel == "tools/Makefile":
+            continue
+        n = line_counts.get(rel, 0)
+        e = budgets["files"].get(rel)
+        if e and isinstance(e.get("ceiling"), int):
+            ceiling = e["ceiling"]
+        elif rel.startswith("mk/"):
+            ceiling = budgets["mk_default"] or None
+        elif rel == "Makefile":
+            errors.append(f"{BUDGETS}: no committed ceiling recorded for `Makefile` — the "
+                          f"ratchet needs a dated entry there (issue #2674)")
+            continue
+        else:
+            continue
+        if ceiling is not None and n > ceiling:
+            errors.append(f"{rel} is {n} lines, over its committed ceiling {ceiling} "
+                          f"({BUDGETS}): split the file, or record a dated raise in "
+                          f"'ratchet_raisings' (issue #2674)")
+        if e and isinstance(e.get("baseline"), int) and isinstance(e.get("ceiling"), int):
+            chain = sorted((r for r in budgets["ratchet_raisings"]
+                            if r.get("file") == rel and isinstance(r.get("from"), int)
+                            and isinstance(r.get("to"), int)), key=lambda r: r["to"])
+            if e["ceiling"] > e["baseline"]:
+                if not chain or chain[-1]["to"] != e["ceiling"]:
+                    errors.append(f"{BUDGETS}: {rel} ceiling {e['ceiling']} exceeds its baseline "
+                                  f"{e['baseline']} with no dated chain in 'ratchet_raisings' "
+                                  f"ending at {e['ceiling']} (issue #2674)")
+            elif chain:
+                errors.append(f"{BUDGETS}: {rel} carries ratchet raisings but its ceiling "
+                              f"{e['ceiling']} is at or below the baseline {e['baseline']} — "
+                              f"delete the stale chain (issue #2674)")
+            for a, b in zip(chain, chain[1:]):
+                if b["from"] != a["to"]:
+                    errors.append(f"{BUDGETS}: ratchet chain for {rel} is not contiguous "
+                                  f"({a['to']} -> {b['from']}) (issue #2674)")
+            if chain and chain[0]["from"] != e["baseline"]:
+                errors.append(f"{BUDGETS}: ratchet chain for {rel} does not start at its "
+                              f"baseline {e['baseline']} (issue #2674)")
+    return errors
 
 
 def check(g: dict, exceptions: dict) -> list[str]:
@@ -492,6 +627,16 @@ def check(g: dict, exceptions: dict) -> list[str]:
                       f"prerequisite, so `make {target}` runs NOTHING and exits 0: give it a "
                       f"recipe, make it a declared alias (`{target}: <target-it-runs>`), or delete "
                       f"the declaration")
+
+    # The split guard (issue #2674, #800 criteria 3+4): a target declared in two files across
+    # the includes is a recipe make silently drops, and a file over its committed ceiling is
+    # the split re-merging itself back toward the monolith #800 filed to remove.
+    for name, files in sorted((g.get("duplicates") or {}).items()):
+        errors.append(f"target `{name}` is declared in {len(files)} files ({', '.join(files)}): "
+                      f"make keeps one recipe and silently drops the other — delete the "
+                      f"duplicate or rename it (issue #2674)")
+    errors += _budget_findings(Path(g.get("root") or REPO), g.get("budgets"),
+                               list(g.get("budget_errors") or []), g.get("line_counts") or {})
     return errors
 
 
@@ -533,6 +678,20 @@ def report(g: dict, exceptions: dict) -> str:
         lines.append(f"  PHONY, RUNS NOTHING: {tgt}")
     for tgt in sorted(set(claims) - reached):
         lines.append(f"  CLAIMS CI, NOT REACHED: make {tgt}")
+    # the split guard (issue #2674): the budget is STATED, and duplicates are named
+    dupes = g.get("duplicates") or {}
+    lc = g.get("line_counts") or {}
+    budgets = g.get("budgets") or {}
+    mk_max = max(((n, r) for r, n in lc.items() if r.startswith("mk/")), default=(0, "-"))
+    mk_entry = (budgets.get("files") or {}).get("Makefile") or {}
+    lines.append(f"  line budget ({BUDGETS}): {len([r for r in lc if r.startswith('mk/')])} mk/ "
+                 f"file(s), max {mk_max[1]} at {mk_max[0]} lines (committed mk_default "
+                 f"{budgets.get('mk_default', 'MISSING')}); Makefile {lc.get('Makefile', 0)} "
+                 f"lines vs ratchet ceiling {mk_entry.get('ceiling', 'MISSING')} "
+                 f"(baseline {mk_entry.get('baseline', '-')}); {len(dupes)} duplicate "
+                 f"declaration(s)")
+    for name, files in sorted(dupes.items()):
+        lines.append(f"  DUPLICATE TARGET: {name} declared in {', '.join(files)}")
     for doc in docs:
         if not g["reachable"][doc]:
             lines.append(f"  UNWIRED: {doc}")
