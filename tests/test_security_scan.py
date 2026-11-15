@@ -15,6 +15,10 @@ import os
 import re
 import stat
 import sys
+import time
+
+import pytest
+
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -1117,6 +1121,208 @@ def test_an_unknown_tool_is_refused():
 
 
 # ---------------------------------------------------------------------------
+# Live freshness (issue #2709): pins are compared against what the Wolfi x86_64 index publishes
+# TODAY, not against the frozen SCANNER_BASELINE dict. Hermetic: every test below calls the pure
+# `_evaluate_freshness`/`_index_from_snapshot` seam with fixture text and cannot be traced to the
+# fetch (issue #1067). The dispatcher's live reach sits behind `@pytest.mark.network` tests.
+# ---------------------------------------------------------------------------
+
+FRESHNESS_PINS = {"trivy": "0.70.0-r5", "grype": "0.121.2-r1", "semgrep": "1.165.0-r0",
+                  "syft": "1.57.0-r1"}
+
+
+def _stanza(name: str, version: str, age_days: int) -> str:
+    """One APKINDEX stanza for `name` built `age_days` ago."""
+    epoch = int(time.time() - age_days * 86400)
+    return (f"C:Q1234=\nP:{name}\nV:{version}\nA:x86_64\nT:\nS:1\nI:1\nO:1\nc:abc123\n"
+            f"d:dep\nF:\nn:{name}\nt:{epoch} 1000")
+
+
+def _freshness_env(tmp_path, monkeypatch, index_text: str) -> None:
+    """Point the comparison at fixture digests, a fixture Grype Dockerfile and a local index."""
+    digests = {tool: {"version": ver, "tag": ver, "ref": f"img:{ver}",
+                      "image_digest": "sha256:" + "0" * 64}
+               for tool, ver in FRESHNESS_PINS.items() if tool != "syft"}
+    monkeypatch.setattr(ss, "digests", lambda: digests)
+    repo = tmp_path / "repo"
+    (repo / "containers" / "scanners" / "grype").mkdir(parents=True)
+    (repo / "containers" / "scanners" / "grype" / "Dockerfile").write_text(
+        f"FROM wolfi-os\nARG SYFT_VERSION={FRESHNESS_PINS['syft']}\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "REPO", repo)
+    snapshot = tmp_path / "APKINDEX"
+    snapshot.write_text(index_text, encoding="utf-8")
+    monkeypatch.setenv("WOLFI_APKINDEX", str(snapshot))
+
+
+def test_the_grace_window_is_declared_and_pinned_by_a_test(tmp_path):
+    """The grace is a named constant with a value a reader can defend (issue #2709)."""
+
+    # Given  the live comparison's published knobs
+    # When   a test reads them
+    # Then   the grace is 7 days and the index is Wolfi's official x86_64 one
+    assert ss.FRESHNESS_GRACE_DAYS == 7
+    assert ss.WOLFI_INDEX_URL.startswith("https://packages.wolfi.dev/os/x86_64/")
+    assert "syft" in ss.FRESHNESS_PACKAGES  # syft is compared even though it has no image entry
+
+
+def test_fresh_pins_pass_and_name_the_index_they_measured(tmp_path, monkeypatch, capsys):
+    """Every pin equals the newest published build: green, printing the index source."""
+
+    # Given an index whose newest build per package equals each pin
+    index = "\n\n".join(_stanza(t, v, 1) for t, v in FRESHNESS_PINS.items())
+    _freshness_env(tmp_path, monkeypatch, index)
+
+    # When  the live comparison runs on the pure evaluation seam
+    rc = ss._evaluate_freshness(index, "committed fixture")
+    out = capsys.readouterr().out
+
+    # Then  it passes and prints the source it measured against
+    assert rc == 0, out
+    assert "measured against committed fixture" in out and "OK" in out
+
+
+def test_a_pin_lagging_past_the_grace_window_fails_naming_the_delta(tmp_path, monkeypatch, capsys):
+    """A lag that predates the grace window is a failure, naming package/pin/live-newest."""
+
+    # Given grype and syft have published newer builds 30 days ago while the pins lag
+    index = "\n\n".join([
+        _stanza("trivy", "0.70.0-r5", 1),
+        _stanza("semgrep", "1.165.0-r0", 1),
+        _stanza("grype", "0.121.2-r1", 1),
+        _stanza("grype", "0.121.3-r2", 30),
+        _stanza("syft", "1.57.0-r1", 1),
+        _stanza("syft", "1.57.1-r2", 30),
+    ])
+    _freshness_env(tmp_path, monkeypatch, index)
+
+    # When  the live comparison runs on the pure evaluation seam
+    rc = ss._evaluate_freshness(index, "committed fixture")
+    out = capsys.readouterr().out
+
+    # Then  it fails, and each delta names package, pinned version and the live newest
+    assert rc == 1, out
+    assert "grype: pinned 0.121.2-r1 but Wolfi published 0.121.3-r2" in out
+    assert "syft: pinned 1.57.0-r1 but Wolfi published 1.57.1-r2" in out
+
+
+def test_a_lag_inside_the_grace_window_passes_and_is_reported(tmp_path, monkeypatch, capsys):
+    """Wolfi republishes faster than the repo chases: a fresh lag is printed, not red."""
+
+    # Given grype's newer build was published 2 days ago (inside the 7d grace)
+    index = "\n\n".join([
+        _stanza("trivy", "0.70.0-r5", 1),
+        _stanza("semgrep", "1.165.0-r0", 1),
+        _stanza("grype", "0.121.2-r1", 1),
+        _stanza("grype", "0.121.3-r2", 2),
+        _stanza("syft", "1.57.0-r1", 1),
+    ])
+    _freshness_env(tmp_path, monkeypatch, index)
+
+    # When  the live comparison runs on the pure evaluation seam
+    rc = ss._evaluate_freshness(index, "committed fixture")
+    out = capsys.readouterr().out
+
+    # Then  the run passes and the lag is visible in the output
+    assert rc == 0, out
+    assert "grype: pinned 0.121.2-r1 lags 0.121.3-r2" in out and "grace" in out
+
+
+def test_a_pinned_package_absent_from_the_index_fails_loudly(tmp_path, monkeypatch, capsys):
+    """An unresolvable pin is never a silent pass."""
+
+    # Given the index carries no grype package at all
+    index = "\n\n".join([_stanza(t, v, 1) for t, v in FRESHNESS_PINS.items() if t != "grype"])
+    _freshness_env(tmp_path, monkeypatch, index)
+
+    # When  the live comparison runs on the pure evaluation seam
+    rc = ss._evaluate_freshness(index, "committed fixture")
+    out = capsys.readouterr().out
+
+    # Then  it fails naming the package and the reason
+    assert rc == 1, out
+    assert "grype" in out and "never a silent pass" in out
+
+
+def test_an_unreadable_index_snapshot_is_not_a_verdict(tmp_path):
+    """A named-but-missing snapshot file is a loud failure, never a green by default."""
+
+    # Given a snapshot path that does not exist
+    missing = tmp_path / "APKINDEX.missing"
+
+    # When  the snapshot seam is asked for it
+    # Then  it refuses (SystemExit) rather than passing
+    with pytest.raises(SystemExit) as got:
+        ss._index_from_snapshot(missing)
+    assert "does not exist" in str(got.value)
+
+
+@pytest.mark.network
+def test_scanner_freshness_prefers_the_named_snapshot_and_never_fetches(tmp_path, monkeypatch,
+                                                                         capsys):
+    """The CLI dispatcher honours `WOLFI_APKINDEX`: with a snapshot present the comparison runs
+    with no network at all. Marked `network` because the dispatcher's code graph contains the
+    live fetch (issue #1067), even though this test never reaches it."""
+
+    # Given a named snapshot whose builds match every pin
+    index = "\n\n".join(_stanza(t, v, 1) for t, v in FRESHNESS_PINS.items())
+    _freshness_env(tmp_path, monkeypatch, index)  # sets WOLFI_APKINDEX to a written snapshot
+
+    # When  the CLI dispatcher runs
+    rc = ss.scanner_freshness()
+    out = capsys.readouterr().out
+
+    # Then  it measured against the snapshot, not the wire
+    assert rc == 0, out
+    assert "measured against local snapshot" in out
+
+
+@pytest.mark.network
+def test_the_live_wolfi_index_carries_every_compared_package():
+    """One real fetch proves the live lane is grounded: the index parses and carries every
+    package the comparison pins against. No verdict is asserted — pins may legitimately lag."""
+
+    # Given Wolfi's live x86_64 index, fetched once
+    text = ss._fetch_wolfi_index()
+
+    # When  it is parsed with the same parser the gate uses
+    index = ss._wolfi_stanzas(text)
+
+    # Then  every compared package resolves to at least one dated build
+    for package in ss.FRESHNESS_PACKAGES:
+        assert index.get(package), f"live Wolfi index carries no `{package}` package"
+        _, epoch = max(index[package], key=lambda b: b[0])
+        assert epoch, f"live build for {package} carries no publish timestamp"
+
+
+def test_the_offline_check_gate_stays_network_free(tmp_path):
+    """`check` is hermetic: the live Wolfi fetch lives ONLY in the freshness step (issue #2709)."""
+
+    # Given the shipped script source
+    source = (REPO / "scripts" / "security_scan.py").read_text(encoding="utf-8")
+    start = source.index("def check() -> int:")
+    end = source.index("def main(argv")
+    check_body = source[start:end]
+
+    # When  the offline check's body is read
+    # Then  it contains no Wolfi fetch and no freshness call
+    assert "wolfi" not in check_body.lower()
+    assert "urlopen" not in check_body and "scanner_freshness" not in check_body
+
+
+def test_the_scan_lane_wires_the_live_comparison_after_the_scans_never_before_the_uploads(tmp_path):
+    """security-scan.yml runs the comparison, captures it, and raises it only as the LAST step."""
+
+    # Given the lane's workflow and the Makefile seam
+    workflow = (REPO / ".github" / "workflows" / "security-scan.yml").read_text(encoding="utf-8")
+    mk = (REPO / "mk" / "security.mk").read_text(encoding="utf-8")
+
+    # When  they are read
+    # Then  the step exists with an id and capture, the last step raises its outcome too,
+    #       and the Makefile routes it through the script
+    assert "id: freshness" in workflow and "continue-on-error: true" in workflow
+    assert "run: make scanner-freshness" in workflow
+    assert "steps.freshness.outcome == 'failure'" in workflow
+    assert "python3 scripts/security_scan.py freshness" in mk
 # Published-image scans (issue #2706): the runtime package set the product SHIPS
 # ---------------------------------------------------------------------------
 

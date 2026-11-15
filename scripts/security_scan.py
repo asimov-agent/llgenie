@@ -117,6 +117,26 @@ SCANNER_BASELINE: dict[str, str] = {
 #: red is a deliberate weakening (issue #2283).
 RULES_BASELINE_DAYS = 30
 
+#: The Wolfi x86_64 APKINDEX the LIVE freshness comparison measures against (issue #2709).
+#: `SCANNER_BASELINE` above only catches pins older than what a human measured on one date
+#: (2026-11-07); it never consults what Wolfi publishes today. `make scanner-freshness`
+#: resolves the newest published build of every pinned package from the index itself.
+#: `WOLFI_APKINDEX` names a local APKINDEX snapshot (text or .tar.gz) for hermetic runs —
+#: tests set it and never touch the network.
+WOLFI_INDEX_URL = "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz"
+
+#: The grace a lagging pin gets (issue #2709). Wolfi republishes builds constantly
+#: (toolchain churn, epoch rebuilds), so a pin lagging a build published yesterday is not yet
+#: debt. A lag reds when the newest published build is older than this many days: a persistent
+#: lag becomes loud without forcing a bump per upstream heartbeat. Lowering this number is a
+#: deliberate weakening, same discipline as `RULES_BASELINE_DAYS` (#2283).
+FRESHNESS_GRACE_DAYS = 7
+
+#: The packages whose pins the live comparison resolves: the image-backed scanners from
+#: digests.json, plus Syft — which has no image entry of its own — from the
+#: `ARG SYFT_VERSION=` default baked into the Grype image (issue #2709).
+FRESHNESS_PACKAGES = TOOLS + (SBOM_TOOL,)
+
 
 def scanner_baseline(tool: str) -> str:
     return SCANNER_BASELINE.get(tool, "")
@@ -127,6 +147,151 @@ def _version_sort_key(version: str) -> tuple:
     nums, _, rev = version.partition("-")
     return (tuple(int(x) for x in re.split(r"[+.~]", nums) if x.isdigit()),
             int(rev.lstrip("r").partition("_")[0] or 0))
+
+
+def _wolfi_stanzas(index_text: str) -> dict[str, list[tuple[str, int]]]:
+    """An apk APKINDEX parsed into `{package: [(version, build epoch), …]}`.
+
+    APKINDEX is stanzas separated by blank lines: `P:` names the package, `V:` is its build
+    string, `t:` is the build timestamp (first integer; a package without one records 0 and the
+    grace math treats 0 as out-of-grace — an undated lag is not a fresh lag).
+    """
+    out: dict[str, list[tuple[str, int]]] = {}
+    for block in index_text.split("\n\n"):
+        name = version = ""
+        epoch = 0
+        for line in block.splitlines():
+            if line.startswith("P:"):
+                name = line[2:].strip()
+            elif line.startswith("V:"):
+                version = line[2:].strip()
+            elif line.startswith("t:"):
+                fields = line[2:].strip().split()
+                epoch = int(fields[0]) if fields and fields[0].isdigit() else 0
+        if name and version:
+            out.setdefault(name, []).append((version, epoch))
+    return out
+
+
+def _apkindex_from_tar(blob: Path) -> str:
+    """The APKINDEX member text out of an APKINDEX.tar.gz."""
+    import tarfile
+
+    with tarfile.open(blob) as tar:
+        for member in tar.getmembers():
+            if member.name.endswith("APKINDEX"):
+                handle = tar.extractfile(member)
+                if handle is None:
+                    raise SystemExit(f"[scanner-freshness] {blob} carries no readable APKINDEX "
+                                     "member — a missing index is not a verdict (issue #2709)")
+                return handle.read().decode("utf-8", "replace")
+    raise SystemExit(f"[scanner-freshness] {blob} carries no APKINDEX member — "
+                     "a missing index is not a verdict (issue #2709)")
+
+
+def _index_from_snapshot(path: Path) -> str:
+    """The APKINDEX text from a local snapshot file (plain text or .tar.gz). Never touches
+    the network: tests and air-gapped runners use this path exclusively (issue #2709)."""
+    if not path.is_file():
+        raise SystemExit(f"[scanner-freshness] WOLFI_APKINDEX names {str(path)!r}, which does "
+                         "not exist — a comparison against a missing index is not a verdict "
+                         "(issue #2709)")
+    return _apkindex_from_tar(path) if path.suffix == ".gz" else path.read_text(
+        encoding="utf-8", errors="replace")
+
+
+def _fetch_wolfi_index() -> str:
+    """Wolfi's x86_64 APKINDEX text, fetched once, fresh — the comparison's whole point is
+    consulting what is published TODAY. The only network reach in this lane (issue #2709);
+    keep every hermetic comparison on `_evaluate_freshness`/`_index_from_snapshot` so the
+    hermetic selection can never trace a reach to `packages.wolfi.dev` (issue #1067)."""
+    import tempfile
+    import urllib.request
+
+    with tempfile.TemporaryDirectory() as tmp:
+        blob = Path(tmp) / "APKINDEX.tar.gz"
+        with urllib.request.urlopen(WOLFI_INDEX_URL, timeout=60) as resp:
+            blob.write_bytes(resp.read())
+        return _index_from_snapshot(blob)
+
+
+def _pinned_scanner_versions() -> dict[str, str]:
+    """The version this repo pins for each compared package (issue #2709).
+
+    The image-backed scanners take their `version` from digests.json; Syft's pin is the
+    `ARG SYFT_VERSION=` default baked into the Grype image — digests.json carries no entry for
+    a tool that has no image of its own.
+    """
+    recorded = digests()
+    pins = {tool: str((recorded.get(tool) or {}).get("version") or "") for tool in TOOLS}
+    dockerfile = REPO / "containers" / "scanners" / "grype" / "Dockerfile"
+    match = (re.search(r"^ARG\s+SYFT_VERSION=(\S+)", dockerfile.read_text(encoding="utf-8"), re.M)
+             if dockerfile.is_file() else None)
+    pins[SBOM_TOOL] = match.group(1) if match else ""
+    return pins
+
+
+def _evaluate_freshness(text: str, source: str) -> int:
+    """Compare every pinned scanner version against the newest build in the given APKINDEX text.
+
+    The frozen `SCANNER_BASELINE` (#1284) catches pins older than a human's last measurement;
+    this consults a real index. A pin that lags the newest published build gets
+    `FRESHNESS_GRACE_DAYS` of grace — Wolfi churns builds faster than the repo should chase —
+    and a lag past that window fails, naming package, pinned version and live newest. A pin for
+    a package the index does not carry fails too: unresolvable is never silently passing. Pure:
+    takes the index text, never fetches it (issue #1067).
+    """
+    index = _wolfi_stanzas(text)
+    pins = _pinned_scanner_versions()
+    problems: list[str] = []
+    within_grace: list[str] = []
+    now = _dt.datetime.now(_dt.timezone.utc)
+    for package in FRESHNESS_PACKAGES:
+        pin = pins.get(package) or ""
+        builds = index.get(package) or []
+        if not pin:
+            problems.append(f"{package}: no pinned version found — the comparison cannot judge "
+                            "a pin it cannot read (issue #2709)")
+            continue
+        if not builds:
+            problems.append(f"{package}: pinned {pin!r} but the Wolfi index carries no "
+                            f"`{package}` package — an unresolvable pin is never a silent pass")
+            continue
+        newest, epoch = max(builds, key=lambda b: (_version_sort_key(b[0]), b[1]))
+        if _version_sort_key(pin) >= _version_sort_key(newest):
+            continue
+        age_days = ((now - _dt.datetime.fromtimestamp(epoch, _dt.timezone.utc)).days
+                    if epoch else FRESHNESS_GRACE_DAYS + 1)
+        if age_days > FRESHNESS_GRACE_DAYS:
+            problems.append(f"{package}: pinned {pin} but Wolfi published {newest} "
+                            f"{age_days} days ago (grace is {FRESHNESS_GRACE_DAYS}) — bump the "
+                            "Dockerfile ARG and `make scanner-digests` (issue #2709)")
+        else:
+            within_grace.append(f"{package}: pinned {pin} lags {newest} ({age_days}d old) — "
+                                f"inside the {FRESHNESS_GRACE_DAYS}d grace")
+    print(f"[scanner-freshness] measured against {source}")
+    for note in within_grace:
+        print(f"  ~ {note}")
+    if problems:
+        print(f"[scanner-freshness] {len(problems)} stale-pin problem(s):")
+        for item in problems:
+            print(f"  - {item}")
+        return 1
+    print(f"[scanner-freshness] OK: {len(FRESHNESS_PACKAGES)} pins checked against {source}; "
+          f"none lags the newest published build beyond the {FRESHNESS_GRACE_DAYS}d grace")
+    return 0
+
+
+def scanner_freshness() -> int:
+    """CLI entry for `make scanner-freshness`: resolve the index, then evaluate.
+
+    `WOLFI_APKINDEX` names a local snapshot (plain text or .tar.gz) and the comparison runs
+    with no network at all; otherwise this fetches Wolfi's x86_64 index once, fresh.
+    """
+    local = (os.environ.get("WOLFI_APKINDEX") or "").strip()
+    if local:
+        return _evaluate_freshness(_index_from_snapshot(Path(local)), f"local snapshot {local}")
+    return _evaluate_freshness(_fetch_wolfi_index(), WOLFI_INDEX_URL)
 
 
 DEFAULT_POLICY = {
@@ -940,7 +1105,8 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command",
                     choices=("ref", "sbom", "scan", "all", "scan-images", "scan-image",
-                             "scan-published", "scan-fixture", "verdict", "findings", "check"))
+                             "scan-published", "scan-fixture", "verdict", "findings", "check",
+                             "freshness"))
     ap.add_argument("tool", nargs="?", default="")
     ap.add_argument("--mode", default="", choices=("", "full", "pr"),
                     help="force a mode; empty resolves it from --event via `enforce_events`")
@@ -967,6 +1133,8 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "verdict":
         return verdict(args.mode, args.event)
+    if args.command == "freshness":
+        return scanner_freshness()
     return {"sbom": sbom, "all": all_scans, "check": check}[args.command]()
 
 
