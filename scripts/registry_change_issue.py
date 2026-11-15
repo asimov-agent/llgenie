@@ -325,6 +325,42 @@ def set_labels(repo: str, number: int, labels: list[str]) -> None:
             "an unlabelled change issue routes the store review to nobody, so the step fails")
 
 
+def _edit_body(repo: str, number: int, body: str) -> bool:
+    """Write the issue body over REST PATCH; True = written and read back, False = refused.
+
+    `gh issue edit --body` is a GraphQL `updateIssue` mutation, and this leg's runner
+    credential (the fine-grained owner PAT behind secrets.BUMP_TOKEN) is refused by it —
+    measured on registry-sync run 43577357338: "GraphQL: Resource not accessible by
+    personal access token (updateIssue)". The SAME credential creates issues fine because
+    `gh issue create` is REST (it created #2659 at 2026-11-14T04:36Z), so the TRANSPORT is
+    the break, not the capability — REST is the only transport this credential is proven to
+    write on this leg (#826/#775 class). The exact body is read back over the same transport: a
+    body write that EXITS 0 but never stored it (the #819 silent drop) fails the step,
+    naming the issue. A refusal (403 class) is the #775 credential fact: one loud stderr
+    line naming the issue, the endpoint and the missing capability, and the leg survives —
+    dying here would forfeit the sync PR the run exists to produce. Any other gh failure
+    still raises.
+    """
+    path = f"repos/{repo}/issues/{number}"
+    try:
+        _gh_api(["-X", "PATCH", path, "-f", f"body={body}"])
+    except RuntimeError as exc:
+        if any(token in str(exc) for token in _REFUSED):
+            print(f"[registry-change] #{number} body write REFUSED by the credential over "
+                  f"{path}: the leg's token lacks the issues write capability ({exc}). "
+                  "The issue keeps its previous body; the sync PR is not lost by this.",
+                  file=sys.stderr)
+            return False
+        raise
+    after = _gh_api([path, "--jq", ".body"])
+    if (after or "").strip() != body.strip():
+        raise SystemExit(
+            f"[registry-change] #{number} body read-back is not the body this write sent "
+            "after the PATCH — a body write that claims success but never stuck leaves the "
+            "change analysis invisible, so the step fails")
+    return True
+
+
 def open_issue(body: str, utc: str, repo: str | None, dry: bool = False) -> str:
     """Create ONE issue for this store, or update the open one carrying its marker."""
     marker = MARKER.format(utc=utc)
@@ -337,7 +373,11 @@ def open_issue(body: str, utc: str, repo: str | None, dry: bool = False) -> str:
         if marker in (issue.get("body") or ""):
             if dry:
                 return f"would update #{issue['number']}"
-            run_gh(["issue", "edit", str(issue["number"]), *base, "--body", body])
+            # Issue #2673: the body write goes over REST, not `gh issue edit` (GraphQL
+            # `updateIssue` is refused by this leg's fine-grained owner PAT — run
+            # 43577357338) — and its read-back decides whether the update happened.
+            if not _edit_body(repo_slug(repo), issue["number"], body):
+                return f"update refused for #{issue['number']}"
             # An issue that carries the marker but lost its label is re-queued, not skipped: a
             # re-run after a dropped write is how the store review gets back to the bots (#724).
             if LABEL not in labels_of(repo_slug(repo), issue["number"]):

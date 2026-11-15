@@ -102,12 +102,16 @@ class _Gh:
     """
 
     def __init__(self, open_issues: list | None = None, label_sticks: bool = True,
-                 label_refused: bool = False):
+                 label_refused: bool = False, body_sticks: bool = True,
+                 body_refused: bool = False):
         self.calls: list[list[str]] = []
         self.open_issues = open_issues or []
         self.label_sticks = label_sticks
         self.label_refused = label_refused
+        self.body_sticks = body_sticks
+        self.body_refused = body_refused
         self.labels: dict[str, list[str]] = {}
+        self.bodies = {str(i["number"]): i["body"] for i in self.open_issues}
         self._next = 705
 
     def __call__(self, args):
@@ -115,13 +119,29 @@ class _Gh:
         if args[:2] == ["issue", "list"]:
             return json.dumps(self.open_issues)
         if args[:2] == ["issue", "edit"]:
-            return ""
+            # #2673: the product must not reach this transport at all — real gh answers
+            # `updateIssue` here with "GraphQL: Resource not accessible by personal access
+            # token", and the fake refusing is what pins the REST-only rule.
+            raise AssertionError(f"unexpected gh call: {args}")
         if args[:2] == ["issue", "create"]:
             n, self._next = self._next, self._next + 1
+            self.bodies.setdefault(str(n), "")
             return f"https://github.com/asimov-agent/llgenie/issues/{n}"
         if args[:1] == ["api"]:
             path = next(a for a in args if a.startswith("repos/"))
             n = path.split("/issues/")[1].split("/")[0]
+            if args[1:3] == ["-X", "PATCH"]:
+                new = next(args[i + 1][5:] for i, a in enumerate(args)
+                           if a == "-f" and args[i + 1].startswith("body="))
+                if self.body_refused:
+                    raise RuntimeError(f"gh {' '.join(args)} failed: "
+                                       "Resource not accessible by personal access token "
+                                       "(HTTP 403)")
+                if self.body_sticks:
+                    self.bodies[n] = new
+                return ""
+            if "--jq" in args and args[-1] == ".body":
+                return self.bodies.get(n, "")
             if "POST" in args and self.label_refused:
                 # The runner's PAT refuses the label write outright (#775): like real gh, it
                 # exits non-zero and stderr names the 403, which the product must survive.
@@ -152,16 +172,79 @@ def test_a_second_open_for_the_same_store_updates_instead_of_duplicating(monkeyp
     # When   the report is opened for that same store
     result = RCI.open_issue("new body", utc, "asimov-agent/llgenie")
 
-    # Then   it edits issue 704 rather than creating a second one
+    # Then   it edits issue 704 rather than creating a second one — over REST PATCH, and
+    #        never through `gh issue edit` (GraphQL updateIssue: the leg's PAT is refused,
+    #        #2673; the fake gh raises if the product ever reaches that transport)
     assert result == "updated #704"
-    assert ["issue", "edit", "704"] == gh.calls[1][:3]
+    patches = [c for c in gh.calls if c[:3] == ["api", "-X", "PATCH"]]
+    assert len(patches) == 1 and "repos/asimov-agent/llgenie/issues/704" in patches[0]
+    assert any(a == "-f" and a_next.startswith("body=")
+               for a, a_next in zip(patches[0], patches[0][1:]))
+    assert not any(c[:2] == ["issue", "edit"] for c in gh.calls)
     assert not any(c[:2] == ["issue", "create"] for c in gh.calls)
+
+    # And    the write is PROVEN by a read-back of the body over the same transport
+    reads = [c for c in gh.calls if c[:1] == ["api"] and c[-1] == ".body"]
+    assert reads and "repos/asimov-agent/llgenie/issues/704" in reads[0]
+    assert gh.bodies["704"] == f"new body\n\n{marker}\n"
 
     # And    the unlabelled issue is labelled through the REST endpoint, not `--add-label`
     posts = [c for c in gh.calls if c[:1] == ["api"] and "POST" in c]
     assert len(posts) == 1 and "repos/asimov-agent/llgenie/issues/704/labels" in posts[0]
     assert f"labels[]={RCI.LABEL}" in posts[0]
     assert gh.labels["704"] == [RCI.LABEL]
+
+
+def test_a_body_write_that_claims_success_but_never_sticks_fails_the_step(monkeypatch):
+    """The read-back is the verdict: a PATCH that exits 0 but leaves the old body must red."""
+    # Given  gh accepting the PATCH but never storing the new body (the #819 silent drop)
+    utc = "2026-10-26T00:00:00Z"
+    marker = RCI.MARKER.format(utc=utc)
+    gh = _Gh(open_issues=[{"number": 704, "body": f"old body\n\n{marker}\n"}],
+             body_sticks=False)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    # When   the report is opened for that same store
+    try:
+        RCI.open_issue("new body", utc, "asimov-agent/llgenie")
+    except SystemExit as exc:
+        # Then  the step fails, naming the issue whose body never changed
+        assert "#704" in str(exc), exc
+    else:                                            # pragma: no cover - the failure is the assertion
+        raise AssertionError("a body write that never stuck must fail the step")
+
+    # And    the failure is the READ-BACK, not a skipped write
+    assert [c for c in gh.calls if c[:3] == ["api", "-X", "PATCH"]]
+    assert [c for c in gh.calls if c[:1] == ["api"] and c[-1] == ".body"]
+
+
+def test_a_refused_body_write_names_the_issue_the_endpoint_and_the_capability(monkeypatch,
+                                                                              capsys):
+    """A 403 on the body PATCH is a credential fact (#775 rule): it is REPORTED, naming
+    issue + endpoint + capability, and the leg survives so the sync PR step still runs."""
+    # Given  gh refusing the body PATCH with the measured runner refusal
+    utc = "2026-10-26T00:00:00Z"
+    marker = RCI.MARKER.format(utc=utc)
+    gh = _Gh(open_issues=[{"number": 704, "body": f"old body\n\n{marker}\n"}],
+             body_refused=True)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    # When   the report is opened for that same store
+    result = RCI.open_issue("new body", utc, "asimov-agent/llgenie")
+
+    # Then   no traceback: the leg returns a named outcome instead of an updated one
+    assert result == "update refused for #704"
+
+    # And    stderr names the issue, the exact endpoint, and the missing capability
+    err = capsys.readouterr().err
+    assert "#704" in err
+    assert "repos/asimov-agent/llgenie/issues/704" in err
+    assert "issues write" in err
+    assert "Resource not accessible by personal access token" in err
+
+    # And    no GraphQL transport was attempted, and no label write followed the refusal
+    assert not any(c[:2] == ["issue", "edit"] for c in gh.calls)
+    assert not [c for c in gh.calls if c[:1] == ["api"] and "POST" in c]
 
 
 def test_a_store_with_no_open_issue_creates_exactly_one(monkeypatch):
