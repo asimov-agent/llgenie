@@ -168,6 +168,27 @@ def test_the_dispatch_roster_is_pinned_and_the_blanket_ban_is_not(tmp_path):
     assert "AGENTS.md" in proc.stderr
 
 
+def test_the_local_make_mode_and_the_failing_workflow_exception_are_pinned(tmp_path):
+    """#2721: the section states the agent's mode (prove work with local make, never
+    dispatch GitHub CI) and names the one exception (test a workflow that is failing).
+    Erasing either is a finding."""
+    root = _tree(tmp_path)
+    agents = root / "AGENTS.md"
+    text = agents.read_text()
+    assert "verifies locally with `make`" in text, \
+        "the real AGENTS.md must state the agent's local-make verification mode (#2721)"
+    assert "test a workflow that is failing" in text, \
+        "the real AGENTS.md must name the failing-workflow-testing exception (#2721)"
+
+    # Given the mode sentence erased (agent 'may dispatch its own verification lane' instead)
+    agents.write_text(text.replace("verifies locally with `make`",
+                                   "may dispatch a verification lane of its own"))
+
+    proc = _run(root)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "AGENTS.md" in proc.stderr
+
+
 # --------------------------------------------------------------- wiring seams
 
 

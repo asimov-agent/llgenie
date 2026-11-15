@@ -97,6 +97,8 @@ AGENTS_SECTION_HEADER = "## CI pipeline discipline: weekly engine/registry lane 
 AGENTS_PIN_PHRASES = (
     "owner, a collaborator, and GitHub itself",
     "gh run rerun",
+    "verifies locally with `make`",
+    "test a workflow that is failing",
     "tests only",
     "agent-image",
     "weekly",

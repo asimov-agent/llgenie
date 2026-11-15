@@ -1439,16 +1439,20 @@ The owner set this on 2026-11-15 (issue #2701). It is a MEASURE, not a style not
   engine servers, syncing the registry, updating the engine list with new
   engines, and updating existing engines' Dockerfiles — plus the allow-listed
   bot lanes (`AGENT_LANES`), which run dispatch-only after 2026-11-15.
-- **A CI pipeline starts from a GitHub event, or from a dispatch a permitted
-  principal starts.** The permitted principals for `workflow_dispatch` are the
-  **owner, a collaborator, and GitHub itself (the Actions bot)**. The automated
-  agent never dispatches and never pumps the queue: no `gh run rerun`, no
-  requeue or re-trigger loops — not even to unblock a wedge. CI otherwise
-  starts from GitHub events (push, PR, `workflow_run`, label) plus the weekly
-  engine/registry lane and the landing plumbing's own clocks. A wedge is fixed
-  by pushing a commit (rebase, body fix, gate fix), never by pumping the
-  queue. The retired ci-requeue healer (#2702) is the shape this rule
-  forbids; do not resurrect it in any form.
+- **The agent verifies locally with `make`; a CI pipeline is started by humans, cron
+  lanes, or GitHub events.** The agent proves its work by running the Makefile gates on
+  its own tree (locally, on the host) — `make <target>`, `make lane-preflight`,
+  `make test-unit`. It never starts a GitHub CI pipeline for its own work and never
+  pumps the queue: no `gh workflow run` / `workflow_dispatch` of its own accord, no
+  `gh run rerun`, no requeue or re-trigger loops — not even to unblock a wedge. A
+  pipeline is started by a human (the owner or a collaborator), by a scheduled (cron)
+  lane, and by GitHub itself reacting to GitHub events (push, PR creation, PR merge,
+  `workflow_run`, label). The permitted principals for `workflow_dispatch` are the
+  **owner, a collaborator, and GitHub itself (the Actions bot)**. The one exception: an
+  agent may start a dispatch to **test a workflow that is failing** — debugging the
+  pipeline itself — and only for that. A wedge is fixed by pushing a commit (rebase,
+  body fix, gate fix), never by pumping the queue. The retired ci-requeue healer
+  (#2702) is the shape this rule forbids; do not resurrect it in any form.
 - **Host-side agent work is one lane at a time.** The interactive agent (this
   agent, on the host) owns triage, refinement, dedupe, architecture scan, and
   rebases as its own one-at-a-time work — the deactivation left those
