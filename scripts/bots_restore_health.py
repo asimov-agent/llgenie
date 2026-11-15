@@ -24,8 +24,7 @@ Commands:
     bots_restore_health.py measure --repo owner/repo [--gh PATH] [--now ISO-8601]
                                    # sample the live queue once; exit 0 if healthy, 1 if not
 
-`--gh` lets a test drive a stub binary, exactly as all_pipelines' `ALL_PIPELINES_GH` and ci_requeue's
-`CI_REQUEUE_GH`. `--now` lets a test fix the clock.
+`--gh` lets a test drive a stub binary, exactly as all_pipelines' `ALL_PIPELINES_GH`. `--now` lets a test fix the clock.
 """
 from __future__ import annotations
 

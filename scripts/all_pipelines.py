@@ -28,7 +28,7 @@ invisible from a green board. This module is the engine behind `.github/workflow
 Commands:
     all_pipelines.py sweep --repo owner/repo [--ref main] [--gh /path/to/gh] [--timeout 300]
 
-The `--gh` knob lets a test drive a stub binary, exactly as ci_requeue's `CI_REQUEUE_GH`.
+The `--gh` knob lets a test drive a stub binary — the allowed external stand-in.
 """
 from __future__ import annotations
 

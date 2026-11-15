@@ -73,8 +73,8 @@ def failing_checks(repo: str, pr: int) -> list[str]:
         bucket = (row.get("bucket") or "").lower()
         # #843: `gh pr checks` buckets a CANCELLED check as `fail`, so a bulk cancel used to look
         # exactly like a real failure and this bot would "fix" a PR whose only problem was that its
-        # run was killed. A cancellation is not a verdict: it is PENDING, and `make
-        # ci-requeue-cancelled` is what gives it one back.
+        # run was killed. A cancellation is not a verdict: it is PENDING; a rerun belongs
+        # to the GitHub UI, the owner's word (issue #2702 retired `make ci-requeue-cancelled`).
         if bucket == "cancel" or state in ("CANCELLED", "CANCELED"):
             cancelled.append(row.get("name") or "?")
             continue
@@ -83,7 +83,8 @@ def failing_checks(repo: str, pr: int) -> list[str]:
     if cancelled:
         print(f"[sweep] #{pr}: {len(cancelled)} cancelled check(s) "
               f"({', '.join(sorted(cancelled)[:3])}{'…' if len(cancelled) > 3 else ''}) - "
-              f"PENDING, not red: `make ci-requeue-cancelled` re-runs them (issue #843)")
+              f"PENDING, not red: a rerun belongs to the GitHub UI, the owner's word "
+              f"(issue #2702 retired `make ci-requeue-cancelled`)")
     return red
 
 

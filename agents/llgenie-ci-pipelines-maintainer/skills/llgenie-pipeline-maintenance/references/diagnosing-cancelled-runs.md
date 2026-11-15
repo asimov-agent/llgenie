@@ -202,10 +202,10 @@ never reaches the runner.)
 `gh run rerun [--failed]` REJECTS a run whose `event` is `workflow_run` with "This workflow run cannot
 be retried". Every reaction workflow in this repo (auto-merge, ci-verdict, run-failure-reactor
 completing) is `event=workflow_run`, so a cancelled one of those is NOT a verdict to heal. Any script
-that bulk-selects cancelled/failed runs (the `ci_requeue` healer is the living example) must filter on
-`event`, not only on `conclusion`: one non-retryable reaction run aborts the whole heal and leaves every
-retryable cancellation behind it unhealed — `make ci-requeue-cancelled` EXITS 1 and heals nothing that
-pass. Skip-and-report the non-retryable origin (name its id + `event`), and let the retryable ones still
+that bulk-selects cancelled/failed runs (the retired `ci_requeue` healer, issue #2702, is the living
+example) must filter on `event`, not only on `conclusion`: one non-retryable reaction run aborts the
+whole heal and leaves every retryable cancellation behind it unhealed — the retired
+`make ci-requeue-cancelled` EXITS 1 and healed nothing that pass. Skip-and-report the non-retryable origin (name its id + `event`), and let the retryable ones still
 run. Prove the guard with a negative control: plant a cancelled `workflow_run` run in the window and
 assert the retryable runs are still re-run while it is skipped, not fatal.
 

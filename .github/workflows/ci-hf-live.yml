@@ -33,7 +33,7 @@ on:
     branches: [main]
   schedule:
     - cron: "25,57 * * * *"  # twice-hourly live probe (odd minutes: GitHub drops :00/:30 slots, issue #560; 25/57 are free on all seven weekdays, issue #275) — upstream HF drift is the failure source (issue #1178)
-    - cron: "59 6 * * *"    # nightly 06:59 UTC — own odd minute free on all seven weekdays (issue #275: no bot shares a slot; minute 15 is now taken by the every-hour set and ci-requeue)
+    - cron: "59 6 * * *"    # nightly 06:59 UTC — own odd minute free on all seven weekdays (issue #275: no bot shares a slot; minute 15 is now taken by the every-hour set)
   workflow_dispatch:
 
 permissions:

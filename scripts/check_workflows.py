@@ -1051,7 +1051,7 @@ def check_actor_guards(root: Path = REPO_ROOT) -> list[dict]:
     resolves to a workflow that is itself guarded (signature) or internal-only. This is the
     reasoning `zero-job-pending.yml`'s header already states (#1410: "a `workflow_run` reaction is
     not startable by a human"), made checkable: `auto-merge.yml` (roster CI + ci-scope) and
-    `zero-job-pending.yml` (roster ci-requeue) pass by derivation; an unguarded roster source
+    `zero-job-pending.yml` (roster ci-frozen-reaper) pass by derivation; an unguarded roster source
     taints its follower, so the fleet has zero exemptions (issue #2526).
 
     The derivation is a fixed point over the roster graph (see `_guard_info`): guarded starts at

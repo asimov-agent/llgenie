@@ -9,8 +9,9 @@ Two lane-owned gate fixes from one queue (Finding A + B), both guard-proofed red
 - Consumers that decide supersession/re-run must read run_attempt:
   * `ci_verdict.superseding_run()` — a same-id run with a higher run_attempt wins the same-id case
     before any later-created run.
-  * `ci_requeue.plan()` — track max run_attempt per (workflow, branch); requeue only the newest
-    attempt, skip a cancelled run whose same id was re-run at a higher attempt.
+  * the retired `ci_requeue.plan()` (issue #2702) tracked max run_attempt per (workflow, branch)
+    and requeued only the newest attempt — the same rule applies to any consumer that judges
+    supersession, e.g. `ci_verdict.superseding_run`.
 - Proof shape: run the new test against the PRE-fix logic -> it reds (the guard catches the bug),
   then green after. Do not ship a rule only run on the fixed tree.
 

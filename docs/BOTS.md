@@ -2134,7 +2134,6 @@ from the pipeline that will run.
 | `arms.yml` | fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873) | none — it audits the whole board; a hand run just re-checks what the daily sweep checks. |
 | `ci-frozen-reaper.yml` | cancel + re-run a run stuck in_progress past its threshold, every 2 hours | none — the reaper takes no target: it sweeps every in_progress run. The threshold is a |
 | `ci-hf-live.yml` | the merge-to-main real-Hub test pipeline (HF live tests + the committed-link liveness gate), never a PR check | none — the pipeline runs exactly the @pytest.mark.network ownership set, gated first |
-| `ci-requeue.yml` | re-runs only the cancelled runs no later run superseded, every 30 minutes | none — the healer takes no target: it re-runs every cancelled run in the window that |
 | `ci-verdict.yml` | holds a finished CI run to its published scope decision, and says "no verdict" out loud | `run_id` (required) — the finished run id to re-judge (a `CI` run that has published a scope decision)<br>`head_sha` (optional) — the commit the verdict is about; empty = the judged run's head sha |
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
 | `engine-build-pr-trigger.yml` | a pin-bump PR starts the producer and waits on it (issue #1633) | `base_ref` (required) — the git ref (branch or sha) the head's repin diff is measured against (the PR's base)<br>`branch` (required) — the head ref (branch or sha) whose params or image inputs may repin engines — the ref the producer dispatch targets |
@@ -2334,12 +2333,13 @@ make queued-alarm      # report CI jobs stuck in `queued` too long (a runner tha
 make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
                        # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
                        # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
-                       # per stuck run (idempotent by run-id marker) — run once per ci-requeue completion by
+                       # per stuck run (idempotent by run-id marker) — run once per ci-frozen-reaper completion by
                        # zero-job-pending.yml (the robot scheduled-minute budget is exhausted; it rides an
                        # active sibling workflow's completion rather than owning a minute of its own). It
                        # originally rode queued-alarm (:07/:37), but queued-alarm is disabled_manually and
-                       # never completes, so the monitor never fired (#1442); re-pointed onto ci-requeue
-                       # (:15/:45, active) so the run-level sweep follows the requeue sweep
+                       # never completes, so the monitor never fired (#1442); it rode ci-requeue until
+                       # issue #2702 retired that lane, and now rides ci-frozen-reaper (:19/:27,
+                       # allow-listed) so the run-level sweep follows the frozen-run sweep
 # ---- Orphan-queued runs: the handling rule (issue #2656) ------------------------------------
 # A run that sits non-terminal far past the `--minutes` threshold with NO open pull request AND a head
 # branch GitHub answers 404 for (deleted) is an ORPHAN-queued run: the stale leftover of finished/past
@@ -2355,9 +2355,6 @@ make check-zero-job-pending  # fail when a dispatched run has been pending/queue
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
-make ci-requeue-cancelled  # re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run
-                           # (a superseded run already has its verdict): WINDOW=2h, DRY=1 previews; issue #843;
-                           # a run GitHub answers "cannot be retried" is recorded skipped, never fatal (#2295)
 make ci-frozen-reaper      # cancel + re-run a run stuck `in_progress` past its threshold on an OPEN PR only
                            # (a run still advancing, younger than the 15m grace, or with no open PR is left
                            # alone; the evidence comment names the owner BEFORE any cancel): THRESHOLD=90m,
@@ -2384,11 +2381,10 @@ make verdict-roster        # print every workflow that can post a check-run at a
                            # a SUBSET check (`judged <= posters`), never equality, so the workflow set
                            # can grow; `make check-workflows` fails on a poster with no dated decision
 
-Scheduled: `.github/workflows/ci-requeue.yml` runs that same target every 30 minutes (`23,53 * * * *`,
-off the hour and off the other bots' minutes) with `concurrency: cancel-in-progress: false`, so one
-round can never be cancelled by the next — the exact bug the healer exists to undo. It holds only
-`contents: read` / `actions: write` / `pull-requests: read` (what `gh run rerun` needs) and it is named
-in `run-failure-reactor.yml`'s roster, so its own red is routed like every other workflow's.
+Retired (issue #2702): the ci-requeue lane — `.github/workflows/ci-requeue.yml`,
+`scripts/ci_requeue.py` and `make ci-requeue-cancelled` — no longer exists. Re-running a CI run is a
+human GitHub-UI action per the owner's CI-discipline policy (issue #2701); no repo mechanism may
+start a pipeline outside GitHub events and the allow-listed lanes.
 
 The verdict exists because "nothing ran" and "nothing needed to run" produced the same check-runs row
 (issue #1111). `ci.yml`'s `guard` job publishes the classifier's decision as the `ci-scope-decision`
