@@ -6,11 +6,13 @@ name: registry-sync-review — a GREEN registry-sync PR is reviewed into ONE age
 # trending list list models, and does every row name the inference server with the highest t/s that
 # fits that card? That answer is what this bot files, as one reviewable work item.
 #
-# Trigger surface: hourly (minute :55, an odd slot no other bot owns) and workflow_dispatch for the
-#                  owner/collaborators.
-#                  Hourly because the sync PR becomes green only after CI runs on it; the run is
-#                  cheap when nothing is green (the brief exits `action=skip` before any secret is
-#                  spent, and no issue is filed for the same store twice).
+# Trigger surface: `workflow_dispatch` only (the hourly clock, minute :55, was removed by
+#                  issue #2701).
+# Triggered now (issue #2703): keep-dispatch-only — a manual dispatch (owner/collaborator,
+#                  GitHub — the #2718 roster) after a registry-sync proposal lands is the only
+#                  way this lane starts. The run is cheap when nothing is green (the brief exits
+#                  `action=skip` before any secret is spent, and no issue is filed for the same
+#                  store twice).
 # Flow: guard -> make registry-review-brief (deterministic, offline: the PR's checks + the VRAM
 #       selection table) -> only when `action=review`: agent image + shell-key proof + Hermes leg
 #       (make registry-sync-review, writes registry-review.md) -> make registry-review-publish

@@ -138,7 +138,7 @@ only: the issue title and a body in this repository's issue shape, quoting the m
 `make registry-review-publish` files ONE issue labelled `agent:implement`, keyed by the store's
 `generated_utc` (`<!-- registry-sync-review: <utc> -->`), editing it on a re-run and linking the store's
 change report (#704) instead of repeating it. Every secret-spending step in
-`registry-sync-review.yml` is gated on the brief's `action == 'review'`, so an hourly run with no green
+`registry-sync-review.yml` is gated on the brief's `action == 'review'`, so a dispatch with no green
 PR costs nothing — measured on `main@2cbfb11`, `make registry-review-brief` prints `action=skip` (no open
 sync PR) and still renders 92 `no-engine` findings over the 80 cases, on three models
 (`nemotron-3.5-lightning-30b-a3b`, `glm-5.3-flash`, `llama-3.1-8b`), each listed on an architecture no
@@ -596,7 +596,7 @@ unit-testable core — `scripts/issue_implementer.py`:
 ```bash
 gh workflow run issue-bot.yml          # by hand, with NO issue number: the bot picks the oldest
                                        # agent:implement issue itself (then agent:ready), one per run —
-                                       # the same pick the daily schedule makes (issue #472). Pass
+                                       # the same pick the old daily schedule made (#472; the clock is off per issue #2701). Pass
                                        # -f issue_number=<n> only to pin one exact issue.
 make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> issue.md + branch
 make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
@@ -749,7 +749,7 @@ An issue labelled `agent:closed` is never picked again, so a close cannot loop, 
 it does not consume the 3/day PR cap. **`agent:refined` is a marker, not a decision (issue #522):** the
 restatement makes an issue *more* implementable, so a refined issue stays in the picker and the refine
 verdict also adds `agent:ready` when the issue carries no queue label. While `agent:refined` sat in
-`DECIDED_LABELS`, every issue the hourly refiner touched became invisible to the implementer — a refine was
+`DECIDED_LABELS`, every issue the refiner touched became invisible to the implementer — a refine was
 a one-way door.
 
 **Every agent leg is unattended, and its prompt says so** (issue #543). `--yolo` auto-approves shell
@@ -966,7 +966,7 @@ make rebase-bot-abort     # abort a stopped rebase and return the tree to main (
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
 **Every open PR is kept on `main` by a third bot** (`rebase-bot.yml`, issue #246), because
 AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
-It runs **every 6 hours** and drains the backlog: **every eligible PR per run**, oldest first,
+It runs on a manual dispatch (its 6-hourly clock `29 */6 * * *` was removed by issue #2701; the lane is classified keep-dispatch-only by issue #2703) and drains the backlog: **every eligible PR per run**, oldest first,
 bounded by the `max_prs` dispatch input (default 10) and by the sweep's daily cap. A PR whose
 rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries on.
 - `make rebase-bot-sweep` decides *which* PR — an open, non-draft PR against `main` whose merge
@@ -1028,7 +1028,7 @@ make issue-dedup-pick               # which two UNCLAIMED open issues look like 
 make issue-dedup                    # the agent decides: DUPLICATE: #<older> + EVIDENCE, or DISTINCT: + REASON
 make issue-dedup-apply COPY=<n>      # retire the copy (comment citing the canonical + agent:duplicate) and queue the canonical
 **A companion bot reviews the backlog — the issues that have not been implemented yet.** It is a
-separate workflow (`issue-refiner.yml`) that runs **hourly** and reviews **one issue per run**: open,
+separate workflow (`issue-refiner.yml`) that runs **on a manual dispatch** (its hourly clock `43 * * * *` was removed by issue #2701; classified keep-dispatch-only by issue #2703) and reviews **one issue per run**: open,
 oldest first, not already reviewed (`agent:refined`), not claimed for implementation, and not already
 linked to a pull request — i.e. an issue no PR answers yet. It opens **no PR at all**: its outcome is
 ONE comment plus the `agent:refined` label, which is what stops it reviewing the same issue twice.
@@ -1048,7 +1048,7 @@ architecture-refresh issues are near-identical by construction and would pair at
 therefore cannot race the implementer or the refiner, and cannot re-open a decision.
 The only thing it refuses to do is race the implementer: while an issue is *waiting* for it
 (labelled `agent:implement`/`agent:ready` with no PR yet) the run says so and yields; once that issue
-has a PR it is not waiting for anyone and the next hourly run proceeds. Hermes does the *review* —
+has a PR it is not waiting for anyone and the next dispatch proceeds. Hermes does the *review* —
 explicit acceptance criteria, scope in/out, the surfaces it would touch, and any open decision
 **named as a question** rather than decided. It never rewrites an issue body and never merges.
 
@@ -1363,8 +1363,9 @@ writes only the fetched text. `scripts/fetch_smoke.py` reads the key by name, ma
 bounded response, and fails with the HTTP code on 401/402/403 or on a 200 that carries no
 `data.markdown` — "no results" is never healthy. A missing key is exit 2 with the variable's name.
 
-`search-smoke` runs on the repository secret: the `search-smoke.yml` workflow (issue #381) fires daily
-at 07:11 UTC (and on a hand dispatch by the owner/collaborators), where
+`search-smoke` runs on the repository secret: the `search-smoke.yml` workflow (issue #381) fires on a
+hand dispatch by the owner/collaborators (its daily slot 07:11 UTC was removed by issue #2701; classified
+keep-dispatch-only by issue #2703), where
 `make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY` proves the **agent's own shell**
 sees the key *before* `make search-smoke` spends it. The key travels by NAME (`docker run -e`) and never
 on a command line. While the secret did not exist the target was human-run only and recorded in
@@ -1390,7 +1391,7 @@ The review prompt reads that index as evidence, and a URL it could not fetch is 
 never as false. `make web-coverage` is deterministic — no model call and no key: a 404 is dead for a bot
 too, and a `401/403` is **reachable** (the resource exists; the bot simply has no credential), which is
 a different problem from a link nobody can read. `tests/fixtures/bot-facing-urls.md` is the declared
-list it checks when no issue names a URL, and `search-smoke.yml` runs it on the same daily schedule.
+list it checks when no issue names a URL, and `search-smoke.yml` runs it on each dispatch.
 
 ## A bot leg refuses to start on a missing key (#363)
 
@@ -1902,7 +1903,7 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   human can finish it (issue #479).
 - **Quiet unless the tree moved.** `publish` re-checks the working tree: an unchanged doc files
   nothing, a doc shorter than 200 characters is refused, and an already-open
-  `agent/architecture-*` PR makes the run `action=pending` (no second issue every 6 hours).
+  `agent/architecture-*` PR makes the run `action=pending` (no second issue on a repeat run).
 - **What it files.** One issue (Issue / Fix / Benefit / Technical), one branch
   `agent/architecture-<UTC stamp>`, one commit carrying only the doc, authored
   `Asimov Agent <support@docondee.com>`, and one PR to `asimov-agent/llgenie:main` carrying

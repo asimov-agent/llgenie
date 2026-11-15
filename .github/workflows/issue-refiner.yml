@@ -10,8 +10,11 @@
 # `guard` job re-checks the actor before any secret is read. The decision (spare capacity?
 # which issue?) lives in scripts/issue_refiner.py, not in a job `if:` — issue #107 requires
 # that, and tests/test_issue_refiner.py asserts it.
-# Trigger surface: its own schedule (hourly, `43 * * * *`) and `workflow_dispatch` by hand
-#                  (owner/collaborator).
+# Trigger surface: `workflow_dispatch` by hand only (the hourly clock `43 * * * *` was removed
+#                  by issue #2701).
+# Triggered now (issue #2703): keep-dispatch-only — the dispatch belongs to the #2718 roster
+#                  (owner/collaborator, GitHub). The interactive host agent restates the issue
+#                  bodies it works on locally.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-refiner-pick (the oldest
 #       eligible issue, or none) -> make issue-refiner (its first step is make agent-shell-keys-check
 #       for FIRECRAWL_API_KEY, then make issue-evidence pre-fetches the URLs the issue names with the

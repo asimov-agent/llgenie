@@ -26,7 +26,13 @@ The rule has four faces, and every one of them is a MEASURE, not a comment:
    that uses the agent-leg action outside that list is a finding. None of the
    agent-lane files may declare a schedule (issue #2701 deactivated them).
 
-4. AGENTS.md CARRIES THE RULE. The durable section named by SECTION markers
+4. DISPATCH-ONLY CLASSIFICATION (issue #2703). Every lane whose clock #2701
+   removed is classified in DISPATCH_ONLY_LANES below: kept as
+   event/dispatch-only, with the driver that triggers it now. A kept lane must
+   carry its `# Triggered now` header line in the workflow file, and none of
+   them may declare a `schedule:` again.
+
+5. AGENTS.md CARRIES THE RULE. The durable section named by SECTION markers
    below must exist; a gate nobody wrote into the rules drifts.
 
 Commands (driven by make, never by hand):
@@ -83,6 +89,28 @@ AGENT_LANES: dict[str, str] = {
     "rebase-bot.yml": "dispatch-only since issue #2701: rebases open PRs (agents rebase their own branches meanwhile)",
     "registry-sync-review.yml": "dispatch-only since issue #2701: agent review of registry-sync proposals",
     "search-smoke.yml": "dispatch-only since issue #2701: the loud proof the agent's web-reach key works, via the one sanctioned agent-fetch leg",
+}
+
+#: Header line every dispatch-only lane below must carry (issue #2703): the file
+#: states who triggers it NOW, so a reader is not lied to by a removed clock.
+TRIGGER_MARKER = "# Triggered now (issue #2703):"
+
+#: The seven lanes whose `schedule:` #2701 removed, classified by issue #2703:
+#: ALL KEPT as event/dispatch-only; NONE retired. The value names the driver
+#: that triggers the lane now; a manual dispatch belongs to the #2718 roster
+#: (owner, collaborator, GitHub itself). No retirement: the agent-executor
+#: scripts and their make targets are shared plumbing (bot_claims' rebase
+#: claim subject is how engine-bump-rebase.yml marks a PR taken), and the
+#: human dispatch path stays real. Retiring a lane later is a review act that
+#: edits this roster AND the workflow file in the same change.
+DISPATCH_ONLY_LANES: dict[str, str] = {
+    "architecture-bot.yml": "keep-dispatch-only: manual dispatch (owner/collaborator/GitHub); the host agent runs architecture scans locally",
+    "issue-bot.yml": "keep-event-driven: the agent:implement label (issues: trigger) plus manual dispatch",
+    "issue-dedupe.yml": "keep-dispatch-only: manual dispatch; duplicate detection also runs locally via make issue-dedup-pick / issue-dedup / issue-dedup-apply",
+    "issue-refiner.yml": "keep-dispatch-only: manual dispatch; the host agent restates the issue bodies it works",
+    "registry-sync-review.yml": "keep-dispatch-only: manual dispatch after a registry-sync proposal lands",
+    "search-smoke.yml": "keep-dispatch-only: manual dispatch; the local proof is make search-smoke",
+    "rebase-bot.yml": "keep-dispatch-only: manual dispatch; agents rebase their own branches (AGENTS.md) and engine-bump-rebase.yml covers the engine lane",
 }
 
 #: The main pipeline files that must stay tests-only.
@@ -168,6 +196,24 @@ def check(root: pathlib.Path) -> list[str]:
         elif _schedules(wf):
             findings.append(f"{name}: a deactivated agent lane declares a `schedule:` again ({_schedules(wf)}) — issue #2701 left it dispatch-only")
 
+    # Issue #2703: the classification itself is a checked fact. Every kept lane
+    # states its live trigger in the file; none re-schedules; the roster never
+    # drifts from the tree.
+    for name, why in sorted(DISPATCH_ONLY_LANES.items()):
+        wf = workflows.get(name)
+        if wf is None:
+            findings.append(f"{name}: classified dispatch-only (issue #2703) but the workflow file is gone — the classification is stale (rationale on record: {why!r})")
+            continue
+        if _schedules(wf):
+            findings.append(f"{name}: a dispatch-only lane declares a `schedule:` again ({_schedules(wf)}) — issue #2703 keeps it event/dispatch-only")
+        try:
+            raw = (root / ".github" / "workflows" / name).read_text()
+        except OSError:
+            findings.append(f"{name}: unreadable — the trigger header cannot be verified")
+            continue
+        if TRIGGER_MARKER not in raw:
+            findings.append(f"{name}: missing the {TRIGGER_MARKER!r} header line — a kept lane must state who triggers it now (issue #2703; driver on record: {why!r})")
+
     agent_users = {name for name, wf in workflows.items() if _uses_agent(wf)}
     for name in sorted(agent_users - set(AGENT_LANES) - set(SCHEDULE_ALLOW)):
         findings.append(f"{name}: uses the Hermes agent leg outside the agent-lane allow-list — Hermes in CI is limited to the engine/registry agent-image lanes and the allow-listed bot lanes (issue #2701)")
@@ -215,6 +261,10 @@ def main() -> int:
             print(f"  {name}: {scheduled[name]} [{mark}]")
         agent_users = sorted(n for n, w in workflows.items() if _uses_agent(w))
         print(f"agent-leg/agent-image users: {agent_users}")
+        print(f"dispatch-only classifications (issue #2703): {len(DISPATCH_ONLY_LANES)}")
+        for name in sorted(DISPATCH_ONLY_LANES):
+            mark = "classified" if name in workflows else "FILE GONE"
+            print(f"  {name}: {DISPATCH_ONLY_LANES[name]} [{mark}]")
         print(f"tests-only pipelines: {list(TESTS_ONLY_PIPELINES)}")
         print(f"findings: {len(findings)} (report always exits 0)")
         return 0

@@ -3,9 +3,9 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 # ISSUE-BOT — implements ONE issue per run (issue #248), at most 3 a day, each
 # left as a draft-free reviewable PR that is NEVER merged.
 #
-# Trigger surface: the explicit `agent:implement` label, a daily schedule, and
-# workflow_dispatch for the owner. Concurrency queues a second event for the
-# SAME issue instead of launching a parallel implementer.
+# Triggered now (issue #2703): keep-event-driven — the explicit `agent:implement` label and
+# workflow_dispatch for the owner; the daily schedule was removed by issue #2701. Concurrency
+# queues a second event for the SAME issue instead of launching a parallel implementer.
 #
 # Flow (all of it, or the run is a defect):
 #   guard (owner/collaborator, BEFORE any secret is read)
@@ -142,8 +142,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           # A label event (`agent:implement`, the explicit ask) or a manual
-          # dispatch pins FORCE_ISSUE to that issue; only a schedule run lets
-          # the dispatcher pick the oldest labeled/ready issue itself.
+          # dispatch with `issue_number` set pins FORCE_ISSUE to that issue; a
+          # dispatch left blank lets the dispatcher pick the oldest
+          # labeled/ready issue itself (the path the old schedule took, #472).
           FORCE_ISSUE: ${{ github.event.issue.number || inputs.issue_number || '' }}
         run: |
           set +e
