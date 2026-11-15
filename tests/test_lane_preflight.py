@@ -24,6 +24,7 @@ import textwrap
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2676)
 from scripts import lane_preflight  # noqa: E402  (the module under test)
 from scripts import issue_bot_gates  # noqa: E402  (the source of the one gate list)
 
@@ -216,7 +217,7 @@ def test_real_gate_outside_fast_gates_reds_the_preflight(tmp_path, capsys):
 # --------------------------------------------------------------------------
 
 def test_make_target_exists_is_phony_and_runs_the_script():
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)  # lane-preflight lives in mk/agents.mk (issue #2676)
     assert "\nlane-preflight:" in mk, "make lane-preflight must exist"
     # runs the script (a target naming nothing is a no-op)
     recipe_block = mk.split("\nlane-preflight:", 1)[1].split("\n\n", 1)[0]

@@ -23,6 +23,7 @@ import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2676)
 SCRIPT = REPO / "scripts" / "require_env.py"
 MAKEFILE = REPO / "Makefile"
 from scripts import unit_tests as ut
@@ -44,7 +45,7 @@ def _clean_env(**extra) -> dict:
 
 def _recipes() -> dict[str, str]:
     """(target, recipe body) for every make target — derived from the file, never a roster."""
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text(REPO)  # agent legs live in mk/agents.mk (issue #2676)
     out = {}
     for m in re.finditer(r"(?m)^([a-z0-9][a-z0-9._-]*):.*?$", mk):
         start = m.end()
@@ -117,11 +118,11 @@ def test_every_agent_leg_guards_before_it_pulls_the_image():
             assert guard_at < pull_at, f"{target} pulls the image before it checks its key"
 
     # And the guard is a real make target too (a human runs the same code path)
-    assert re.search(r"(?m)^require-env:", MAKEFILE.read_text())
+    assert re.search(r"(?m)^require-env:", makefiles_text(REPO))
 
 
 def test_the_guard_is_one_code_path():
-    mk = MAKEFILE.read_text()
+    mk = makefiles_text(REPO)  # agent legs live in mk/agents.mk (issue #2676)
 
     # Then the old ad-hoc bash test is gone from both hermes-smoke recipes
     assert 'test -n "$$NOUS_API_KEY"' not in mk, "a second guard survived"

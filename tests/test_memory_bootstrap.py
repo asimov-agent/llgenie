@@ -42,6 +42,7 @@ import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2676)
 from scripts import memory_bootstrap as mb  # noqa: E402
 from scripts import unit_tests as ut  # noqa: E402
 
@@ -332,7 +333,7 @@ def test_verify_reports_the_daemon_pid_port_and_connection_line(tmp_path):
 def test_make_targets_wire_install_bootstrap_verify_and_memory_check():
     """The vehicle's scripts are named by make targets CI runs, and are .PHONY."""
 
-    mk = (REPO / "Makefile").read_text()
+    mk = makefiles_text(REPO)  # memory-* live in mk/agents.mk (issue #2676)
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
 
     # Each public target is a WORKING recipe that runs the script, and is phony-declared

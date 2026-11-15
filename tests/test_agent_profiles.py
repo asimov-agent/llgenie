@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2676)
 
 import scripts.check_agent_profiles as guard  # noqa: E402  (the real gate, never a copy)
 import scripts.profile_drift_alarm as drift   # noqa: E402  (the drift-alarm caller, real, wired here)
@@ -1837,7 +1838,7 @@ def test_the_make_sync_recipe_wires_FORCE_to_the_force_flag(tmp_path):
     passed on the recipe line — `$(if $(CHECK),--check,)` had a sibling, `$(if $(FORCE),--force,)` did
     not. The recipe is what the gate's own callers use, so it gets pinned here, not just the script flag.
     """
-    makefile = (REPO / "Makefile").read_text()
+    makefile = makefiles_text(REPO)  # agent targets live in mk/agents.mk (issue #2676)
     # the recipe line is the one containing scripts/agent_profile_sync.py
     line = next(l for l in makefile.splitlines() if "scripts/agent_profile_sync.py" in l)
 

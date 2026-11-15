@@ -8,6 +8,7 @@ include mk/ci.mk
 include mk/bots.mk  # bots domain (issue #2460)
 include mk/tests.mk  # test-suite domain (issue #2677)
 include mk/images.mk  # images domain (issue #2678)
+include mk/agents.mk  # agents domain (issue #2676)
 #
 # `make install` does the WHOLE setup so you never touch the venv manually:
 #   1. builds the Python 3.11 gguf-tooling venv (./tools/venv-install)
@@ -198,57 +199,24 @@ REGISTRY_REVIEW_OUT ?= registry-review.md
 .PHONY: check-import-roots
 .PHONY: check-package-layers
 .PHONY: check-agent-profiles-ratchet
-hermes-skills-register: ## Register the checkout's .hermes/skills in Hermes's config so `hermes -s <name>` resolves for every bot leg (HOME_DIR= the Hermes home, DIR= the skill dir; CHECK=1 verifies without writing — issue #577)
-	python3 scripts/hermes_skills_register.py --home "$(if $(HOME_DIR),$(HOME_DIR),$(HOME)/.hermes)" --dir "$(if $(DIR),$(DIR),$(CURDIR)/.hermes/skills)" $(if $(CHECK),--check,)
-
-
-# ---- a host agent's behaviour lives in the repo too (issue #791) ---------------------
-# The two host agents (llgenie-planner, llgenie-issse-implementer) keep the same two kinds of
-# file as the bot legs — SOUL.md and skills/<name>/SKILL.md — but under
-# ~/.hermes/profiles/<profile>/, outside version control. An instruction that changes a
-# credential-holding agent's behaviour was therefore the one change here nobody could diff.
-# agents/<profile>/ is that behaviour's home now: `make sync-agent-profile` copies the tree INTO
-# the profile's Hermes home (write, then read back — the shape scripts/hermes_skills_register.py
-# uses) and CHECK=1 compares instead, naming the first differing path. The gate is what keeps the
-# tree honest (a listed profile with no SOUL.md, a skill whose frontmatter name disagrees with its
-# directory, a secret-shaped value, a planner SOUL.md that dropped "never merge").
-sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (PROFILE=<profile>; CHECK=1 compares instead of writing and names the first differing path; FORCE=1 bypasses the refusal for a live file edited after the commit — read the refusal before forcing, it exists for a reason — HERMES_PROFILE_HOME= overrides the destination — issue #791)
-	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1] [FORCE=1]"; exit 2; }
-	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,) $(if $(FORCE),--force,)
-
-provision-agent-profiles: ## Materialise EVERY lane's agents/<profile>/ into its Hermes home recursively, idempotently, then gate the result back against the tree (issue #2165) — the profile-creation/rebuild entrypoint (DEST=; CHECK=1 compares instead of writing; ROOT=; RESOLVE=1 additionally proves each lane's skills resolve through `hermes -p <lane> skills list`, issue #2669) — HOST-ONLY: a CI runner has no live profiles to provision, but the caller wires it into install so a rebuild cannot skip it
-	@python3 scripts/provision_agent_profiles.py $(if $(DEST),--dest "$(DEST)",) $(if $(CHECK),--check,) $(if $(ROOT),--root "$(ROOT)",) $(if $(RESOLVE),--resolve,)
 
 .PHONY: provision-agent-profiles
 
-skill-parity: ## Report live↔tree skill parity for every llgenie profile (issue #1924, Layer A) — HOST-ONLY and READ-ONLY: it diffs agents/<profile>/skills/ against the live ~/.hermes/profiles/<profile>/skills/ and prints live-only / tree-only counts and names; it NEVER writes (a CI runner has no live profiles, so this is one finding that needs a caller where they exist). No sync, no fold (#791/#1062)
-	@python3 scripts/skill_parity.py report
 
 .PHONY: skill-parity check-skill-code-parity
-tester-fold-live: ## Enumerate a described live host-agent lane's files against its tree copy; COPY=1 writes live→tree (PROFILE=<profile>; issue #1079) — host-only: a CI runner has no live profile to fold from
-	@test -n "$(PROFILE)" || { echo "Usage: make tester-fold-live PROFILE=<profile> [COPY=1]"; exit 2; }
-	python3 scripts/fold-live-profile.py --profile "$(PROFILE)" $(if $(COPY),--copy,)
 
-profile-drift-alarm: ## The SCHEDULED caller for #928: run on a host with live profiles, file ONE issue on drift (exit 2 = could not compare, 3 = drift)
-	@python3 scripts/profile_drift_alarm.py --file-issue
 
 .PHONY: profile-drift-alarm
 
 
 .PHONY: check-tick-prompt
 
-check-cron-drift: ## Fail when a live planner cron prompt (auto-approve-merge db0a3e1a3d7c, auto-rebase-resolve 71c5192ebdba) diverges from its versioned copy under agents/llgenie-planner/prompts/ (issue #2359) — host-only: a CI runner has no live jobs.json; exit 0 all identical, 1 any drift, 2 a read/missing failure (LIVE=; ROOT=), HOST-ONLY
-	@python3 scripts/check_cron_drift.py $(if $(LIVE),--live "$(LIVE)",) $(if $(ROOT),--root "$(ROOT)",)
 
 .PHONY: check-cron-drift
 
-verify-lane-contract: ## Verify each live llgenie lane's SOUL commits to the behavioural contract (report line, never-merge, bookend, versioned-edit, own duty, communication + materialised skills) — host-only: a CI runner has no live ~/.hermes profiles; prints `N/13 lanes pass` and names FAIL lanes + the missing element (issue #2260)
-	@python3 scripts/verify_lane_contract.py
 
 .PHONY: verify-lane-contract
 
-profile-drift: ## Fail when a tree copy is a PREFIX of the live rulebook (issue #928) — host-only: a CI runner has no live profiles, so this is the one finding that needs a caller where they exist
-	@python3 scripts/check_agent_profiles.py check --only live-longer
 
 .PHONY: profile-drift
 require-env: ## Refuse to start when a credential a leg needs is missing (KEYS="NOUS_API_KEY ..."; name-only, exit 2)
@@ -330,10 +298,6 @@ OWNERSHIP_DIR ?= $(CURDIR)
 # classified nowhere, a stale classification, a fast gate no `ci-*` job reaches, a target that
 # stopped running the script, or a step that is not between the change detection and the push.
 
-
-lane-preflight: ## Run the FAST gates before a host lane pushes, printing one line per gate and a final verdict; imports FAST_GATES from issue_bot_gates.py (one list) and refuses a dirty tree so the verdict describes the would-be-pushed head (issue #1058)
-	python3 scripts/lane_preflight.py run
-
 # The JEV preflight (issue #238). The agent image carries the Nerve/JEV decision layer, which
 # is what makes a bot run cheaper and more correct: the layer answers "is this the right next
 # step" before the model spends a call on it, and the curated context sends the model the part
@@ -358,43 +322,6 @@ lane-preflight: ## Run the FAST gates before a host lane pushes, printing one li
 # receives some of them narrows it with AGENT_SHELL_CHECK_KEYS, so the check never
 # fails on a key that job legitimately does not have.
 AGENT_SHELL_CHECK_KEYS ?= $(AGENT_SHELL_KEYS)
-_agent-shell-keys-check: # (internal) the probe, run INSIDE the agent image by the public target
-	python3 scripts/agent_shell_keys_check.py $(AGENT_SHELL_CHECK_KEYS)
-
-agent-shell-keys-check: ## Prove every credential a container receives is visible in the AGENT's shell (Hermes strips provider keys from its terminal tool, issue #358); AGENT_SHELL_CHECK_KEYS= narrows it to the keys this job has; the report is REDACTED before it prints (issue #359)
-	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  -e AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)" \
-	  $(AGENT_IMAGE) bash -lc 'make _agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)"')
-
-# ---- the agent's web reach: one masked fetch leg (issue #362) ----------------
-# A bot cannot verify what it cannot read. Hermes ships a bundled `browser-firecrawl` plugin keyed
-# by FIRECRAWL_API_KEY, so the capability is in the image; what was missing is a sanctioned way to
-# use it with the key never printed. ONE leg: the key is read from the ENVIRONMENT inside the
-# prompt (never interpolated into it, never echoed), the fetched text is written to a file, and the
-# leg's transcript is redacted by #359's seam. A dead key fails the smoke in seconds instead of
-# returning an empty result a run reports as success.
-agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text to OUT=path (URL= required; runs INSIDE the agent image)
-	@test -n "$(URL)" || { echo "Usage: make agent-fetch URL=<https://…> [OUT=fetched.md]"; exit 1; }
-	@python3 scripts/require_env.py NOUS_API_KEY FIRECRAWL_API_KEY
-	@python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  -e URL -e OUT \
-	  $(AGENT_IMAGE) bash -lc 'make _agent-fetch URL="$$URL" OUT="$$OUT"')
-
-_agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key by name, never printed
-	hermes -z "Follow the preloaded skill agent-fetch: the URL is $(URL) and the output file is $(OUT)." -s agent-fetch,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
-
-search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
-	@python3 scripts/require_env.py FIRECRAWL_API_KEY
-	@python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  -e BUDGET \
-	  $(AGENT_IMAGE) bash -lc 'python3 scripts/fetch_smoke.py --budget "$${BUDGET:-4000}"')
 
 # ---- the reach, DEPLOYED: what a bot run actually depends on (issue #380) ------------------
 # #362 built the leg and the smoke; no bot leg called either, so the capability was unreachable from
@@ -404,34 +331,6 @@ search-smoke: ## Prove the masked web reach works: one real Firecrawl request wi
 # reviews against fetched text instead of guessing. `issue-refiner` is the first consumer.
 
 
-agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call; the report is REDACTED before it prints (issue #359)
-	@python3 scripts/require_env.py TYPESAFE_API_KEY
-	python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  -e TYPESAFE_API_KEY \
-	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
-	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight')
-# The JEV preflight as a bot STEP depends on it (issue #802). `agent-jev-preflight NERVE_REQUIRE=1`
-# is a bot job's first step, and when the engine is off the step failed with a step name only: an
-# operator could not tell a missing provider secret from a broken image, and (measured 2026-10-28,
-# issue-dedupe runs 40697636784 and 40702295009) nothing tracked it, so a duplicate sweep that
-# decided nothing looked exactly like a sweep with nothing to do. This target keeps that exit status
-# (the step stays red) and adds what the run owed the reader: the failure CLASS and its fix in the
-# output, and ONE tracker issue per class (`scripts/jev_preflight_tracker.py`, marker-deduped) — a
-# second run of the same class prints the existing issue and files nothing.
-jev-preflight-required: ## Run the JEV preflight as a bot step does: on failure print the failure class + its fix and file ONE deduped tracker (REPO=; RUN_URL=; DRY=1 previews). Never softens the exit status (issue #802)
-	@test -n "$(REPO)" || { echo "Usage: make jev-preflight-required REPO=<owner/repo> [RUN_URL=<url>] [DRY=1]"; exit 1; }
-	@log=$$(mktemp); \
-	$(MAKE) --no-print-directory agent-jev-preflight NERVE_REQUIRE=1 >"$$log" 2>&1; rc=$$?; \
-	cat "$$log"; \
-	if [ $$rc -eq 0 ]; then rm -f "$$log"; exit 0; fi; \
-	python3 scripts/jev_preflight_tracker.py report --repo "$(GH_REPO)" --log "$$log" \
-	  $(if $(RUN_URL),--run-url "$(RUN_URL)",) $(if $(DRY),--dry,) \
-	  $(if $(filter true,$(GITHUB_ACTIONS)),,--local) || true; \
-	rm -f "$$log"; \
-	echo "::error::the JEV decision layer is inactive, so this bot step did not start — the failure class and its fix are above, and $(GH_REPO) carries the tracker (issue #802)"; \
-	exit $$rc
 # The code-review bot (issue #269): it reads the TREE and the PIPELINES and files what is
 # actually wrong. Its whole output is issues — analysis, never implementation (AGENTS.md,
 # #231) — so it never edits a file, never opens a PR and never merges; each issue carries the
@@ -467,49 +366,6 @@ AUDIT_OUT ?= audit-out
 # on a `workflow_dispatch` (#1571), and the owner PAT lacks the dispatch scope (#2091). The token is
 # taken by NAME from the environment only — never on argv. Locally it comes from whatever GH_TOKEN
 # the shell already holds.
-
-
-agent-repo-ownership: ## Give the mounted checkout back to the invoking user after a containerized agent leg (a root-run leg leaves `.git/objects` unwritable, so the next `git add` dies with "insufficient permission"; issue #770)
-	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm -v "$(OWNERSHIP_DIR):/repo" --entrypoint chown \
-	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  $(AGENT_IMAGE) -R $(shell id -u):$(shell id -g) /repo)
-
-
-hermes-smoke: ## Prove the alias the bots use can CALL A TOOL, inside the agent image: a terminal call that prints a per-run nonce, asserted from the session transcript (die in seconds, not after 20 min); the transcript is REDACTED before it prints (issues #359, #407)
-	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
-	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
-	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke')
-
-# Inside the image: the JEV preflight first, so the run knows whether the decision layer is
-# there. It reports; it never blocks.
-_agent-jev-preflight: # (internal) report whether the JEV layer is available in this home.
-# Invoked inside the agent image by the public `agent-jev-preflight` target, and by
-# `_implement-issue` before any agent work.
-	/usr/local/bin/agent_jev_preflight.sh
-
-_hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool. Invoked inside
-# the agent image by the public `hermes-smoke` target.
-	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/hermes_smoke.py run --alias $(nous-model) --reasoning low
-nerve-profile-check: ## Probe the rule the agent image build enforces: a nerve setting whose module the selected profile does not register is inert, so the build fails (issue #611)
-	python3 scripts/nerve_profile_check.py --self-test
-
-memory-install:
-	@[ "$${DRY_RUN:-0}" = "1" ] && python3 scripts/memory_bootstrap.py install --dry-run || python3 scripts/memory_bootstrap.py install
-
-memory-bootstrap:
-	python3 scripts/memory_bootstrap.py bootstrap $${PROFILE:+--profiles $$PROFILE} $${DRY_RUN:+--dry-run}
-
-memory-verify:
-	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
-
-memory-check:
-	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
 
 all-pipelines-sweep: ## CI: umbrella sweep — enumerate the tree's workflows, dispatch + await every dispatchable one (except itself), report every disabled one and the `N ok · M failed · K disabled` summary (issue #1102; REPO= owner/repo, REF= the branch to dispatch at)
 	python3 scripts/all_pipelines.py sweep --repo "$(if $(REPO),$(REPO),$(GH_REPO))" --ref "$(if $(REF),$(REF),main)"
@@ -568,21 +424,7 @@ GITLEAKS_RUN := $(RUNTIME) run --rm -v "$$PWD":/repo -w /repo $(GITLEAKS_IMAGE)
 # REVIEW_REQUIRED. The marker names the head it reviewed, and `auto_merge.decide()` accepts it ONLY at the
 # PR's current head — a stale verdict counts for nothing. One producer, one format: scripts/bot_verdict.py.
 
-
-bind-proof: ## Bind a proof run's head_sha to the PR head it is cited for — fail unless the run proved the CURRENT head (PR= RUN=, issue #1293)
-	@test -n "$(PR)" && test -n "$(RUN)" || { echo "Usage: make bind-proof PR=<n> RUN=<run-id>"; exit 1; }
-	python3 scripts/bind_proof.py --pr $(PR) --run $(RUN)
-
 .PHONY: check-holds holds-report bind-proof
-
-check-main-ruleset: ## CI: fail when the main ruleset has no required_status_checks or misses a pinned context (the missing merge-block gate, issue #1400) — runs in the monitor workflow main-ruleset.yml; exits 2 when the ruleset cannot be read
-	python3 scripts/check_main_ruleset.py check --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),)
-
-main-ruleset-report: ## Print the main ruleset's measured state and the pinned required contexts, always exit 0 (issue #1400)
-	python3 scripts/check_main_ruleset.py report --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),)
-
-main-ruleset-apply: ## DRY by default: print the add-only required_status_checks PUT body; APPLY=1 with an admin token performs it (owner-admin-only, issue #1400)
-	python3 scripts/check_main_ruleset.py apply --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),) $(if $(filter 1,$(APPLY)),--apply,)
 
 .PHONY: check-main-ruleset main-ruleset-report main-ruleset-apply
 
@@ -691,9 +533,6 @@ endif
 # run on macos-14 host toolchains — see the ci.yml jobs.)
 VARIANT_IMG := gguf-tools/ci-variant:latest
 VARIANT_RUN := $(RUNTIME) run $(VARIANT_OPTS) $(VARIANT_IMG)
-
-
-
 
 
 # Native (non-container) engine tests are hardware-scoped (issue #114): only Metal runs
