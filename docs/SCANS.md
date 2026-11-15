@@ -101,6 +101,7 @@ would leave root-owned files in the tree (issue #433).
 | `make security-verdict MODE=full\|pr` | apply the policy to the reports; the run's exit code |
 | `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, a semgrep rule pack with no content pin, an engine version older than the declared baseline, an engine install-string pin absent from the SBOM, or the gitleaks admission scanner addressed by a mutable tag fails |
 | `make check-gitleaks-pin` | The gitleaks admission-pin guard (runs inside `make check-security-scan`): fails when the secret-scan gate addresses gitleaks by a bare `:v` tag or by a digest that diverges from the reviewed pin across the three reference sites (`scripts/secret_scan.py`, the `Makefile` and `scripts/secret_scan_self_test.py`) — the #1252/#1262 silently-unsatisfiable-pin class (issue #2235) |
+| `make check-security-freshness` | **The live freshness floor** (scheduled security lane, issue #2709): fetches the public Wolfi x86_64 APKINDEX and fails, naming the package / pinned version / live newest version, when a scanner pin is not the newest the index publishes — printing the index snapshot date it measured against. The frozen `SCANNER_BASELINE` inside `make check-security-scan` cannot see a lag; this compares to Wolfi today. A pin lag reddens the run via the lane's final exit step |
 
 ## Findings become tagged issues
 

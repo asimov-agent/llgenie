@@ -66,6 +66,9 @@ check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanne
 	python3 scripts/security_scan.py check
 	python3 scripts/engine_pins.py check
 
+check-security-freshness: ## Live scanner-freshness (issue #2709): fetch the Wolfi x86_64 APKINDEX (no credential) and fail, naming the package / pinned version / live newest version, when a scanner pin is not the newest the index publishes, printing the index snapshot date it measured against — a frozen baseline can never see a lag, so this is the scheduled security lane's live floor
+	python3 scripts/security_scan.py freshness
+
 check-gitleaks-pin: ## CI: fail when the secret-scan admission gate addresses gitleaks by a mutable tag or by a digest that diverges from the reviewed pin (issue #2235) — the #1252/#1262 silently-unsatisfiable-pin guard
 	python3 scripts/check_gitleaks_pin.py check
 

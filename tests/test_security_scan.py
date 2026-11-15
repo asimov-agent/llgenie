@@ -1050,3 +1050,114 @@ def test_an_unknown_tool_is_refused():
         assert "unknown tool" in str(exc) and "grype" in str(exc), str(exc)
     else:
         raise AssertionError("an unknown tool was accepted")
+
+
+# --- Live-Wolfi scanner freshness (issue #2709) -----------------------------------------------
+# The Wolfi index is an external system, so these tests stand in for it with a fixture file/text
+# while the REAL `freshness` / `parse_apkindex` / `fetch_apkindex` code runs (AGENTS.md: an external
+# HTTP source may be a local file the real client reads). No network is ever hit.
+_TOP_EPOCH = 1710000000  # a fixed deterministic index snapshot instant (2024-03-09T...Z)
+
+
+def _apkindex_text(versions, epoch=_TOP_EPOCH):
+    """A tiny Wolfi APKINDEX text whose newest published build per package is `versions`."""
+    return "".join(
+        f"C:Q1BEz{idx}\nP:{pkg}\nV:{ver}\nA:x86_64\nS:10\nt:{epoch}\n\n"
+        for idx, (pkg, ver) in enumerate(versions.items()))
+
+
+def _apkindex_tar_gz(text):
+    """The fixture as the real fetch consumes it: a gzipped tarball with an `APKINDEX` member."""
+    import io as _io
+    import tarfile as _tarfile
+    buf = _io.BytesIO()
+    with _tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        data = text.encode("utf-8")
+        info = _tarfile.TarInfo("APKINDEX")
+        info.size = len(data)
+        tar.addfile(info, _io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _newer_apk_revision(version):
+    """`0.121.2-r1` -> `0.121.2-r2`: the same package one published revision newer, so the fresh
+    fixture always lags the committed pin regardless of what the repo pins today."""
+    nums, _, rev = version.rpartition("-")
+    rnum = int(rev.lstrip("r").partition("_")[0]) + 1
+    return f"{nums}-r{rnum}"
+
+
+def test_freshness_reds_a_stale_pin_against_the_live_index():
+    """The live-Wolfi freshness gate must red a pin that lags the live index (issue #2709), naming
+    the package, the pinned version and the live newest version, and printing the index snapshot
+    date it measured against (the frozen 2026-11-07 dict could never see this: it compared the pin
+    to itself)."""
+
+    # Given a pending grype pin and a live Wolfi index that has already published a newer grype build
+    pins = {t: str(ss.digests()[t]["version"]) for t in ("semgrep", "trivy", "grype")}
+    live = {pkg: ver for pkg, ver in pins.items()}
+    live["grype"] = _newer_apk_revision(pins["grype"])
+    index = _apkindex_text(live)
+
+    # When  the freshness gate runs against that index
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.freshness(index, pins=pins)
+
+    # Then  it fails naming the lagging package, its pinned version, the live newest version, and
+    #       the index snapshot date it measured against
+    assert rc == 1
+    out = buf.getvalue()
+    assert "grype" in out, out
+    assert pins["grype"] in out, out          # the pinned version
+    assert live["grype"] in out, out          # the live newest version the index publishes
+    assert "snapshot" in out and ss.index_snapshot_date(_TOP_EPOCH) in out, out
+
+
+def test_freshness_is_green_when_pins_match_the_index():
+    """Every pin matching the newest the live Wolfi index publishes is green and prints the index
+    snapshot date it measured against (issue #2709)."""
+
+    # Given a live index whose newest build for every pinned scanner equals the committed pin
+    pins = {t: str(ss.digests()[t]["version"]) for t in ("semgrep", "trivy", "grype")}
+    index = _apkindex_text(pins)
+
+    # When  the freshness gate runs against it (pins default to the committed digests.json versions)
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.freshness(index)
+
+    # Then  it is green and prints the index snapshot date it measured against
+    assert rc == 0
+    out = buf.getvalue()
+    assert "snapshot" in out and ss.index_snapshot_date(_TOP_EPOCH) in out, out
+
+
+def test_freshness_command_fetches_the_index(tmp_path, monkeypatch):
+    """`make check-security-freshness` (`python3 scripts/security_scan.py freshness`) fetches the
+    Wolfi index — a local fixture tarball stands in for the live index here — and produces the
+    freshness verdict (issue #2709)."""
+
+    # Given a local APKINDEX.tar.gz standing in for the live index, whose grype newest lags the pin
+    pins = {t: str(ss.digests()[t]["version"]) for t in ("semgrep", "trivy", "grype")}
+    live = {pkg: ver for pkg, ver in pins.items()}
+    live["grype"] = _newer_apk_revision(pins["grype"])
+    fixture = tmp_path / "APKINDEX.tar.gz"
+    fixture.write_bytes(_apkindex_tar_gz(_apkindex_text(live)))
+    monkeypatch.setattr(ss, "WOLFI_APKINDEX_URL", str(fixture))
+
+    # When  the freshness command runs through the real make-path entry point, it fetches the index
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.main(["freshness"])
+
+    # Then  it fetched the fixture index and fails naming the lagging package and the delta
+    assert rc == 1
+    out = buf.getvalue()
+    assert "grype" in out and "snapshot" in out, out

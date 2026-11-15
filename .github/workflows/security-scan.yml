@@ -122,6 +122,15 @@ jobs:
       - name: make check-security-scan (policy + pinned scanner refs + triggers must be sane)
         run: make check-security-scan
 
+      - name: make check-security-freshness (live Wolfi index vs the pinned scanner versions, issue #2709)
+        # continue-on-error: a pin lag (or an unreachable index) is CAPTURED, never a mid-job abort —
+        # the scan, the issue-filing and the bump PR below must still run, and the LAST step reddens
+        # the run with the pin-lag work visible. The live comparison lives here (the scheduled lane),
+        # never in the hermetic check-security-scan above.
+        id: freshness
+        continue-on-error: true
+        run: make check-security-freshness
+
       - name: make security-scan-all (or one tool from the dispatch input)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized dispatch input, quoted, make-routed (issue #1595)
         run: |-
@@ -206,12 +215,12 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      - name: Hand the verdict to the run's exit code (LAST, so nothing above is skipped)
+      - name: Hand the verdict (and a live-freshness pin lag) to the run's exit code (LAST, so nothing above is skipped)
         # The single place a red daily scan comes from. By the time this runs, the tagged issues,
         # the floor bump PR, the SARIF upload and the artifact have all happened — so a red run
-        # always means "findings were filed and a PR is waiting", never "the pipeline broke before
-        # it did its job".
-        if: always() && steps.verdict.outcome == 'failure'
+        # always means "findings were filed and a PR is waiting" (or "a scanner pin lags the live
+        # Wolfi index"), never "the pipeline broke before it did its job".
+        if: always() && (steps.verdict.outcome == 'failure' || steps.freshness.outcome == 'failure')
         run: |
-          echo "::error::security-verdict gated this run — the tagged issues were filed and the floor bump PR was regenerated before this step; see the verdict log above for the findings."
+          echo "::error::the security pipeline gated this run — either security-verdict flagged findings (filed above) or make check-security-freshness found a pinned scanner lagging the live Wolfi index (the pin bump is the work); see the verdict and freshness logs above for the specifics."
           exit 1

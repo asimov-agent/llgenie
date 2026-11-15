@@ -14,6 +14,7 @@ Commands (driven by make, never by hand):
     verdict [--mode]  apply data/security-policy.json               make security-verdict [MODE=pr]
     findings          print every finding in one normalised shape   (diagnostics)
     check             policy + digests are sane                     make check-security-scan
+    freshness         live Wolfi index vs the pinned versions       make check-security-freshness
 
 **Failure policy** (`data/security-policy.json`): a finding fails the run when its severity is in
 `fail_on` AND (when `require_fix` is true) the report carries a fixed version. WHICH events may fail
@@ -27,11 +28,14 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import hashlib
+import io
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
+import urllib.request
 from pathlib import Path
 
 try:  # package-relative first, then the flat scripts/ layout CI imports it with
@@ -97,6 +101,14 @@ SCANNER_BASELINE: dict[str, str] = {
     "grype": "0.121.2-r1",
 }
 
+#: The live Wolfi x86_64 package index the freshness gate (`make check-security-freshness`, issue
+#: #2709) measures the scanner pins against. A frozen baseline can never see a pin lag upstream (the
+#: gate that just compared digests.json to its own 2026-11-07 dict stayed green while Wolfi moved
+#: grype to 0.121.3-r2); this index is what Wolfi actually publishes today. It needs no credential —
+#: AGENTS.md lets an agent-image lane fetch it with no API-key tool. `freshness`/`fetch_apkindex`
+#: read it, so a test can point it at a local fixture file.
+WOLFI_APKINDEX_URL = "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz"
+
 #: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
 #: `semgrep.rules_captured_at` — the ISO date the pack was last resolved from upstream `p/default`.
 #: A pack whose `rules_captured_at` is older than this many days fails `make check-security-scan`,
@@ -116,6 +128,101 @@ def _version_sort_key(version: str) -> tuple:
     nums, _, rev = version.partition("-")
     return (tuple(int(x) for x in re.split(r"[+.~]", nums) if x.isdigit()),
             int(rev.lstrip("r").partition("_")[0] or 0))
+
+
+def fetch_apkindex(source: str = "") -> str:
+    """The uncompressed Wolfi x86_64 `APKINDEX` text, from its tarball (issue #2709).
+
+    `source` defaults to `WOLFI_APKINDEX_URL`; an `https://` (or `http://`) source is fetched, and any
+    other source is read as a local path — so a test can stand in for the live index with a fixture
+    file while the running `freshness` command fetches the real index. A tarball without the `APKINDEX`
+    member is a loud failure, never a silent skip.
+    """
+    source = source or WOLFI_APKINDEX_URL
+    if source.startswith(("http://", "https://")):
+        with urllib.request.urlopen(source) as resp:
+            blob = resp.read()
+    else:
+        blob = Path(source).read_bytes()
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as tar:
+        member = tar.extractfile("APKINDEX")
+        if member is None:
+            raise SystemExit(f"[security-scan] {source} has no APKINDEX member")
+        return member.read().decode("utf-8", errors="replace")
+
+
+def parse_apkindex(text: str) -> tuple[dict[str, set[str]], int]:
+    """A Wolfi `APKINDEX` text -> `({package: {published build, ...}}, newest buildtime epoch)`.
+
+    Each `C:` line begins a package entry; `P:` names it and `V:` is one published build. A package
+    appears once per build, so the set holds every build it publishes (issue #2709). The newest `t:`
+    buildtime across entries is the index's snapshot instant — the "measured against" date.
+    """
+    entries: list[dict[str, str | int]] = []
+    cur: dict[str, str | int] | None = None
+    for line in text.splitlines():
+        if line.startswith("C:"):
+            cur = {"P": "", "V": "", "t": 0}
+            entries.append(cur)
+        elif cur is not None:
+            if line.startswith("P:"):
+                cur["P"] = line[2:].strip()
+            elif line.startswith("V:"):
+                cur["V"] = line[2:].strip()
+            elif line.startswith("t:"):
+                try:
+                    cur["t"] = int(line[2:].strip())
+                except ValueError:
+                    pass
+    builds: dict[str, set[str]] = {}
+    for entry in entries:
+        pkg, ver = str(entry.get("P") or ""), str(entry.get("V") or "")
+        if pkg and ver:
+            builds.setdefault(pkg, set()).add(ver)
+    epoch = max((int(entry.get("t") or 0) for entry in entries), default=0)
+    return builds, epoch
+
+
+def index_snapshot_date(epoch: int) -> str:
+    """The ISO date the Wolfi index is measured against, from its newest buildtime (empty when none)."""
+    if epoch <= 0:
+        return ""
+    return _dt.datetime.fromtimestamp(epoch, _dt.timezone.utc).date().isoformat()
+
+
+def freshness(index_text: str, pins: dict[str, str] | None = None) -> int:
+    """The live-Wolfi freshness verdict (issue #2709): fail, naming the delta, when a scanner pin is
+    not the newest build the index publishes.
+
+    `pins` defaults to the committed `digests.json` versions for the image-backed scanners. A pin that
+    is not the newest the index publishes — or a package the index no longer publishes at all — is a
+    finding that fails the run; the snapshot date it measured against is printed either way.
+    """
+    builds, epoch = parse_apkindex(index_text)
+    snapshot = index_snapshot_date(epoch) or "date unknown"
+    pins = pins if pins is not None else {
+        tool: str((digests().get(tool) or {}).get("version") or "") for tool in TOOLS}
+    problems: list[str] = []
+    for tool, pinned in sorted(pins.items()):
+        published = builds.get(tool)
+        if not published:
+            problems.append(f"{tool}: pinned {pinned!r} but the live Wolfi index never publishes it")
+            continue
+        newest = max(published, key=_version_sort_key)
+        if pinned != newest:
+            problems.append(
+                f"digests.json: `{tool}` records {pinned!r}; the live Wolfi index (snapshot "
+                f"{snapshot}, x86_64) publishes newest {newest!r} — bump the Dockerfile, "
+                "`make scanner-digests`, then publish + pin (issue #2709)")
+    if problems:
+        print(f"[security-scan] stale scanner pin(s) vs the live Wolfi index (snapshot {snapshot}, "
+              f"packages.wolfi.dev x86_64): {len(problems)}:")
+        for problem in problems:
+            print(f"  - {problem}")
+        return 1
+    print(f"[security-scan] OK: every pinned scanner matches the newest the live Wolfi index "
+          f"publishes (snapshot {snapshot}, packages.wolfi.dev x86_64)")
+    return 0
 
 
 DEFAULT_POLICY = {
@@ -689,7 +796,8 @@ def check() -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command",
-                    choices=("ref", "sbom", "scan", "all", "verdict", "findings", "check"))
+                    choices=("ref", "sbom", "scan", "all", "verdict", "findings", "check",
+                             "freshness"))
     ap.add_argument("tool", nargs="?", default="")
     ap.add_argument("--mode", default="", choices=("", "full", "pr"),
                     help="force a mode; empty resolves it from --event via `enforce_events`")
@@ -705,7 +813,8 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "verdict":
         return verdict(args.mode, args.event)
-    return {"sbom": sbom, "all": all_scans, "check": check}[args.command]()
+    return {"sbom": sbom, "all": all_scans, "check": check,
+            "freshness": lambda: freshness(fetch_apkindex())}[args.command]()
 
 
 if __name__ == "__main__":
