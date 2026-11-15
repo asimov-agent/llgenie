@@ -187,16 +187,30 @@ def test_a_store_with_no_issue_yet_creates_exactly_one_labelled_issue(monkeypatc
 
 
 def test_a_second_publish_for_the_same_store_updates_instead_of_duplicating(monkeypatch):
-    """One issue per store: the marker is the identity, so a re-run edits it."""
+    """One issue per store: the marker is the identity, so a re-run edits it — over REST."""
     # Given  an open issue that already carries this store's review marker
     calls: list[list[str]] = []
     utc = "2026-10-27T05:00:00Z"
     marker = RR.MARKER.format(utc=utc)
+    bodies = {"710": f"old\n\n{marker}\n"}
 
     def fake(args, ok_codes=(0,)):
         calls.append(args)
         if args[:2] == ["issue", "list"]:
-            return json.dumps([{"number": 710, "title": "t", "body": f"old\n\n{marker}\n"}])
+            return json.dumps([{"number": 710, "title": "t", "body": bodies["710"]}])
+        if args[:2] == ["issue", "edit"]:
+            # #2691: the product must not reach the GraphQL body transport at all — real gh
+            # answers it with "GraphQL: Resource not accessible by personal access token
+            # (updateIssue)" for registry-lane runner credentials (#2673), and the fake
+            # refusing is what pins the REST-only rule.
+            raise AssertionError(f"unexpected gh call: {args}")
+        if args[:1] == ["api"]:
+            if args[1:3] == ["-X", "PATCH"]:
+                new = next(args[i + 1][5:] for i, a in enumerate(args)
+                           if a == "-f" and args[i + 1].startswith("body="))
+                bodies["710"] = new
+                return ""
+            return bodies["710"]
         return ""
 
     monkeypatch.setattr(RR, "run_gh", fake)
@@ -204,10 +218,84 @@ def test_a_second_publish_for_the_same_store_updates_instead_of_duplicating(monk
     # When   the review is published for the same store
     result = RR.publish("new body", "t", utc, "asimov-agent/llgenie")
 
-    # Then   it edits #710 and creates nothing
+    # Then   it edits #710 over REST PATCH and creates nothing
     assert result == "updated #710"
-    assert calls[1][:3] == ["issue", "edit", "710"]
+    patches = [c for c in calls if c[:3] == ["api", "-X", "PATCH"]]
+    assert len(patches) == 1 and "repos/asimov-agent/llgenie/issues/710" in patches[0]
+    assert not any(c[:2] == ["issue", "edit"] for c in calls)
     assert not any(c[:2] == ["issue", "create"] for c in calls)
+
+    # And    the write is PROVEN by a read-back of the body over the same transport
+    reads = [c for c in calls if c[:1] == ["api"] and c[-1] == ".body"]
+    assert reads and "repos/asimov-agent/llgenie/issues/710" in reads[0]
+    assert bodies["710"] == f"new body\n\n{marker}\n"
+
+
+def test_a_review_body_write_that_claims_success_but_never_sticks_fails_the_step(monkeypatch):
+    """The read-back is the verdict: a PATCH that exits 0 but leaves the old body must red."""
+    # Given  gh accepting the PATCH but never storing the new body (the #819 silent drop)
+    utc = "2026-10-27T05:00:00Z"
+    marker = RR.MARKER.format(utc=utc)
+    bodies = {"710": f"old\n\n{marker}\n"}
+
+    def fake(args, ok_codes=(0,)):
+        if args[:2] == ["issue", "list"]:
+            return json.dumps([{"number": 710, "title": "t", "body": bodies["710"]}])
+        if args[:1] == ["api"] and args[1:3] == ["-X", "PATCH"]:
+            return ""                                   # claims success, stores nothing
+        if args[:1] == ["api"]:
+            return bodies["710"]
+        return ""
+
+    monkeypatch.setattr(RR, "run_gh", fake)
+
+    # When   the review is published for that same store
+    try:
+        RR.publish("new body", "t", utc, "asimov-agent/llgenie")
+    except SystemExit as exc:
+        # Then  the step fails, naming the issue whose body never changed
+        assert "#710" in str(exc), exc
+    else:                                            # pragma: no cover - the failure is the assertion
+        raise AssertionError("a body write that never stuck must fail the step")
+
+
+def test_a_refused_review_body_write_names_the_issue_the_endpoint_and_the_capability(monkeypatch,
+                                                                                      capsys):
+    """A 403 on the body PATCH is a credential fact (#775 rule): REPORTED, naming issue +
+    endpoint + capability, and the leg survives so the review lane still finishes."""
+    # Given  gh refusing the body PATCH with the refusal #2673 measured on the sibling leg
+    utc = "2026-10-27T05:00:00Z"
+    marker = RR.MARKER.format(utc=utc)
+    bodies = {"710": f"old\n\n{marker}\n"}
+    calls: list[list[str]] = []
+
+    def fake(args, ok_codes=(0,)):
+        calls.append(args)
+        if args[:2] == ["issue", "list"]:
+            return json.dumps([{"number": 710, "title": "t", "body": bodies["710"]}])
+        if args[:1] == ["api"] and args[1:3] == ["-X", "PATCH"]:
+            raise RuntimeError(f"gh {' '.join(args)} failed: gh: Resource not accessible by "
+                               "personal access token (HTTP 403)")
+        return bodies.get("710", "")
+
+    monkeypatch.setattr(RR, "run_gh", fake)
+
+    # When   the review is published for that same store
+    result = RR.publish("new body", "t", utc, "asimov-agent/llgenie")
+
+    # Then   no traceback: the leg returns a named outcome instead of an updated one
+    assert result == "update refused for #710"
+
+    # And    stderr names the issue, the exact endpoint, and the missing capability
+    err = capsys.readouterr().err
+    assert "#710" in err
+    assert "repos/asimov-agent/llgenie/issues/710" in err
+    assert "issues write" in err
+    assert "Resource not accessible by personal access token" in err
+
+    # And    no GraphQL transport was attempted, and no read-back followed the refusal
+    assert not any(c[:2] == ["issue", "edit"] for c in calls)
+    assert not [c for c in calls if c[:1] == ["api"] and c[-1] == ".body"]
 
 
 def test_the_review_names_the_store_change_report_instead_of_repeating_it(monkeypatch):
