@@ -21,8 +21,6 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 #        note+row pair `check-docs` owes a doc change (issue #2598), never
 #        files a second issue while its own architecture PR is open.
 on:
-  schedule:
-    - cron: "47 */6 * * *"
   workflow_dispatch:
     inputs:
       dry:

@@ -285,9 +285,9 @@ def test_the_scheduled_healer_is_wired_to_the_manual_target():
     wf = yaml.safe_load(path.read_text())
     on = wf.get("on") or wf.get(True)
 
-    # Then  it fires every 30 minutes on minutes no other bot owns …
-    crons = [str(slot.get("cron")) for slot in on["schedule"]]
-    assert crons == ["15,45 * * * *"], crons
+    # Then  it declares no schedule: issue #2701 removed the lane's clock (only the weekly
+    # engine lane and the allow-listed plumbing keep `schedule:` triggers) …
+    assert "schedule" not in on, on
 
     # … it can be dispatched by hand …
     assert "workflow_dispatch" in on

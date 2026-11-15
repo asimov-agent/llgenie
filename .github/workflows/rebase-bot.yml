@@ -42,9 +42,6 @@
 name: rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
 
 on:
-  schedule:
-    - cron: "29 */6 * * *"   # every 6 hours, at an odd minute — :29, its OWN slot (issue #301:
-                             # :23 is issue-bot's, and sharing it meant both started at 06:23 UTC)
   workflow_dispatch:
     inputs:
       max_prs:

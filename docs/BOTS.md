@@ -317,19 +317,19 @@ queues behind its scheduled run instead of overlapping it. The current slots:
 
 | Bot | Cron | Minute today |
 |---|---|---|
-| `issue-bot` | `23 6 * * *` | daily 06:23 |
+| `issue-bot` | dispatch-only | clock off (issue #2701) |
 | `queued-alarm` | `7,37 * * * *` | twice hourly (:07, :37) |
 | `engine-bump-rebase` | `41 5 * * *` | daily 05:41 |
 | `registry-sync` | `19 5 * * 1` | Monday 05:19 |
-| `registry-sync-review` | `55 * * * *` | hourly at :55 (issue #709) |
+| `registry-sync-review` | dispatch-only | clock off (issue #2701) |
 | `engine-bump` | `53 6 * * 1` | Monday 06:53 |
-| `architecture-bot` | `47 */6 * * *` | every 6 hours at :47 (issue #449) |
+| `architecture-bot` | dispatch-only | clock off (issue #2701) |
 | `auto-merge` (recheck sweep) | `3,33 * * * *` | twice hourly (:03, :33 — issue #560) |
 | `code-review-bot` | `31 7 * * 1` | Monday 07:31 |
-| `issue-dedupe` | `51 */6 * * *` | every 6 hours at :51 |
-| `issue-refiner` | `43 * * * *` | hourly at :43 |
-| `rebase-bot` | `29 */6 * * *` | every 6 hours at :29 |
-| `search-smoke` | `11 7 * * *` | daily 07:11 |
+| `issue-dedupe` | dispatch-only | clock off (issue #2701) |
+| `issue-refiner` | dispatch-only | clock off (issue #2701) |
+| `rebase-bot` | dispatch-only | clock off (issue #2701) |
+| `search-smoke` | dispatch-only | clock off (issue #2701) |
 | `security-bot` | `9 5 * * *` | daily 05:09 |
 | `security-scan` | `5 4 * * *` | daily 04:05 (`docs/SCANS.md`) |
 
@@ -465,6 +465,8 @@ make profile-drift                                                   # host-only
 make profile-drift-alarm                                             # the SCHEDULED caller: file ONE issue on drift (#928)
 make check-tick-prompt                                               # host-only: reds when the live tick's jobs.json prompt diverges from agents/llgenie-planner/prompts/ (#2159)
 make check-cron-drift                                                # host-only: reds when a live planner cron prompt (auto-approve-merge db0a3e1a3d7c, auto-rebase-resolve 71c5192ebdba) diverges from agents/llgenie-planner/prompts/ (#2359)
+make check-ci-discipline                                             # CI (ci-unit): the schedule allow-list (both directions), the tests-only main pipeline, the Hermes agent-lane allow-list, and the durable AGENTS.md CI-discipline section are intact (#2701)
+make ci-discipline-report                                            # what the discipline gate reads: every scheduled lane + its allow-list entry, every agent-lane user, the findings (never reds) (#2701)
 make verify-lane-contract                                             # host-only: verifies every live llgenie lane's SOUL commits to the behavioural contract (report line, never-merge, bookend, versioned-edit, own duty, communication + materialised skills), printing N/13 lanes pass (#2260)
 make tester-fold-live PROFILE=llgenie-tester                         # host-only: fold live→tree for a lane (or --check only) (#1079)
 make skill-parity                                                     # host-only, READ-ONLY: report live↔tree skill drift (#1924)
@@ -1031,7 +1033,7 @@ oldest first, not already reviewed (`agent:refined`), not claimed for implementa
 linked to a pull request — i.e. an issue no PR answers yet. It opens **no PR at all**: its outcome is
 ONE comment plus the `agent:refined` label, which is what stops it reviewing the same issue twice.
 
-**The duplicate sweep (`issue-dedupe.yml`, issue #553) runs FOUR times a day** (`51 */6 * * *`) because
+**The duplicate sweep (`issue-dedupe.yml`, issue #553) ran FOUR times a day** (`51 */6 * * *`; clock off per issue #2701, dispatch-only now) because
 neither the refiner nor the implementer ever compares two issues: one improves an issue per run, the other
 implements one, so the same defect filed twice is implemented twice — or the better specification is retired.
 The host picks the most similar pair of **unclaimed** open issues deterministically (title+body token Jaccard,
@@ -1863,7 +1865,7 @@ make audit-ticks-post   # post each note once per issue; marker-idempotent, neve
 
 The repository's other recurring readers (issue-bot, code-review, registry-sync, engine-bump)
 each own one kind of drift; architecture had no bot and no document. `architecture-bot` runs
-**every 6 hours** (`47 */6 * * *`, its own slot) and on `workflow_dispatch`, re-reads the real
+**its clock is off (issue #2701)** and it runs on `workflow_dispatch`, re-reads the real
 tree and rewrites `docs/ARCHITECTURE.md` to match it. The refresh lands as **ONE linked issue +
 ONE reviewable PR**; it never merges and never pushes to `main`.
 

@@ -20,10 +20,11 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 # dispatch's cap is the hard bound: once 3 PRs exist today, the run stops before
 # any work, with a "cap reached" log and no comment (no spam).
 
-# Trigger surface: the explicit `agent:implement` label, schedule daily 06:23 UTC, and
+# Trigger surface: the explicit `agent:implement` label and
 #                  workflow_dispatch for the owner (`issue_number`, OPTIONAL: leave it blank and the
 #                  bot picks the oldest `agent:implement` issue itself, one per run - the same path
-#                  the schedule takes, #472).
+#                  the old daily schedule took, #472; that clock is off per issue #2701,
+#                  the lane now runs on dispatch).
 # Flow: guard -> make issue-bot-dispatch (cap -> pick ONE issue -> claim -> issue.md + branch)
 #       -> make issue-bot-triage (Hermes reads the body + the WHOLE thread and writes a verdict)
 #       -> make issue-bot-verdict (implement | refine | close) -> make implement-issue (Hermes
@@ -34,8 +35,6 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 on:
   issues:
     types: [labeled]
-  schedule:
-    - cron: "23 6 * * *"   # daily 06:23 UTC (an odd minute; gets the agent a slot each day)
   workflow_dispatch:
     inputs:
       issue_number:

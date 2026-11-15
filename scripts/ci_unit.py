@@ -28,7 +28,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-#: Byte-parity with the 51 `$(MAKE)` recipe lines of `ci-unit` at origin/main@dcfb96b7df.
+#: Byte-parity with the 51 `$(MAKE)` recipe lines of `ci-unit` at origin/main@dcfb96b7df,
+#: plus the documented additions since that capture (each carries an inline comment naming
+#: its issue): `make check-ci-discipline` (issue #2701), after `make check-wiring`.
 MAKE_SEQUENCE: tuple[str, ...] = (
     "make test-unit",
     "make skills-validate",
@@ -47,6 +49,7 @@ MAKE_SEQUENCE: tuple[str, ...] = (
     "make check-engine-pins-published",
     "make check-model-links",
     "make check-wiring",
+    "make check-ci-discipline",  # added by issue #2701 (ci-discipline gate); the one delta from the 51-line base capture
     "make check-secret-output",
     "make check-docs",
     "make check-file-hygiene",

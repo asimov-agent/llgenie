@@ -83,6 +83,7 @@
    "check_task_shape",
    "check_tick_prompt",
    "check_cron_drift",
+   "check_ci_discipline",
    "check_wiring",
    "check_workflows",
    "check_zero_job_pending",
