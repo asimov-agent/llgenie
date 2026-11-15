@@ -58,6 +58,58 @@ def run_gh(args: list[str], ok_codes: tuple[int, ...] = (0,)) -> str:
     return out.stdout
 
 
+#: The refusal shapes of a credential GitHub will not let write this way (#775).
+_REFUSED = ("HTTP 403", "not accessible by personal access token")
+
+
+def repo_slug(repo: str | None) -> str:
+    """`owner/name` — `gh api` paths carry the repository, so it must be spelled out."""
+    if repo:
+        return repo
+    return run_gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).strip()
+
+
+def _gh_api(args: list[str]) -> str:
+    """`gh api` takes no `--repo`; the path carries the repository."""
+    return run_gh(["api", *args])
+
+
+def _edit_body(repo: str, number: int, body: str) -> bool:
+    """Write the issue body over REST PATCH; True = written and read back, False = refused.
+
+    `gh issue edit --body` is a GraphQL `updateIssue` mutation, and the registry lanes' runner
+    credential is refused by it — measured on the SIBLING leg for issue #2673 (registry-sync run
+    43577357338: "GraphQL: Resource not accessible by personal access token (updateIssue)") while
+    the same credential creates issues over REST fine. The TRANSPORT is the latent break here,
+    not today's capability: this lane runs on `github.token`, which GraphQL accepts, so no
+    failure has fired yet — but one credential re-point away and every review issue body freezes
+    at its creation text on the refused transport. REST is therefore the only transport a
+    registry bot writes an issue body with on this lane (#2673/#826/#775 class). The exact body
+    is read back over the same transport: a write that EXITS 0 but never stored it (the #819
+    silent drop) fails the step, naming the issue. A refusal (403 class) is the #775 credential
+    fact: one loud stderr line naming the issue, the endpoint and the missing capability, and the
+    leg survives. Any other gh failure still raises.
+    """
+    path = f"repos/{repo}/issues/{number}"
+    try:
+        _gh_api(["-X", "PATCH", path, "-f", f"body={body}"])
+    except RuntimeError as exc:
+        if any(token in str(exc) for token in _REFUSED):
+            print(f"[registry-review] #{number} body write REFUSED by the credential over "
+                  f"{path}: the leg's token lacks the issues write capability ({exc}). "
+                  "The issue keeps its previous body; the review report is not lost by this.",
+                  file=sys.stderr)
+            return False
+        raise
+    after = _gh_api([path, "--jq", ".body"])
+    if (after or "").strip() != body.strip():
+        raise SystemExit(
+            f"[registry-review] #{number} body read-back is not the body this write sent "
+            "after the PATCH — a body write that claims success but never stuck leaves the "
+            "review invisible, so the step fails")
+    return True
+
+
 def sync_pr(repo: str | None, branch: str = BRANCH) -> dict:
     """The OPEN registry-sync PR and whether every one of its checks is green."""
     base = ["--repo", repo] if repo else []
@@ -308,7 +360,11 @@ def publish(body: str, title: str, utc: str, repo: str | None, dry: bool = False
         if marker in (issue.get("body") or ""):
             if dry:
                 return f"would update #{issue['number']}"
-            run_gh(["issue", "edit", str(issue["number"]), *base, "--body", body])
+            # Issue #2691: the body write goes over REST, never `gh issue edit` (GraphQL
+            # `updateIssue`, the transport #2673 measured as refused for registry-lane runner
+            # credentials) — and the exact read-back decides whether the update happened.
+            if not _edit_body(repo_slug(repo), issue["number"], body):
+                return f"update refused for #{issue['number']}"
             return f"updated #{issue['number']}"
     change = CHANGE_MARKER.format(utc=utc)
     linked = next((i["number"] for i in listing if change in (i.get("body") or "")), None)
