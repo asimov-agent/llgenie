@@ -143,7 +143,6 @@
    "bot_verdict",
    "bots_restore_health",
    "ci_frozen_reaper",
-   "ci_requeue",
    "code_review",
    "engine_skill_scaffold",
    "fetch_smoke",

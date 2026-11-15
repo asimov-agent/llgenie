@@ -300,7 +300,7 @@ def test_a_cancelled_check_is_pending_not_red(monkeypatch, capsys):
     assert sweep.failing_checks(OWNER + "/llgenie", 7) == []
     out = capsys.readouterr().out
     assert "PENDING, not red" in out, out
-    assert "ci-requeue-cancelled" in out, out
+    assert "a rerun belongs to the GitHub UI" in out, out
 
 
 def test_a_real_failure_is_still_red_beside_a_cancelled_check(monkeypatch):

@@ -8,8 +8,6 @@
 # build-engine-% / run-engine-% / list pattern cluster and its UNSUPPORTED/PORT/ARCH_ARGS variables)
 # are NOT ci-domain and stay in the top Makefile; the domain issues #2459-#2461 pick up their targets.
 
-ci-requeue-cancelled: ## Re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run (WINDOW=2h, DRY=1 previews; issue #843; a run GitHub answers "cannot be retried" is recorded skipped, never fatal, issue #2295)
-	python3 scripts/ci_requeue.py run --repo $(GH_REPO) --window $(if $(WINDOW),$(WINDOW),2h) $(if $(DRY),--dry,)
 
 ci-frozen-reaper: ## Cancel + re-run a run stuck in_progress past its threshold on an OPEN PR only (THRESHOLD=90m, DRY=1 previews; issue #1679)
 	python3 scripts/ci_frozen_reaper.py run --repo $(GH_REPO) --threshold $(if $(THRESHOLD),$(THRESHOLD),90m) $(if $(DRY),--dry,)

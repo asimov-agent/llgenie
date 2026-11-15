@@ -2,7 +2,7 @@
 
 Every rule is exercised through the REAL modules (scripts/all_pipelines.py, scripts/bots_restore_health.py,
 bots/pause.toml), with the GitHub API standing in as a local stub `gh` binary — the allowed external
-stand-in, exactly like all_pipelines' `ALL_PIPELINES_GH` and ci_requeue's `CI_REQUEUE_GH` — never a
+stand-in, exactly like all_pipelines' `ALL_PIPELINES_GH` — never a
 mock of the product logic.
 
 NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip. `bots/pause.toml` MUST exist

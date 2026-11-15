@@ -1,9 +1,9 @@
 name: ci-frozen-reaper — cancel + re-run a run stuck in_progress past its threshold, every 2 hours
 
-# Issue #1679: a run that hangs `in_progress` is invisible to BOTH healers — ci-requeue re-runs only
-# cancelled runs, run-failure-reactor fires only on `conclusion: failure`. A frozen in_progress run
-# matches neither predicate, so it blocks the PR verdict until a human intervenes (observed on #1671).
-# This is the third, time-bounded trigger. It cancels + re-runs only a run whose `updated_at` is older
+# Issue #1679: a run that hangs `in_progress` is invisible to the failure healer — run-failure-
+# reactor fires only on `conclusion: failure`, and the cancelled-run healer ci-requeue was retired
+# (issue #2702). A frozen in_progress run matches no predicate, so it blocks the PR verdict until
+# a human intervenes (observed on #1671). This is the surviving time-bounded queue sweeper. It cancels + re-runs only a run whose `updated_at` is older
 # than the threshold (default 90m) on an OPEN PR, and it posts the evidence (named owner, run id, both
 # timestamps) to the PR thread BEFORE it cancels anything.
 

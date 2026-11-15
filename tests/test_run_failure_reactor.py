@@ -711,11 +711,11 @@ def test_a_cancelled_run_with_no_later_run_is_reported_pending(tmp_path):
     # When  the reactor routes it
     r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
 
-    # Then  it says the verdict is still owed, and names the target that re-runs it
+    # Then  it says the verdict is still owed, and names the human-UI rerun rule (#2702)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "CANCELLED with no later run" in r.stdout, r.stdout
     assert "PENDING, not a verdict" in r.stdout, r.stdout
-    assert "make ci-requeue-cancelled" in r.stdout, r.stdout
+    assert "a rerun belongs to the GitHub UI" in r.stdout, r.stdout
     # And nothing was filed or dispatched for it
     calls = log.read_text().splitlines()
     assert not [c for c in calls if c.startswith("issue create")], calls

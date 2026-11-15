@@ -25,7 +25,7 @@ different one-line fix:
 - **Guard `HEAD_REPO`.** Every guard site must declare
   `HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}` —
   `test_every_guard_site_declares_the_head_repo`; without it the guard refuses every bot PR head (#295).
-  Copy the whole env set from an existing guarded workflow (`ci-requeue.yml`) rather than writing one.
+  Copy the whole env set from an existing guarded workflow (`.github/workflows/ci-verdict.yml`) rather than writing one.
 - **`# proc-allow:` on the opener line** if the helper script calls `subprocess.run(` (see the trap).
 - **`check-import-roots` (the import-root ratchet).** A NEW test module that bootstraps its own path —
   a module-level `sys.path.insert(0, str(REPO / "scripts"))` plus a bare `import <scripts_module>` — is

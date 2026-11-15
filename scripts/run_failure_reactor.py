@@ -136,7 +136,7 @@ PRODUCT_WORKFLOWS = frozenset({"ci", "pipeline"})
 #: matches `ci-verdict` and `fix-bot — …` matches `fix-bot`. A bot's red run is a PIPELINE defect
 #: (its fix lives in `scripts/**` / `.github/workflows/**`), so `-bot` workflows all route here.
 PIPELINE_STEMS = (
-    "ci-frozen-reaper", "ci-requeue", "ci-scope", "ci-verdict", "rebase-bot", "fix-bot",
+    "ci-frozen-reaper", "ci-scope", "ci-verdict", "rebase-bot", "fix-bot",
     "issue-bot", "issue-dedupe", "issue-refiner", "code-review-bot", "main-ruleset", "arms",
     "auto-merge", "holds", "queued-alarm", "registry-liveness", "registry-sync",
     "run-failure-reactor", "scope", "search-smoke", "security-bot", "security-scan",
@@ -808,7 +808,8 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
             else:
                 print(f"[run-fixer] run {run_id} was CANCELLED with no later run of "
                       f"`{run.get('workflowName') or '?'}` on its branch - that is PENDING, not a "
-                      f"verdict: `make ci-requeue-cancelled` re-runs it (issue #843)", flush=True)
+                      f"verdict: a rerun belongs to the GitHub UI, the owner's word "
+                      f"(issue #2702 retired `make ci-requeue-cancelled`)", flush=True)
             return 0
         print(f"[run-fixer] run {run_id} conclusion is `{conclusion or '?'}` - not a failure, "
               f"nothing to do", flush=True)

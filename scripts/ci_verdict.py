@@ -28,7 +28,7 @@ SUPERSEDED is the one case that is not red: `ci.yml` sets `cancel-in-progress` o
 every push cancels the run above it, and a cancelled run that a LATER run of the same workflow on the
 same branch already replaced is owed nothing — that head's verdict belongs to the newer run. The
 check-run is posted `neutral` there, never `success`, so a superseded head still never reads as a
-pass. It is the same test `scripts/ci_requeue.py` uses to decide what to re-run.
+pass. It is the supersession test the retired `ci_requeue` lane used (issue #2702).
 
 Why post a check-run at all: a `workflow_run` run creates NO check-run of its own on the commit
 (measured on `0bd5ac6e`: the cancelled CI run's rows are the only ones, `auto-merge`'s own run is
@@ -117,7 +117,7 @@ EXIT_ERROR = 2
 
 
 def _gh(*args: str) -> str:
-    """Run `gh` (the binary `CI_VERDICT_GH` names, so a test can drive a stub — as `ci_requeue` does)."""
+    """Run `gh` (the binary `CI_VERDICT_GH` names, so a test can drive a stub)."""
     exe = os.environ.get("CI_VERDICT_GH") or "gh"
     result = subprocess.run([exe, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if result.returncode != 0:
@@ -346,7 +346,7 @@ def branch_runs(repo: str, branch: str, per_page: int = 100) -> list[dict]:
 
 
 def superseding_run(repo: str, run: dict) -> dict | None:
-    """The later run of the SAME workflow on the SAME branch, or None — `ci_requeue`'s supersede test.
+    """The later run of the SAME workflow on the SAME branch, or None — the retired `ci_requeue` lane's supersede test (#2702).
 
     Judged per (workflow, branch), never per `head_sha`: another workflow on the same commit (`scope`,
     `holds`) is not a newer verdict for THIS one, and `ci.yml`'s `cancel-in-progress` leaves exactly

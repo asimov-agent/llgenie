@@ -2,7 +2,7 @@
 
 Every rule is exercised through the REAL module (scripts/all_pipelines.py) — classify, render_report,
 dispatch_one, wait_for_dispatched_run, sweep — with the GitHub API standing in as a local stub `gh` binary
-(the allowed external stand-in, like ci_requeue's `CI_REQUEUE_GH`), never with a mock of the product logic.
+(the allowed external stand-in), never with a mock of the product logic.
 A disabled workflow MUST render `DISABLED (owner re-enable required)`, be excluded from ok/failed, and be
 named in the excluded list: a green summary hiding dead pipelines is the exact failure mode this issue exists
 to prevent (acceptance #5), and the test below locks it.

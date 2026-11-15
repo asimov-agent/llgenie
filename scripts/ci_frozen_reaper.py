@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Frozen-in-progress reaper: cancel + re-run a run that has not advanced for a long time (#1679).
 
-A GitHub Actions run that hangs in_progress is invisible to BOTH existing healers: `ci-requeue.py`
+A GitHub Actions run that hangs in_progress is invisible to the failure healer: the retired `ci-requeue.py` (#2702)
 re-runs only cancelled runs, and `run-failure-reactor.py` fires only on `conclusion: failure`. A run
 stuck `in_progress` matches neither predicate, so it blocks the PR verdict indefinitely until a human
 intervenes. Observed on #1671: an old head's `linux/unit` stalled in_progress, neither healer could

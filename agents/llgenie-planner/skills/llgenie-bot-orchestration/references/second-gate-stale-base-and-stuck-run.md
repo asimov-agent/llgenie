@@ -270,17 +270,18 @@ rule is finish one matrix beats freeing ten slots.
 
 ## A frozen `in_progress` run is manual-action-only — verify the healers can even see it
 
-Before writing "the requeue will fix it", check what the auto-healers actually match, because a
-frozen `in_progress` run falls through ALL of them:
+Before writing "a scheduled healer will fix it", check what the healers actually match after the
+CI-discipline retirements (issues #2701/#2702), because a frozen `in_progress` run falls through
+several of them:
 
-- `ci-requeue` (schedule `15,45 * * * *`, `make ci-requeue-cancelled`) re-runs **only**
-  `conclusion: cancelled` runs.
+- `ci-requeue` was RETIRED (issue #2702): no lane re-runs `conclusion: cancelled` runs any more.
 - `run-failure-reactor` fires **only** on `conclusion: failure`.
+- `ci-frozen-reaper` (allow-listed, every 2 hours) cancels + re-runs frozen `in_progress` runs
+  on OPEN PRs only.
 
-A run that is `in_progress` with a frozen `updatedAt` is neither cancelled nor failed, so **no
-scheduled automation will ever recover it** — read `git show origin/main:.github/workflows/ci-requeue.yml`
-and the reactor trigger to confirm before you claim otherwise. Escalate it explicitly as
-**manual cancel + re-run required by a human/lane**, not "wait for the schedule". If the class (frozen
+A cancelled-with-no-successor run matches NO automation left on the tree, so **no schedule will ever
+recover it** — read the reactor and ci-frozen-reaper triggers to confirm before you claim otherwise.
+Escalate it explicitly as **manual rerun in the GitHub UI, the owner's word**, not "wait for the schedule". If the class (frozen
 in_progress, no job-state change, no timeout soon) recurs, file a finding toward a stuck-in-progress
 auto-reaper rather than assuming an existing healer owns it.
 

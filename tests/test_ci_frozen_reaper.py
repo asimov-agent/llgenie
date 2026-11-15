@@ -1,6 +1,6 @@
 """The frozen-in-progress reaper (#1679): an old, non-advancing run is collapsed; a live one is not.
 
-`ci-requeue.py` re-runs only cancelled runs and `run-failure-reactor.py` fires only on failure — a
+the retired `ci-requeue.py` (#2702) re-ran only cancelled runs, and `run-failure-reactor.py` fires only on failure — a
 run stuck `in_progress` is invisible to both and blocks the PR verdict until a human intervenes
 (observed on #1671). `scripts/ci_frozen_reaper.py` is the third trigger: it only touches a run whose
 `updated_at` is older than the threshold (default 90m), only on an OPEN PR, and it posts the evidence
