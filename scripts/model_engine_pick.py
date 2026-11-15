@@ -1733,6 +1733,9 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
                 return {"repo": repo, "path": path, "size": size, "files": [path]}
         return None
     if fmt in ("mlx-safetensors", "safetensors"):
+        catalogued, table_plan = _catalog_whole_repo_plan(model, fmt, budget)
+        if catalogued:  # the committed table is the decider: its plans, or no plan (issue #2719)
+            return table_plan
         repos = _model_repos(model)
         if fmt == "mlx-safetensors":  # the registry names the base repo: find its MLX conversions
             repos += mlx_repos(model)
@@ -1826,6 +1829,37 @@ def catalog_supported_quants(model: dict, eng: dict) -> list[dict] | None:
             plan["dir"] = True  # whole-repo snapshot (config.json + safetensors)
         plans.append(plan)
     return plans
+
+
+def _catalog_whole_repo_plan(model: dict, fmt: str, budget: float) -> tuple[bool, dict | None]:
+    """The whole-repo (config.json + safetensors) pick through the committed HF class
+    table: (False, None) when the table lists NO whole-repo quant of this format for this
+    model — the caller decides live, the documented fallback for an uncatalogued pair;
+    otherwise the table IS the decider (the catalog comment above `QUANT_CATALOG`, issue
+    #2719): (True, the largest fitting plan), (True, None) when the table's plans all
+    exceed the budget. Own-checkpoint engines never feed the generic whole-repo plan —
+    their files come from `strata_plan` / `tensorfold_plan` (offer's engine loop)."""
+    row = (quant_catalog().get("files") or {}).get(str(model.get("id") or ""))
+    if not row:
+        return False, None
+    best: dict | None = None
+    for engine_name, cell in (row or {}).items():
+        if str(engine_name).lower() in ("strata", "tensorfold"):
+            continue
+        for it in (cell or {}).get("quants") or []:
+            repo = str(it.get("repo") or "")
+            if not repo or ("mlx" in repo.lower()) != (fmt == "mlx-safetensors"):
+                continue
+            if not (it.get("dir") or (not it.get("path") and it.get("files"))):
+                continue  # a single-file row is not a whole-repo safetensors plan
+            size = float(it.get("size_gb") or 0) * 2**30
+            if size > budget:
+                continue
+            plan = {"repo": repo, "revision": it.get("revision", "main"), "path": "",
+                    "dir": True, "files": list(it.get("files") or []), "size": size}
+            if best is None or size > best["size"]:
+                best = plan
+    return True, best
 
 
 def plan_url(plan: dict) -> list[str]:
