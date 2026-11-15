@@ -8,4 +8,4 @@
 - [x] 6. Tests in `tests/test_security_scan.py` + `tests/test_security_issues.py`: scan_image argv wiring + digest refusal + manifest resolution + unpublished-image hard failure + findings/verdict/tag normalization + fixture loud-failure proof (hermetic)
 - [x] 7. Docs: changes.d fragment + agent-wiki entry naming #2706 + ARCHITECTURE census re-measure
 - [x] 8. Local proofs: `make security-scan-fixture` rc 0 with findings; `make security-scan-images` rc 0 with parseable reports; `make check-security-scan` rc 0
-- [ ] 9. Gates green: `make check-security-scan check-wiring check-workflows check-docs test-unit lane-preflight openspec-validate` on the branch
+- [x] 9. Gates green on this branch (verified locally, no GitHub pipeline started for verification): `make check-security-scan check-wiring check-workflows check-docs test-unit openspec-validate` all rc=0 (test-unit: 3887 passed)

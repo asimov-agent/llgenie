@@ -248,6 +248,11 @@
    "reason": "the launcher gate reads the ONE tag/disabled source in engine_image."
   },
   {
+   "from": "security_scan",
+   "to": "engine_image",
+   "reason": "the image scan resolves each engine's published ref with engine_image's exact tag formula, so the scan manifest never carries a stale tag (issue #2706)."
+  },
+  {
    "from": "check_engine_launchers",
    "to": "install_engine_launchers",
    "reason": "the launcher gate checks the writer's own plan, so the formula is read, never restated (issue #1027)."
