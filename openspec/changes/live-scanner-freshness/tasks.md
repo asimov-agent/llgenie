@@ -32,5 +32,5 @@
 
 ## 5. Verification
 
-- [ ] 5.1 `make openspec-validate NAME=live-scanner-freshness` exits 0 and `make test-unit` is
-      green with the new tests collected.
+- [x] 5.1 `make openspec-validate NAME=live-scanner-freshness` exits 0 and `make test-unit` is
+      green with the new tests collected (rc 0; 3869 passed, new tests collected).
