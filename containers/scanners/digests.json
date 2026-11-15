@@ -1,10 +1,11 @@
 {
   "grype": {
     "dockerfile": "containers/scanners/grype/Dockerfile",
-    "image_digest": "sha256:12ef938b4a7b5a4f91f15a9ab7833e5c4a14e1e6b1bd4a4560df86860acdb753",
-    "ref": "ghcr.io/asimov-agent/llgenie/grype:a607057cfd07",
-    "tag": "a607057cfd07",
-    "version": "0.121.2-r1"
+    "image_digest": "sha256:806d7ac23ea8d70c97d011b097e43997a26353930ff7a1e5dce5dc8331a0ad39",
+    "ref": "ghcr.io/asimov-agent/llgenie/grype:c52ac5da0f5c",
+    "syft_version": "1.57.1-r2",
+    "tag": "c52ac5da0f5c",
+    "version": "0.121.3-r2"
   },
   "semgrep": {
     "dockerfile": "containers/scanners/semgrep/Dockerfile",

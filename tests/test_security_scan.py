@@ -951,6 +951,70 @@ def test_check_fails_when_a_scanner_version_lags_the_declared_baseline(tmp_path,
     assert "semgrep" in buf.getvalue() and "baseline" in buf.getvalue()
 
 
+def test_check_fails_when_the_baked_sbom_tool_lags_its_baseline(tmp_path, monkeypatch):
+    """The SBOM tool rides the grype image, so its freshness record lives there too (issue #2708):
+    `grype.syft_version` older than `SCANNER_BASELINE["syft"]` (or absent) reds the gate — a
+    lagging cataloger silently narrows what the SBOM contains, so grype never matches it."""
+
+    # Given a digests.json whose baked syft lags the declared baseline
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    assert recorded["grype"].get("syft_version"), "digests.json must carry the baked syft record"
+    recorded["grype"]["syft_version"] = "1.50.0-r0"
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+
+    # Then  it fails naming the lagging tool and the baseline it lags
+    assert rc == 1
+    assert "syft" in buf.getvalue() and "baseline" in buf.getvalue()
+
+
+def test_check_fails_when_the_sbom_tool_has_no_freshness_record(tmp_path, monkeypatch):
+    """A tool with no record cannot be checked at all (issue #2708): dropping `syft_version`
+    from the grype entry reds the gate naming the missing record."""
+
+    # Given a digests.json whose grype entry dropped the baked syft record
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["grype"] = {k: v for k, v in recorded["grype"].items() if k != "syft_version"}
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+
+    # Then  it fails naming the missing freshness record
+    assert rc == 1
+    assert "syft_version" in buf.getvalue()
+
+
+def test_committed_syft_record_sits_on_the_declared_baseline():
+    """The committed record passes the same freshness gate it enforces (issue #2708):
+    digests.json `grype.syft_version` equals `SCANNER_BASELINE["syft"]` and the grype Dockerfile
+    bakes that exact version."""
+
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    baseline = ss.SCANNER_BASELINE.get("syft")
+    assert baseline, "SCANNER_BASELINE must carry a syft entry (issue #2708)"
+    assert recorded["grype"].get("syft_version") == baseline
+    dockerfile = (Path(__file__).resolve().parent.parent
+                  / "containers" / "scanners" / "grype" / "Dockerfile")
+    text = dockerfile.read_text(encoding="utf-8")
+    assert f"ARG SYFT_VERSION={baseline}" in text, (
+        "the grype Dockerfile must bake the baseline version it declares")
+
+
 def test_check_reds_a_pin_older_than_the_rules_recency_baseline(tmp_path, monkeypatch):
     """Negative control (issue #2283): a committed rules pack whose rules_captured_at is older than
     the recency baseline must RED `make check-security-scan` — a frozen rule set must not pass green

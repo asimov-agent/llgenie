@@ -90,11 +90,17 @@ SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "low"}
 #: apk repo publishes for the scanner's `apk add` — the honest "current" the Dockerfile can reach.
 #: `make check-security-scan` fails when digests.json records an older one, so a pinned engine
 #: cannot silently lag the releases it should cover. Measured against packages.wolfi.dev (x86_64
-#: APKINDEX) on 2026-11-07; bump with the Dockerfile via `make scanner-digests` + PR.
+#: APKINDEX) on 2026-11-15 (issue #2707 bump); bump with the Dockerfile via `make scanner-digests`
+#: + PR.
 SCANNER_BASELINE: dict[str, str] = {
     "semgrep": "1.165.0-r0",
     "trivy": "0.70.0-r5",
-    "grype": "0.121.2-r1",
+    "grype": "0.121.3-r2",
+    # The SBOM tool rides the grype image (`--entrypoint syft`); its pin lives in that
+    # Dockerfile's `ARG SYFT_VERSION` and in digests.json as `grype.syft_version`, so the
+    # cataloger that writes the SBOM gets the same freshness floor as the CVE scanners
+    # (issue #2708).
+    "syft": "1.57.1-r2",
 }
 
 #: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
@@ -673,6 +679,25 @@ def check() -> int:
             problems.append(f"digests.json: `{tool}` records {version!r}, older than the declared "
                             f"current-release baseline {baseline!r} — bump the Dockerfile and "
                             "`make scanner-digests` (issue #1284)")
+    # The SBOM tool gets the same freshness floor (issue #2708): its version is baked into the
+    # grype image and recorded as `grype.syft_version`. A lagging cataloger narrows SBOM coverage
+    # invisibly — grype can only match what syft wrote — so the record is mandatory and the lag
+    # reds here instead of narrowing the scan silently.
+    if SBOM_TOOL and "grype" in recorded:
+        grype_entry = recorded.get("grype") or {}
+        syft_version = grype_entry.get("syft_version")
+        syft_baseline = scanner_baseline(SBOM_TOOL)
+        if not syft_version:
+            problems.append(f"digests.json: `grype` has no `syft_version` — the SBOM tool "
+                            f"`{SBOM_TOOL}` it bakes has no freshness record (issue #2708)")
+        elif not syft_baseline:
+            problems.append(f"SCANNER_BASELINE has no `{SBOM_TOOL}` entry — the SBOM tool has no "
+                            "declared current-release baseline to check against (issue #2708)")
+        elif _version_sort_key(syft_version) < _version_sort_key(syft_baseline):
+            problems.append(f"digests.json: `grype.syft_version` records {syft_version!r}, older "
+                            f"than the declared current-release baseline {syft_baseline!r} — bump "
+                            "the grype Dockerfile's `ARG SYFT_VERSION` and `make scanner-digests` "
+                            "(issue #2708)")
     if problems:
         print(f"[security-scan] {len(problems)} problem(s):")
         for item in problems:
