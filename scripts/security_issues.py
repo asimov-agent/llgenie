@@ -76,6 +76,9 @@ class Finding:
     source: str
     component: str = ""
     labels: list[str] = field(default_factory=list)
+    #: The image ref (issue #2706 the image scan records it on every finding so the owning lane can
+    #: act on WHICH published image carries the advisory). Empty for a tree-scan finding.
+    image: str = ""
 
     @property
     def marker(self) -> str:
@@ -96,6 +99,10 @@ def component_of(package: str, source: str) -> str:
     SAST findings are code by definition. A package named in the container images is a container
     one; anything else the Python scanners report is a Python dependency.
     """
+    if source == ss.IMAGE_SOURCE:
+        # An IMAGE-scan finding is a package baked into a built image (issue #2706) — it belongs to
+        # the container the pin owner bumps, never to a Python requirements pin.
+        return "component:container"
     if source not in ("trivy", "grype"):
         # anything that is not a CVE scanner over packages is a rule over source
         return "component:code"
@@ -134,6 +141,7 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
         finding = Finding(
             advisory=str(advisory), package=str(package), current=str(item.get("current") or ""),
             fixed=str(item.get("fixed") or ""), severity=item["severity"], source=item["source"],
+            image=str(item.get("image") or ""),
         )
         finding.component = component_of(finding.package, finding.source)
         finding.labels = labels_for(finding.severity, finding.component, bool(finding.fixed))
@@ -151,9 +159,13 @@ def _technical(finding: Finding, run_url: str) -> list[str]:
     scan, so they are identical whether the finding is a code defect or a package advisory: the body
     prose is presentation, the idempotency key and the scan provenance are the memory (issue #1560).
     """
-    return [
+    lines = [
         f"**Advisory:** `{finding.advisory}` — scanner: `{finding.source}`",
         f"**Affected package:** `{finding.package}`",
+    ]
+    if finding.image:  # an IMAGE-scan finding names the published image that carries the advisory
+        lines.insert(1, f"**Image:** `{finding.image}`")
+    lines += [
         f"**Current → fixed:** `{finding.current}` → `{finding.fixed or '(none named)'}`",
         f"**Severity:** `{finding.severity}`",
         f"**Component:** `{finding.component}`",
@@ -162,6 +174,7 @@ def _technical(finding: Finding, run_url: str) -> list[str]:
         "updates this issue on the next scan, never files a second one for the same "
         "(advisory, package).",
     ]
+    return lines
 
 
 def _code_body(finding: Finding, run_url: str) -> str:

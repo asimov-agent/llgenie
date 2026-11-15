@@ -156,6 +156,35 @@ def test_labels_and_components_follow_the_finding(tmp_path):
                           "component:container", "auto-fixable"]
 
 
+def test_an_image_finding_is_container_and_names_the_image(tmp_path):
+    """An IMAGE-scan finding is a CVE baked into a built image: `component:container`, with the
+    published image recorded so the owning lane can act on WHICH image carries it (issue #2706)."""
+
+    # Given a reports dir whose trivy-image report carries one CRITICAL against a container package
+    reports = _reports(tmp_path, {"Results": [{"Vulnerabilities": [
+        {"VulnerabilityID": "CVE-1", "PkgName": "libssl", "InstalledVersion": "3.0",
+         "FixedVersion": "3.1", "Severity": "CRITICAL"}]}]})
+    (reports / si.ss.IMAGE_REPORT).write_text(json.dumps({
+        "Results": [{"Vulnerabilities": [
+            {"VulnerabilityID": "CVE-1", "PkgName": "libssl", "InstalledVersion": "3.0",
+             "FixedVersion": "3.1", "Severity": "CRITICAL"}]}]}), encoding="utf-8")
+    (reports / si.ss.IMAGE_TARGET_FILE).write_text(
+        "ghcr.io/asimov-agent/llgenie/trivy@sha256:abc\n", encoding="utf-8")
+
+    # When  findings become issues
+    findings = si.issue_findings(reports, POLICY)
+    image = next((f for f in findings if f.source == si.ss.IMAGE_SOURCE), None)
+
+    # Then  it is one finding, labelled `component:container` (the pin owner bumps the image), and
+    #       the body names the image that carries the advisory
+    assert image is not None
+    assert image.component == "component:container"
+    assert "component:container" in image.labels
+    assert image.image == "ghcr.io/asimov-agent/llgenie/trivy@sha256:abc"
+    body = si.body_for(image, "https://github.com/o/r/actions/runs/1")
+    assert "Image" in body and "ghcr.io/asimov-agent/llgenie/trivy@sha256:abc" in body
+
+
 def test_the_marker_round_trips():
     """The marker is the idempotency key, so it must survive being written into a body."""
 

@@ -52,10 +52,13 @@ secret-scan-self-test: ## CI: prove the scanner is not a false green — a plant
 sbom: engine-pins ## Generate the CycloneDX SBOM with the pinned Syft image into security-reports/sbom.cdx.json (issue #715); the engine install-string pins are inventoried into security-reports/engine-pins/ first so the SBOM covers the engine runtime deps (issue #1282)
 	python3 scripts/security_scan.py sbom
 
-security-scan: ## Run ONE scanner from its immutable image (TOOL=syft|trivy|grype|semgrep); grype needs the Syft SBOM first (issue #715)
+security-scan: ## Run ONE scanner from its immutable image (TOOL=syft|trivy|grype|semgrep|image); grype needs the Syft SBOM first (issue #715)
 	python3 scripts/security_scan.py scan "$(TOOL)"
 
-security-scan-all: engine-pins ## Run every scanner from its pinned image in dependency order (Syft SBOM, then Trivy, Grype, Semgrep); the engine pins are inventoried before Syft so the SBOM covers them (issue #1282)
+security-scan-image: ## Scan ONE real published image by digest with the pinned Trivy image (IMAGE=<ref> optional; defaults to the pinned trivy scanner image itself) -> security-reports/trivy-image.json (issue #2706)
+	python3 scripts/security_scan.py scan image
+
+security-scan-all: engine-pins ## Run every scanner from its pinned image in dependency order (Syft SBOM, then Trivy, Grype, Semgrep, then the IMAGE scan); the engine pins are inventoried before Syft so the SBOM covers them (issue #1282), and a real published image is scanned by digest last (issue #2706)
 	python3 scripts/security_scan.py all
 
 security-verdict: ## Apply data/security-policy.json to the reports (EVENT=<github event> decides whether that event may gate; ENFORCE=pr forces report-only; issue #715, #738)

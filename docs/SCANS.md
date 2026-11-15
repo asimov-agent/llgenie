@@ -37,6 +37,18 @@ manifest). The same Syft/Trivy pass scans that artifact, so a known-bad engine p
 same verdict/issue path as a `tools/` finding, and `make check-security-scan` fails while an
 inventoried pin is absent from the SBOM.
 
+**The scan also measures a BUILT image, not just the tree (issue #2706).** `trivy fs .` judges the
+dev-tree source, so the OS/pip packages actually baked into a published engine or agent image were
+invisible to the admission gate. `make security-scan-all` therefore ends with an **IMAGE scan**:
+`trivy image` against one real published image pulled by its pinned manifest digest, writing
+`security-reports/trivy-image.json` (with the scanned ref beside it in
+`security-reports/image-scan-target`, so every finding names the image that carries the advisory).
+By default the target is the pinned Trivy scanner image itself — a real image this repository builds
+and publishes, recordable by digest from `digests.json`, guaranteed present on the daily run; an
+owner points the step at an engine/agent image with `make security-scan-image IMAGE=<ref>` or a
+`SECURITY_IMAGE` dispatch. An image advisory flows through the same `security-verdict` policy and
+issue path as a tree finding, labelled `component:container`.
+
 The manual form asks two things: `tools` (`all` or one scanner) and `enforce` (`full`, or `report` to
 run the whole sweep without gating). The `guard` job runs **before any scanner** and allows the owner,
 `github-actions[bot]` on a same-repo head, and any collaborator with `admin`/`maintain`/`write`;
@@ -84,7 +96,8 @@ would leave root-owned files in the tree (issue #433).
   engine runtime deps are covered (issue #1282).
 - **SARIF** — `security-reports/trivy.sarif`, uploaded to the Security tab with
   `github/codeql-action/upload-sarif` (pinned by SHA), category `trivy`.
-- **Reports** — `security-reports/sbom.cdx.json`, `trivy.json`, `grype.json`, `semgrep.json`. Semgrep
+- **Reports** — `security-reports/sbom.cdx.json`, `trivy.json`, `grype.json`, `semgrep.json`, and —
+  the IMAGE scan — `trivy-image.json` + `image-scan-target` (the digested ref it scanned). Semgrep
   runs the committed, content-addressed rule pack (issue #1284); its output has the wall-clock
   `time`/`profiling_results` blocks stripped so two scans of the same tree are byte-identical.
 - **No scanner takes a secret.** Trivy, Syft, Grype and Semgrep run from their pinned images, so
@@ -96,8 +109,9 @@ would leave root-owned files in the tree (issue #433).
 |---|---|
 | `make engine-pins` | invent the engine install-string pins into `security-reports/engine-pins/` (issue #1282) |
 | `make sbom` | `make engine-pins` first, then Syft → `security-reports/sbom.cdx.json` |
-| `make security-scan TOOL=<id>` | one scanner from its pinned image (Grype needs `make sbom` first) |
-| `make security-scan-all` | `make engine-pins`, then Syft SBOM, then Trivy, Grype, Semgrep |
+| `make security-scan TOOL=<id>` | one scanner from its pinned image (`syft\|trivy\|grype\|semgrep\|image`; Grype needs `make sbom` first) |
+| `make security-scan-image` | the IMAGE scan only: `trivy image` on one real published image by digest (`IMAGE=<ref>` optional; default the pinned trivy scanner image) → `security-reports/trivy-image.json` (issue #2706) |
+| `make security-scan-all` | `make engine-pins`, then Syft SBOM, then Trivy, Grype, Semgrep, then the IMAGE scan |
 | `make security-verdict MODE=full\|pr` | apply the policy to the reports; the run's exit code |
 | `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, a semgrep rule pack with no content pin, an engine version older than the declared baseline, an engine install-string pin absent from the SBOM, or the gitleaks admission scanner addressed by a mutable tag fails |
 | `make check-gitleaks-pin` | The gitleaks admission-pin guard (runs inside `make check-security-scan`): fails when the secret-scan gate addresses gitleaks by a bare `:v` tag or by a digest that diverges from the reviewed pin across the three reference sites (`scripts/secret_scan.py`, the `Makefile` and `scripts/secret_scan_self_test.py`) — the #1252/#1262 silently-unsatisfiable-pin class (issue #2235) |

@@ -31,9 +31,9 @@ on:
   workflow_dispatch:
     inputs:
       tools:
-        description: "Which scanners to run: all, or one of syft / trivy / grype / semgrep"
+        description: "Which scanners to run: all, or one of syft / trivy / grype / semgrep / image"
         type: choice
-        options: [all, syft, trivy, grype, semgrep]
+        options: [all, syft, trivy, grype, semgrep, image]
         default: all
       enforce:
         description: "Failure policy for THIS dispatch: full = the daily policy, report = never gate"

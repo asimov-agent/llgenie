@@ -1050,3 +1050,109 @@ def test_an_unknown_tool_is_refused():
         assert "unknown tool" in str(exc) and "grype" in str(exc), str(exc)
     else:
         raise AssertionError("an unknown tool was accepted")
+
+
+# --- the IMAGE scan measures the shipped artifact by digest (issue #2706) ---
+
+
+def test_trivy_image_findings_are_normalised():
+    """A `trivy image` report becomes one finding with the image that carries it (issue #2706)."""
+
+    # Given a trivy image report (the same Results[].Vulnerabilities shape as `trivy fs`)
+    # When  it is normalised for a digested image ref
+    items = ss._trivy_image_findings(TRIVY_OK, "ghcr.io/example/img@sha256:aaaa")
+
+    # Then  it is one finding with the distinct `trivy-image` source and the image recorded, so the
+    #       issue path can label it `component:container` and the owning lane knows WHICH image
+    assert items == [{"id": "CVE-1", "package": "numpy", "current": "1.0", "fixed": "1.1",
+                      "severity": "critical", "source": "trivy-image",
+                      "image": "ghcr.io/example/img@sha256:aaaa"}]
+
+
+def test_an_image_finding_flows_through_findings(tmp_path, monkeypatch):
+    """The IMAGE report is read by the same `findings()` gate as the tree scanners."""
+
+    # Given a reports dir with a trivy image report and the raw ref it scanned
+    d = tmp_path / "reports"
+    d.mkdir()
+    (d / ss.IMAGE_REPORT).write_text(json.dumps(TRIVY_OK), encoding="utf-8")
+    (d / ss.IMAGE_TARGET_FILE).write_text("ghcr.io/example/img@sha256:aaaa\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "REPORTS", d)
+
+    # When  findings are read
+    items = ss.findings()
+    image = [i for i in items if i["source"] == ss.IMAGE_SOURCE]
+
+    # Then  the image finding is present with the digested ref it was scanned at
+    assert len(image) == 1
+    assert image[0]["id"] == "CVE-1"
+    assert image[0]["image"] == "ghcr.io/example/img@sha256:aaaa"
+
+
+def test_a_critical_image_finding_blocks_the_verdict(tmp_path, monkeypatch):
+    """A CRITICAL in a built image with a fix blocks the full policy like any tree finding."""
+
+    # Given a trivy image report with one CRITICAL that has a fix
+    d = tmp_path / "reports"
+    d.mkdir()
+    (d / ss.IMAGE_REPORT).write_text(json.dumps(TRIVY_OK), encoding="utf-8")
+    (d / ss.IMAGE_TARGET_FILE).write_text("ghcr.io/example/img@sha256:aaaa\n", encoding="utf-8")
+    monkeypatch.setattr(ss, "REPORTS", d)
+
+    # When  the full (gating) verdict runs
+    # Then  it fails — a CVE baked into a shipped image is the scan-coverage gap this closes
+    assert ss.verdict("full") == 1
+    # And   a report-only run still records it without gating (issue #738 policy)
+    assert ss.verdict("pr") == 0
+
+
+def test_all_scans_includes_the_image_scan(tmp_path, monkeypatch):
+    """`make security-scan-all` ends with the IMAGE scan — the lane measures the built image too."""
+
+    # Given the SBOM and each scanner return success
+    calls = []
+    monkeypatch.setattr(ss, "sbom", lambda: 0)
+    monkeypatch.setattr(ss, "scan", lambda tool: calls.append(tool) or 0)
+
+    # When  the whole sweep runs
+    ss.all_scans()
+
+    # Then  the tree scanners run in dependency order and the IMAGE scan runs after them
+    assert calls == ["trivy", "grype", "semgrep", "image"]
+
+
+def test_the_image_scan_launches_trivy_image_and_records_the_target(tmp_path, monkeypatch):
+    """`scan('image')` runs `trivy image` on the pinned image by digest and records the ref."""
+
+    # Given a docker stub that records the argv
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    monkeypatch.setattr(ss, "REPORTS", reports)
+
+    # When  the image scan runs
+    ss.scan("image")
+
+    # Then  exactly one `docker run` happened, asking the pinned trivy image to scan an image by
+    #       digest into security-reports/, and the exact ref was recorded beside the report
+    runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
+    assert len(runs) == 1
+    argv = runs[0]
+    assert "image" in argv
+    assert argv[argv.index("--scanners") + 1] == "vuln"
+    out = argv[argv.index("--output") + 1]
+    assert out == f"security-reports/{ss.IMAGE_REPORT}", out
+    target = (reports / ss.IMAGE_TARGET_FILE).read_text(encoding="utf-8").strip()
+    assert "@sha256:" in target, target
+    assert argv[-1] == target
+
+
+def test_default_image_ref_is_the_pinned_trivy_image_by_digest():
+    """The image the sweep scans by default is a real published image, pinned by digest (issue #2706)."""
+
+    # Given the committed digests
+    ref = ss.default_image_ref()
+
+    # Then  it is the trivy scanner's own published ref carried by its recorded manifest digest
+    assert ref.startswith(f"{os.environ.get('LLGENIE_REGISTRY', 'ghcr.io/asimov-agent').lower()}/llgenie/trivy:")
+    assert ref.endswith(f"@{ss.digests()['trivy']['image_digest']}")

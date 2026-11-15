@@ -77,6 +77,14 @@ SECRET_SOURCE = "trivy-secret"
 #: no package or fixed version — its remediation is editing the matched IaC — so it is ALWAYS
 #: actionable and `require_fix` must not suppress it while it still honours `fail_on`.
 MISCONFIG_SOURCE = "trivy-misconfig"
+#: The source an IMAGE scan finding carries (issue #2706: the lane measures the SHIPPED artifact, not
+#: only the tree). Distinct from the tree `trivy` source so the issue path labels a built-image
+#: advisory `component:container`, and so `findings()` can carry the image that holds it.
+IMAGE_SOURCE = "trivy-image"
+#: The report an IMAGE scan writes, and the sidecar that records the exact ref it scanned — so a
+#: normalised finding can name the image that carries the advisory (issue #2706).
+IMAGE_REPORT = "trivy-image.json"
+IMAGE_TARGET_FILE = "image-scan-target"
 #: The source a Semgrep SAST finding carries. Like a committed secret, a SAST finding's remediation
 #: is editing the code (the matched region), NOT awaiting a patched package version — so it has no
 #: `fixed` version and `require_fix` must not suppress it. `source` distinguishes it from the CVE
@@ -286,7 +294,46 @@ def sbom() -> int:
                 image_ref("grype"), entrypoint="syft")
 
 
+def default_image_ref() -> str:
+    """The real published image the IMAGE scan measures by default (issue #2706).
+
+    The pinned Trivy scanner image itself: a real image this repository builds and publishes, whose
+    manifest digest `digests.json` already records — so `trivy image <ref>@<digest>` needs no extra
+    pin and is guaranteed present on the daily pipeline's registry read. An owner points the step at
+    an engine/agent image instead with `SECURITY_IMAGE` / `make security-scan-image IMAGE=<ref>`.
+    """
+    entry = digests().get("trivy") or {}
+    registry = os.environ.get("LLGENIE_REGISTRY", "ghcr.io/asimov-agent").rstrip("/").lower()
+    digest = str(entry.get("image_digest") or "")
+    if not DIGEST_RE.fullmatch(digest):
+        raise SystemExit("[security-scan] the IMAGE scan needs the trivy scanner's pinned "
+                         "`image_digest` in digests.json (issue #2706) — run "
+                         "`make pin-scanner-image-digests`")
+    return f"{registry}/llgenie/trivy:{entry.get('tag') or ''}@{digest}"
+
+
+def scan_image(ref: str = "") -> int:
+    """Scan ONE real published image by (digest-pinned) ref with the SAME pinned Trivy image.
+
+    This is the branch of the lane that measures the SHIPPED artifact — the OS/pip packages baked
+    into a built image, where a CVE actually reaches a user — instead of only the dev-tree source
+    (issue #2706). By default the target is the pinned trivy scanner image itself (`default_image_ref`),
+    overridable with `SECURITY_IMAGE` or `make security-scan-image IMAGE=<ref>`. The exact ref is
+    recorded beside the report so every normalised finding names the image that carries it.
+    """
+    ref = ref or os.environ.get("SECURITY_IMAGE") or default_image_ref()
+    (REPORTS / IMAGE_TARGET_FILE).write_text(f"{ref}\n", encoding="utf-8")
+    print(f"[security-scan] image target: {ref}")
+    # `security-reports/...` is the path inside the mounted /work (the container's cwd), so the
+    # report lands under the SAME security-reports/ the tree scans write to, where findings() reads it.
+    return _run(["image", "--scanners", "vuln", "--severity", "CRITICAL,HIGH,MEDIUM",
+                 "--format", "json", "--output", f"security-reports/{IMAGE_REPORT}", ref],
+                image_ref("trivy"))
+
+
 def scan(tool: str) -> int:
+    if tool == "image":
+        return scan_image()
     if tool not in ALL_TOOLS:
         raise SystemExit(f"[security-scan] unknown tool `{tool}`; known: {', '.join(ALL_TOOLS)}")
     if tool == "syft":       # the SBOM step, addressable as a tool id
@@ -357,10 +404,11 @@ def scan(tool: str) -> int:
 
 
 def all_scans() -> int:
-    """Syft first (Grype matches exactly that SBOM), then the CVE scanners."""
+    """Syft first (Grype matches exactly that SBOM), then the CVE scanners, then the IMAGE scan."""
     rc = sbom()
     for tool in TOOLS:
         rc = scan(tool) or rc
+    rc = scan("image") or rc
     return rc
 
 
@@ -374,6 +422,18 @@ def _trivy_findings(report: dict) -> list[dict]:
         "source": "trivy",
     } for result in report.get("Results") or []
         for vuln in result.get("Vulnerabilities") or []]
+
+
+def _trivy_image_findings(report: dict, ref: str) -> list[dict]:
+    """An IMAGE-scan report, normalised into the shared finding shape (issue #2706).
+
+    `trivy image` emits the same `Results[].Vulnerabilities` shape as `trivy fs`, so the advisory
+    fields are shared with `_trivy_findings`; what differs is the SOURCE (`trivy-image`, so the issue
+    path labels a built-image advisory `component:container`) and the `image` field naming the exact
+    digested ref that carries the advisory — the record an owning lane reads to act on it.
+    """
+    return [dict(item, source=IMAGE_SOURCE, image=ref)
+            for item in _trivy_findings(report)]
 
 
 def _strip_semgrep_timing(path: Path) -> None:
@@ -478,6 +538,15 @@ def findings(reports: Path | None = None) -> list[dict]:
             out.extend(reader(json.loads(path.read_text(encoding="utf-8"))))
         except json.JSONDecodeError:
             raise SystemExit(f"[security-scan] {path} does not parse — the run is not green")
+    image_path = reports / IMAGE_REPORT
+    if image_path.is_file():
+        target = reports / IMAGE_TARGET_FILE
+        ref = target.read_text(encoding="utf-8").strip() if target.is_file() else ""
+        try:
+            out.extend(_trivy_image_findings(
+                json.loads(image_path.read_text(encoding="utf-8")), ref))
+        except json.JSONDecodeError:
+            raise SystemExit(f"[security-scan] {image_path} does not parse — the run is not green")
     return out
 
 
