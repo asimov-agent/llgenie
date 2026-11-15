@@ -38,7 +38,7 @@ def build(server_root: str, repo: str, stamp: str, log: str = BUILD_LOG) -> int:
     print(f"==> building server: tree={tree} backend={backend} (clone-or-pull + build)")
     env = dict(os.environ, SERVER_ROOT=server_root)
     with open(log, "w") as logfile:
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             [os.path.join(repo, "scripts", "build_llama_server.sh"), tree, backend],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
         assert proc.stdout is not None

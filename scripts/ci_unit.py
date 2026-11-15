@@ -102,7 +102,7 @@ def run(make_bin: str | None = None, dry: bool = False, cwd: str | None = None) 
         if dry:
             print(" ".join(argv))
             continue
-        rc = subprocess.run(argv, cwd=workdir).returncode
+        rc = subprocess.run(argv, cwd=workdir).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if rc != 0:
             print(f"[ci_unit] FAILED step {i}/{total}: {MAKE_SEQUENCE[i - 1]} (rc={rc})",
                   file=sys.stderr)

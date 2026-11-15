@@ -25,20 +25,20 @@ TEST_IMAGE_MARKER = "llgenie/test"
 
 def _inspect(runtime: str, fmt: str, container: str, fallback: str) -> str:
     """`<runtime> inspect -f <fmt> <container>`; on failure, `fallback` (the shell's `|| echo`)."""
-    proc = subprocess.run([runtime, "inspect", "-f", fmt, container],
+    proc = subprocess.run([runtime, "inspect", "-f", fmt, container],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                           capture_output=True, text=True)
     return proc.stdout if proc.returncode == 0 else fallback
 
 
 def sweep(runtime: str, marker: str = TEST_IMAGE_MARKER) -> list[str]:
     """Remove stopped containers whose image reference names the test image; return their ids."""
-    listed = subprocess.run([runtime, "ps", "-a", "-q"], capture_output=True, text=True)
+    listed = subprocess.run([runtime, "ps", "-a", "-q"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     removed: list[str] = []
     for container in listed.stdout.split():
         if marker not in _inspect(runtime, "{{.Image}}", container, ""):
             continue
         if "false" in _inspect(runtime, "{{.Running}}", container, "false").lower():
-            subprocess.run([runtime, "rm", "-f", container], capture_output=True)
+            subprocess.run([runtime, "rm", "-f", container], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             removed.append(container)
     return removed
 
