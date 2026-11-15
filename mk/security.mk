@@ -83,6 +83,9 @@ check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanne
 check-gitleaks-pin: ## CI: fail when the secret-scan admission gate addresses gitleaks by a mutable tag or by a digest that diverges from the reviewed pin (issue #2235) — the #1252/#1262 silently-unsatisfiable-pin guard
 	python3 scripts/check_gitleaks_pin.py check
 
+scanner-freshness: ## CI: compare the pinned scanner versions (digests.json + the Syft ARG in the Grype Dockerfile) against the LIVE Wolfi x86_64 package index; a pin lagging the newest published build for longer than the grace window fails with the delta named. WOLFI_APKINDEX=<snapshot> runs it hermetically (issue #2709)
+	python3 scripts/security_scan.py freshness
+
 security-issues-plan: ## Print the tagged issues the current reports would create/update/clear and mutate nothing (issue #716)
 	python3 scripts/security_issues.py plan
 

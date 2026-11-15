@@ -10,7 +10,9 @@ name: security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype +
 # 40525155122 failed a push on certifi/filelock/urllib3 pins that nothing bumped). `make
 # check-security-scan` fails if a `push:` or `pull_request:` trigger is added back.
 # Flow: guard (owner / repository bot / collaborator with write, BEFORE any secret is read) ->
-#       make check-security-scan (policy + digests + triggers sane) -> make security-scan-all
+#       make check-security-scan (policy + digests + triggers sane) -> make scanner-freshness
+#       (pins compared against the LIVE Wolfi x86_64 index; outcome CAPTURED, not raised, issue
+#       #2709) -> make security-scan-all
 #       (Syft SBOM, then Trivy, Grype and Semgrep from their pinned images) -> make security-verdict
 #       EVENT=<event> (the policy decides whether that event may gate; its outcome is CAPTURED, not
 #       raised) -> make security-issues (one tagged issue per finding) -> make security-bumps (the
@@ -122,6 +124,16 @@ jobs:
       - name: make check-security-scan (policy + pinned scanner refs + triggers must be sane)
         run: make check-security-scan
 
+      - name: make scanner-freshness (pins vs the LIVE Wolfi x86_64 index)
+        # The frozen `SCANNER_BASELINE` (#1284) only compares a pin to what a human measured on
+        # 2026-11-07; this consults what Wolfi publishes TODAY (issue #2709). Like the verdict,
+        # it must NOT abort the job: the scans, the tagged issues and the uploads below are the
+        # reason this pipeline exists. The outcome is captured here and turned into the run's
+        # exit code by the LAST step of the job.
+        id: freshness
+        continue-on-error: true
+        run: make scanner-freshness
+
       - name: make security-scan-all (or one tool from the dispatch input)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized dispatch input, quoted, make-routed (issue #1595)
         run: |-
@@ -225,8 +237,15 @@ jobs:
         # The single place a red daily scan comes from. By the time this runs, the tagged issues,
         # the floor bump PR, the SARIF upload and the artifact have all happened — so a red run
         # always means "findings were filed and a PR is waiting", never "the pipeline broke before
-        # it did its job".
-        if: always() && steps.verdict.outcome == 'failure'
+        # it did its job". The scanner-freshness capture (issue #2709) raises here too: a pin that
+        # lags the live Wolfi index past the grace window reds the lane only AFTER every scan,
+        # issue and upload above has still happened.
+        if: always() && (steps.verdict.outcome == 'failure' || steps.freshness.outcome == 'failure')
         run: |
-          echo "::error::security-verdict gated this run — the tagged issues were filed and the floor bump PR was regenerated before this step; see the verdict log above for the findings."
+          if [ "${{ steps.verdict.outcome }}" = "failure" ]; then
+            echo "::error::security-verdict gated this run — the tagged issues were filed and the floor bump PR was regenerated before this step; see the verdict log above for the findings."
+          fi
+          if [ "${{ steps.freshness.outcome }}" = "failure" ]; then
+            echo "::error::scanner-freshness found a scanner pin lagging the newest build the live Wolfi index publishes, past the grace window (issue #2709) — bump the scanner Dockerfile ARG and run make scanner-digests; the scans above still ran and their issues still filed."
+          fi
           exit 1
