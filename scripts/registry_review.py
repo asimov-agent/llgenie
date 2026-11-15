@@ -58,6 +58,61 @@ def run_gh(args: list[str], ok_codes: tuple[int, ...] = (0,)) -> str:
     return out.stdout
 
 
+def repo_slug(repo: str | None) -> str:
+    """`owner/name` — `gh api` paths carry the repository, so it must be spelled out."""
+    if repo:
+        return repo
+    return run_gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).strip()
+
+
+def _gh_api(args: list[str]) -> str:
+    """`gh api` takes no `--repo`; the path carries the repository."""
+    return run_gh(["api", *args])
+
+
+#: An issue write GitHub refuses outright — a credential fact, not a dropped write.
+_REFUSED = ("HTTP 403", "not accessible by personal access token")
+
+
+#: The review issue's body, read back over the same REST endpoint the write uses.
+def _body_of(repo: str, number: int) -> str:
+    return _gh_api([f"repos/{repo}/issues/{number}", "--jq", ".body"])
+
+
+def _edit_body(repo: str, number: int, body: str) -> None:
+    """Update the issue body through REST and PROVE it stuck, or fail the step.
+
+    `gh issue edit --body` is a GraphQL `updateIssue` mutation that the runner's PAT
+    can be refused (`GraphQL: Resource not accessible by personal access token`,
+    measured for #2673). The REST PATCH carries the diagram the same credential
+    already uses for issue writes; the read-back on the same transport proves the
+    write stuck, so a 0-exit write that never stored (the #819 silent drop) reds.
+
+    The one case that must NOT die is the write GitHub refuses outright with an HTTP
+    403: a credential fact, not a dropped write — it will not fix itself on retry,
+    and dying on it reds the review lane for a body that was never going to stick.
+    So a refused write prints one loud `stderr` line naming issue + endpoint +
+    capability and returns. Every other gh failure still raises.
+    """
+    endpoint = f"repos/{repo}/issues/{number}"
+    try:
+        _gh_api(["-X", "PATCH", endpoint, "-f", f"body={body}"])
+    except RuntimeError as exc:
+        if any(token in str(exc) for token in _REFUSED):
+            print(f"[registry-review] #{number} body write refused by the credential "
+                  f"({str(exc)}) — the review issue keeps its creation text; a token "
+                  "that can write the issue body must update it. The review lane "
+                  "survives this refusal.",
+                  file=sys.stderr)
+            return
+        raise
+    if _body_of(repo, number) != body:
+        raise SystemExit(
+            f"[registry-review] #{number} body is not what the write sent (the stored "
+            "body differs from the review body) — the review issue was not stored, so "
+            "the step fails")
+
+
 def sync_pr(repo: str | None, branch: str = BRANCH) -> dict:
     """The OPEN registry-sync PR and whether every one of its checks is green."""
     base = ["--repo", repo] if repo else []
@@ -308,7 +363,7 @@ def publish(body: str, title: str, utc: str, repo: str | None, dry: bool = False
         if marker in (issue.get("body") or ""):
             if dry:
                 return f"would update #{issue['number']}"
-            run_gh(["issue", "edit", str(issue["number"]), *base, "--body", body])
+            _edit_body(repo_slug(repo), issue["number"], body)
             return f"updated #{issue['number']}"
     change = CHANGE_MARKER.format(utc=utc)
     linked = next((i["number"] for i in listing if change in (i.get("body") or "")), None)

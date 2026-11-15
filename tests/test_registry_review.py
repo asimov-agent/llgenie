@@ -186,28 +186,95 @@ def test_a_store_with_no_issue_yet_creates_exactly_one_labelled_issue(monkeypatc
     assert "--label" in creates[0] and RR.LABEL in creates[0]
 
 
-def test_a_second_publish_for_the_same_store_updates_instead_of_duplicating(monkeypatch):
-    """One issue per store: the marker is the identity, so a re-run edits it."""
+def test_a_second_publish_edits_over_rest_and_reads_the_body_back(monkeypatch):
+    """One issue per store: the marker is the identity, so a re-run edits it over REST and reads it back."""
     # Given  an open issue that already carries this store's review marker
     calls: list[list[str]] = []
     utc = "2026-10-27T05:00:00Z"
     marker = RR.MARKER.format(utc=utc)
+    written: dict[int, str] = {}
+    patched: list[list[str]] = []
 
     def fake(args, ok_codes=(0,)):
         calls.append(args)
         if args[:2] == ["issue", "list"]:
             return json.dumps([{"number": 710, "title": "t", "body": f"old\n\n{marker}\n"}])
-        return ""
+        if args[0] == "api" and "-X" in args:
+            # the REST PATCH records the body it is sent
+            patched.append(args)
+            i = args.index("-f")
+            field = args[i + 1]
+            key, val = field.split("=", 1)
+            assert key == "body"
+            assert "new body\n\n" in val and marker in val
+            written[710] = val
+            return ""
+        # the read-back (`--jq .body`) over the same transport returns exactly the stored body
+        return written.get(710, "")
 
     monkeypatch.setattr(RR, "run_gh", fake)
 
     # When   the review is published for the same store
     result = RR.publish("new body", "t", utc, "asimov-agent/llgenie")
 
-    # Then   it edits #710 and creates nothing
+    # Then   it edits #710 through the REST PATCH (no GraphQL `issue edit`) and reads it back
     assert result == "updated #710"
-    assert calls[1][:3] == ["issue", "edit", "710"]
+    assert not any(c[:2] == ["issue", "edit"] for c in calls)
+    assert patched and any(f"repos/asimov-agent/llgenie/issues/710" in a for a in patched)
+    assert any("api" in a and "PATCH" in a for a in patched)
+    assert any("api" in a and "--jq" in a and ".body" in a for a in calls)
     assert not any(c[:2] == ["issue", "create"] for c in calls)
+
+
+def test_an_update_whose_body_did_not_stick_fails_naming_the_issue(monkeypatch):
+    """A 0-exit write that never stores the body is a red step, not a green one (#819)."""
+    # Given  an open review issue, and a read-back whose stored body is NOT the write sent
+    utc = "2026-10-27T05:00:00Z"
+    marker = RR.MARKER.format(utc=utc)
+
+    def fake(args, ok_codes=(0,)):
+        if args[:2] == ["issue", "list"]:
+            return json.dumps([{"number": 710, "title": "t", "body": f"old\n\n{marker}\n"}])
+        # the PATCH "succeeds" (returns 0) but the read-back returns the stale body
+        return json.dumps({"number": 710, "body": "old\n\n" + marker + "\n"})
+
+    monkeypatch.setattr(RR, "run_gh", fake)
+
+    # When   the review is published for the same store
+    import pytest  # noqa: PLC0415
+
+    with pytest.raises(SystemExit) as ei:
+        RR.publish("new body", "t", utc, "asimov-agent/llgenie")
+
+    # Then   the step fails naming the issue — a stored body mismatch is never silent
+    assert "710" in str(ei.value)
+    assert "body" in str(ei.value)
+
+
+def test_a_refused_body_write_reports_and_survives(monkeypatch, capsys):
+    """A 403 refusal is a credential fact (#775): print it loudly and do not raise."""
+    # Given  an open review issue, and a REST write GitHub refuses with a PAT 403
+    utc = "2026-10-27T05:00:00Z"
+    marker = RR.MARKER.format(utc=utc)
+
+    def fake(args, ok_codes=(0,)):
+        if args[:2] == ["issue", "list"]:
+            return json.dumps([{"number": 710, "title": "t", "body": f"old\n\n{marker}\n"}])
+        raise RuntimeError("gh api -X PATCH repos/asimov-agent/llgenie/issues/710 "
+                           "-f body=... failed (1): GraphQL: Resource not accessible by "
+                           "personal access token (HTTP 403)")
+
+    monkeypatch.setattr(RR, "run_gh", fake)
+
+    # When   the review is published for the same store
+    result = RR.publish("new body", "t", utc, "asimov-agent/llgenie")
+
+    # Then   the run survives with a result, and one loud line names issue + endpoint + capability
+    assert result == "updated #710"
+    err = capsys.readouterr().err
+    assert "710" in err
+    assert "refused" in err
+    assert "body" in err
 
 
 def test_the_review_names_the_store_change_report_instead_of_repeating_it(monkeypatch):
