@@ -95,7 +95,8 @@ AGENT_MARKERS = ("actions/agent-leg", "containers/agent", "agent-image-ref", "ma
 #: when the section or any pin phrase disappears.
 AGENTS_SECTION_HEADER = "## CI pipeline discipline: weekly engine/registry lane only, tests-only main pipeline, Hermes in agent-image lanes only (mandatory, durable)"
 AGENTS_PIN_PHRASES = (
-    "never manually starts a CI pipeline",
+    "owner, a collaborator, and GitHub itself",
+    "gh run rerun",
     "tests only",
     "agent-image",
     "weekly",
