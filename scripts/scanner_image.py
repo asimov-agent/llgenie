@@ -221,17 +221,30 @@ def write() -> int:
         }
         for scanner in SCANNERS
     }
+    path = REPO / DIGESTS
+    # The committed record is read before the rewrite so the semgrep capture date and the
+    # published image digests can be carried forward (issue #2609) instead of being overwritten.
+    prior = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     if rules_sha:
+        # `rules_captured_at` tracks the PACK, not the write: an unrelated re-run of the target
+        # (e.g. a grype pin refresh) must not advance the semgrep rules-pack capture date while
+        # `containers/scanners/semgrep/rules/default.yml` is unchanged. Keep the committed date
+        # when the recomputed sha equals the prior entry's sha; stamp today only when the pack
+        # content actually changed — or when there is no prior entry at all.
+        prior_sem = prior.get("semgrep") or {}
+        prior_date = (prior_sem.get("rules_captured_at")
+                      if prior_sem.get("rules_sha") == rules_sha else None)
+        # An unchanged pack keeps its committed capture date; only a changed pack (or a first
+        # capture) is stamped today.
+        captured_at = prior_date or _dt.date.today().isoformat()
         data["semgrep"]["rules_sha"] = rules_sha
         data["semgrep"]["rules_file"] = f"{SCANNER_DIR}/semgrep/rules/default.yml"
-        data["semgrep"]["rules_captured_at"] = _dt.date.today().isoformat()
+        data["semgrep"]["rules_captured_at"] = captured_at
         data["semgrep"]["rules_count"] = str(sum(
             1 for line in semgrep_pack.read_text(encoding="utf-8").splitlines()
             if line.startswith("- id: ")))
-    path = REPO / DIGESTS
     # `image_digest` survives a rewrite of the same tag (issue #2609): the pin describes the
     # published image for THAT content hash, and regenerating from the Dockerfile must not drop it.
-    prior = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     for scanner, entry in data.items():
         old = prior.get(scanner) or {}
         if old.get("tag") == entry["tag"] and DIGEST_PIN.fullmatch(str(old.get("image_digest") or "")):

@@ -13,6 +13,8 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import datetime
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -41,6 +43,25 @@ def _tree(tmp_path: Path, dockerfile: str = DOCKERFILE_OK) -> Path:
     d.mkdir(parents=True)
     (d / "Dockerfile").write_text(dockerfile, encoding="utf-8")
     return tmp_path
+
+
+def _tree_with_rules(tmp_path: Path, rules: str = "- id: rule-a\n  message: a\n") -> Path:
+    """A fixture tree that also carries a semgrep Dockerfile and the rules pack `write` pins."""
+    root = _tree(tmp_path)
+    sem_dir = root / "containers" / "scanners" / "semgrep"
+    sem_dir.mkdir(parents=True)
+    (sem_dir / "Dockerfile").write_text(
+        f"# syntax=docker/dockerfile:1\nFROM cgr.dev/chainguard/wolfi-base@{BASE_DIGEST}\n"
+        "ARG SEMGREP_VERSION=1.165.0-r0\n"
+        'ENTRYPOINT ["semgrep"]\n', encoding="utf-8")
+    rules_dir = sem_dir / "rules"
+    rules_dir.mkdir(parents=True)
+    (rules_dir / "default.yml").write_text(rules, encoding="utf-8")
+    return root
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def test_every_scanner_has_a_pinned_dockerfile():
@@ -168,6 +189,77 @@ def test_a_moved_tag_drops_the_old_image_digest(tmp_path, monkeypatch):
     data = json.loads(digest_path.read_text())
     assert data["trivy"]["tag"] == si.content_hash("trivy")
     assert "image_digest" not in data["trivy"]
+
+
+def test_rewrite_keeps_rules_captured_at_for_an_unchanged_pack(tmp_path, monkeypatch):
+    """`rules_captured_at` tracks the PACK, not the write: an unrelated re-run of the target
+    (e.g. a grype pin refresh) must not advance the semgrep capture date while the rules pack
+    is byte-identical — the measured defect (found verifying #2707)."""
+
+    # Given a tree whose committed digests.json names a captured date for the current pack
+    root = _tree_with_rules(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"],
+                                         "semgrep": si.SCANNERS["semgrep"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    pack = root / "containers" / "scanners" / "semgrep" / "rules" / "default.yml"
+    digest_path.write_text(json.dumps({"semgrep": {
+        "rules_sha": _sha(pack.read_bytes()), "rules_captured_at": "2026-11-08"}}),
+        encoding="utf-8")
+
+    # When  the target is re-run with the pack unchanged
+    si.write()
+
+    # Then  the committed capture date survives (and the pack sha is unchanged)
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_captured_at"] == "2026-11-08"
+    assert data["semgrep"]["rules_sha"] == _sha(pack.read_bytes())
+
+
+def test_rewrite_advances_rules_captured_at_for_a_changed_pack(tmp_path, monkeypatch):
+    """A pack whose content changed is a genuine re-capture: the date is stamped today, not
+    hidden behind the old date (the recency floor gate must see a fresh capture)."""
+
+    # Given a committed record whose capture date belongs to an older, different pack
+    root = _tree_with_rules(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"],
+                                         "semgrep": si.SCANNERS["semgrep"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    pack = root / "containers" / "scanners" / "semgrep" / "rules" / "default.yml"
+    digest_path.write_text(json.dumps({"semgrep": {
+        "rules_sha": _sha(b"an older pack entirely"),
+        "rules_captured_at": "2026-11-08"}}), encoding="utf-8")
+
+    # When  the target is re-run over the now-changed pack
+    si.write()
+
+    # Then  the capture date advances to today, tracking the new pack content
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_captured_at"] == datetime.date.today().isoformat()
+    assert data["semgrep"]["rules_sha"] == _sha(pack.read_bytes())
+
+
+def test_rewrite_stamps_first_capture_today(tmp_path, monkeypatch):
+    """A rules pack captured for the first time (no prior `semgrep` entry) is a genuine capture."""
+
+    # Given a tree whose digests.json has no prior semgrep record, but the pack exists
+    # (the fixture carries only a trivy entry)
+    root = _tree_with_rules(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"trivy": si.SCANNERS["trivy"],
+                                         "semgrep": si.SCANNERS["semgrep"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    digest_path.write_text(json.dumps({"trivy": {"version": "0.70.0-r5",
+                                                 "tag": "0abec50ba0db"}}), encoding="utf-8")
+
+    # When  the target is run with a rules pack present and no prior semgrep entry
+    si.write()
+
+    # Then  the capture date is stamped today beside the freshly computed sha
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_captured_at"] == datetime.date.today().isoformat()
+    assert "rules_sha" in data["semgrep"]
 
 
 def test_an_entry_without_an_image_digest_fails(tmp_path, monkeypatch, capsys):
