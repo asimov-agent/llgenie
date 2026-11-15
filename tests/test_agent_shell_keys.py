@@ -51,7 +51,6 @@ BOT_JOBS = {
     "fix-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),
     "issue-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),  # #364: the leg forwards it, so the job must set it
     "issue-refiner.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY", "FIRECRAWL_API_KEY"),  # #380: the leg pre-fetches, so the job must set it
-    "rebase-bot.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
 }
 
 
@@ -326,8 +325,7 @@ def test_the_leg_a_workflow_calls_gets_its_keys_from_that_job():
     entries = (("fix-bot.yml", "make fix-loop-image", "fix-loop-image"),
                ("issue-bot.yml", "make implement-issue", "implement-issue"),
                ("issue-refiner.yml", "make issue-refiner", "issue-refiner"),
-               # the rebase job runs the script, which invokes `make rebase-bot-agent` on the host
-               ("rebase-bot.yml", "make rebase-bot ", "rebase-bot-agent"))
+               ("architecture-bot.yml", "make architecture-bot-doc", "architecture-bot-doc"))
     for workflow, trigger, leg in entries:
         text = (WORKFLOWS / workflow).read_text()
         jobs = _jobs(text)

@@ -36,7 +36,7 @@ def test_the_real_tree_is_clean():
 def test_every_bot_claim_reader_delegates_to_bot_claims():
     """The four legs carry no run_is_live/_LIVE; only bot_claims defines the probe."""
     for f in ("scripts/issue_implementer.py", "scripts/issue_refiner.py",
-              "scripts/rebase_bot_sweep.py", "scripts/fix_bot_sweep.py"):
+              "scripts/fix_bot_sweep.py"):
         text = (REPO / f).read_text()
         assert "def run_is_live" not in text, f"{f} re-implements run_is_live (issue #799)"
         assert "_LIVE: dict" not in text, f"{f} carries its own _LIVE cache (issue #799)"

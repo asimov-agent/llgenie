@@ -1,14 +1,18 @@
 name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
 
-# ARCHITECTURE — reads the real tree and the real git drift every 6 hours, rewrites
+# ARCHITECTURE — reads the real tree and the real git drift on dispatch (it was scheduled every 6
+# hours before the CI-discipline policy deactivated its cron, issue #2703), rewrites
 # `docs/ARCHITECTURE.md` to match it, and leaves the refresh as ONE issue + ONE reviewable PR
 # (issue #449). It is the same shape as the repository's other readers (issue-bot, code-review,
 # registry-sync): a deterministic decision, one bounded agent leg, and a publish step that never
 # merges.
 #
-# Trigger surface: a 6-hourly schedule (minute :47, its own slot) and workflow_dispatch for the
-#                  owner/collaborators/bots with write access (`dry` previews the bodies, `doc`
-#                  picks the markdown file to refresh).
+# Trigger surface: `workflow_dispatch` for the owner/collaborators/bots with write access (`dry`
+#                  previews the bodies, `doc` picks the markdown file to refresh). No schedule — the
+#                  6-hourly cron (`47 */6 * * *`) is gone under the CI-discipline policy (issue #2703:
+#                  only the weekly engine/registry lane keeps cron). The interactive host agent (which
+#                  rewrites docs/ARCHITECTURE.md one task at a time, per AGENTS.md) or a human runs the
+#                  refresh on demand; it no longer starts itself.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make architecture-bot-brief
 #       (real git: the doc's last commit, the drift since it, and the code surface; no model)
 #       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
@@ -21,8 +25,6 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 #        note+row pair `check-docs` owes a doc change (issue #2598), never
 #        files a second issue while its own architecture PR is open.
 on:
-  schedule:
-    - cron: "47 */6 * * *"
   workflow_dispatch:
     inputs:
       dry:

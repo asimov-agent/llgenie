@@ -112,7 +112,7 @@ def test_a_push_still_uses_the_owner_pat():
     env carries the PAT, or the job's checkout step was given it.
     """
     pushes = []
-    for name in ("issue-bot.yml", "fix-bot.yml", "rebase-bot.yml", "engine-bump.yml", "registry-sync.yml"):
+    for name in ("issue-bot.yml", "fix-bot.yml", "engine-bump.yml", "registry-sync.yml"):
         wf = workflow(name)
         for job_name, job, step in steps_of(wf):
             if re.search(r"git push", step.get("run") or ""):

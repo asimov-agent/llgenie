@@ -55,30 +55,3 @@ def test_every_scrubbed_leg_expands_to_balanced_quotes():
     assert legs, "no scrubbed_run legs found"
     assert bad == {}, f"odd number of single quotes (truncated command) in: {bad}"
 
-
-def test_rebase_bot_keeps_both_of_its_skills():
-    """The leg that inlines its hermes command must still carry `-s rebase-conflict,bot-unattended`."""
-
-    # Given the rebase-bot agent leg (the one that cannot use a `_<leg>` target, issue #460)
-    text = _expanded("rebase-bot-agent")
-
-    # When  its expanded command is read
-    skills = re.search(r"-s ([a-z0-9,-]+)", text)
-
-    # Then  the comma-separated list survived the $(call) expansion
-    assert skills, text[-400:]
-    assert skills.group(1) == "rebase-conflict,bot-unattended", skills.group(1)
-
-
-def test_the_skills_come_from_a_variable_not_a_literal_comma():
-    """A literal comma inside the call is the defect; the variable is the fix."""
-
-    # Given the rebase-bot recipe in the Makefile
-    text = makefiles_text()
-    recipe = text.split("\nrebase-bot-agent:", 1)[1].split("\n# Hermes runs directly", 1)[0]
-
-    # When  the leg's scrubbed_run call is read
-    # Then  it references the skills variable and contains no literal `-s a,b`
-    assert "$(REBASE_BOT_SKILLS)" in recipe
-    assert "rebase-conflict,bot-unattended" not in recipe
-    assert "REBASE_BOT_SKILLS := rebase-conflict,bot-unattended" in text

@@ -440,7 +440,7 @@ support@docondee.com
   <someone@else.example>`.
 - **Every bot identity fails.** `github-actions[bot]`, `llgenie fix-bot`, `Hermes Agent`,
   `asimov-agent` and `llama-ai-agent` are outside the allowlist; the repo's own workflows therefore
-  commit as `Asimov Agent` (`fix-bot.yml`, `issue-bot.yml`, `rebase-bot.yml`, `engine-bump.yml`,
+  commit as `Asimov Agent` (`fix-bot.yml`, `issue-bot.yml`, `engine-bump.yml`,
   `engine-bump-rebase.yml`, `registry-sync.yml`). An automation that stamps the token owner's LOGIN
   (`gh api user --jq .login` → `asimov-agent`) is a violation, which is why those workflows pin the
   identity even though the PUSH and the PR still use `BUMP_TOKEN` (issue #136).
@@ -556,8 +556,9 @@ to paste the comment into chat.
      pins the head commit, and a merge made with the job token starts no workflows —
      the post-merge run on `main` (which publishes the engine images) would never run.
    - What you DO own: drive the PR green (`make loop`, then `gh pr checks <N>`), reply
-     to review threads, and keep the branch current (`rebase-bot` does this every six
-     hours). If the job defers the merge, it printed why — `DIRTY` (conflicts),
+     to review threads, and keep your branch current yourself (`git fetch origin main &&
+     git rebase origin/main`) — the rebase-bot lane was retired (issue #2703). If the job
+     defers the merge, it printed why — `DIRTY` (conflicts),
      `BEHIND` (stale), `BLOCKED` (a required check or review), a draft, a fork, or
      `do-not-merge` — and that reason is the work item, not a reason to merge by hand.
    - A reviewer who wants to hold the PR labels it `do-not-merge`; remove the label

@@ -177,7 +177,7 @@ def test_an_occupied_pr_is_skipped_and_the_next_red_one_is_taken(tmp_path):
             "headRefName": "b2", "mergeStateStatus": "CLEAN"}]
     log = gh_stub(tmp_path, red, checks={"21": [{"name": "unit", "state": "failure", "bucket": "fail"}],
                      "22": [{"name": "unit", "state": "failure", "bucket": "fail"}]}, commits={},
-                  comments={"21": [_claim(now, "rebase", bot="rebase-bot")]})
+                  comments={"21": [_claim(now, "rebase", bot="engine-bump-rebase")]})
     r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie"])
     calls = log.read_text()
     assert r.returncode == 0, f"sweep exited {r.returncode}: {r.stderr[-400:]}"
@@ -188,7 +188,7 @@ def test_an_occupied_pr_is_skipped_and_the_next_red_one_is_taken(tmp_path):
 
 def test_the_sweep_claims_the_pr_before_it_dispatches_the_loop(tmp_path):
     """Issue #279: the repair is invisible for up to 180 minutes (no commit, nothing in flight), so
-    the claim on the PR is the only thing the rebase-bot can see. It has to be posted BEFORE the
+    the claim on the PR is the only thing another bot can see. It has to be posted BEFORE the
     dispatch, or the window it exists to close stays open."""
     red = [{"number": 21, "title": "one", "isDraft": False, "updatedAt": "2026-10-01T00:00:00Z",
             "headRefName": "b1", "mergeStateStatus": "CLEAN"}]

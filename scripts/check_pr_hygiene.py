@@ -537,7 +537,7 @@ def pr_agents_line_findings(root: Path, head: str, base: str, body: str) -> list
 def agents_line_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
     """A bot PR's `AGENTS:` line must cite a rulebook its head AND base both contain (issue #792).
 
-    Ancestry, never equality with the merge base: `rebase-bot` moves the merge base while the cited
+    Ancestry, never equality with the merge base: a rebase moves the merge base while the cited
     rulebook stays reachable from both sides, so equality would reject exactly the PRs that were kept
     current. `--no-merges` on the range read keeps the `refs/pull/N/merge` commit CI checks out from
     hiding a citation that was never on either side.

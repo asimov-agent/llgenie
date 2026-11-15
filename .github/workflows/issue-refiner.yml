@@ -1,7 +1,8 @@
 # The issue-refiner (issue #263): review the BACKLOG of not-yet-implemented issues so they are
 # implementable BEFORE the implementer reaches them.
 #
-# HOURLY, one issue per run. It opens NO PR: its outcome is ONE comment plus the `agent:refined`
+# ONE issue per run, on dispatch (it was scheduled hourly before the CI-discipline policy deactivated
+# its cron, issue #2703). It opens NO PR: its outcome is ONE comment plus the `agent:refined`
 # label, which is also what stops it reviewing the same issue again. The only thing it will not
 # do is race the implementer: while an issue is waiting for it (labelled agent:implement /
 # agent:ready with no PR yet) the run yields and says so.
@@ -10,8 +11,11 @@
 # `guard` job re-checks the actor before any secret is read. The decision (spare capacity?
 # which issue?) lives in scripts/issue_refiner.py, not in a job `if:` — issue #107 requires
 # that, and tests/test_issue_refiner.py asserts it.
-# Trigger surface: its own schedule (hourly, `43 * * * *`) and `workflow_dispatch` by hand
-#                  (owner/collaborator).
+# Trigger surface: `workflow_dispatch` by hand (owner/collaborator). No schedule — the hourly cron
+#                  (`43 * * * *`) is gone under the CI-discipline policy (issue #2703: only the weekly
+#                  engine/registry lane keeps cron). The interactive host agent (which restates a
+#                  human-written issue body one task at a time, per AGENTS.md) or a human runs the
+#                  review on demand; it no longer starts itself on a clock.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-refiner-pick (the oldest
 #       eligible issue, or none) -> make issue-refiner (its first step is make agent-shell-keys-check
 #       for FIRECRAWL_API_KEY, then make issue-evidence pre-fetches the URLs the issue names with the
@@ -25,8 +29,6 @@
 name: issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
 
 on:
-  schedule:
-    - cron: "43 * * * *"   # hourly, at an odd minute: one issue reviewed per run
   workflow_dispatch:
 
 permissions:

@@ -444,16 +444,21 @@ def test_the_fix_bot_preloads_its_contract_instead_of_inlining_it():
     assert "Follow the preloaded skills" in script
 
 
-def test_the_rebase_prompt_no_longer_restates_the_rules():
-    """The conflict prompt carries the conflict; the rules are the preloaded skill."""
+def test_the_rebase_conflict_skill_is_a_host_contract_with_its_sections():
+    """The resolve-and-stage half survives as a host skill; it still owes its contract (issue #2703)."""
 
-    # Given the rebase bot's prompt builder
-    script = (REPO / "scripts" / "rebase_bot.sh").read_text(encoding="utf-8")
+    # Given the retired rebase-bot made `rebase-conflict` host-admitted (llgenie-pr-rebase depends on it)
+    assert "rebase-conflict" in guard.HOST_SKILLS
+    report = guard.report(REPO)
+    assert "rebase-conflict: host-skill" in report, report
 
-    # When  it is read
-    # Then  it points at the preloaded skill instead of restating the hard rules
-    assert "preloaded skills rebase-conflict" in script
-    assert "HARD RULES: preserve BOTH sides" not in script
+    # When  its SKILL.md is read
+    body = (REPO / ".hermes" / "skills" / "rebase-conflict" / "SKILL.md").read_text(encoding="utf-8")
+
+    # Then  it still states the conflict-handling rules and carries the required sections
+    assert "HARD RULES" in body or "conflict" in body.lower()
+    for section in guard.REQUIRED_SECTIONS:
+        assert section in body, f"{section} missing from the rebase-conflict host skill"
 
 
 # --------------------------------------------------------------------------- the registration

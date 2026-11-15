@@ -3,8 +3,9 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 # ISSUE-BOT — implements ONE issue per run (issue #248), at most 3 a day, each
 # left as a draft-free reviewable PR that is NEVER merged.
 #
-# Trigger surface: the explicit `agent:implement` label, a daily schedule, and
-# workflow_dispatch for the owner. Concurrency queues a second event for the
+# Trigger surface: the explicit `agent:implement` label and `workflow_dispatch` for the owner (the
+# former daily schedule was deactivated under the CI-discipline policy — it no longer starts itself
+# on a clock, issue #2703). Concurrency queues a second event for the
 # SAME issue instead of launching a parallel implementer.
 #
 # Flow (all of it, or the run is a defect):
@@ -20,10 +21,14 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 # dispatch's cap is the hard bound: once 3 PRs exist today, the run stops before
 # any work, with a "cap reached" log and no comment (no spam).
 
-# Trigger surface: the explicit `agent:implement` label, schedule daily 06:23 UTC, and
-#                  workflow_dispatch for the owner (`issue_number`, OPTIONAL: leave it blank and the
-#                  bot picks the oldest `agent:implement` issue itself, one per run - the same path
-#                  the schedule takes, #472).
+# Trigger surface: the explicit `agent:implement` label (a GitHub `issues: labeled` event) and
+#                  `workflow_dispatch` for the owner — no schedule (deactivated under the
+#                  CI-discipline policy, issue #2703: only the weekly engine/registry lane keeps
+#                  cron). The label event drives triage/implementation on demand; a hand dispatch
+#                  (`issue_number`, OPTIONAL: leave it blank and the bot picks the oldest
+#                  `agent:implement` issue itself, one per run - the same path the former schedule
+#                  took, #472). A human (owner/collaborator) or the interactive host agent triggers
+#                  it; it no longer starts itself on a clock.
 # Flow: guard -> make issue-bot-dispatch (cap -> pick ONE issue -> claim -> issue.md + branch)
 #       -> make issue-bot-triage (Hermes reads the body + the WHOLE thread and writes a verdict)
 #       -> make issue-bot-verdict (implement | refine | close) -> make implement-issue (Hermes
@@ -34,8 +39,6 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 on:
   issues:
     types: [labeled]
-  schedule:
-    - cron: "23 6 * * *"   # daily 06:23 UTC (an odd minute; gets the agent a slot each day)
   workflow_dispatch:
     inputs:
       issue_number:

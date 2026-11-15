@@ -161,7 +161,8 @@ def test_the_scope_is_derived_from_the_workflow_files():
 
     # And it is not vacuous: the bots that exist today are all in scope
     assert len(BOT_WORKFLOWS) >= 9, f"only {len(BOT_WORKFLOWS)} scheduled bots found: {BOT_WORKFLOWS}"
-    for known in ("issue-bot.yml", "rebase-bot.yml", "issue-refiner.yml", "code-review-bot.yml"):
+    for known in ("code-review-bot.yml", "engine-bump.yml", "registry-sync.yml",
+                  "security-bot.yml", "stale-branch-cleanup.yml"):
         assert known in BOT_WORKFLOWS, f"{known} declares a schedule but is out of scope"
 
 

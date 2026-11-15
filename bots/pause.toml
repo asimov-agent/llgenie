@@ -11,7 +11,7 @@ paused_utc = "2026-10-28T15:50:00Z"
 # The workflows paused 2026-10-28 (the whole bot fleet at the deployment the pause was measured on).
 paused = [
   "architecture-bot", "bench-disk", "code-review-bot", "engine-bump-rebase", "fix-bot", "issue-bot",
-  "issue-dedupe", "issue-refiner", "queued-alarm", "rebase-bot", "registry-sync-review",
+  "issue-dedupe", "issue-refiner", "queued-alarm", "registry-sync-review",
   "registry-sync", "run-failure-reactor", "search-smoke", "security-bot", "security-scan",
 ]
 

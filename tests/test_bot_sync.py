@@ -5,7 +5,7 @@ under test *is* git plumbing: assert against the commits and the tree, never aga
 
 The rule: the implementer bases a new branch on latest main (`reset`), the fix-bot wants its PR
 rebased onto latest main before repairing it (`rebase`), and a conflict is NOT resolved here - it is
-reported and left to the rebase-bot (issue #246).
+reported and left for the PR owner to resolve (issue #2703).
 """
 from __future__ import annotations
 
@@ -89,12 +89,12 @@ def test_reset_makes_the_tree_exactly_latest_main(tmp_path):
     assert not (work / "bot.txt").exists(), "reset discards the branch: new work starts clean"
 
 
-def test_a_conflict_is_reported_and_left_to_the_rebase_bot(tmp_path):
+def test_a_conflict_is_reported_and_left_to_the_pr_owner(tmp_path):
     work, _old, _latest = scratch(tmp_path, conflict=True)
     before = git("rev-parse", "HEAD", cwd=work)
     r = sync("rebase", cwd=work)
     assert r.returncode == 2, f"a conflict must be exit 2, not {r.returncode}"
-    assert "rebase-bot" in r.stderr, r.stderr
+    assert "human or agent" in r.stderr, r.stderr
     # and NOTHING changed: not the commit, and no rebase left in progress
     assert git("rev-parse", "HEAD", cwd=work) == before
     assert not (work / ".git" / "rebase-merge").exists()

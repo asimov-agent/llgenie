@@ -136,7 +136,7 @@ PRODUCT_WORKFLOWS = frozenset({"ci", "pipeline"})
 #: matches `ci-verdict` and `fix-bot — …` matches `fix-bot`. A bot's red run is a PIPELINE defect
 #: (its fix lives in `scripts/**` / `.github/workflows/**`), so `-bot` workflows all route here.
 PIPELINE_STEMS = (
-    "ci-frozen-reaper", "ci-requeue", "ci-scope", "ci-verdict", "rebase-bot", "fix-bot",
+    "ci-frozen-reaper", "ci-requeue", "ci-scope", "ci-verdict", "fix-bot",
     "issue-bot", "issue-dedupe", "issue-refiner", "code-review-bot", "main-ruleset", "arms",
     "auto-merge", "holds", "queued-alarm", "registry-liveness", "registry-sync",
     "run-failure-reactor", "scope", "search-smoke", "security-bot", "security-scan",

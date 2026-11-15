@@ -1,11 +1,11 @@
-# The issue-dedupe sweep (issue #553): the backlog is compared ACROSS issues, four times a day, because the
-# refiner improves ONE issue per run and the implementer implements ONE — neither ever looks two issues at
-# once, so the same defect filed twice is implemented twice or the better specification is retired.
-#
-# FOUR TIMES A DAY (`51 */6 * * *`, every six hours at :51 — its own minute, issue #301), ONE pair per run, in
-# the same shape the refiner uses for one issue: the host picks the most similar pair of UNCLAIMED open
-# issues deterministically (scripts/issue_dedup.py, older as canonical), the agent decides whether they are
-# the same defect, and the host applies the verdict.
+# The issue-dedupe sweep (issue #553): the backlog is compared ACROSS issues — the refiner improves ONE
+# issue per run and the implementer implements ONE — neither ever looks two issues at once, so the same
+# defect filed twice is implemented twice or the better specification is retired. Originally it ran four
+# times a day (`51 */6 * * *`, every six hours at :51 — its own minute, issue #301); under the
+# CI-discipline policy that schedule was deactivated (issue #2703), so the host now runs ONE pair per
+# run on demand, in the same shape the refiner uses for one issue: the host picks the most similar pair of
+# UNCLAIMED open issues deterministically (scripts/issue_dedup.py, older as canonical), the agent decides
+# whether they are the same defect, and the host applies the verdict.
 #
 # NEVER TOUCHES A CLAIMED ISSUE. An issue carrying any agent label — agent:implement, agent:ready,
 # agent:refined, agent:closed, agent:duplicate — is excluded as BOTH candidate and target, so the sweep can
@@ -13,18 +13,19 @@
 # SKIP_LABELS). A duplicate close retires the COPY only: the canonical issue is queued (agent:implement) when
 # it carries no queue label, so the work is never lost (the lesson of #521).
 #
-# Trigger surface: its own schedule and `workflow_dispatch` by hand (owner/collaborator).
+# Trigger surface: `workflow_dispatch` by hand (owner/collaborator). No schedule — the four-times-a-day
+#                  cron (`51 */6 * * *`) is gone under the CI-discipline policy (issue #2703: only the
+#                  weekly engine/registry lane keeps cron). The interactive host agent or a human runs
+#                  the sweep on demand by dispatching this workflow; it no longer starts itself.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-dedup-pick (the pair, or none) ->
 #       make issue-dedup (the agent reads dedup-in.md and writes dedup.md) -> make issue-dedup-apply (comment
 #       citing the canonical + agent:duplicate on the copy, then queue the canonical).
 # Never: never opens a PR, never creates a branch, never edits an issue body, never merges, never closes an
 #        issue the implementer or the refiner has claimed, never acts on a duplicate without EVIDENCE.
 # dispatch: no inputs — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py).
-name: issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one
+name: issue-dedupe — retires a duplicate of an issue on dispatch, never a claimed one
 
 on:
-  schedule:
-    - cron: "51 */6 * * *"   # 4x/day at an odd minute: one pair compared per run (issue #553)
   workflow_dispatch:
 
 permissions:

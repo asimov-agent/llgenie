@@ -7,8 +7,12 @@ name: search-smoke — one real Firecrawl request proves the masked web reach
 # `tests/fixtures/host-only-wiring.json`; that entry is DELETED with this change, because
 # check-wiring fails a recorded exception CI now reaches.
 #
-# Trigger surface: schedule daily 07:11 UTC (`11 7 * * *`, an odd minute, its own slot — issue #275),
-#                  and workflow_dispatch (owner/collaborator).
+# Trigger surface: `workflow_dispatch` (owner/collaborator). No schedule — the daily cron
+#                  (`11 7 * * *`) is gone under the CI-discipline policy (issue #2703: only the weekly
+#                  engine/registry lane keeps cron). A human or the interactive host agent runs the
+#                  one-request smoke on demand (e.g. after a FIRECRAWL key change); it no longer
+#                  starts itself. `make search-smoke` still proves the masked fetch with ONE real
+#                  request whenever it is dispatched.
 # dispatch: no inputs — the smoke takes no target: it always proves the same leg with one request.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make agent-shell-keys-check
 #       AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY (the AGENT's own shell must see the key, issue #358)
@@ -17,8 +21,6 @@ name: search-smoke — one real Firecrawl request proves the masked web reach
 # Never: never merges, never pushes, never prints the key — the leg reads it from the environment and
 #        scripts/scrub_log.py redacts the transcript.
 on:
-  schedule:
-    - cron: "11 7 * * *"   # daily 07:11 UTC (an odd minute, its own slot, issue #275)
   workflow_dispatch:
 
 permissions:

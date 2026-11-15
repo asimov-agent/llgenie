@@ -227,7 +227,7 @@ jobs:
           set -e
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           if [ "$rc" = "2" ]; then
-            echo "::notice title=Sync conflict::the PR does not rebase cleanly onto main; left to the rebase-bot (issue #246)"
+            echo "::notice title=Sync conflict::the PR does not rebase cleanly onto main; left for a human or agent to resolve (issue #2703)"
           elif [ "$rc" != "0" ]; then
             echo "::error title=Sync failed::could not sync with upstream main (rc=$rc) - refusing to repair a stale base"
             exit "$rc"
@@ -376,8 +376,8 @@ jobs:
             echo "_fix-bot: check \`${FIX_CHECK}\`, up to ${FIX_ROUNDS} attempt(s), never merges (issue #222)._"
             echo
             # RELEASE the claim (scripts/bot_claims.py, issues #279/#285): a repair that ends - green
-            # or exhausted - has to say so, or the PR stays claimed for the whole TTL and the
-            # rebase-bot never touches it. The claim is what the other bots read; this is its end.
+            # or exhausted - has to say so, or the PR stays claimed for the whole TTL. The claim is
+            # what the other bots read; this is its end.
             PYTHONPATH=scripts python3 -c "import datetime as dt, bot_claims; print(bot_claims.done_comment(bot_claims.FIXER, dt.datetime.now(dt.timezone.utc), 'fixed' if '${OUTCOME}' == 'success' else 'gave-up'))"
           } > /tmp/fix-comment.md
           gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/fix-comment.md

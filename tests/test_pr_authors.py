@@ -370,7 +370,7 @@ jobs:
 
 def test_an_unquoted_env_identity_reads_whole(tmp_path: Path):
     # Given a fixture tree whose workflow sets an ALLOWED identity without YAML quotes — the shape
-    # `.github/workflows/rebase-bot.yml` uses (`GIT_AUTHOR_NAME: Asimov Agent`)
+    # the repo's bot producers use (`GIT_AUTHOR_NAME: Asimov Agent`)
     root = _producer_tree(tmp_path, """\
 name: bot
 jobs:

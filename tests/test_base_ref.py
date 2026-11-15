@@ -116,18 +116,18 @@ def test_the_worktree_sweep_resolves_its_base_too():
                           cwd=str(REPO), capture_output=True).returncode == 0, resolved
 
 
-def test_the_rebase_bot_rebases_onto_the_resolved_base(tmp_path):
-    """`git rebase $ORIGIN/main` replays a PR's commit onto whatever `origin` is (issue #925).
+def test_the_sync_script_rebases_onto_the_resolved_base(tmp_path):
+    """`git rebase $TARGET` replays a PR's commit onto whatever remote `base_ref` resolved (#925).
 
-    In the fork-`origin` layout that is different history, and a rebase bot replaying onto it produces a PR
-    that looks rebased and is not on the base. The script must resolve the remote, and the prompt it writes for
-    the conflict agent must name the ref it actually used.
+    In the fork-`origin` layout a hard-coded `origin/main` is different history, and a sync replaying
+    onto it produces a branch that looks rebased and is not on the base. `scripts/bot_sync_main.sh`
+    must resolve the remote, and the rebase it runs must be against that resolving ref.
     """
-    script = (REPO / "scripts" / "rebase_bot.sh").read_text()
+    script = (REPO / "scripts" / "bot_sync_main.sh").read_text()
 
-    assert "base_ref.py" in script, "the rebase bot must resolve its base remote (issue #925)"
-    assert "ORIGIN=\"${ORIGIN:-origin}\"" not in script, (
-        "a bare `origin` default is what rebased onto the fork in the maintainer layout")
-    assert 'rebase "$ORIGIN/main"' in script, script[-800:]
-    assert "rebasing onto ${ORIGIN}/main" in script, (
-        "the conflict prompt must name the ref that is actually used, not a hard-coded one")
+    assert "base_ref.py" in script, "the sync script must resolve its base remote (issue #925)"
+    assert 'BOT_SYNC_REMOTE:-$(resolve_remote)' in script, (
+        "the base remote must be resolved, not a bare default")
+    # the rebase target is the resolved ref (FETCH_HEAD of the resolved remote), not a hard-coded main
+    assert 'git -c rerere.enabled=false rebase "$TARGET"' in script, script[-800:]
+    assert 'rebased' in script, script

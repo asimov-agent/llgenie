@@ -23,14 +23,14 @@ def _c(body: str, at: dt.datetime) -> dict:
 
 
 def test_every_bot_that_marks_a_subject_has_a_name_here():
-    assert (bot_claims.REFINER, bot_claims.IMPLEMENTER, bot_claims.FIXER, bot_claims.REBASER) == (
-        "refiner", "implementer", "fix-bot", "rebase-bot")
+    assert (bot_claims.REFINER, bot_claims.IMPLEMENTER, bot_claims.FIXER, bot_claims.ENGINE_BUMP) == (
+        "refiner", "implementer", "fix-bot", "engine-bump-rebase")
 
 
 def test_the_four_verbs_are_legal_and_anything_else_is_refused():
     """The marker is read by other bots, so an invented verb must not enter it."""
     for bot, work in ((bot_claims.REFINER, "refine"), (bot_claims.IMPLEMENTER, "implement"),
-                      (bot_claims.FIXER, "fix"), (bot_claims.REBASER, "rebase")):
+                      (bot_claims.FIXER, "fix"), (bot_claims.ENGINE_BUMP, "rebase")):
         assert bot_claims.claim_comment(bot, work, NOW).startswith(f"<!-- bot-claim: {bot} ")
     try:
         bot_claims.claim_comment(bot_claims.FIXER, "polish", NOW)
@@ -42,27 +42,27 @@ def test_the_four_verbs_are_legal_and_anything_else_is_refused():
 
 def test_a_pr_claim_outlives_a_repair_that_is_still_running():
     """The fix-bot's budget is 180 minutes; a claim that expires under the work it announces would
-    hand the branch to the rebase-bot mid-repair."""
+    hand the branch to another bot mid-repair."""
     assert bot_claims.PR_CLAIM_TTL > dt.timedelta(minutes=180)
     assert "4 hours" in bot_claims.claim_comment(bot_claims.FIXER, "fix", NOW, ttl=bot_claims.PR_CLAIM_TTL)
 
 
 def test_a_fresh_repair_holds_the_pr_and_a_done_marker_releases_it():
-    """The round trip the rebase-bot relies on."""
+    """The round trip a rebase-reading bot relies on."""
     claim = bot_claims.claim_comment(bot_claims.FIXER, "fix", NOW, ttl=bot_claims.PR_CLAIM_TTL)
     comments = [_c(claim, NOW)]
-    assert bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL) is not None
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL) is not None
 
     done = bot_claims.done_comment(bot_claims.FIXER, NOW + dt.timedelta(minutes=20), "fixed")
     assert bot_claims.occupied(comments + [_c(done, NOW + dt.timedelta(minutes=20))],
-                               bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL) is None
+                               bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL) is None
 
 
 def test_a_claim_past_its_ttl_locks_nothing():
     """A crashed run must not freeze a subject forever."""
     old = NOW - dt.timedelta(hours=5)
     comments = [_c(bot_claims.claim_comment(bot_claims.FIXER, "fix", old, ttl=bot_claims.PR_CLAIM_TTL), old)]
-    assert bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL) is None
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL) is None
 
 
 def test_an_implementer_that_opened_a_pr_still_holds_its_issue():
@@ -82,7 +82,7 @@ def test_the_marker_carries_the_ttl_the_reader_must_apply():
 def test_a_short_claim_does_not_block_a_reader_that_would_age_it_for_hours():
     """The #292 regression: a 30-minute claim must NOT hold for the 4 hours a PR reader passes."""
     old = NOW - dt.timedelta(minutes=90)
-    body = bot_claims.claim_comment(bot_claims.REBASER, "rebase", old, ttl=dt.timedelta(minutes=30))
+    body = bot_claims.claim_comment(bot_claims.ENGINE_BUMP, "rebase", old, ttl=dt.timedelta(minutes=30))
     comments = [_c(body, old)]
     assert bot_claims.occupied(comments, bot_claims.FIXER, ttl=bot_claims.PR_CLAIM_TTL) is None
     assert "30 minutes" in (bot_claims.released(comments, bot_claims.FIXER,
@@ -97,9 +97,9 @@ def test_a_legacy_marker_falls_back_to_the_readers_ttl():
     comments = [_c(legacy, at)]
     assert bot_claims.claims(comments)[0]["ttl"] is None
     assert bot_claims.claims(comments)[0]["run"] is None
-    assert bot_claims.occupied(comments, bot_claims.REBASER, now,
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, now,
                                ttl=bot_claims.PR_CLAIM_TTL) is not None
-    assert bot_claims.occupied(comments, bot_claims.REBASER, now,
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, now,
                                ttl=dt.timedelta(minutes=30)) is None
 
 
@@ -113,16 +113,16 @@ def test_a_cancelled_run_releases_its_claim_and_says_so():
 
     # Given the holding run is over -> the subject is free NOW, and the reason names the run
     dead = lambda rid: False                                            # noqa: E731
-    assert bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL,
                                is_live=dead) is None
-    said = bot_claims.released(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+    said = bot_claims.released(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL,
                                is_live=dead)
     assert said and f"run {run_id} is no longer running" in said, said
 
     # ...and a run still going holds it, with nothing to announce
-    assert bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL,
                                is_live=lambda rid: True) is not None
-    assert bot_claims.released(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+    assert bot_claims.released(comments, bot_claims.ENGINE_BUMP, ttl=bot_claims.PR_CLAIM_TTL,
                                is_live=lambda rid: True) is None
 
 
@@ -130,14 +130,14 @@ def test_an_unknown_run_state_never_releases_a_claim():
     """'We could not check' is not 'it is gone': a failed probe must not hand the subject over."""
     body = bot_claims.claim_comment(bot_claims.FIXER, "fix", NOW, run_id=1)
     comments = [_c(body, NOW)]
-    assert bot_claims.occupied(comments, bot_claims.REBASER, is_live=lambda rid: None) is not None
-    assert bot_claims.occupied(comments, bot_claims.REBASER) is not None, "no probe: ttl decides"
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP, is_live=lambda rid: None) is not None
+    assert bot_claims.occupied(comments, bot_claims.ENGINE_BUMP) is not None, "no probe: ttl decides"
 
 
 def test_a_concluded_subject_announces_nothing():
     """A `done` release is normal, not news: released() is only for a holder that DISAPPEARED."""
     body = bot_claims.done_comment(bot_claims.FIXER, NOW, "repaired")
-    assert bot_claims.released([_c(body, NOW)], bot_claims.REBASER) is None
+    assert bot_claims.released([_c(body, NOW)], bot_claims.ENGINE_BUMP) is None
 
 
 def test_run_is_live_reads_the_run_status():
@@ -178,4 +178,4 @@ def test_cancelled_is_a_release_word():
     """A run that stops without finishing can say so, instead of only the TTL releasing it."""
     assert "cancelled" in bot_claims.DONE_RELEASES
     body = bot_claims.done_comment(bot_claims.FIXER, NOW, "cancelled")
-    assert bot_claims.occupied([_c(body, NOW)], bot_claims.REBASER) is None
+    assert bot_claims.occupied([_c(body, NOW)], bot_claims.ENGINE_BUMP) is None

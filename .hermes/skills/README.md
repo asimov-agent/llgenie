@@ -36,16 +36,18 @@ read by `scripts/engine_skills.py` → `make generate-engine-params`, never by a
 | `architecture-doc` | `make architecture-bot-doc` | rewrite `docs/ARCHITECTURE.md` |
 | `agent-fetch` | `make agent-fetch` | one masked URL fetch → `$OUT` |
 | `registry-sync-review` | `make registry-sync-review` | the green store's VRAM→model→server answer → `registry-review.md` |
-| `rebase-conflict` | `make rebase-bot-agent` | resolve a stopped rebase |
+| `rebase-conflict` | **no leg** — host skill | resolve a stopped rebase (the inner staging half `llgenie-pr-rebase` names, issue #2703) |
 | `pr-fix` | `make fix-loop-image` | repair a red PR check |
 | `llgenie-engine-improver` | **no leg** — host skill | the engine loop a GPU host runs: sync → skill → params/image → tune → picker |
 | `llgenie-architecture-pass` | **no leg** — host skill | the architecture pass a host agent runs: measure `origin/main` → audit → file issues |
 | `llgenie-pr-rebase` | **no leg** — host skill | rebase a CONFLICTING/DIRTY llgenie PR onto `main` as one reviewable commit, keeping the `HOST_SKILLS`-admitted outer half split from `rebase-conflict`'s inner staging |
 | `security-pipeline` | **no leg** — host skill | the security pipeline an agent runs for a vulnerability leg: scan → floor → tagged issues → remediation bot |
 
-`llgenie-engine-improver`, `llgenie-architecture-pass`, `llgenie-pr-rebase` and `security-pipeline` are the HOST skills: operator loops a host
+`llgenie-engine-improver`, `llgenie-architecture-pass`, `llgenie-pr-rebase`, `rebase-conflict` and
+`security-pipeline` are the HOST skills: operator loops a host
 runs on demand (the engine loop needs a real GPU; the architecture pass needs a host checkout; the rebase rewrites a
-shared branch on the force-push-approved rebase profile; the security pipeline is driven by the daily scan and its own
+shared branch on the force-push-approved rebase profile — `rebase-conflict` is its inner staging half,
+brought along from the retired rebase-bot lane, issue #2703; the security pipeline is driven by the daily scan and its own
 make/`gh` seams), so no
 CI leg preloads them. They are admitted by name in `HOST_SKILLS` (`scripts/check_agent_skills.py`) and
 are exempt from the unused-skill rule only — they still owe frontmatter and `Inputs`/`Output`/`Rules`.

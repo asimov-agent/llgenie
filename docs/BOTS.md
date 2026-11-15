@@ -51,7 +51,7 @@ A bot never works from a stale base:
 - `make bot-sync-branch` — fetch upstream `main` and **rebase the checked-out PR branch onto it**.
   The **fix-bot** runs this before its repair loop, so a green repair is green on top of current
   `main`. Exit code **2** means the branch does not rebase cleanly: it is reported and left alone,
-  because resolving that conflict is the **rebase-bot's** job (`make rebase-bot`, issue #246).
+  for a human or agent to resolve (the rebase-bot lane that used to take it was retired, issue #2703).
 - Both fail loudly if `main` cannot be reached — a bot that cannot sync must not start. The
   fix-bot pushes with `--force-with-lease` afterwards, because a sync rewrites history; if another
   bot pushed meanwhile the push is rejected instead of clobbering it.
@@ -317,19 +317,12 @@ queues behind its scheduled run instead of overlapping it. The current slots:
 
 | Bot | Cron | Minute today |
 |---|---|---|
-| `issue-bot` | `23 6 * * *` | daily 06:23 |
 | `queued-alarm` | `7,37 * * * *` | twice hourly (:07, :37) |
 | `engine-bump-rebase` | `41 5 * * *` | daily 05:41 |
 | `registry-sync` | `19 5 * * 1` | Monday 05:19 |
-| `registry-sync-review` | `55 * * * *` | hourly at :55 (issue #709) |
 | `engine-bump` | `53 6 * * 1` | Monday 06:53 |
-| `architecture-bot` | `47 */6 * * *` | every 6 hours at :47 (issue #449) |
 | `auto-merge` (recheck sweep) | `3,33 * * * *` | twice hourly (:03, :33 — issue #560) |
 | `code-review-bot` | `31 7 * * 1` | Monday 07:31 |
-| `issue-dedupe` | `51 */6 * * *` | every 6 hours at :51 |
-| `issue-refiner` | `43 * * * *` | hourly at :43 |
-| `rebase-bot` | `29 */6 * * *` | every 6 hours at :29 |
-| `search-smoke` | `11 7 * * *` | daily 07:11 |
 | `security-bot` | `9 5 * * *` | daily 05:09 |
 | `security-scan` | `5 4 * * *` | daily 04:05 (`docs/SCANS.md`) |
 
@@ -376,16 +369,15 @@ own bot may do.
 | `issue-implement` | `make implement-issue` | the change + `pr-body.md` |
 | `architecture-doc` | `make architecture-bot-doc` | rewrite `docs/ARCHITECTURE.md` |
 | `agent-fetch` | `make agent-fetch` | one masked URL fetch → `$OUT` |
-| `rebase-conflict` | `make rebase-bot-agent` | resolve a stopped rebase |
+| `rebase-conflict` | **no leg** — host skill | resolve a stopped rebase (the inner staging half `llgenie-pr-rebase` names, issue #2703) |
 | `pr-fix` | `make fix-loop-image` | repair a red PR check |
 
-**A leg's command must not carry a literal comma (issue #641).** `rebase-bot-agent` is the one leg
-that inlines its `hermes …` command inside `$(call scrubbed_run,…)` — it cannot use a `_<leg>` target,
-because the container's `Makefile` is the conflicted file (issue #460) — and `$(call …)` splits its
-arguments on commas in the **unexpanded** text: `-s rebase-conflict,bot-unattended` kept only
-`-s rebase-conflict`, the shell got an unclosed quote, and the leg exited 2 before the agent started
-(every conflicted PR stayed `DIRTY`; run 40212644476, #602/#605). The skills now come from
-`$(REBASE_BOT_SKILLS)`, and `tests/test_agent_legs_quoting.py` expands **every** scrubbed leg with
+**A leg's command must not carry a literal comma (issue #641).** A `hermes …` command nested inside
+`$(call scrubbed_run,…)` (a shell leg, issue #641) can trip the same trap: `$(call …)` splits its
+arguments on commas in the **unexpanded** text — a `-s a,b` kept only `-s a`, the shell got an
+unclosed quote, and the leg exited 2 before the agent started (measured on the retired rebase-bot,
+every conflicted PR stayed `DIRTY`; run 40212644476, #602/#605). The skills therefore come from a
+`$(…SKILLS)` variable, and `tests/test_agent_legs_quoting.py` expands **every** scrubbed leg with
 `make -n` and fails on an odd number of single quotes or a `-s` list that lost its second skill.
 
 Each skill has three sections: `## Inputs` (the files the host prepared), `## Output` (the ONE file
@@ -958,66 +950,17 @@ only) and posts the **comment before the PR**, so a token that cannot comment co
 and never a PR nobody has claimed. `tests/test_bot_pr_tokens.py` runs a real fake `gh` that records the
 token it actually received, per call.
 
-make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
-make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
-make rebase-bot-abort     # abort a stopped rebase and return the tree to main (the run loops over many PRs)
-make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
-**Every open PR is kept on `main` by a third bot** (`rebase-bot.yml`, issue #246), because
-AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
-It runs **every 6 hours** and drains the backlog: **every eligible PR per run**, oldest first,
-bounded by the `max_prs` dispatch input (default 10) and by the sweep's daily cap. A PR whose
-rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries on.
-- `make rebase-bot-sweep` decides *which* PR — an open, non-draft PR against `main` whose merge
-  state is `BEHIND` (a clean rebase) or `DIRTY` (conflicts). GitHub computes mergeability
-  **lazily**, so a PR the list reports as `UNKNOWN` is re-asked through `gh pr view
-  <n> --json mergeStateStatus` (bounded: `UNKNOWN_ATTEMPTS` re-queries, `--unknown-attempts` /
-  `--unknown-delay`); a PR that stays `UNKNOWN` is reported as **deferred to the next run**,
-  never silently counted as "needs nothing" (issue #453). It states a reason for every PR it
-  passes over, never picks the same PR twice in one run (`SKIP=`, issue #467), and counts today's
-  `<!-- bot-done: rebase-bot … rebased -->` markers toward the daily cap **without** treating them
-  as a bar: a PR that a later merge re-dirtied is rebased again the same day. A **plain comment
-  holds nothing** — a status note on the PR does not stop a rebase of a branch that is behind
-  `main`. Only a `bot-claim` marker from another bot does, and only while it is fresh. A claim or a
-  `gave-up` from a failed attempt is never the record (issues #457/#467) — so no label is invented
-  and no PR is rebased in a loop — and it skips a fork it cannot push to.
-- **It keeps out of the other bots' way.** It skips a PR with checks **in flight** (rebasing
-  would cancel the run deciding it). A red PR whose only red is the staleness gate and is
-  **measured behind** is taken here — the rebase is the precondition for `check-pr-base`, so
-  "fix-bot owns a red PR" cannot swallow a stale one (#2071); a PR red for a real failing test
-  stays the fix-bot's, the narrowing keying on the measured-behind fact, never the state
-  string. It still takes a **conflicted** red PR, since a rebase is the precondition for fixing
-  anything on it. The implementer cannot be raced (it pushes
-  a new branch and only then opens the PR, so its PRs are fresh by construction), and the refiner
-  never touches a branch. If the rebase bot and the fix-bot ever do collide, the fix-bot's plain
-  fast-forward push and this bot's `--force-with-lease` mean the **second one is rejected loudly**:
-  nothing is clobbered in either direction.
-- **A conflicted PR has NO checks, and that is an answer rather than a crash** (issue #801). A
-  `DIRTY` PR gets no CI run at all — GitHub cannot build a merge ref for it — so
-  `gh pr checks <n> --json state` exits **1** with `no checks reported on the '<branch>' branch`
-  for exactly the PR this bot exists to rebase. That one exit is read as "neither in flight nor
-  red"; every OTHER non-zero read is still a hard failure, and a failed read now **names the PR it
-  could not judge** (`error=#<n> (<branch>): …` on stdout, quoted by the run's `::error::` line)
-  instead of leaving a bare exit code with no PR attached — the shape that let a red run and the
-  dead PR never meet. The drain step's `failed_prs` lists every PR it picked and did not rebase, and
-  each of those carries the reason on the PR itself.
-- `make rebase-bot` does the work: rebase with `rerere` **off** (a recorded resolution from an
-  earlier rebase is not trustworthy), and on a conflict hand the stopped rebase to Hermes with what
-  each side means plus the hard rules (preserve both sides, never weaken a test, keep a recipe's
-  TAB). The agent is reached through a **snapshot of `Makefile` taken before the checkout**
-  (`make -f <snapshot> rebase-bot-agent`) and the container runs Hermes directly (still through
-  the one `$(nous-alias)` model pin), because a conflict
-  can be *in* `Makefile` and `make` cannot parse a file that is mid-rebase (issue #460). Then it
-  checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
-  wiring guard — every gate chained with `&&`, so ANY failure blocks the push (`;` used to report
-  only the last one), and the runner provides the test image `make lint` runs in (issue #455).
-  The gate mounts the checkout, not `$(REPO)`: the job exports `REPO` as the slug, and Make would
-  otherwise hand docker `asimov-agent/llgenie` as a volume name and abort a rebase it had already
-  resolved (run 39727049030). It pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
-  PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
-  reported on the PR and left for a human — with its stopped rebase **aborted**, so the run's next
-  decision still has a parseable `Makefile` (issues #460/#464). The step that runs it exports
-  `GH_TOKEN`, because the
-  outcome comment (and the `done` marker inside it) is a `gh` write: without it the push landed
+**Keeping open PRs current with `main` is now an agent job, not a bot (issue #2703).**
+The `rebase-bot` lane (`rebase-bot.yml` + `scripts/rebase_bot.{sh,}_sweep.py`, issue #246) that
+rebased every eligible open PR every 6 hours was **retired** 2026-11-15: its landing function is
+already covered twice over — AGENTS.md says an agent rebases its own branch before it is merged, and
+`engine-bump-rebase.yml` (still scheduled daily 05:41) rebases the engine-bump PRs the allow-listed
+engine lane opens. A PR whose branch is `BEHIND`/`DIRTY` is therefore re-based by its owner (a human
+or the interactive host agent) before the merge gate reads it; a sync conflict from `make bot-sync-branch`
+is reported and left for the PR owner to resolve. Its claim marker was retired (`bot_claims` keeps only
+the `rebase` WORK KIND, whose living writer is `engine-bump-rebase`), its `rebase-conflict` skill
+survives as the host-side inner half of `llgenie-pr-rebase`, and its `make` targets are gone — the
+`make rebase-bot*` surface below the old how-to no longer exists.
   and every comment failed (issue #453).
 make issue-refiner-pick   # keep the backlog implementable: spare capacity -> the oldest issue that is not decided/claimed
 make issue-refiner        # step 1: Hermes REVIEWS that issue (refine-in.md) and writes its verdict to refine.md
@@ -1025,13 +968,16 @@ make issue-refiner-apply ISSUE=<n>  # step 2: ONE comment + the agent:refined la
 make issue-dedup-pick               # which two UNCLAIMED open issues look like the same defect -> dedup-in.md
 make issue-dedup                    # the agent decides: DUPLICATE: #<older> + EVIDENCE, or DISTINCT: + REASON
 make issue-dedup-apply COPY=<n>      # retire the copy (comment citing the canonical + agent:duplicate) and queue the canonical
-**A companion bot reviews the backlog — the issues that have not been implemented yet.** It is a
-separate workflow (`issue-refiner.yml`) that runs **hourly** and reviews **one issue per run**: open,
+**A companion workflow reviews the backlog — the issues that have not been implemented yet.** It is a
+separate workflow (`issue-refiner.yml`) that runs **on dispatch**, reviewing **one issue per run**: open,
 oldest first, not already reviewed (`agent:refined`), not claimed for implementation, and not already
 linked to a pull request — i.e. an issue no PR answers yet. It opens **no PR at all**: its outcome is
 ONE comment plus the `agent:refined` label, which is what stops it reviewing the same issue twice.
+(It was scheduled hourly before the CI-discipline policy deactivated its cron, issue #2703; a human or
+the interactive host agent now dispatches it.)
 
-**The duplicate sweep (`issue-dedupe.yml`, issue #553) runs FOUR times a day** (`51 */6 * * *`) because
+**The duplicate sweep (`issue-dedupe.yml`, issue #553) runs on dispatch** (it was scheduled four times a
+day at `51 */6 * * *` before the CI-discipline policy deactivated its cron, issue #2703) because
 neither the refiner nor the implementer ever compares two issues: one improves an issue per run, the other
 implements one, so the same defect filed twice is implemented twice — or the better specification is retired.
 The host picks the most similar pair of **unclaimed** open issues deterministically (title+body token Jaccard,
@@ -2125,6 +2071,7 @@ them by `make check-dispatch-forms`, so the documentation you read before dispat
 from the pipeline that will run.
 
 <!-- dispatch-forms:begin -->
+
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
 | `all-pipelines.yml` | weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one) | none — the sweep has nothing to parameterise: it sweeps every dispatchable workflow in the |
@@ -2142,12 +2089,11 @@ from the pipeline that will run.
 | `fix-bot.yml` | repairs a failing PR branch until its checks pass (never merges) | `pr_number` (optional) — PR number whose branch should be repaired<br>`branch` (optional) — PR head branch (used when pr_number is empty)<br>`check` (optional, default `make ci-unit`) — the deterministic check to drive the loop<br>`rounds` (optional, default `5`) — repair attempts (default 5)<br>`report_file` (optional) — path to the failed run's captured log (repair context; empty = run the check locally) |
 | `holds.yml` | fails when a do-not-merge label names no resolving issue | none — it reads every held PR and fails on any hold with no named remedy, so a hand run just |
 | `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (optional) — Issue to implement (owner only). Leave BLANK and the bot picks the oldest agent:implement issue itself - one issue per run, exactly like the schedule |
-| `issue-dedupe.yml` | retires a duplicate of an issue, FOUR times a day, never a claimed one | none — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py). |
+| `issue-dedupe.yml` | retires a duplicate of an issue on dispatch, never a claimed one | none — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py). |
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |
 | `main-ruleset.yml` | fails when the main ruleset has no required status checks (the missing merge-block gate) | none — it measures the ruleset and fails on the gap; a hand run re-checks the board. |
 | `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
-| `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top)<br>`pr` (optional) — Aim this run at ONE open PR (#2446): only that PR is evaluated; leave empty for the board-wide sweep |
 | `registry-sync-review.yml` | a GREEN registry-sync PR is reviewed into ONE agent:implement issue | `dry` (optional, default `false`) — Preview the brief and the issue body this run would file, filing nothing |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
 | `review-verdict.yml` | record a submitted review as the bot-verdict marker at the head it judged | `pr_number` (required) — the PR whose review verdict to (re)record at its current head<br>`head_sha` (required) — the 40-hex head sha this PR must currently be at — a stale name is a finding, not a pass |
@@ -2159,6 +2105,7 @@ from the pipeline that will run.
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 | `semgrep-rules-refresh.yml` | re-resolves the semgrep rules pack from upstream p/default and opens the re-pin PR (never merges) | none — the refresh has no modes: it always re-resolves p/default through the pinned scanner image and opens the re-pin PR only when the pack changed. |
 | `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
+
 <!-- dispatch-forms:end -->
 
 ## The weekly umbrella sweep (issue #1102)

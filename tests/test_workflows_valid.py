@@ -623,7 +623,7 @@ def test_every_migrated_agent_leg_calls_the_composite_action():
     """The tree itself: after the migration, no `.github/workflows/*.yml` inlines the full
     agent-leg preflight (both make calls); they call `.github/actions/agent-leg` instead."""
     assert cw.check_inline_agent_preflight(REPO) == []
-    for name in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml", "rebase-bot.yml",
+    for name in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml",
                  "architecture-bot.yml", "registry-sync-review.yml"):
         text = (REPO / cw.WORKFLOWS / name).read_text()
         assert "./.github/actions/agent-leg" in text, f"{name} no longer calls the agent-leg action"

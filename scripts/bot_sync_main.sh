@@ -8,11 +8,11 @@
 #   reset   before implementing a NEW issue: hard-reset the tree to origin/main, so the branch the
 #           bot pushes is based on latest main.
 #   rebase  before repairing an EXISTING PR: rebase the checked-out branch onto origin/main.
-#           A conflict is NOT resolved here - that is the rebase-bot's job (#246). It is reported
+#           A conflict is NOT resolved here - it is reported and left to the PR owner (a human or
 #           and the caller leaves the PR alone; exit 2 means "synced base refused, not an error in
 #           the repair itself".
 #
-# Exit codes: 0 synced, 2 the sync conflicts (leave it to the rebase-bot), anything else = failure.
+# Exit codes: 0 synced, 2 the sync conflicts (left for a human/agent to resolve), anything else = failure.
 # A remote that cannot be reached is always a failure: a bot must never work from a stale base.
 set -euo pipefail
 
@@ -79,7 +79,7 @@ set -e
 if [ "$rc" -ne 0 ]; then
   git rebase --abort >/dev/null 2>&1 || true
   [ "$(git rev-parse HEAD)" = "$BEFORE" ] || die "aborted a conflicted rebase but HEAD moved"
-  printf '[bot-sync] %s does not rebase cleanly onto %s/%s: leaving it to the rebase-bot (issue #246)\n' \
+  printf '[bot-sync] %s does not rebase cleanly onto %s/%s: leaving it for a human or agent to resolve (issue #2703)\n' \
     "$HEAD_REF" "$REMOTE" "$BRANCH" >&2
   exit 2
 fi

@@ -1,9 +1,6 @@
 # mk/bots.mk — bot-domain targets split out of the top Makefile (issue #2460).
 # Target names and recipes are byte-identical; shared variables stay in the top Makefile.
 
-rebase-bot-sweep: ## Which ONE open PR needs rebasing (BEHIND/DIRTY against main): prints action/pr/head_* and the reason for every pass-over (TARGET_PR=<n> aims the decision at that PR only, #2446)
-	python3 scripts/rebase_bot_sweep.py --repo $(GH_REPO) $(if $(OWN_FORK),--own-fork $(OWN_FORK),) $(if $(SKIP),--skip "$(SKIP)",) $(if $(TARGET_PR),--pr $(TARGET_PR),)
-
 bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792); when the working diff touches agents/<profile>/, surfaces the #1724 SYNC-line obligation (BODY=<prospective PR body> refuses a missing/mis-cited SYNC line, issue #1782)
 	python3 scripts/bot_preflight.py $(if $(CHECK),--check,) $(if $(BODY),--body-file "$(BODY)",)
 
@@ -14,27 +11,6 @@ bot-stamp-body: ## Stamp BODY=<pr body file> in place (or into OUT=) with the `A
 check-tick-prompt: ## Fail when the live orchestrator cron prompt diverges from the versioned copy under agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md (issue #2159) — host-only: a CI runner has no live jobs.json; exit 0 identical, 1 diverged, 2 a read/missing failure (LIVE=; VERSIONED=), HOST-ONLY
 	@python3 scripts/check_tick_prompt.py $(if $(LIVE),--live "$(LIVE)",) $(if $(VERSIONED),--versioned "$(VERSIONED)",)
 
-rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN); runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
-	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/ci_images.py ensure agent
-	$(call scrubbed_run,$(RUNTIME) run --rm -i --init -v "$(CURDIR):/repo" -w /repo \
-	  -e NOUS_API_KEY -e HERMES_REASONING \
-	  -e TYPESAFE_API_KEY \
-	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
-	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat) Follow the preloaded skill rebase-conflict; the prompt above carries the conflicted files." -s $(REBASE_BOT_SKILLS) $(nous-alias) --reasoning medium --yolo')
-# Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
-# is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
-
-rebase-bot-abort: ## Abort a stopped rebase and return the tree to main, so the next decision in the same run starts clean (issue #462)
-	@git rebase --abort >/dev/null 2>&1 || true
-	@git checkout -q main >/dev/null 2>&1 || true
-	@echo "[rebase-bot] abort: tree back on main"
-
-rebase-bot: ## Rebase ONE PR onto main (agent-resolved conflicts), verify the structure, then push --force-with-lease to the PR's head remote. Never merges. Needs PR=/HEAD_BRANCH= [HEAD_REPO=] [DRY=1]
-	@test -n "$(PR)" && test -n "$(HEAD_BRANCH)" || { echo "Usage: make rebase-bot PR=<n> HEAD_BRANCH=<branch> [HEAD_REPO=<owner>] [REPO=] [DRY=1]"; exit 1; }
-	PR=$(PR) HEAD_BRANCH="$(HEAD_BRANCH)" HEAD_REPO=$(if $(HEAD_REPO),$(HEAD_REPO),asimov-agent) \
-	  REPO=$(GH_REPO) $(if $(DRY),DRY=1,) scripts/rebase_bot.sh
 # ---- issue-refiner: reviews NOT-yet-implemented issues on the implementer's spare capacity
 # (issue #263). One issue per run, ONE comment + the `agent:refined` label, and never a PR.
 
@@ -142,7 +118,7 @@ issue-bot-gates-check: ## CI: fail when a ci-unit gate is classified neither fas
 bot-sync-main: ## Fetch upstream main and reset the working tree to it, so a NEW branch starts from latest main (issue #303); fails loudly when main cannot be reached
 	@bash scripts/bot_sync_main.sh reset
 
-bot-sync-branch: ## Fetch upstream main and rebase the checked-out PR branch onto it before repairing (issue #303); exit 2 means the rebase conflicts and is left to the rebase-bot
+bot-sync-branch: ## Fetch upstream main and rebase the checked-out PR branch onto it before repairing (issue #303); exit 2 means the rebase conflicts and is left to the PR owner (a human or an agent) to resolve
 	@bash scripts/bot_sync_main.sh rebase
 
 web-coverage: ## Which URLs a bot run depends on, and do they resolve (a fixture list, or ISSUE_FILE=); non-zero on a dead one — no model call, no key

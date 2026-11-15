@@ -387,7 +387,7 @@ def test_an_occupied_pr_is_left_to_its_holder(tmp_path):
     # Given a red same-repo PR whose thread carries a fresh claim from another bot
     import datetime as dt
     now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    claim = {"body": f"<!-- bot-claim: rebase-bot {now} rebase -->\nstarting"}
+    claim = {"body": f"<!-- bot-claim: engine-bump-rebase {now} rebase -->\nstarting"}
     log = gh_stub(tmp_path, failed_run(), [pr(252)], comments={"252": [claim]}, checks={"252": RED})
     # When the reactor routes the run
     r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])

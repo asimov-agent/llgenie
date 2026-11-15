@@ -214,10 +214,6 @@ registry-review-publish: ## File ONE issue labelled agent:implement from registr
 # The dispatcher is deterministic (no LLM): cap -> pick ONE -> claim -> issue.md
 # + branch. `implement-issue` is the shared Hermes agent step (AGENTS.md is the
 # authority the agent reads; #238 wires the token/plugin into the agent image).
-# ---- rebase-bot: keep the open PRs on `main` (issue #246). ONE PR per 6-hourly run; a conflict
-# is handed to the agent; the result is verified structurally and pushed with --force-with-lease
-# to the PR's OWN head remote (a fork PR goes to the fork). It never merges.
-
 engine-params-review-brief: ## Issue #583: write params-review-in.md — the engine's upstream docs at its pinned sha + the params this repo builds with (deterministic; ENGINE=<id>)
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-params-review-brief ENGINE=<id>"; exit 1; }
 	python3 scripts/engine_params_review.py brief --engine "$(ENGINE)"

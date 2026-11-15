@@ -4,7 +4,7 @@ Every bot workflow first asks a `make` target which subject to work on (`…-swe
 `…-dispatch`). Three of them swallowed the answer: the step ran under `set +e`, read the crash as
 "nothing to do", and the run concluded GREEN while the bot never worked. Measured in this fleet:
 
-- `rebase-bot.yml` (#310) — `action=${action:-unknown}` → `go=false`; the bot had never rebased a PR.
+- `issue-bot.yml` (#310) — `action=${action:-unknown}` → `go=false`; the bot had never implemented.
 - `issue-refiner.yml` (#316) — the same shape on `make issue-refiner-pick`.
 - `issue-bot.yml` (#312) — `rc=$?` captured, written to `GITHUB_OUTPUT`, and **never consulted**; an
   empty `action` falls through the cap/none test, `dispatch=true`, and the run marches on to
@@ -109,7 +109,7 @@ def test_the_decision_steps_are_what_this_file_covers():
 
     # Then the measured ones are covered (a narrowed list is the failure this guards against)
     assert len(steps) >= 3, names
-    for wf in ("issue-bot.yml", "issue-refiner.yml", "rebase-bot.yml"):
+    for wf in ("issue-bot.yml", "issue-refiner.yml", "issue-dedupe.yml"):
         assert wf in names, f"{wf} runs a decision target but is not covered: {names}"
 
 

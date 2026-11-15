@@ -15,7 +15,7 @@ decorative (#292) and a claim from a run that died held for the whole TTL (#291)
 
 * **`ttl=<minutes>m`** — how long the writer says this work may take. The reader honours THAT, and
   falls back to its own default only for a legacy marker (written before this field existed). Before,
-  a rebase's 30-minute claim blocked a 4-hour reader, and the sentence a maintainer read ("leave it
+  a 30-minute claim blocked a 4-hour reader, and the sentence a maintainer read ("leave it
   alone for 4 hours") disagreed with what the bots actually did.
 * **`run=<id>`** — the workflow run holding it. A reader that can ask GitHub (`is_live=`) releases the
   subject the moment that run is finished/cancelled, so a cancelled run does not freeze a PR for the
@@ -24,8 +24,8 @@ decorative (#292) and a claim from a run that died held for the whole TTL (#291)
 An unparseable marker is ignored, never fatal, and an unreadable run state is `None` — "we could not
 check" must never release a claim.
 
-The claim path's only transport (`run_is_live`/`_LIVE`) lives HERE, not in the bot per-leg: the four
-legs (issue_refiner, issue_implementer, fix_bot_sweep, rebase_bot_sweep) call into it and cannot grow
+The claim path's only transport (`run_is_live`/`_LIVE`) lives HERE, not in the bot per-leg: the
+legs (issue_refiner, issue_implementer, fix_bot_sweep, engine_bump_rebase) call into it and cannot grow
 their own copy (issue #799). The general `_gh` seam is issue #797's.
 """
 from __future__ import annotations
@@ -51,18 +51,18 @@ CLAIM_RE = re.compile(
     r"(?:\s+ttl=(?P<ttl>\d+)m)?"
     r"(?:\s+run=(?P<run>\d+))?\s*-->")
 
-#: The bots, as they name themselves in a claim. The first two work on issues, the last two on PRs;
+#: The bots, as they name themselves in a claim. The first two work on issues, the rest on PRs;
 #: the name is the workflow's bot name (`fix-bot.yml` -> `fix-bot`) so a claim reads as the thing a
 #: maintainer sees in the Actions tab.
 REFINER = "refiner"
 IMPLEMENTER = "implementer"
 FIXER = "fix-bot"
-REBASER = "rebase-bot"
 CLEANER = "issue-cleaner"
+#: The still-live bot that posts `rebase` claims (engine-bump-rebase.yml, the allow-listed engine
+#: lane). The rebase-bot lane itself was retired (issue #2703); only the `rebase` WORK KIND is
+#: shared protocol, and this bot is its living writer.
+ENGINE_BUMP = "engine-bump-rebase"
 
-#: How long a PR claim holds when the marker does not say. The fix-bot's own budget is 180 minutes
-#: (three rounds of check + agent repair), so a reader must age a claim by at least that or the
-#: rebase-bot walks in mid-repair.
 PR_CLAIM_TTL = dt.timedelta(hours=4)
 
 

@@ -195,7 +195,7 @@ def main() -> int:
             log(f"    [dry] would forward-merge the upstream main into {ref} and push")
             continue
         # Announce BEFORE the push, so the bots that write to this branch too (the fix-bot, the
-        # rebase-bot) can see it is taken; release below, whatever the outcome.
+        # the other claim readers) can see it is taken; release below, whatever the outcome.
         if not claim(n):
             log(f"  PR#{n} ({ref}): could not post the claim — left alone (the protocol is the point)")
             continue

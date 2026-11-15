@@ -238,14 +238,6 @@ def test_the_internal_hermes_calls_are_inside_a_leg_that_redacts():
     for name in hermes_inside:
         assert public, f"the public legs disappeared while {name} still calls hermes"
 
-    # `rebase-bot-agent` calls hermes INLINE (issue #460): a nested `make _rebase-bot-agent` would
-    # re-read the conflicted Makefile the agent is being asked to resolve, so that leg has no
-    # internal target — and its call still has to sit inside the redacting public leg.
-    legs = dict(_public_agent_legs())
-    assert "rebase-bot-agent" in legs, "the rebase agent leg disappeared"
-    assert "hermes -z" in legs["rebase-bot-agent"], "the rebase agent leg no longer calls hermes"
-    assert "_rebase-bot-agent" not in bodies, "the in-container make leg is back (issue #460)"
-
 
 def test_the_workflows_publish_only_the_redacted_log():
     # The REDACTED-transcript upload lives in the ONE agent-leg composite action (issue #798):
@@ -254,7 +246,7 @@ def test_the_workflows_publish_only_the_redacted_log():
     assert SCRUBBED in leg, "the agent-leg composite action publishes no redacted transcript"
     assert re.search(rf"(?m)^\s+- name: .*redacted", leg, re.I), "the artifact is not named for what it is"
 
-    for workflow in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml", "rebase-bot.yml"):
+    for workflow in ("fix-bot.yml", "issue-bot.yml", "issue-refiner.yml", "architecture-bot.yml"):
         text = (WORKFLOWS / workflow).read_text()
 
         # Then each bot job calls the reusable leg's upload (which publishes the REDACTED log) …

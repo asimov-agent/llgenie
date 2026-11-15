@@ -570,8 +570,8 @@ def check_workflow_run_coverage(root: Path = REPO_ROOT) -> list[dict]:
     GitHub matches `workflow_run.workflows` against a workflow's top-level `name:` and takes no
     wildcard, so the list is a roster a human keeps by hand. It rots two ways, both silent until this
     rule existed: a workflow added later is never watched, and a workflow whose `name:` is edited stops
-    matching — measured on `rebase-bot.yml`, renamed by #463 (`…ONE PR per run…` -> `…every eligible PR
-    per run…`), after which its failures routed nowhere while the roster still carried the old string.
+    matching — measured on a workflow renamed after #463, after which its failures routed
+    nowhere while the roster still carried the old string.
     So: (a) a listed name that matches no workflow is a violation, (b) a workflow no roster names is a
     violation unless an exemption with a reason covers it, (c) a workflow may not name itself (the
     trigger would re-fire on its own completion), and (d) an exemption without a reason or naming no
@@ -608,7 +608,7 @@ def check_workflow_run_coverage(root: Path = REPO_ROOT) -> list[dict]:
                             f"`{where}` line {line} lists {name!r}, which is no workflow's `name:` in "
                             f"this tree. GitHub matches that list VERBATIM and takes no wildcard, so a "
                             f"renamed workflow's failures become invisible while the roster looks "
-                            f"complete — measured on `rebase-bot.yml` after #463, whose failures routed "
+                            f"complete — measured on a renamed workflow after #463, whose failures routed "
                             f"nowhere for a week with this gate green. Fix the entry to the workflow's "
                             f"current `name:`."
                         ),
