@@ -23,8 +23,6 @@
 name: issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one
 
 on:
-  schedule:
-    - cron: "51 */6 * * *"   # 4x/day at an odd minute: one pair compared per run (issue #553)
   workflow_dispatch:
 
 permissions:

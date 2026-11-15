@@ -122,8 +122,9 @@ def test_the_smoke_runs_in_a_monitored_job_on_the_repository_secret():
     text = (WORKFLOWS / "search-smoke.yml").read_text()
 
     # When  it is read
-    # Then  it is scheduled on its own slot and dispatchable, and it declares its trigger surface
-    assert re.search(r'(?m)^\s*- cron: "11 7 \* \* \*"', text), text[:400]
+    # Then  it declares no clock (issue #2701: the daily smoke cron was deactivated) but is
+    # dispatchable, and it declares its trigger surface
+    assert re.search(r"(?m)^  schedule:", text) is None, text[:400]
     assert "workflow_dispatch:" in text
     for key in ("# Trigger surface:", "# Flow:", "# Never:"):
         assert key in text, f"{key} missing from the header block"

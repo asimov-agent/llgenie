@@ -16,9 +16,6 @@ name: ci-requeue — re-runs only the cancelled runs no later run superseded, ev
 # no later run of the same workflow superseded. The window is a make variable (WINDOW=2h), not
 # a dispatch input.
 on:
-  schedule:
-    - cron: "15,45 * * * *" # every 30 minutes at :15 and :45 — minutes no other bot owns (issue #275: a shared
-                            # minute is a collision, and the collision test failed on :23 issue-bot and :53 engine-bump)
   workflow_dispatch:
 
 permissions:

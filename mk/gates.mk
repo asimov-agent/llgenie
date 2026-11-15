@@ -214,6 +214,15 @@ check-workflows: ## CI: fail when a YAML file's GitHub expression does not parse
 workflows-report: ## Show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 	python3 scripts/check_workflows.py report
 
+check-ci-discipline: ## CI: fail when a `schedule:` appears outside the allow-list (issue #2701), when an allow-listed lane loses its clock, when a deactivated agent lane re-schedules itself, when the tests-only main pipeline gains an agent job, when the agent-leg allow-list is crossed, or when AGENTS.md loses the durable CI-discipline section
+	python3 scripts/check_ci_discipline.py check
+
+ci-discipline-report: ## Show the measured schedule surface: every scheduled lane and its allow-list verdict, the agent-leg users, the tests-only pipelines, and the finding count (report always exits 0)
+	python3 scripts/check_ci_discipline.py report
+
+.PHONY: check-ci-discipline
+.PHONY: ci-discipline-report
+
 check-module-names: ## CI: fail when a LIVE file spells the retired CLI module name instead of scripts/llgenie_serve.py (the old spelling belongs to the deprecated shim and the dated history only; issues #251, #573, #812)
 	python3 scripts/module_name_guard.py check
 

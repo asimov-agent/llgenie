@@ -1412,6 +1412,46 @@ workers were dispatching on the host while the interactive session worked the sa
 - Hermes profile cron machinery is exercised ONLY in CI/test fixtures (e.g. the planner-cron ACs
   run as bounded `cron run` proofs or containerised tests, never as a live host scheduler).
 
+## CI pipeline discipline: weekly engine/registry lane only, tests-only main pipeline, Hermes in agent-image lanes only (mandatory, durable)
+
+The owner set this on 2026-11-15 (issue #2701). It is a MEASURE, not a style note:
+`make check-ci-discipline` fails the PR that violates it (and
+`make ci-discipline-report` prints what it reads).
+
+- **Only allow-listed workflows may carry an `on.schedule:` clock.** The
+  allow-list lives in `scripts/check_ci_discipline.py::SCHEDULE_ALLOW` with a
+  rationale per lane: the weekly engine lane (`engine-bump.yml` — bumping the
+  engines and building the engine images), the weekly latest-models /
+  latest-inference-servers fetch (`registry-sync.yml`), the weekly tests-only
+  battery (`all-pipelines.yml`), the deterministic security and liveness
+  monitors, and the auto-merge/auto-approve landing plumbing the owner's
+  mandate depends on. Every other scheduled lane was deactivated on 2026-11-15
+  (architecture-bot, ci-requeue, issue-bot, issue-dedupe, issue-refiner,
+  registry-sync-review, search-smoke, rebase-bot): they keep their triggers
+  (label / `workflow_run` / `workflow_dispatch`) but no clock. An allow-listed
+  lane that loses its schedule is equally a finding — the list must describe
+  reality in both directions. Adding a lane to the allow-list is a review act,
+  done in the PR that adds the rationale.
+- **The CI main pipeline runs tests only — no LLM, no agent leg.** `ci.yml`
+  and `pipeline.yml` (the PR/push lanes) and `all-pipelines.yml` carry no
+  `./.github/actions/agent-leg` use and no agent-image job. Hermes work in CI
+  lives ONLY in the agent-image lanes whose purpose is fetching the latest
+  engine servers, syncing the registry, updating the engine list with new
+  engines, and updating existing engines' Dockerfiles — plus the allow-listed
+  bot lanes (`AGENT_LANES`), which run dispatch-only after 2026-11-15.
+- **The agent never manually starts a CI pipeline.** No `gh run rerun`, no
+  `gh workflow run` / `workflow_dispatch`, no requeue or re-trigger loops —
+  not even to unblock a wedge. CI starts from GitHub events (push, PR,
+  `workflow_run`, label) plus the weekly engine/registry lane and the landing
+  plumbing's own clocks. A wedge is fixed by pushing a commit (rebase, body
+  fix, gate fix), never by pumping the queue. The retired ci-requeue healer
+  (#2702) is the shape this rule forbids; do not resurrect it in any form.
+- **Host-side agent work is one lane at a time.** The interactive agent (this
+  agent, on the host) owns triage, refinement, dedupe, architecture scan, and
+  rebases as its own one-at-a-time work — the deactivation left those
+  behaviours needing a home, which is the host agent or a dispatch-only
+  trigger, not a new schedule (#2703).
+
 ## Record of work
 
 Track progress in `agent-wiki/` as dated `YYYY-MM-DD-<name>.md` entries (what was

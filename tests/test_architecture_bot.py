@@ -132,15 +132,16 @@ def test_workflow_is_six_hourly_dispatchable_and_guarded():
     wf = yaml.safe_load(text)
     on = wf.get("on") or wf.get(True)
 
-    # When its schedule, dispatch form, concurrency and first job are read
-    crons = [e["cron"] for e in on["schedule"]]
+    # When its dispatch form, concurrency and first job are read
     inputs = on["workflow_dispatch"]["inputs"]
     conc = wf["concurrency"]
     first_job = next(iter(wf["jobs"]))
     guard_text = text.split("architecture:", 1)[0]
 
-    # Then the cron is 6-hourly on :47, and both inputs are documented with defaults
-    assert crons == ["47 */6 * * *"]
+    # Then it carries no clock (issue #2701 deactivated every scheduled lane outside the
+    # weekly engine lane and the allow-listed plumbing), and both inputs are documented
+    # with defaults
+    assert "schedule" not in on, on
     assert set(inputs) == {"dry", "doc"}
     for name, spec in inputs.items():
         assert len(spec["description"]) >= 10, name

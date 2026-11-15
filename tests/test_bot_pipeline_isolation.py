@@ -161,8 +161,14 @@ def test_the_scope_is_derived_from_the_workflow_files():
 
     # And it is not vacuous: the bots that exist today are all in scope
     assert len(BOT_WORKFLOWS) >= 9, f"only {len(BOT_WORKFLOWS)} scheduled bots found: {BOT_WORKFLOWS}"
-    for known in ("issue-bot.yml", "rebase-bot.yml", "issue-refiner.yml", "code-review-bot.yml"):
-        assert known in BOT_WORKFLOWS, f"{known} declares a schedule but is out of scope"
+    assert "code-review-bot.yml" in BOT_WORKFLOWS, "code-review-bot.yml declares a schedule but is out of scope"
+    # Issue #2701: these lanes keep their dispatch/event triggers but declare no clock;
+    # a re-added schedule would make them reappear in the derived scope and fail here.
+    for deactivated in (
+        "issue-bot.yml", "rebase-bot.yml", "issue-refiner.yml", "issue-dedupe.yml",
+        "architecture-bot.yml", "registry-sync-review.yml", "search-smoke.yml", "ci-requeue.yml",
+    ):
+        assert deactivated not in BOT_WORKFLOWS, f"{deactivated} must stay schedule-free (issue #2701)"
 
 
 def test_no_workflow_shares_a_minute():

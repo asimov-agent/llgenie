@@ -18,9 +18,6 @@ name: registry-sync-review — a GREEN registry-sync PR is reviewed into ONE age
 # Never: never merges, never pushes, never edits the store/matrix/goldens, never files a second
 #        issue for a store that already has one, never reviews a red or pending PR.
 on:
-  schedule:
-    - cron: "55 * * * *"   # hourly at an odd minute no other bot owns (issue #275/#560)
-
   workflow_dispatch:
     inputs:
       dry:
