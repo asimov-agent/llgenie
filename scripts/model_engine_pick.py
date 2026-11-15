@@ -1733,6 +1733,22 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
                 return {"repo": repo, "path": path, "size": size, "files": [path]}
         return None
     if fmt in ("mlx-safetensors", "safetensors"):
+        listed, cat_plans = _catalog_format_plans(model, engine, fmt)
+        if listed:
+            # The committed table is the single decider for a catalogue pair: among the
+            # budget-fitting snapshots the table lists, serve the largest — the SAME
+            # selection engine_supported_quants/_matrix_plan make, so plan_download and
+            # matrix() answer the same question through the same seam. A duplicate
+            # (a repo a sync carried over at a stale size beside its live size) is
+            # filtered AFTER the budget, exactly as `_add` does, keeping the two surfaces
+            # equal. Never re-query the Hub to learn what the engine can load.
+            fit = {}
+            for p in cat_plans:
+                if p["size"] > budget:
+                    continue
+                key = (p["repo"], tuple(p.get("files") or []))
+                fit.setdefault(key, p)
+            return max(fit.values(), key=lambda p: p["size"]) if fit else None
         repos = _model_repos(model)
         if fmt == "mlx-safetensors":  # the registry names the base repo: find its MLX conversions
             repos += mlx_repos(model)
@@ -1805,6 +1821,45 @@ def catalog_supported_archs(model_id: str, engine_name: str) -> list[str]:
     """The archs the catalog says can run this engine for this model."""
     cell = catalog_engine_cell(model_id, engine_name)
     return (cell or {}).get("arch") or []
+
+
+def _catalog_format_plans(model: dict, engine: str | None, fmt: str) -> tuple[bool, list[dict]]:
+    """(listed, plans): the committed HF class table's snapshot download plans for
+    `model` in the mlx-safetensors/safetensors format, and whether that model+engine is
+    listed in the table at all.
+
+    The committed table is the single decider: `catalog_supported_quants` is the start of
+    `engine_supported_quants`, so `plan_download` must serve the SAME committed answers a
+    catalogued model already gets there — otherwise `matrix()` proposes a cell from the
+    table (issue-fix quant-catalog seam) that `llgenie --pick` then rejects because it
+    re-queried the live Hub. A pair the table lists resolves from the table (the pick never
+    re-queries the Hub to learn what the engine can load); a pair absent from the table
+    still falls back to live (AC2). `plan_download` passes the engine id/name it was asked
+    to serve; the catalog is keyed by the registry engine NAME (e.g. ``MLX``), so the
+    model's own `engines`/`supported_engines` names are also consulted."""
+    mid = str(model.get("id") or "")
+    names = [e.get("engine") for e in (model.get("engines") or [])]
+    names += list(model.get("supported_engines") or [])
+    if engine:
+        names.append(str(engine))
+    listed, plans = False, []
+    for name in dict.fromkeys(n for n in names if n):
+        cell = catalog_engine_cell(mid, name)
+        if cell is None:
+            continue
+        listed = True
+        for it in (cell.get("quants") or []):
+            repo = it.get("repo") or ""
+            if ("mlx" in repo.lower()) != (fmt == "mlx-safetensors"):
+                continue
+            plan = {"repo": repo, "revision": it.get("revision", "main"),
+                    "path": it.get("path", ""), "files": it.get("files") or [it.get("path", "")],
+                    "size": float(it.get("size_gb") or 0) * 2**30}
+            if it.get("dir") and not it.get("path"):
+                plan["path"] = ""
+                plan["dir"] = True  # whole-repo snapshot (config.json + safetensors)
+            plans.append(plan)
+    return listed, plans
 
 
 def catalog_supported_quants(model: dict, eng: dict) -> list[dict] | None:
