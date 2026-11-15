@@ -504,3 +504,139 @@ def test_a_decision_for_a_target_that_no_longer_claims_ci_is_stale(tmp_path):
     # Then  the entry is reported as stale and must be deleted
     assert r.returncode == 1, r.stdout + r.stderr
     assert "no longer claims CI coverage" in (r.stdout + r.stderr)
+
+
+# ---------------------------------------------------------------------------
+# the split guard (issue #2674): duplicate declarations + the committed line budget
+# ---------------------------------------------------------------------------
+BUDGETS = REPO / "tests" / "fixtures" / "makefile-line-budgets.json"
+
+
+def _budgets(root: Path, data: dict) -> None:
+    (root / "tests" / "fixtures").mkdir(parents=True, exist_ok=True)
+    (root / "tests" / "fixtures" / "makefile-line-budgets.json").write_text(json.dumps(data))
+
+
+def _budget(ceiling: int = 30, files: dict | None = None, raisings: list | None = None) -> dict:
+    return {"reason": "test budget", "decided": "2026-11-15", "mk_default": ceiling,
+            "files": files if files is not None else {
+                "Makefile": {"ceiling": ceiling, "baseline": ceiling,
+                             "reason": "test ratchet", "decided": "2026-11-15"}},
+            "ratchet_raisings": raisings or []}
+
+
+def test_a_target_declared_in_two_includes_reds_naming_both_files(tmp_path):
+    """#800 criterion 3 half: make keeps ONE recipe when a name is declared twice and silently
+    drops the other — the #460 class. The guard names the target AND both files.
+    """
+
+    # Given a split tree where mk/a.mk and mk/b.mk each declare `shared:`
+    makefile = ".PHONY: top shared\ntop: ## top\n\t@echo top\ninclude mk/a.mk\ninclude mk/b.mk\n"
+    root = _tree(tmp_path, makefile, {})
+    (tmp_path / "mk").mkdir()
+    (tmp_path / "mk" / "a.mk").write_text(".PHONY: shared\nshared:\n\t@echo a\n")
+    (tmp_path / "mk" / "b.mk").write_text(".PHONY: shared\nshared:\n\t@echo b\n")
+    _budgets(root, _budget())
+
+    # When  the wiring guard checks the tree
+    r = _run(root, "check")
+
+    # Then  it is red, naming the duplicate and BOTH files it is declared in
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "target `shared` is declared in 2 files" in out, out
+    assert "mk/a.mk" in out and "mk/b.mk" in out, out
+
+
+def test_the_real_tree_declares_no_target_twice_across_includes():
+    """Today the tree carries zero duplicates — which is exactly why the detector must exist:
+    nothing prevented the next PR from introducing one (issue #2674)."""
+
+    dupes = {n: fs for n, fs in cw._declarations(REPO).items() if len(fs) > 1}
+    assert dupes == {}, dupes
+
+
+def test_a_planted_over_budget_mk_file_reds_naming_file_and_ceiling(tmp_path):
+    """#800 criterion 4: a split file over its committed ceiling is the split re-merging itself
+    back toward the monolith. The finding names the file, its lines and the ceiling."""
+
+    # Given a scratch split whose mk/a.mk exceeds the committed mk_default of 5
+    root = _tree(tmp_path, ".PHONY: a\ninclude mk/a.mk\n", {})
+    (tmp_path / "mk").mkdir()
+    (tmp_path / "mk" / "a.mk").write_text(
+        ".PHONY: a\na:\n\t@echo 1\n\t@echo 2\n\t@echo 3\n\t@echo 4\n")
+    _budgets(root, _budget(ceiling=5))
+
+    # When  the guard checks the tree
+    r = _run(root, "check")
+
+    # Then  it names the file, the actual line count and the ceiling
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "mk/a.mk is 6 lines, over its committed ceiling 5" in out, out
+
+
+def test_the_line_budget_file_cannot_be_silently_deleted(tmp_path):
+    """Control in the other direction: a real split that deletes its budget file reads red.
+    The enforcement itself is what the gate guards."""
+
+    # Given a scratch split tree WITHOUT a budget file
+    root = _tree(tmp_path, ".PHONY: a\ninclude mk/a.mk\n", {})
+    (tmp_path / "mk").mkdir()
+    (tmp_path / "mk" / "a.mk").write_text(".PHONY: a\na:\n\t@echo a\n")
+
+    # When  the guard checks the tree
+    r = _run(root, "check")
+
+    # Then  the missing committed source is itself the finding
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "makefile-line-budgets.json is missing" in out, out
+
+
+def test_the_ratchet_needs_a_dated_raise_chain_and_the_chain_clears_it(tmp_path):
+    """The top Makefile ratchets: its ceiling may sit at or below its baseline freely; raising
+    above the baseline requires dated entries (from/to/reason/decided) contiguous from baseline."""
+
+    # Given a Makefile over its baseline 10 (11 lines) under a ceiling 12 with NO raise recorded
+    makefile = ".PHONY: top\ntop: ## t\n" + "".join(f"\t@echo {i}\n" for i in range(1, 10))
+    root = _tree(tmp_path, makefile, {})
+    assert len(makefile.splitlines()) == 11
+    _budgets(root, _budget(files={"Makefile": {"ceiling": 12, "baseline": 10,
+                                               "reason": "test ratchet", "decided": "2026-11-15"}}))
+    r = _run(root, "check")
+    out = r.stdout + r.stderr
+    assert r.returncode == 1, out
+    assert "exceeds its baseline 10 with no dated chain" in out, out
+
+    # When  a dated chain entry 10 -> 12 is recorded
+    _budgets(root, _budget(files={"Makefile": {"ceiling": 12, "baseline": 10,
+                                               "reason": "test ratchet", "decided": "2026-11-15"}},
+                           raisings=[{"file": "Makefile", "from": 10, "to": 12,
+                                      "reason": "test raise", "decided": "2026-11-16"}]))
+    r2 = _run(root, "check")
+
+    # Then  the dated decision clears it
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+
+
+def test_the_real_tree_fits_the_committed_budget_derived_from_that_one_source():
+    """The budget numbers are DERIVED by the test: ceilings come from the committed source and
+    line counts from the tree — never baked into this test body (issue #2674 AC)."""
+
+    budgets, structure_errors = cw.load_budgets(BUDGETS)
+    assert budgets is not None, "the committed budget source is missing"
+    assert structure_errors == [], structure_errors
+
+    findings = []
+    for rel in cw._makefile_list(REPO):
+        if rel == "tools/Makefile":  # a separate graph (make -C tools), out of the split scope
+            continue
+        n = len((REPO / rel).read_text().splitlines())
+        entry = budgets["files"].get(rel)
+        ceiling = entry["ceiling"] if entry else budgets["mk_default"]
+        assert n <= ceiling, f"{rel} is {n} lines, over its committed ceiling {ceiling}"
+    findings += cw._budget_findings(REPO, budgets, structure_errors,
+                                    {rel: len((REPO / rel).read_text().splitlines())
+                                     for rel in cw._makefile_list(REPO)})
+    assert findings == [], findings

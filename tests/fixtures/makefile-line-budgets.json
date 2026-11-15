@@ -1,0 +1,44 @@
+{
+  "reason": "Line budget for the #800 Makefile split (issue #2674, #800 criteria 3+4). Each mk/*.mk ceiling 600 (measured max at landing: mk/engines.mk 499). The top Makefile ceiling 977 is a RATCHET recorded at the landing measurement: it may decrease freely, never increases above the baseline without a dated chain entry in ratchet_raisings (the repo's exemption-with-reason pattern).",
+  "decided": "2026-11-15",
+  "mk_default": 600,
+  "files": {
+    "Makefile": {
+      "ceiling": 977,
+      "baseline": 977,
+      "reason": "ratchet recorded at the #2674 landing measurement (makefile-split-guard); decreases allowed, a raise needs a ratchet_raisings chain from the baseline",
+      "decided": "2026-11-15"
+    },
+    "mk/bots.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 321 at #2674 landing)",
+      "decided": "2026-11-15"
+    },
+    "mk/ci.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 154 at #2674 landing)",
+      "decided": "2026-11-15"
+    },
+    "mk/engines.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 499 at #2674 landing — the split's largest file)",
+      "decided": "2026-11-15"
+    },
+    "mk/gates.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 284 at #2674 landing)",
+      "decided": "2026-11-15"
+    },
+    "mk/install.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 107 at #2674 landing)",
+      "decided": "2026-11-15"
+    },
+    "mk/security.mk": {
+      "ceiling": 600,
+      "reason": "#800 split ceiling (measured 138 at #2674 landing)",
+      "decided": "2026-11-15"
+    }
+  },
+  "ratchet_raisings": []
+}
