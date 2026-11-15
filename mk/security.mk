@@ -5,8 +5,9 @@
 # target moved. Each block spans from its target line through the first blank line OR the next
 # target header (ifeq depth tracked), so neighbours with no blank line between them never bleed in.
 #
-# Ownership seams: `ci-scanner-images` is the CI job surface target for the scanner-images job and
-# lives in `mk/ci.mk` (ci split #2458), NOT here; the `engine-pins` prerequisite named by `sbom`
+# Ownership seams: `ci-security-images` is the CI job surface target for the scanners' own
+# security-images pipeline and lives in `mk/ci.mk` (ci split #2458), NOT here; the `engine-pins`
+# prerequisite named by `sbom`
 # and `security-scan-all` resolves through `mk/engines.mk` (engines split, PR #2635).
 # Section banner comments stay in the top Makefile at their original positions (#2456/#2458 precedent).
 
@@ -116,8 +117,11 @@ scanner-ref: ## Print the published immutable ref of a scanner image (SCANNER=<i
 semgrep-rules-refresh: ## Re-resolve the semgrep rules pack from upstream p/default through the pinned scanner image and rewrite default.yml + digests.json (rules_sha/rules_captured_at/rules_count) — the refresh half of the rule-freshness floor (issue #2283 criterion 2)
 	python3 scripts/semgrep_rules.py refresh
 
-publish-scanner-images: ## Build linux/amd64+arm64 and push one scanner image's content-hash tag to GHCR (SCANNER=<id>; the scanner-images job publishes through make ci-scanner-images)
+publish-scanner-images: ## Build linux/amd64+arm64 and push one scanner image's content-hash tag to GHCR (SCANNER=<id>; only the security-images pipeline publishes, never main CI, issue #744)
 	python3 scripts/scanner_image.py publish "$(SCANNER)"
+
+security-images-ensure: ## Build AND push every scanner image whose content-hash tag GHCR is missing; a present tag is one lookup and a log line, never a rebuild (issue #744)
+	python3 scripts/scanner_image.py ensure
 
 check-scanner-images: ## CI: fail when a scanner Dockerfile floats (tag base, version range) or digests.json is stale (issue #714)
 	python3 scripts/scanner_image.py check all

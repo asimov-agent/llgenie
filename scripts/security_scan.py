@@ -34,6 +34,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:  # package-relative first, then the flat scripts/ layout CI imports it with
+    from . import scanner_image as _scanner_image
+except ImportError:
+    import scanner_image as _scanner_image  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"
 DIGESTS = REPO / "containers" / "scanners" / "digests.json"
@@ -239,12 +244,13 @@ def ensure_image(tool: str) -> str:
         verify_pinned_digest(tool, ref, built=False)
         return ref
     context = REPO / "containers" / "scanners" / tool
-    print(f"[security-scan] {ref} is not published yet — building {context} (the same Dockerfile "
-          "the publish job builds) and tagging it with the ref the scan asked for")
-    build = subprocess.run([RUNTIME, "build", "-t", ref, str(context)],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
-                           capture_output=True, text=True)
-    if build.returncode != 0:
-        raise SystemExit(f"[security-scan] cannot build {tool}: {build.stderr.strip()[-400:]}")
+    print(f"[security-scan] {ref} is not published yet — building it through "
+          "scripts/scanner_image.py build (issue #744: the same one builder the publish job "
+          "uses, the same Dockerfile, tagged with the ref the scan asked for; a scan deferral "
+          "NEVER pushes)")
+    built = _scanner_image.build(tool, tag=ref)  # local `docker build` only — never a push
+    if not built:
+        raise SystemExit(f"[security-scan] build of {tool} from {context} failed")
     verify_pinned_digest(tool, ref, built=True)
     return ref
 

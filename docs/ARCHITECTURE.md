@@ -518,10 +518,12 @@ uses. `scripts/scanner_image.py` owns `digest` / `ref` / `build` / `test` / `pub
 the Dockerfiles, `make test-scanner-image SCANNER=<id>` proves the image prints the version
 its Dockerfile pins, `make publish-scanner-images` builds linux/amd64 + arm64 and pushes the
 hash tag, and `make check-scanner-images` (in `make ci-unit`) fails a floating base, a
-missing version pin or a stale `digests.json`. No scanner needs a secret. In CI,
-`ci.yml`'s `scanner-images` job runs `make ci-scanner-images` — build and version-test every
-scanner on every run, publish on a push run only, with the policy in the script rather than a
-scenario-scoped `if:`.
+missing version pin or a stale `digests.json`. No scanner needs a secret. In CI the scanner
+images live in their OWN pipeline, `security-images.yml` (issue #744): it runs
+`make ci-security-images` — publish every scanner whose content-hash tag GHCR is missing (the
+registry lookup IS the probe; a present tag is a lookup and a log line, never a rebuild), on a
+schedule / a scanners-path push / a dispatch, never on a PR. `ci.yml` builds and publishes no
+scanner image.
 
 A published scanner tag is re-pushable, so the digest the registry actually serves for it is
 recorded too (issue #2609): `make pin-scanner-image-digests` asks GHCR with
@@ -768,8 +770,8 @@ run in `scope.yml`, which carries no path filter and reports one always-present 
 check; the filter list is `scripts/ci_scope.py::DOCS_TRIGGER_IGNORE` (the `docs` class MINUS
 its wildcards, so a path that can change what any gate proves re-includes the whole matrix),
 and `tests/test_ci_scope.py` asserts the YAML and the classifier agree. Its jobs are `guard`,
-`ci-images` (publish the test and OpenSpec images on a new hash, never rebuild per job),
-`scanner-images` (`make ci-scanner-images`) and `linux`,
+`ci-images` (publish the test and OpenSpec images on a new hash, never rebuild per job) and
+`linux`,
 which calls `pipeline.yml` — the reusable verification pipeline. The engine images are
 built, verified, published and install-tested by the `engine-build` producer (build-engine ->
 test-engine-stage -> push-engine -> test-engine-install), never by `ci.yml`: this pipeline

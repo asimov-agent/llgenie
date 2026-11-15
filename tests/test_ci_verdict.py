@@ -3,7 +3,7 @@
 The defect this suite pins, measured 2026-10-30 on run **41134761297** (`CI`, head `0bd5ac6e`,
 conclusion `cancelled`):
 
-    guard success · ci-images cancelled · scanner-images cancelled · linux skipped
+    guard success · ci-images cancelled · linux skipped
     => success=3, failed=0, other=5, pending=0          (no `linux / unit` row existed at all)
 
 The same class of change at `d92ee6a3` (run **41126873965**) had the full set with
@@ -39,7 +39,6 @@ WF = REPO / ".github" / "workflows"
 CANCELLED_FANOUT = [
     {"name": "guard", "status": "completed", "conclusion": "success"},
     {"name": "ci-images", "status": "completed", "conclusion": "cancelled"},
-    {"name": "scanner-images", "status": "completed", "conclusion": "cancelled"},
     {"name": "linux", "status": "completed", "conclusion": "skipped"},
 ]
 
@@ -50,7 +49,6 @@ CANCELLED_FANOUT = [
 GUARD_FAILED_FANOUT = [
     {"name": "guard", "status": "completed", "conclusion": "failure"},
     {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
-    {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
     {"name": "linux", "status": "completed", "conclusion": "skipped"},
 ]
 
@@ -58,7 +56,6 @@ GUARD_FAILED_FANOUT = [
 RED_RUN = [
     {"name": "guard", "status": "completed", "conclusion": "success"},
     {"name": "ci-images", "status": "completed", "conclusion": "success"},
-    {"name": "scanner-images", "status": "completed", "conclusion": "success"},
     {"name": "linux / cpu-health", "status": "completed", "conclusion": "success"},
     {"name": "linux / unit", "status": "completed", "conclusion": "failure"},
     {"name": "linux / top-tier (none)", "status": "completed", "conclusion": "success"},
@@ -100,7 +97,7 @@ def test_a_cancelled_fan_out_with_no_decision_is_never_green():
     # Then  it is `none` — not green — and the three rows that are not a verdict are unaccounted
     assert verdict == cs.NONE, result["lines"]
     assert counts["success"] == 1 and counts["failure"] == 0
-    assert counts["no_verdict"] == 3, counts          # ci-images, scanner-images, linux (skipped)
+    assert counts["no_verdict"] == 2, counts          # ci-images, linux (skipped)
 
     # And  the summary says so in a sentence a reader cannot mistake for a pass
     line = summary(result)
@@ -126,7 +123,8 @@ def test_a_failed_guard_is_named_as_the_cause_never_zero_failures():
 
     # Then  it is RED (failure=1), not none, and the cause is the guard
     assert result["verdict"] == cs.RED, result["lines"]
-    assert result["counts"]["failure"] == 1 and result["counts"]["no_verdict"] == 3
+    assert result["counts"]["failure"] == 1 and result["counts"]["no_verdict"] == 2 \
+        # ci-images + linux skipped (scanner-images is its own pipeline, #745)
 
     # And  the final summary names the guard as the CAUSE of a named red — and never says
     # "0 failures is not a verdict" beside an actual failure (#2061, conformity after #2285)
@@ -135,7 +133,7 @@ def test_a_failed_guard_is_named_as_the_cause_never_zero_failures():
 
     # And  verdict/counts/exit are untouched by the message split (a full-green run is unchanged)
     assert result["counts"] == {"success": 0, "failure": 1, "skipped_by_decision": 0,
-                                "no_verdict": 3, "pending": 0, "blocked": 0}
+                                "no_verdict": 2, "pending": 0, "blocked": 0}
 
 
 def test_a_guard_failure_with_a_decision_is_a_named_red(tmp_path, capsys):
@@ -180,12 +178,11 @@ def test_a_cancelled_row_the_decision_selected_is_unaccounted_not_skipped_by_dec
 # ---- 2b. a guard that reds on a BODY-text gate BLOCKS the fan-out — named, never anonymous ----
 
 #: Run shape 42515444174 (PR #2274): `guard` failed on a PR-body hygiene gate, so GitHub's
-#: `needs:` default skipped every dependent — `ci-images`/`scanner-images` reported `skipped` and the
+#: `needs:` default skipped every dependent — `ci-images` reported `skipped` and the
 #: `linux` caller was skipped, so its `linux / *` children reported NO rows at all (issue #2285).
 GUARD_BODY_RED_FANOUT = [
     {"name": "guard", "status": "completed", "conclusion": "failure"},
     {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
-    {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
     {"name": "linux", "status": "completed", "conclusion": "skipped"},
 ]
 
@@ -201,7 +198,7 @@ def test_a_guard_body_red_names_the_gate_it_blocked_and_is_a_named_red_not_no_ve
     # Then  the verdict is a named RED (the guard), not `none`, and no "0 failures" sentence appears
     assert result["verdict"] == cs.RED, result["lines"]
     assert result["counts"]["failure"] == 1 and result["counts"]["no_verdict"] == 0, result["counts"]
-    assert result["counts"]["blocked"] == 9, result["counts"]   # ci-images + scanner-images + 7 linux/*
+    assert result["counts"]["blocked"] == 8, result["counts"]   # ci-images + 7 linux/* (scanner-images is its own pipeline, #745)
     assert "guard FAILED" in "\n".join(result["lines"])
     assert not any("0 failures is not a verdict" in l for l in result["lines"]), result["lines"]
     assert not any("NO VERDICT:" in l for l in result["lines"]), result["lines"]
@@ -233,10 +230,11 @@ def test_a_guard_body_red_with_the_code_matrix_run_still_names_the_guard_and_mea
     ]
     result = cs.verify(decision_for(FULL_MATRIX_PATH), jobs)
 
-    # Then  the code matrix is measured (7 success), the guard red is the cause, the two image rows
-    #       are named as guard-blocked, and no "0 failures / NO VERDICT" sentence is produced
+    # Then  the code matrix is measured (7 success), the guard red is the cause, the one image row
+    #       (ci-images; scanner-images is its own pipeline, #745) is named as guard-blocked, and no
+    #       "0 failures / NO VERDICT" sentence is produced
     assert result["verdict"] == cs.RED, result["lines"]
-    assert result["counts"]["success"] == 7 and result["counts"]["blocked"] == 2, result["counts"]
+    assert result["counts"]["success"] == 7 and result["counts"]["blocked"] == 1, result["counts"]
     assert "linux/unit success" in "\n".join(result["lines"])
     assert "ci-images skipped — blocked by guard failure" in "\n".join(result["lines"])
     assert not any("0 failures is not a verdict" in l for l in result["lines"]), result["lines"]
@@ -289,7 +287,6 @@ TESTS_PATH = ["tests/test_ci_verdict.py"]
 TESTS_RUN = [
     {"name": "guard", "status": "completed", "conclusion": "success"},
     {"name": "ci-images", "status": "completed", "conclusion": "success"},
-    {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
     {"name": "linux", "status": "completed", "conclusion": "success"},
     {"name": "linux / lint", "status": "completed", "conclusion": "success"},
     {"name": "linux / unit", "status": "completed", "conclusion": "success"},
@@ -303,14 +300,13 @@ def test_a_skip_the_decision_made_is_green_and_counted():
     # Given a `tests/**` decision (unit + lint selected, the rest deliberately not needed)
     decision = decision_for(TESTS_PATH)
     assert decision["jobs"]["linux/unit"]["run"] is True
-    assert decision["jobs"]["scanner-images"]["run"] is False
-
+    
     # When  the run is held to that decision
     result = cs.verify(decision, TESTS_RUN)
 
     # Then  it is green, and every skip is counted as the decision's, not as a non-verdict
     assert result["verdict"] == cs.GREEN, result["lines"]
-    assert result["counts"]["skipped_by_decision"] == 5, result["counts"]   # scanner + 4 absent
+    assert result["counts"]["skipped_by_decision"] == 4, result["counts"]   # 4 absent (scanner-images is its own pipeline, #745)
     assert result["counts"]["no_verdict"] == 0 and result["counts"]["failure"] == 0
     assert "0 failures is not a verdict" not in " ".join(result["lines"])
 
@@ -410,7 +406,6 @@ def test_the_decision_artifact_round_trips_and_the_run_is_green(tmp_path):
     decision = json.loads(out.read_text(encoding="utf-8"))
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
-            {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
             {"name": "linux", "status": "completed", "conclusion": "success"},
             {"name": "linux / unit", "status": "completed", "conclusion": "success"},
             {"name": "linux / install", "status": "completed", "conclusion": "success"},
@@ -423,10 +418,9 @@ def test_the_decision_artifact_round_trips_and_the_run_is_green(tmp_path):
     # Then  the schema is the version the verdict reads, and the run is green
     assert decision["schema"] == cs.DECISION_SCHEMA
     assert decision["jobs"]["linux/unit"]["run"] is True
-    assert decision["jobs"]["scanner-images"]["run"] is False
     result = cs.verify(decision, jobs)
     assert result["verdict"] == cs.GREEN, result["lines"]
-    assert result["counts"]["skipped_by_decision"] == 1
+    assert result["counts"]["skipped_by_decision"] == 0
 
 
 def test_a_matrix_row_name_is_folded_to_its_identity():
@@ -466,7 +460,6 @@ def test_the_verdict_does_not_judge_its_own_posted_check_run(tmp_path, capsys):
     decision = decision_for(FULL_MATRIX_PATH)
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
-            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
             {"name": "linux/lint", "status": "completed", "conclusion": "success"},
             {"name": "linux/unit", "status": "completed", "conclusion": "success"},
             {"name": "linux/install", "status": "completed", "conclusion": "success"},
@@ -513,7 +506,7 @@ def test_the_cli_exits_zero_and_writes_a_success_check_run_for_a_decided_skip(tm
     assert rc == 0, capsys.readouterr().out
     payload = json.loads(checks.read_text(encoding="utf-8"))
     assert payload["conclusion"] == "success"
-    assert "skipped-by-decision=5" in payload["output"]["summary"], payload["output"]["summary"]
+    assert "skipped-by-decision=4" in payload["output"]["summary"], payload["output"]["summary"]
 
 
 def test_a_mid_upload_job_row_is_refused_not_a_verdict(tmp_path, capsys):
@@ -526,7 +519,6 @@ def test_a_mid_upload_job_row_is_refused_not_a_verdict(tmp_path, capsys):
     # NOT yet reported completed (still in_progress, mid-upload — the measured race shape)
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
-            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
             {"name": "linux / unit", "status": "in_progress", "conclusion": None}]
 
     # When  the verdict CLI runs against that unsettled snapshot
@@ -549,7 +541,6 @@ def test_a_completed_row_without_a_conclusion_is_refused_not_a_red_verdict(tmp_p
     # Given a decided run where linux/unit reports `completed` but its conclusion has not landed yet
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
-            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
             {"name": "linux / unit", "status": "completed", "conclusion": None}]
 
     # When  the verdict CLI runs against that still-settling snapshot
@@ -652,7 +643,7 @@ def _stub_gh(tmp_path: Path, *, artifact: bool, later_run: bool) -> str:
     payloads = {
         "/commits/": {"check_runs": [], "total_count": 0},
         "/actions/runs/41134761297": run,
-        "/actions/runs/41134761297/jobs": {"jobs": CANCELLED_FANOUT, "total_count": 4},
+        "/actions/runs/41134761297/jobs": {"jobs": CANCELLED_FANOUT, "total_count": 3},
         "/actions/runs/41134761297/artifacts": artifacts,
         "/actions/runs?branch=docs/x": runs,
     }
@@ -923,7 +914,7 @@ def test_an_artifact_that_exists_but_cannot_be_downloaded_is_an_error_not_a_verd
                                       "head_branch": "docs/x", "workflow_id": 7,
                                       "created_at": "2026-10-30T20:00:00Z",
                                       "conclusion": "cancelled", "status": "completed"},
-        "/actions/runs/41134761297/jobs": {"jobs": CANCELLED_FANOUT, "total_count": 4},
+        "/actions/runs/41134761297/jobs": {"jobs": CANCELLED_FANOUT, "total_count": 3},
         "/actions/runs/41134761297/artifacts": {"artifacts": [{"name": cv.ARTIFACT}]},
     }
     broken.write_text(
@@ -1107,12 +1098,11 @@ def _stub_gh_straggler(tmp_path: Path, pr) -> str:
         {"name": "guard", "status": "completed", "conclusion": "failure"},
         {"name": "linux", "status": "completed", "conclusion": "skipped"},
         {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
-        {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
     ]
     payloads = {
         "/commits/": {"check_runs": [], "total_count": 0},
         "/actions/runs/41948125618": run,
-        "/actions/runs/41948125618/jobs": {"jobs": straggler_jobs, "total_count": 4},
+        "/actions/runs/41948125618/jobs": {"jobs": straggler_jobs, "total_count": 3},
         "/actions/runs/41948125618/artifacts": artifacts,
         "/actions/runs?branch=fix/top-tier-pick-size-threshold": runs,
         "/pulls?state=all&head=fix/top-tier-pick-size-threshold": [pr],
@@ -1367,7 +1357,6 @@ def test_a_failure_conclusion_is_never_titled_green():
 def _cli_with_checks(tmp_path, checks) -> tuple[int, Path]:
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
-            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
             {"name": "linux / unit", "status": "completed", "conclusion": "success"},
             {"name": "linux / lint", "status": "completed", "conclusion": "success"},
             {"name": "linux / install", "status": "completed", "conclusion": "success"},
