@@ -40,9 +40,9 @@ on:
   workflow_dispatch:
     inputs:
       scanner:
-        description: "Which scanner image to publish: all, or one of trivy / grype / semgrep"
+        description: "Which scanner image to publish: all, or one of trivy / grype / semgrep / syft"
         type: choice
-        options: [all, trivy, grype, semgrep]
+        options: [all, trivy, grype, semgrep, syft]
         default: all
       force:
         description: "Rebuild and push even when the content-hash tag is already on GHCR"

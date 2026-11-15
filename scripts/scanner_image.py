@@ -47,6 +47,9 @@ SCANNERS: dict[str, dict[str, str]] = {
     "trivy": {"arg": "TRIVY_VERSION", "cmd": "version"},
     "grype": {"arg": "GRYPE_VERSION", "cmd": "version"},
     "semgrep": {"arg": "SEMGREP_VERSION", "cmd": "--version"},
+    # Issue #746: Syft is the SBOM generator every Grype finding is matched against; it ships as
+    # its own image instead of riding the Grype image via `--entrypoint syft`.
+    "syft": {"arg": "SYFT_VERSION", "cmd": "version"},
 }
 #: A base image must be pinned by digest: `FROM image@sha256:<64 hex>`.
 FROM_DIGEST = re.compile(r"^FROM\s+(\S+)@sha256:([0-9a-f]{64})\s*$", re.M)
@@ -66,6 +69,9 @@ RELEASE_BASELINE: dict[str, str] = {
     "semgrep": "1.165.0-r0",
     "trivy": "0.70.0-r5",
     "grype": "0.121.2-r1",
+    # syft measured 2026-11-15 against the same APKINDEX (issue #746); the grype image's bundled
+    # syft (1.57.0-r1) no longer says anything about the SBOM tool's own pin.
+    "syft": "1.57.1-r2",
 }
 
 

@@ -55,13 +55,13 @@ REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports")
 #: Syft writes the CycloneDX SBOM and Grype matches it, Semgrep covers SAST. Between them they answer
 #: "is anything in this tree known-vulnerable" from data shipped/downloaded to the runner.
 TOOLS = ("trivy", "grype", "semgrep")
-#: Syft is a tool id without an image of its own: it writes the SBOM through the Grype image
-#: (`--entrypoint syft`), so it is in the tool set a caller may ask for but not in the roster
-#: `containers/scanners/digests.json` has to carry an image for.
+#: Syft is the SBOM tool id, and (since issue #746) it has an image of its own:
+#: `containers/scanners/syft/Dockerfile`, pinned in `containers/scanners/digests.json` like the
+#: CVE scanners. It stays outside TOOLS (the CVE-matching set) but is in every image roster check.
 SBOM_TOOL = "syft"
 #: Syft is a first-class tool id: `make security-scan TOOL=syft` writes the SBOM, and the default
-#: sweep runs it first because Grype matches exactly that file. It is reached through the Grype
-#: image (`--entrypoint syft`), so the stack builds one image per CVE scanner and none per SBOM.
+#: sweep runs it first because Grype matches exactly that file. The stack builds one image per
+#: tool in ALL_TOOLS — including the SBOM tool (issue #746; it no longer rides the Grype image).
 #: No tool in ALL_TOOLS reads a credential: each judges the tree from data the runner downloads
 #: itself, so no scan is ever skipped for a missing secret.
 ALL_TOOLS = (SBOM_TOOL,) + TOOLS
@@ -95,6 +95,8 @@ SCANNER_BASELINE: dict[str, str] = {
     "semgrep": "1.165.0-r0",
     "trivy": "0.70.0-r5",
     "grype": "0.121.2-r1",
+    # issue #746: the SBOM tool's own engine baseline (Wolfi current, measured 2026-11-15)
+    "syft": "1.57.1-r2",
 }
 
 #: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
@@ -272,18 +274,18 @@ def _run(argv: list[str], image: str, entrypoint: str | None = None) -> int:
 def ensure_image_for(ref: str) -> str:
     """`_run` is handed a ref; resolve it to an available image (see `ensure_image`)."""
     tool = ref.rsplit("/", 1)[-1].split(":")[0]
-    if tool in TOOLS:
+    if tool in ALL_TOOLS:  # issue #746: the SBOM tool resolves like the CVE scanners
         return ensure_image(tool)
     return ref
 
 
 def sbom() -> int:
     """Syft writes the CycloneDX SBOM; Grype matches against exactly this file."""
-    # The Grype image's ENTRYPOINT is `grype`, so Syft is reached with `--entrypoint syft`; passing
-    # `syft` as an argument makes grype read it as a second positional and refuse ("accepts at most
-    # 1 arg(s), received 2") — measured on the first real CI run.
+    # Issue #746: Syft runs from its OWN pinned image (`containers/scanners/syft/Dockerfile`,
+    # roster entry in scanner_image.SCANNERS, tag in digests.json). The old ride on the Grype
+    # image via `--entrypoint syft` is gone: a grype bump must not change the SBOM generator.
     return _run(["-o", "cyclonedx-json=/work/security-reports/sbom.cdx.json", "dir:."],
-                image_ref("grype"), entrypoint="syft")
+                image_ref("syft"))
 
 
 def scan(tool: str) -> int:
@@ -612,12 +614,10 @@ def check() -> int:
     if set(map(str.lower, pol.get("pr_fail_on") or [])) - set(map(str.lower, pol.get("fail_on") or [])):
         problems.append("security-policy.json: `pr_fail_on` is not a subset of `fail_on`")
     recorded = digests()
-    # Only the image-backed scanners carry a digest entry: the SBOM tool runs through the Grype
-    # image (`--entrypoint syft`), so requiring an entry for it would demand an image that does
-    # not exist — and a gate that cannot pass is not a gate.
-    if "grype" in recorded and not SBOM_TOOL:
-        problems.append("no SBOM tool: Grype would have nothing to match")
-    for tool in TOOLS:
+    # Issue #746: every tool in ALL_TOOLS carries its own digest entry, the SBOM tool included —
+    # the "the SBOM tool rides the grype image" carve-out demanded an image that did not exist;
+    # now the image exists, so requiring its pin is a gate that can pass.
+    for tool in ALL_TOOLS:
         entry = recorded.get(tool) or {}
         for key in ("version", "tag", "ref", "image_digest"):
             if not entry.get(key):
@@ -666,7 +666,7 @@ def check() -> int:
     if not count:
         problems.append("digests.json: `semgrep` has no `rules_count` — the SAST rule set has no "
                         "parity target against upstream p/default (issue #2283)")
-    for tool in TOOLS:
+    for tool in ALL_TOOLS:
         baseline = scanner_baseline(tool)
         version = (recorded.get(tool) or {}).get("version")
         if baseline and version and _version_sort_key(version) < _version_sort_key(baseline):
@@ -680,8 +680,8 @@ def check() -> int:
         return 1
     print(f"[security-scan] OK: fail_on={pol['fail_on']} pr_fail_on={pol['pr_fail_on']} "
           f"enforce_events={sorted(enforce)} require_fix={pol.get('require_fix')}, "
-          f"{len(TOOLS)} pinned scanner refs "
-          f"(sweep: {', '.join(ALL_TOOLS)}; the SBOM tool rides the grype image; no secret needed; "
+          f"{len(ALL_TOOLS)} pinned scanner refs "
+          f"(sweep: {', '.join(ALL_TOOLS)}; one image per tool including the SBOM tool (#746); no secret needed; "
           f"the workflow triggers only on {', '.join(sorted(triggers(workflow))) or 'nothing'})")
     return 0
 

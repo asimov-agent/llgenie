@@ -703,8 +703,8 @@ def test_every_scanner_digest_entry_carries_an_image_digest():
     can prove WHICH bytes it ran — not just which tag it asked for."""
 
     # Given this repository
-    # When  the scan module reads its pinned scanner records
-    for tool in ss.TOOLS:
+    # When  the scan module reads its pinned scanner records (every image-backed tool, issue #746)
+    for tool in ss.ALL_TOOLS:
         digest = str(ss.digests()[tool].get("image_digest") or "")
 
         # Then  each carries a manifest digest in sha256:<64 hex> form
@@ -1028,14 +1028,33 @@ def test_the_stack_needs_no_account_and_no_secret(tmp_path, monkeypatch):
     assert not hasattr(ss, "OPTIONAL_TOOLS")
 
     # And   the whole stack's images are recorded by digest-verified entries
-    assert set(ss.digests()) == {"trivy", "grype", "semgrep"}
+    assert set(ss.digests()) == {"trivy", "grype", "semgrep", "syft"}
 
-    # And   Syft is reachable as a tool id (it writes the SBOM the Grype match reads)
+    # And   Syft runs from its OWN pinned image (issue #746): the SBOM tool no longer rides the
+    #       Grype image, so a grype bump cannot move the SBOM generator.
     monkeypatch.setattr(ss, "ensure_image_for", lambda ref: ref)
     calls = []
     monkeypatch.setattr(ss.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or type("R", (), {"returncode": 0})())
     assert ss.scan("syft") == 0
-    assert "--entrypoint" in calls[-1] and calls[-1][calls[-1].index("--entrypoint") + 1] == "syft"
+    cmd = [str(part) for part in calls[-1]]
+    assert any("llgenie/syft:" in part for part in cmd), cmd
+    assert "--entrypoint" not in cmd, cmd
+
+
+def test_a_missing_sbom_image_entry_fails_the_check(monkeypatch, capsys):
+    """Issue #746: the "the SBOM tool rides the grype image" carve-out is gone — `check()` demands
+    a digest entry for every tool in ALL_TOOLS, the SBOM tool included."""
+
+    # Given the real records with the Syft entry removed
+    stripped = {k: v for k, v in ss.digests().items() if k != "syft"}
+    monkeypatch.setattr(ss, "digests", lambda: stripped)
+
+    # When  the gate runs on the real tree
+    rc = ss.check()
+    out = capsys.readouterr().out
+
+    # Then  it fails and names the SBOM tool by name
+    assert rc == 1 and "syft" in out, out
 
 
 def test_an_unknown_tool_is_refused():

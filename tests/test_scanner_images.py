@@ -54,6 +54,43 @@ def test_every_scanner_has_a_pinned_dockerfile():
     assert rc == 0
 
 
+def test_the_roster_carries_the_sbom_tool():
+    """Issue #746: Syft is a roster scanner like the CVE tools — its own image, pin and version cmd."""
+
+    # Given the scanner roster
+    # Then  it is exactly the four image-backed tools, with Syft spelled right
+    assert set(si.SCANNERS) == {"trivy", "grype", "semgrep", "syft"}
+    assert si.SCANNERS["syft"]["arg"] == "SYFT_VERSION"
+    assert si.SCANNERS["syft"]["cmd"] == "version"
+    assert si.RELEASE_BASELINE["syft"]
+
+
+def test_a_grype_edit_leaves_the_syft_tag_alone(tmp_path, monkeypatch):
+    """Issue #746 criterion 4: the images are independent — the syft tag is a function of the syft
+    Dockerfile only, never of what Grype happens to bundle."""
+
+    # Given a tree carrying the two real Dockerfiles side by side
+    root = tmp_path / "repo"
+    for sid in ("grype", "syft"):
+        d = root / "containers" / "scanners" / sid
+        d.mkdir(parents=True)
+        (d / "Dockerfile").write_text(
+            (REPO / "containers" / "scanners" / sid / "Dockerfile").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    monkeypatch.setattr(si, "REPO", root)
+    syft_before = si.content_hash("syft")
+    grype_before = si.content_hash("grype")
+
+    # When  the grype pin moves
+    grype = root / "containers" / "scanners" / "grype" / "Dockerfile"
+    grype.write_text(grype.read_text(encoding="utf-8").replace("0.121.2-r1", "0.122.0-r0"), encoding="utf-8")
+
+    # Then  grype's tag moves with it, and syft's tag is byte-identical
+    assert si.content_hash("grype") != grype_before
+    assert si.content_hash("syft") == syft_before
+
+
 def test_a_floating_base_fails(tmp_path, monkeypatch):
     """`FROM image:tag` can move under the build; only a digest is immutable."""
 

@@ -77,7 +77,8 @@ would leave root-owned files in the tree (issue #433).
 
 ## Outputs
 
-- **CycloneDX SBOM** — `security-reports/sbom.cdx.json`, written by Syft from the Grype image;
+- **CycloneDX SBOM** — `security-reports/sbom.cdx.json`, written by Syft from its own pinned image
+  (`containers/scanners/syft/`, issue #746);
   uploaded as the `security-reports` artifact (30-day retention) together with every scanner report.
 - **Engine pins** — `security-reports/engine-pins/requirements.txt` + `manifest.json`, invented by
   `make engine-pins` (a prerequisite of `make sbom`); the SAME Syft/Trivy pass scans it, so the
