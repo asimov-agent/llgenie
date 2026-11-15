@@ -15,6 +15,12 @@ the automated agent: reruns and requeue loops.
   a dispatch a permitted principal starts — the owner, a collaborator, and GitHub itself (the
   Actions bot)**; the automated agent never dispatches or pumps (no `gh run rerun`, no requeue or
   re-trigger loops; a wedge is fixed by pushing a commit).
+- (#2721) The same bullet states the agent's mode and the exception: the agent **verifies locally
+  with `make`** (runs the Makefile gates on its own tree) and never starts a GitHub CI pipeline
+  for its own work; pipelines are started by humans (owner/collaborator), scheduled (cron) lanes,
+  and GitHub itself reacting to events (push, PR creation, PR merge, `workflow_run`, label). The
+  one exception: an agent may start a dispatch to **test a workflow that is failing** — debugging
+  the pipeline itself — and only for that.
 - `scripts/check_ci_discipline.py::AGENTS_PIN_PHRASES` re-pinned: the roster phrase
   (`owner, a collaborator, and GitHub itself`) and the queue-pumping ban (`gh run rerun`) replace
   the blanket-ban phrase (`never manually starts a CI pipeline`).

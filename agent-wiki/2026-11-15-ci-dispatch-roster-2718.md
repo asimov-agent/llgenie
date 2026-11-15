@@ -34,5 +34,19 @@
 
 ## Current status
 
-Branch `feat/ci-dispatch-roster` (from main `1dcbf4c3a`): gate + 10/10 tests
+Branch `feat/ci-dispatch-roster` (from main `1dcbf4c3a`): gate + 11/11 tests
 green locally, unit suite + PR follow in the same change.
+
+## Follow-up landed in the same change (issue #2721)
+
+The owner restated the mode explicitly: the agent verifies with `make` targets
+on its own tree (locally, on the host) and is never the one starting a GitHub
+CI pipeline; pipelines are started by humans (owner/collaborator), scheduled
+(cron) lanes, and GitHub itself reacting to events (push, PR creation, PR
+merge, `workflow_run`, label) — and the one exception is dispatching to test a
+workflow that is failing (debugging the pipeline itself). The bullet now states
+this; `AGENTS_PIN_PHRASES` gained `"verifies locally with `make`"` and
+`"test a workflow that is failing"`; the new test
+`test_the_local_make_mode_and_the_failing_workflow_exception_are_pinned`
+proves both directions (erasing the mode sentence is a finding naming
+AGENTS.md). OpenSpec delta extended with the matching scenario.
