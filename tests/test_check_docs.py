@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 from scripts import check_docs as cd
 from scripts import unit_tests as ut
 
@@ -561,7 +561,7 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     mk = makefiles_text()
 
     # When the ci-unit job and the unit suite are read
-    ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    ci_unit = ci_unit_expanded(REPO).split("ci-unit:", 1)[1].split("\n\n", 1)[0]
 
     # Then ci-unit runs the docs check, and this test file is in the discovered unit suite
     assert "$(MAKE) check-docs" in ci_unit

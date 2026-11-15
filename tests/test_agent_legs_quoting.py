@@ -27,7 +27,9 @@ def _legs() -> list[str]:
         m = re.match(r"^([A-Za-z0-9_.%-]+):", line)
         if m:
             current = m.group(1)
-        if "$(call scrubbed_run" in line and current:
+        # only RECIPE lines carry the call; a header comment that merely mentions the seam
+        # must not attribute a leg to whatever target header precedes it (issue #2675)
+        if line.startswith("\t") and "$(call scrubbed_run" in line and current:
             targets.append(current)
     return targets
 

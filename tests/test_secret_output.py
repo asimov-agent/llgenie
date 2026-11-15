@@ -18,7 +18,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 from scripts import check_secret_output as cso
 from scripts import unit_tests as ut
-from conftest import makefiles_text  # noqa: E402  (include-resolving reader, #2459)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, #2459/#2675)
 
 
 def _tree(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -303,8 +303,8 @@ def test_the_guard_is_wired_into_the_repo():
     mk = makefiles_text()  # check-secret-output: now lives in mk/security.mk (#2459)
     assert "check-secret-output:" in mk
     assert "check-secret-output" in mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
-    assert "make check-secret-output" in mk.split("\nhelp:", 1)[1]
-    ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "make check-secret-output" in mk.split("\nhelp:", 1)[1] + (REPO / "scripts" / "make_help.py").read_text()
+    ci_unit = ci_unit_expanded(REPO).split("ci-unit:", 1)[1].split("\n\n", 1)[0]
     assert "check-secret-output" in ci_unit, "ci-unit must run the guard"
     assert "tests/test_secret_output.py" in ut.select(REPO)
 

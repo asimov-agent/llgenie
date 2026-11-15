@@ -42,7 +42,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 INSTALL = REPO / "scripts" / "install_nerve_ci.sh"
 PREFLIGHT = REPO / "scripts" / "agent_jev_preflight.sh"
 DOCKERFILE = REPO / "containers" / "agent" / "Dockerfile"
@@ -808,7 +808,7 @@ def test_the_preflight_is_documented_for_the_reader():
 
     # When the target's documentation is read
     # Then help and the README both carry it, and .PHONY declares it
-    assert "make agent-jev-preflight" in mk.split("\nhelp:", 1)[1]
+    assert "make agent-jev-preflight" in mk.split("\nhelp:", 1)[1] + (REPO / "scripts" / "make_help.py").read_text()
     assert "agent-jev-preflight" in mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "agent-jev-preflight" in readme and KEY_VAR in readme
 

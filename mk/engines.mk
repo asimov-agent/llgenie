@@ -7,21 +7,7 @@
 
 
 build-server:
-	@echo "==> detect_server: tree/backend for this card"
-	@python3 scripts/detect_server.py
-	@TREE=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['tree'])"); \
-	BACKEND=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['backend'])"); \
-	if [ -z "$$TREE" ] || [ -z "$$BACKEND" ]; then echo "ERROR: detect_server produced no tree/backend"; exit 1; fi; \
-	echo "==> building server: tree=$$TREE backend=$$BACKEND (clone-or-pull + build)"; \
-	set -o pipefail; \
-	if command -v stdbuf >/dev/null 2>&1; then LINEBUF="stdbuf -oL -eL"; else LINEBUF=; fi; \
-	SERVER_ROOT=$(SERVER_ROOT) $$LINEBUF $(REPO)/scripts/build_llama_server.sh "$$TREE" "$$BACKEND" 2>&1 | tee /tmp/llgenie_srv_build.log; \
-	SRV=$$(tail -n1 /tmp/llgenie_srv_build.log); \
-	test -x "$$SRV" || { echo "ERROR: build-server did not produce a binary ($$SRV)"; exit 1; }; \
-	mkdir -p $(dir $(SERVER_BIN_STAMP)); \
-	printf '%s\n' "$$SRV" > $(SERVER_BIN_STAMP); \
-	rm -f /tmp/llgenie_srv_build.log; \
-	echo "==> server binary: $$SRV (stamped to $(SERVER_BIN_STAMP))"
+	@python3 scripts/build_server.py --server-root "$(SERVER_ROOT)" --repo "$(REPO)" --stamp "$(SERVER_BIN_STAMP)"
 # Explicit variant build (used by CI build-variants and by make install-<tree>-<backend>).
 # Sets the env seams (LLAMA_SERVER_TREE / LLAMA_BACKEND / LLAMA_RAM_BYTES) and runs
 # the SAME build_llama_server.sh, then stamps the binary path so `link` can
@@ -360,13 +346,16 @@ run-engine: ## Run ENGINE's image: OpenAI API on 127.0.0.1:$(PORT)/v1 as llm-loc
 	python3 scripts/engine_image.py run "$(ENGINE)" $(ARCH_ARGS) --model "$(MODEL)" --port "$(PORT)"
 
 test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH) and verify the engine BINARY answers -h/--version (issue #2319). The engine-build CI gate is binary-only — it never starts a server. The serving conformance test is HOST-only: `make test-engine-host ENGINE=<id> ARCH=<arch> [MODEL=...]` (or the explicit `--serve` tier `make test-engine-serve`), run manually by the llgenie-engine-improver with the smallest model that fits. `python3 scripts/engine_capability.py serve ENGINE ARCH` reports whether an arch may serve at all; the checkout's chat-testable decision is no longer part of the CI gate.
-	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-published-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
+	@python3 scripts/published_engine.py --engine "$(ENGINE)" --arch "$(ARCH)"
+
+# internal seams for scripts/published_engine.py (issue #2675): the entry point runs these
+# three make steps in order; the pull and the engine_test-wrapped binary test stay make
+# targets so the ARCH_ARGS / CI_HOME / engine_test seams remain make macros with their exact
+# expansions. No `##` help line on purpose (test-unit-network precedent, issue #1000).
+published-engine-pull:
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
-	$(MAKE) test-engine-image ENGINE=$(ENGINE) ARCH=$(ARCH)
-	# issue #204: the real published image's engine binary must answer its flags (-h/--version, issue #2319).
-	# It runs in the TEST IMAGE like every other test stage (issue #621): the runner's own python3 has
-	# no pytest, so a bare `python3 -m pytest` here fails with "No module named pytest" — which is what
-	# every test-published-* job did as soon as the published matrix started carrying rows again.
+
+published-engine-binary:
 	@mkdir -p "$(CI_HOME)"
 	$(call engine_test,LLGENIE_PUBLISHED_PULLED=1 LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)") \
 		python3 -m pytest -q -p no:cacheprovider tests/test_published_engine_binary.py

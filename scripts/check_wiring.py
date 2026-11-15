@@ -352,6 +352,18 @@ def graph(root: Path = REPO) -> dict:
     named_by_target = {t: set(DOC_RE.findall(r)) & set(docs) for t, r in recipes.items()}
     calls = {t: ({m.group(1) for m in MAKE_RE.finditer(r)} & set(recipes)) | (prereqs.get(t, set()) & set(recipes))
              for t, r in recipes.items()}
+    # The discovery seam (issue #2675, extending the #393 aggregator seam to entry points):
+    # a recipe that runs a `scripts/*.py` entry point inherits the `make <target>` calls the
+    # entry point's text carries. `ci-unit`'s 51 sub-targets moved into scripts/ci_unit.py and
+    # `help`'s usage lines into scripts/make_help.py — parsed from the entry point exactly as
+    # the base recipes' own text was parsed, so closures and `##` CI claims stay identical.
+    script_calls = {rel: {m.group(1) for m in re.finditer(r"[\"']\s*make\s+([a-z0-9][a-z0-9._-]*)",
+                                                            (root / rel).read_text())}
+                    for rel in docs if rel.startswith("scripts/")}
+    for t, r in recipes.items():
+        for rel in DOC_RE.findall(r):
+            if rel in script_calls:
+                calls[t] |= script_calls[rel] & set(recipes)
     workflow_targets = {w: {m.group(1) for m in MAKE_RE.finditer(t)} for w, t in steps.items()}
     # a workflow `run:` block that names a document directly (make target-less usage)
     workflow_docs = {d for t in steps.values() for d in DOC_RE.findall(t) if d in docs}

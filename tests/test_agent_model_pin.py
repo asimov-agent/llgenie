@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 SPEC = REPO / "scripts" / "agent_model_pin.py"
 DOCKERFILE = REPO / "containers" / "agent" / "Dockerfile"
 INSTALL_SCRIPT = REPO / "scripts" / "install_hermes_ci.sh"
@@ -150,7 +150,7 @@ def test_ci_unit_runs_the_check_and_the_targets_are_phony():
     makefile = makefiles_text()
 
     # When  the ci-unit recipe and the .PHONY block are read
-    ci_unit = re.search(r"^ci-unit:.*?(?=^\S)", makefile, re.MULTILINE | re.DOTALL)
+    ci_unit = re.search(r"^ci-unit:.*?(?=^\S)", ci_unit_expanded(), re.MULTILINE | re.DOTALL)
     phony = re.search(r"^\.PHONY:.*?(?=^\S)", makefile, re.MULTILINE | re.DOTALL)
     assert ci_unit and phony
 

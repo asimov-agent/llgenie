@@ -34,7 +34,7 @@ from scripts import issue_body
 from scripts import engine_skills as es
 from scripts import model_engine_pick as mp
 from scripts import unit_tests as ut
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 
 REGISTRY = REPO / "data" / "models.json"
 MANIFEST = REPO / "data" / "unsupported-engines.json"
@@ -657,7 +657,7 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
     # And the make targets exist, and the gate is a step of the ci-unit job
     assert "render-engine-skill-gap:" in mk and "check-engine-skill-gap:" in mk
     assert "engine-skill-gap:" in mk and "spawn-engine-skill-issues:" in mk
-    assert "$(MAKE) check-engine-skill-gap" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) check-engine-skill-gap" in ci_unit_expanded(REPO).split("ci-unit:", 1)[1].split("\n\n", 1)[0]
 
 
 def test_the_spawn_step_runs_even_when_a_gate_above_is_red():
@@ -754,4 +754,4 @@ def test_skills_validate_uses_the_decisions_file_instead_of_a_global_flag():
 
     # Then it passes the decisions file when asked, and the loosened flag is gone
     assert "--unsupported" in recipe and "ALLOW_UNSKILLED" not in mk
-    assert "UNSUPPORTED=data/unsupported-engines.json" in mk
+    assert "UNSUPPORTED=data/unsupported-engines.json" in mk + ci_unit_expanded(REPO)

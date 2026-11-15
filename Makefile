@@ -67,7 +67,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
 	test test-unit test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host test-recall-step test-board-ownership-host download-test-model \
 	test-image test-image-pull openspec-image-pull publish-ci-images publish-agent-image agent-image-push-check agent-image agent-image-pull ci-image-refs test-clean lint lint-fix loop loop-harness chained sweep-concurrency-report \
-	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
+	build-server published-engine-pull published-engine-binary build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine test-engine-serve ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled engine-capability-serve \
 		sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
@@ -581,64 +581,5 @@ verdict-roster: ## Print every workflow that can post a check-run at a PR head, 
 
 
 help:
-	@echo "Engine images (issue #98, plain make, no LLM):"
-	@echo "  make generate-engine-params      skills -> containers/engines/{params,dockerfiles,base} (the ONLY step that reads skills)"
-	@echo "  make sync-quant-catalog          regenerate data/trending-quant-catalog.json + fixture (the HF class table: model -> engine -> arch + real quant plans), from the registry + live Hub; validates the newly-added links vs the prior generated table"
-	@echo "  make check-quant-catalog         CI: fail if the committed quant catalog differs from what the generator produces"
-	@echo "  make render-trend-list-matrix    rewrite tests/fixtures/trend-list-matrix.json (the trending list per arch, vram, ram)"
-	@echo "  make check-trend-list-matrix     CI: fail if that committed list differs from matrix() on the vendored registry"
-	@echo "  make render-engine-skill-gap     rewrite data/engine-skill-gap.json (per-engine list + the models no engine can offer)"
-	@echo "  make check-engine-skill-gap      CI gate: a registry engine with no skill and no dated decision in data/unsupported-engines.json, a stale decision, or a stale file"
-	@echo "  make engine-skill-gap            show the gap: shipped / known-unsupported / NEW-unresolved engines"
-	@echo "  make spawn-engine-skill-issues   open one tracking issue per NEW unskilled engine (the weekly sync runs this)"
-	@echo "  make registry-change-report      print what the vendored registry changed vs HEAD"
-	@echo "  make sync-change-issue           open ONE issue stating the change (the weekly sync runs this)"
-	@echo "  make check-wiring                CI: fail when a test/script is wired to no make target, or only to one CI never runs (tests/fixtures/host-only-wiring.json records the deliberate ones), or when a .PHONY entry names no target or a target that runs nothing"
-	@echo "  make check-secret-output         CI: fail when any file prints a secret's VALUE (an echo of a token variable), passes it on a command line (a value after -e), runs under a shell xtrace, dumps the environment around it, or commits a credential-shaped literal"
-	@echo "  make wiring-report               show how every test/script is wired (target + whether CI runs it) and the host-only exceptions"
-	@echo "  make issue-bot-dispatch          the issue-implementer dispatcher (issue #248): cap 3/day -> pick one labeled/ready issue -> claim -> write issue.md + branch"
-	@echo "  make issue-bot-open-pr          open the draft-free PR linking ISSUE from BRANCH (never merges)"
-	@echo "  make issue-bot-gates            re-check the FAST gates in order before the bot pushes (lint, workflows, wiring, docs, PR hygiene, OpenSpec tasks), stopping at the first failure and naming it (issue #475)"
-	@echo "  make issue-bot-gates-check      CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push (issue #475)"
-	@echo "  make lane-preflight             run the FAST gates before a host lane pushes: one line per gate, a final OK|FAILED verdict, refuses a dirty tree so the verdict describes the would-be-pushed head (issue #1058)"
-	@echo "  make code-review-scan           the code-review bot: read the tree + the pipelines -> findings (REPO=; STATIC=1 skips the checks that read the GitHub API; no model spend, files nothing)"
-	@echo "  make code-review-file           file ONE issue per NEW finding, capped per run (REPO=; CAP= per run, default 3; DRY=1 previews) — the bot's whole output is issues"
-	@echo "  make run-failure-reactor        route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a pushable same-repo PR -> dispatch the fix-bot; else file ONE deduped issue labelled agent:implement (issue #286)"
-	@echo "  make implement-issue             the shared Hermes agent step: read issue.md + AGENTS.md, implement, run the gates, push nothing (NOUS_API_KEY from a secret)"
-	@echo "  make hermes-smoke               one real Hermes call through the implementer alias (die in seconds)"
-	@echo "  make agent-jev-preflight           report whether the JEV decision layer is available in the agent image (never blocks a run; NERVE_REQUIRE=1 verifies the image instead) — issue #238"
-	@echo "  make check-docs                  CI: fail when a user-facing make target is undocumented, an exception is stale, an agent-wiki/ note is not indexed in CHANGES.md, or README.md carries change history"
-	@echo "  make docs-report                 show every user-facing make target (documented / missing / recorded exception) and each work record's issue references"
-	@echo "  make check-pr-authors            CI: fail when a PR commit is authored through an allowlisted email address, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist — PR_BASE/PR_HEAD bound the range (issue #345)"
-	@echo "  make pr-authors-report           show every commit in the range with its author verdict, and the identity each producer assigns"
-	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
-	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
-	@echo "  make build-engines ARCH=<arch>   every engine for one arch"
-	@echo "  make run-engine ENGINE=<id> MODEL=<m> [PORT=11434]   OpenAI API at http://127.0.0.1:PORT/v1 (llm-local)"
-	@echo "  make list-engine-images | ci-engine-images [WATCH=1]"
-	@echo
-	@echo "Targets:" \
-		"install (venv+launcher+symlink+smoke), venv-install, link, smoke,"
-	@echo "         test-unit, test-install, test-health (endpoint answers 'hi'), test,"
-	@echo "         download-test-model, openspec-validate, openspec-new/status,"
-	@echo "         loop (chained runner), loop-harness, chained, uninstall,"
-	@echo
-	@echo "Daily sync (issue #107):"
-	@echo "  make engine-bump-plan [ENGINE=<id>]   which engines moved upstream (git ls-remote only)"
-	@echo "  make engine-derive ENGINE=<id> [SHA=] derive build params from the upstream tree (no LLM)"
-	@echo "  make engine-bump ENGINE=<id>          pin + derive + apply + regen (no push)"
-	@echo "  make engine-bump-daily [DRY=1]        plan -> bump every moved engine; DRY=1 prints only"
-	@echo
-	@echo "Install (issue #98: engines run from their images):"
-	@echo "  make install [ENGINES=all|id,id] [ARCH=cpu|cuda|rocm|vulkan] [BUILD=1]   pull this host's tested images + start scripts + version test"
-	@echo "  make install-prism-cpu|upstream-cpu|prism-cuda|upstream-cuda   one llama.cpp tree + backend (image)"
-	@echo "  make install-prism-metal|upstream-metal                         macOS: native Metal build"
-	@echo "  make build-variant TREE=prism|upstream BACKEND=metal            native build (Metal / macOS CI)"
-	@echo "  llgenie --pick [model] [--engine e] [--model-file f] [--auto]   pick model + fastest engine image"
-	@echo
-	@echo "Env seams (override detection):"
-	@echo "  LLAMA_SERVER_TREE=prism|upstream   force the llama.cpp tree (else card RAM: <=24GB prism, >24GB upstream)"
-	@echo "  LLAMA_BACKEND=cpu|cuda|metal       force the backend (else hardware: Metal/CUDA/CPU)"
-	@echo "  LLAMA_RAM_BYTES=<bytes>            force the card RAM used by the tree decision"
-	@echo "  SERVER_ROOT=<dir>                  where llama.cpp trees are cloned (default ~/repository/git)"
+	@python3 scripts/make_help.py
 

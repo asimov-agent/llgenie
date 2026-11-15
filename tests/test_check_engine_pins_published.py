@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 import scripts.check_engine_pins_published as cpp  # noqa: E402  (the repo's one import root, issue #796)
 import scripts.engine_image as ei  # noqa: E402
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 
 REGISTRY = "ghcr.io/asimov-agent"
 
@@ -238,7 +238,7 @@ def test_repinned_cells_names_only_the_cell_whose_tag_moved(tmp_path):
 def test_the_gate_is_wired_into_ci_unit_and_phony():
     """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
     mk = makefiles_text(REPO)
-    assert "$(MAKE) check-engine-pins-published" in mk, "ci-unit must run the gate"
+    assert "$(MAKE) check-engine-pins-published" in ci_unit_expanded(REPO), "ci-unit must run the gate"
     # .PHONY spans backslash-continuation lines (issue #883): read the whole block
     phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
     assert phony and re.search(r"\bcheck-engine-pins-published\b", phony.group(0)), \

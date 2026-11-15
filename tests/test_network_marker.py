@@ -139,8 +139,11 @@ def test_ci_unit_reaches_the_not_network_seam():
         return m.group(1)
 
     ci_unit = target_recipe("ci-unit")
+    # (issue #2675) ci-unit is a thin wrapper: its calls ride scripts/ci_unit.py's sequence
+    assert "scripts/ci_unit.py" in ci_unit, f"ci-unit must delegate to its entry point:\n{ci_unit}"
+    ci_unit_seq = (REPO / "scripts/ci_unit.py").read_text()
+    assert "make test-unit" in ci_unit_seq, f"ci-unit must call test-unit:\n{ci_unit_seq}"
     test_unit = target_recipe("test-unit")
-    assert "test-unit" in ci_unit, f"ci-unit must call test-unit:\n{ci_unit}"
     assert "unit_tests.py run" in test_unit, f"test-unit must call unit_tests.py run:\n{test_unit}"
     # the default run() carries `-m "not network"` (asserted by test_the_unit_gate_runs_not_network)
     tn = target_recipe("test-unit-network")

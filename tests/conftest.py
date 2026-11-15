@@ -57,6 +57,25 @@ def makefiles_text(root: Path = REPO_ROOT) -> str:
     return "\n\n".join(body)
 
 
+def ci_unit_expanded(root: Path = REPO_ROOT) -> str:
+    """The `ci-unit` recipe text, expanded with `scripts/ci_unit.py`'s `MAKE_SEQUENCE`
+    rendered as recipe lines (`\\t$(MAKE) <gate>`) (issue #2675, #800 criterion 5).
+
+    ci-unit is a one-line wrapper around its entry point; a gate consumer test that used to
+    assert `$(MAKE) <gate>` inside the recipe body reads this seam instead. The result starts
+    with `ci-unit:` and the synthesized lines carry the FULL sequence entries (variable
+    overrides included), so the same slice/regex a consumer used on raw Makefile text keeps
+    working. A trailing comment line terminates the block for `(?=^\\S)`-style regexes.
+    """
+    mk = makefiles_text(root)
+    block = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    script = (root / "scripts/ci_unit.py").read_text()
+    entries = re.findall(r"""^[ \t]*["'](make [^"']+)["'],?$""", script, re.M)
+    return ("ci-unit:" + block
+            + "".join(f"\n\t$(MAKE) {e[len('make '):]}" for e in entries)
+            + "\n# ci-unit expansion end (scripts/ci_unit.py MAKE_SEQUENCE, issue #2675)\n")
+
+
 @pytest.fixture(scope="session")
 def repo_root() -> Path:
     return REPO_ROOT

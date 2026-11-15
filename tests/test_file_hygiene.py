@@ -29,6 +29,7 @@ from scripts import check_file_hygiene as gate
 
 REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = (REPO / "Makefile").read_text()
+from conftest import ci_unit_expanded  # noqa: E402  (ci-unit seam reader, issue #2675)
 #: The Makefile was split into fragments (`mk/*.mk`, issue #2457), so a target may live in a
 #: fragment, not the root file. Wiring tests must read the ASSEMBLED make text the way `make`
 #: does — root Makefile plus every `mk/*.mk` it includes.
@@ -189,7 +190,7 @@ def test_ci_unit_runs_the_hygiene_gate():
     """The unit lane reaches `make check-file-hygiene` (acceptance: wired into the unit lane)."""
 
     # Given the ci-unit recipe and the check-file-hygiene recipe
-    m = re.search(r"^ci-unit:.*(?:\n\t[^\n]*)+", MAKE_TEXT, re.M)
+    m = re.search(r"^ci-unit:.*(?:\n\t[^\n]*)+", ci_unit_expanded(), re.M)
     assert m, "ci-unit target not found"
     hyg = re.search(r"^check-file-hygiene:[ ]##[^\n]*", MAKE_TEXT, re.M)
     assert hyg, "check-file-hygiene target not found"

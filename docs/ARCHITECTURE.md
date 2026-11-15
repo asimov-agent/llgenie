@@ -803,6 +803,10 @@ structure ever being checked (issue #156). The engine-build producer (`engine-bu
 and the issue-bot gate pair
 (`issue-bot-gates`, `issue-bot-gates-check`). Every gate added to this list must also be
 classified FAST or `DEFERRED` in `scripts/issue_bot_gates.py`, or `make test-unit` fails.
+The bundle's own ordering now lives in `scripts/ci_unit.py` — a 51-entry `MAKE_SEQUENCE`
+tuple byte-equal to the 51-line recipe it replaced (issue #2675, #800 criterion 5):
+`ci-unit` is a one-line wrapper, `--dry-run` prints the plan, and
+`tests/test_ci_unit_stage.py` pins the order.
 
 The unit gate no longer races its own pipeline (issue #672). `tests/test_ci_publish_order.py`
 resolves the install plan and asks GHCR whether each cpu tag exists, which is true on `main`
