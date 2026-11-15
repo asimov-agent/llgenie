@@ -131,13 +131,13 @@ delegated to, however the pass report words it.
 
 STEP 7 — ONLY NOW THE BACKLOG (section D). Backlog is the LAST resort, not the first:
     gh issue list --repo "$SLUG" --state open --label agent:implement --limit 40 --json number,title,createdAt
-  6a. An issue already has a vehicle if any open PR or live `bot-claim:` names it —
+  7a. An issue already has a vehicle if any open PR or live `bot-claim:` names it —
       gh pr list --repo "$SLUG" --state open --limit 100 --json number,body
       One implementer per issue. Never dispatch a second vehicle.
-  6b. Near-identical issues filed minutes apart with the same bot marker are ONE defect in N
+  7b. Near-identical issues filed minutes apart with the same bot marker are ONE defect in N
       trackers. Collapse onto the newest with a linked reason — measured 2026-11-08: seven
       identical `run-fixer:` issues for the ci-verdict defect, zero comments on any.
-  6d. LOAD 20 NEW UN-PR'D `agent:implement` ISSUES INTO THE KANBAN TRIAGE LIST EVERY PASS (owner
+  7c. LOAD 20 NEW UN-PR'D `agent:implement` ISSUES INTO THE KANBAN TRIAGE LIST EVERY PASS (owner
       mandate, 2026-11-09). A triage pass that only eyeballs GitHub and never CARDS the
       candidates leaves them invisible to the board. Use the proven procedure in the
       orchestration skill reference `gh-issue-to-kanban-triage.md`: (1) measure candidates —
@@ -235,7 +235,7 @@ Then end the pass with these lines, each filled from the step named:
     lanes: running=N idle=N (steps 3, 5d)
     stalls: tasks stalled=N reclaimed=N | dm stalled=N (step 7)
     dispatch: <lane> #<id> — <what> (steps 4, 5, 6)
-    closed: <issue> — <why> (step 6b)
+    closed: <issue> — <why> (step 7b)
     nudged: docs, architect (step 10)
     drift: <lane> <files> (step 9)
 An empty queue is not an idle excuse. Every pass ends with a dispatch, a close with evidence, or a
