@@ -320,7 +320,8 @@ def armed_green_head(gh: str, repo: str, num: int) -> "str | None":
 
 def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_PER_DAY,
           own_fork: str | None = None, unknown_attempts: int = UNKNOWN_ATTEMPTS,
-          unknown_delay: float = UNKNOWN_DELAY_S, skip: list[int] | None = None) -> dict:
+          unknown_delay: float = UNKNOWN_DELAY_S, skip: list[int] | None = None,
+          target: int | None = None) -> dict:
     """Pick the one PR to rebase, or explain why none is."""
     d = today or _today()
     done = rebased_today(gh, repo, d)
@@ -331,6 +332,15 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
     prs = json.loads(_gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
                               "--json", "number,title,isDraft,mergeStateStatus,mergeable,headRefName,"
                                         "headRepositoryOwner,createdAt,baseRefName"]) or "[]") or []
+    if target is not None:
+        # Aimed dispatch (#2446): `--pr <n>` restricts the decision to the named PR. Every
+        # invariant below (cap, draft/base/owner reads, direct staleness measurement, claim
+        # coexistence, checks) applies to the target exactly as to any sweep candidate; the
+        # board-wide path is byte-identical to before this input existed.
+        prs = [p for p in prs if p.get("number") == target]
+        if not prs:
+            return {"action": "none", "pr": None, "reasons": [], "deferred": [],
+                    "reason": f"targeted PR #{target} is not open in {repo} — nothing to decide"}
     reasons = []
     deferred: list[int] = []
     crashed: list[str] = []
@@ -489,10 +499,13 @@ def main(argv=None) -> int:
                    help="seconds between those re-queries")
     p.add_argument("--skip", default="",
                    help="comma-separated PR numbers this run already rebased (never picked twice)")
+    p.add_argument("--pr", type=int, default=None,
+                   help="aim this run at ONE open PR (#2446): only that PR is evaluated; unset "
+                        "keeps the board-wide sweep")
     a = p.parse_args(argv)
     skip = [int(n) for n in (a.skip or "").replace(" ", "").split(",") if n]
     res = sweep(a.gh, a.repo, a.today, a.max_per_day, a.own_fork,
-                a.unknown_attempts, a.unknown_delay, skip)
+                a.unknown_attempts, a.unknown_delay, skip, a.pr)
     for r in res["reasons"]:
         print(f"[rebase-bot] pass-over: {r}")
     print(f"[rebase-bot] {res['reason']}")

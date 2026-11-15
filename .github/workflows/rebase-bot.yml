@@ -29,7 +29,9 @@
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
 # Trigger surface: its own schedule (every 6 hours, `29 */6 * * *`) and `workflow_dispatch` by hand
-#                  (owner/collaborator, optionally bounded by `max_prs`).
+#                  (owner/collaborator, optionally bounded by `max_prs`, optionally aimed at ONE
+#                  open PR via `pr` — an aimed run decides only for that PR and exercises the
+#                  action=rebase path on demand, #2446).
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which
 #       PR, or none) -> make rebase-bot PR=.. HEAD_BRANCH=.. HEAD_REPO=.. (fetch, forward-merge `main`,
 #       hand a conflict to make rebase-bot-agent, verify, push --force-with-lease to the PR's OWN head
@@ -49,6 +51,10 @@ on:
         description: "Most PRs this run may rebase (the sweep's daily cap still applies on top)"
         required: false
         default: "10"
+      pr:
+        description: "Aim this run at ONE open PR (#2446): only that PR is evaluated; leave empty for the board-wide sweep"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -121,6 +127,7 @@ jobs:
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       REPO: ${{ github.repository }}
       MAX_PR: ${{ inputs.max_prs || '10' }}
+      TARGET_PR: ${{ inputs.pr }}
     steps:
       - name: "Checkout (full history - a rebase needs it, and the PAT re-triggers CI on push)"
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -172,12 +179,17 @@ jobs:
           # The job env sets MAX_PR; defaulting here keeps the step honest when it is run alone
           # (and makes the bound a property of the step, not only of the workflow's env block).
           MAX_PR="${MAX_PR:-10}"
+          if [ -n "${TARGET_PR:-}" ]; then
+            # An aimed dispatch (#2446): every iteration stays aimed, so after the target is
+            # rebased the next sweep re-evaluates IT (now fresh) and the loop stops on none.
+            echo "aimed dispatch: this run decides only for #${TARGET_PR} (#2446)"
+          fi
           rebased=0
           failed=0
           failed_prs=""
           skip=""
           for i in $(seq 1 "$MAX_PR"); do
-            out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst SKIP="$skip")
+            out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst SKIP="$skip"${TARGET_PR:+ TARGET_PR=\"$TARGET_PR\"})
             rc=$?
             printf '%s\n' "$out"
             # A crashed decision is NOT "nothing to do" (issue #309): go red instead of reporting
