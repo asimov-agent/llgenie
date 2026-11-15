@@ -1114,3 +1114,229 @@ def test_an_unknown_tool_is_refused():
         assert "unknown tool" in str(exc) and "grype" in str(exc), str(exc)
     else:
         raise AssertionError("an unknown tool was accepted")
+
+
+# ---------------------------------------------------------------------------
+# Published-image scans (issue #2706): the runtime package set the product SHIPS
+# ---------------------------------------------------------------------------
+
+IMAGE_REF = "ghcr.io/asimov-agent/llgenie/llama-cpp:deadbeef-cuda@sha256:" + "ab" * 32
+
+
+def test_an_image_scan_target_without_a_digest_is_refused(monkeypatch):
+    """A target named only by a tag is refused: a scan must be able to name the manifest it judged
+    (issue #2609's rule, turned onto the scan target — issue #2706)."""
+
+    # Given a recorder standing in for the container runs
+    calls = []
+    monkeypatch.setattr(ss, "_run", lambda *a, **k: calls.append(a) or 0)
+
+    # When  an undigested image ref is asked for
+    try:
+        ss.scan_image("ghcr.io/asimov-agent/llgenie/agent:latest", slug="agent")
+    except SystemExit as exc:
+        # Then  it is refused by name and no scanner ever ran
+        assert "digest" in str(exc), str(exc)
+        assert calls == []
+    else:
+        raise AssertionError("an undigested image target was accepted")
+
+
+def test_an_image_scan_runs_the_three_stage_shape_against_the_digest(tmp_path, monkeypatch):
+    """Trivy image + Syft SBOM + Grype-on-that-SBOM, all three addressed by digest, all writing
+    into the reports dir mounted for the scan (issue #2706)."""
+
+    # Given the docker stub answering the pinned scanner images, and a reports dir to mount
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
+    monkeypatch.setenv("DOCKER_STUB_RUN", "1")  # the `docker run` of each scanner exits 0
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(ss, "REPORTS", reports)
+
+    # When  the published image is scanned
+    rc = ss.scan_image(IMAGE_REF, slug="agent")
+
+    # Then  all three scanner runs ran, each carrying the exact digest-pinned target
+    assert rc == 0
+    runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
+    assert len(runs) == 3, runs
+    for argv in runs:
+        # the mount is the reports dir (writable), not the checkout: the target is a registry ref
+        assert f"{reports.resolve()}:/reports:rw" in argv
+        assert ":/work" not in " ".join(argv)
+    # trivy and Syft carry the digest-pinned target itself; Grype reads the SBOM Syft wrote
+    target_runs = [a for a in runs if IMAGE_REF in a]
+    assert len(target_runs) == 2, runs
+    kinds = {" ".join(a) for a in runs}
+    assert any("image --severity" in k and " --scanners vuln " in f" {k} " for k in kinds), kinds
+    assert any("cyclonedx-json=/reports/image-agent.cdx.json" in k for k in kinds), kinds
+    assert any("sbom:/reports/image-agent.cdx.json" in k for k in kinds), kinds
+
+    # And   the exact ref scanned is recorded so `findings()` can name the image
+    meta = json.loads((reports / "image-agent.meta.json").read_text(encoding="utf-8"))
+    assert meta["ref"] == IMAGE_REF
+
+
+def test_scan_targets_are_pinned_to_the_digest_the_registry_serves(tmp_path, monkeypatch):
+    """An engine entry resolves to its CURRENT pinned tag and every target gets the index digest
+    the registry serves for it — the allow-list never carries a stale digest literal (issue #2706)."""
+
+    # Given a manifest with one engine entry and one plain ref, and stubs for both resolution seams
+    manifest = {"images": [
+        {"name": "llama-cpp-cuda", "engine": "llama.cpp", "variant": "cuda"},
+        {"name": "agent", "ref": "ghcr.io/asimov-agent/llgenie/agent:latest"},
+    ]}
+    monkeypatch.setattr(ss, "_resolve_engine_ref",
+                        lambda engine, variant: f"ghcr.io/x/llama-cpp:hash1234-{variant}")
+    monkeypatch.setattr(ss, "registry_manifest_digests",
+                        lambda ref: {"index": "sha256:" + "cd" * 32})
+
+    # When  the targets are resolved
+    targets = ss.resolve_scan_targets(manifest)
+
+    # Then  each slug maps to its ref@sha256:<64 hex> — no target leaves undigested
+    assert [slug for slug, _ in targets] == ["llama-cpp-cuda", "agent"]
+    for _, ref in targets:
+        assert re.fullmatch(r".*@sha256:[0-9a-f]{64}", ref), ref
+
+
+def test_an_unpublished_image_fails_the_lane_instead_of_being_skipped(tmp_path, monkeypatch):
+    """An allow-list entry the registry has no digest for is a hard failure, never a silent skip
+    (issue #2706): a scan lane that quietly skipped unpublished cells proves nothing."""
+
+    # Given a manifest entry whose image the registry does not serve
+    manifest = {"images": [{"name": "ghost", "ref": "ghcr.io/x/ghost:latest"}]}
+    monkeypatch.setattr(ss, "registry_manifest_digests", lambda ref: {})
+
+    # When  the lane resolves its targets
+    try:
+        ss.resolve_scan_targets(manifest)
+    except SystemExit as exc:
+        # Then  the lane says so, naming the ref
+        assert "no index digest" in str(exc) and "ghost" in str(exc), str(exc)
+    else:
+        raise AssertionError("an unpublished image was skipped instead of failing the lane")
+
+
+def test_image_reports_flow_through_findings_tagged_with_the_exact_image(tmp_path):
+    """`image-*.trivy.json` / `image-*.grype.json` are read by the SAME normalisers and every
+    finding names the `ref@digest` recorded in its meta file (issue #2706)."""
+
+    # Given image reports and their meta companion, but no tree reports
+    d = _reports(tmp_path, **{"image-agent.trivy": TRIVY_HIGH, "image-agent.grype": GRYPE_ONE})
+    (d / "image-agent.meta.json").write_text(json.dumps({"ref": IMAGE_REF}), encoding="utf-8")
+
+    # When  findings are normalized
+    items = ss.findings(d)
+
+    # Then  both sources flow through, each tagged with the exact image it was seen in
+    assert len(items) == 2, items
+    assert {i["source"] for i in items} == {"trivy", "grype"}
+    for item in items:
+        assert item.get("image") == IMAGE_REF, item
+
+
+def test_an_image_finding_is_gated_by_the_same_policy(tmp_path):
+    """A HIGH finding inside a published image gates a full-mode run and stays report-only for a
+    PR event — the pipeline does not distinguish an image finding from a tree finding (issue #2706)."""
+
+    # Given only an image report with a HIGH vulnerability that has a fix
+    d = _reports(tmp_path, **{"image-agent.trivy": TRIVY_HIGH})
+    (d / "image-agent.meta.json").write_text(json.dumps({"ref": IMAGE_REF}), encoding="utf-8")
+    items = ss.findings(d)
+
+    # When  the policy modes decide
+    # Then  full mode gates on it, pr mode records it
+    assert ss.blocking(items, POLICY, "full") != []
+    assert ss.blocking(items, POLICY, "pr") == []
+
+
+def test_check_refuses_an_empty_or_ill_formed_allow_list(tmp_path, monkeypatch):
+    """The gate that prevents the silent skip (issue #2706): no manifest, an empty allow-list, an
+    engine entry without a variant, or a missing fixture declaration all red `check`."""
+
+    manifest = tmp_path / "scanned-images.json"
+    monkeypatch.setattr(ss, "SCANNED_IMAGES", manifest)
+
+    def write(payload: dict) -> int:
+        manifest.write_text(json.dumps(payload), encoding="utf-8")
+        return ss.check()
+
+    # Given/Then each broken shape reds the gate on its own problem
+    assert write({"images": [], "fixture": {"name": "fx", "ref": "r"}}) == 1          # empty list
+    assert write({"images": [{"name": "e", "engine": "llama.cpp"}],
+                  "fixture": {"name": "fx", "ref": "r"}}) == 1                        # no variant
+    assert write({"images": [{"name": "e", "ref": "ghcr.io/x/y:tag"}]}) == 1          # no fixture
+    assert write({"images": [{"name": "bad name", "ref": "ghcr.io/x/y:tag"}],
+                  "fixture": {"name": "fx", "ref": "r"}}) == 1                        # bad slug
+
+
+def test_the_committed_allow_list_and_both_lane_wirings_exist():
+    """The real tree: the allow-list names at least one image and a fixture, BOTH lanes carry their
+    scan step, and every engine entry resolves to a pinned GHCR ref (issue #2706)."""
+
+    # Given the committed manifest and the two workflows
+    manifest = json.loads((REPO / "containers" / "scanned-images.json").read_text(encoding="utf-8"))
+    security_lane = (REPO / ".github" / "workflows" / "security-scan.yml").read_text(encoding="utf-8")
+    engine_lane = (REPO / ".github" / "workflows" / "engine-build.yml").read_text(encoding="utf-8")
+
+    # When  they are read for the lane's hard requirements
+    # Then  the allow-list is non-empty, the fixture is declared, and each lane carries its step
+    assert manifest.get("images"), manifest
+    assert (manifest.get("fixture") or {}).get("ref"), manifest
+    assert "make security-scan-images" in security_lane
+    assert "make security-scan-fixture" in security_lane
+    assert "make security-scan-published" in engine_lane
+
+    # And   every engine entry resolves through the pinned params to a registry ref
+    for entry in manifest["images"]:
+        if entry.get("engine"):
+            ref = ss._resolve_engine_ref(entry["engine"], entry["variant"])
+            assert ref.startswith("ghcr.io/asimov-agent/llgenie/"), ref
+
+
+def _fixture_manifest(tmp_path, monkeypatch) -> dict:
+    """A manifest whose fixture slug/ref the fixture step will use, with the registry stubbed."""
+    manifest = {"images": [{"name": "agent", "ref": "ghcr.io/x/agent:latest"}],
+                "fixture": {"name": "fx", "ref": "docker.io/library/alpine:3.15.1"}}
+    path = tmp_path / "scanned-images.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(ss, "SCANNED_IMAGES", path)
+    monkeypatch.setattr(ss, "registry_manifest_digests",
+                        lambda ref: {"index": "sha256:" + "ef" * 32})
+    monkeypatch.setattr(ss, "REPORTS", tmp_path / "reports")
+    return manifest
+
+
+def test_the_fixture_fails_loudly_when_it_proves_nothing(tmp_path, monkeypatch):
+    """A known-vulnerable image the scanners produce no report for is a BROKEN PROOF and exits
+    non-zero — never a clean green (issue #2706)."""
+
+    # Given the fixture manifest and a container run that writes no reports at all
+    _fixture_manifest(tmp_path, monkeypatch)
+    monkeypatch.setattr(ss, "_run", lambda *a, **k: 0)
+
+    # When  the fixture step runs
+    rc = ss.scan_image_fixture()
+
+    # Then  the proof failing is the step failing
+    assert rc == 1
+
+
+def test_the_fixture_proves_the_image_scan_path_end_to_end(tmp_path, monkeypatch):
+    """With the fixture's reports present (the shape the real scan writes), the step normalizes
+    them through `findings()` and passes — the loud AC proof (issue #2706)."""
+
+    # Given the fixture manifest, a stubbed run, and the reports a real run would have written
+    _fixture_manifest(tmp_path, monkeypatch)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "image-fx.trivy.json").write_text(json.dumps(TRIVY_HIGH), encoding="utf-8")
+    (reports / "image-fx.meta.json").write_text(
+        json.dumps({"ref": "docker.io/library/alpine:3.15.1@sha256:" + "ef" * 32}), encoding="utf-8")
+    monkeypatch.setattr(ss, "_run", lambda *a, **k: 0)
+
+    # When  the fixture step runs
+    rc = ss.scan_image_fixture()
+
+    # Then  the finding proves the path and the step passes
+    assert rc == 0

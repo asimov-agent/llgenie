@@ -156,6 +156,33 @@ def test_labels_and_components_follow_the_finding(tmp_path):
                           "component:container", "auto-fixable"]
 
 
+def test_an_image_scanned_finding_is_a_container_finding_named_by_its_digest(tmp_path):
+    """A numpy HIGH finding found INSIDE a published image is `component:container` (the defect is
+    in the built artifact) and its issue body names the exact `ref@digest` it lives in (issue #2706)."""
+
+    # Given an image report + meta in the same reports dir (the shape security_scan writes)
+    d = tmp_path / "reports"
+    d.mkdir()
+    (d / "image-llama-cpp-cuda.trivy.json").write_text(json.dumps({
+        "Results": [{"Vulnerabilities": [
+            {"VulnerabilityID": "CVE-9", "PkgName": "numpy", "InstalledVersion": "1.0",
+             "FixedVersion": "1.1", "Severity": "HIGH"}]}]}), encoding="utf-8")
+    image = "ghcr.io/asimov-agent/llgenie/llama-cpp:deadbeef-cuda@sha256:" + "ab" * 32
+    (d / "image-llama-cpp-cuda.meta.json").write_text(json.dumps({"ref": image}), encoding="utf-8")
+
+    # When  the finding becomes an issue candidate
+    finding = next(f for f in si.issue_findings(d, POLICY) if f.advisory == "CVE-9")
+
+    # Then  it carries the image, is a container finding whatever the package family, and labels so
+    assert finding.image == image
+    assert finding.component == "component:container"
+    assert "component:container" in finding.labels
+
+    # And   the body names the exact digest, not just the package
+    body = si.body_for(finding, "https://github.com/o/r/actions/runs/1")
+    assert image in body
+
+
 def test_the_marker_round_trips():
     """The marker is the idempotency key, so it must survive being written into a body."""
 
