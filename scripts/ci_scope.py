@@ -104,7 +104,6 @@ _STAGES = {
 JOBS: tuple[tuple[str, tuple[str, ...] | None], ...] = (
     ("guard", None),
     ("ci-images", _NON_DOCS),
-    ("scanner-images", ("containers", "security")),
     ("linux/lint", None),
     ("linux/unit", _STAGES["unit"]),
     ("linux/install", _STAGES["install"]),

@@ -14,8 +14,8 @@ ci-requeue-cancelled: ## Re-run the CI runs a bulk cancel killed, ONLY where the
 ci-frozen-reaper: ## Cancel + re-run a run stuck in_progress past its threshold on an OPEN PR only (THRESHOLD=90m, DRY=1 previews; issue #1679)
 	python3 scripts/ci_frozen_reaper.py run --repo $(GH_REPO) --threshold $(if $(THRESHOLD),$(THRESHOLD),90m) $(if $(DRY),--dry,)
 
-ci-scanner-images: ## CI job scanner-images: build and version-test every scanner image, publish on a push run only (policy in the script)
-	python3 scripts/scanner_image.py ci
+ci-security-images: ## CI job security-images: publish every scanner image whose content-hash tag GHCR is missing (the lookup is the probe; issue #744)
+	python3 scripts/scanner_image.py ensure
 
 ci-image-refs: ## Print the GHCR refs of the CI images (test, openspec, agent) for the current Dockerfiles + lockfiles
 	@python3 scripts/ci_images.py ref
