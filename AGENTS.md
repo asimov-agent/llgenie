@@ -1439,13 +1439,16 @@ The owner set this on 2026-11-15 (issue #2701). It is a MEASURE, not a style not
   engine servers, syncing the registry, updating the engine list with new
   engines, and updating existing engines' Dockerfiles — plus the allow-listed
   bot lanes (`AGENT_LANES`), which run dispatch-only after 2026-11-15.
-- **The agent never manually starts a CI pipeline.** No `gh run rerun`, no
-  `gh workflow run` / `workflow_dispatch`, no requeue or re-trigger loops —
-  not even to unblock a wedge. CI starts from GitHub events (push, PR,
-  `workflow_run`, label) plus the weekly engine/registry lane and the landing
-  plumbing's own clocks. A wedge is fixed by pushing a commit (rebase, body
-  fix, gate fix), never by pumping the queue. The retired ci-requeue healer
-  (#2702) is the shape this rule forbids; do not resurrect it in any form.
+- **A CI pipeline starts from a GitHub event, or from a dispatch a permitted
+  principal starts.** The permitted principals for `workflow_dispatch` are the
+  **owner, a collaborator, and GitHub itself (the Actions bot)**. The automated
+  agent never dispatches and never pumps the queue: no `gh run rerun`, no
+  requeue or re-trigger loops — not even to unblock a wedge. CI otherwise
+  starts from GitHub events (push, PR, `workflow_run`, label) plus the weekly
+  engine/registry lane and the landing plumbing's own clocks. A wedge is fixed
+  by pushing a commit (rebase, body fix, gate fix), never by pumping the
+  queue. The retired ci-requeue healer (#2702) is the shape this rule
+  forbids; do not resurrect it in any form.
 - **Host-side agent work is one lane at a time.** The interactive agent (this
   agent, on the host) owns triage, refinement, dedupe, architecture scan, and
   rebases as its own one-at-a-time work — the deactivation left those

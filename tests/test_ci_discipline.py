@@ -151,6 +151,23 @@ def test_the_durable_agents_md_section_is_pinned(tmp_path):
     assert "CI-discipline section" in proc.stderr
 
 
+def test_the_dispatch_roster_is_pinned_and_the_blanket_ban_is_not(tmp_path):
+    """#2718: the gate pins the dispatch roster (owner/collaborator/GitHub), not
+    the old blanket-ban sentence. Replacing the roster with the blanket ban is
+    a finding; keeping the roster is green."""
+    root = _tree(tmp_path)
+    agents = root / "AGENTS.md"
+    text = agents.read_text()
+    roster = "owner, a collaborator, and GitHub itself"
+    assert roster in text, "the real AGENTS.md must name the dispatch roster (#2718)"
+    assert "gh run rerun" in text, "the queue-pumping ban must stay in the section"
+    agents.write_text(text.replace(roster, "never manually starts a CI pipeline"))
+
+    proc = _run(root)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "AGENTS.md" in proc.stderr
+
+
 # --------------------------------------------------------------- wiring seams
 
 
