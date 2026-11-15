@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2676)
 SCRIPT = REPO / "scripts" / "hermes_smoke.py"
 MAKEFILE = REPO / "Makefile"
 WORKFLOW = REPO / ".github" / "workflows" / "issue-bot.yml"
@@ -348,7 +349,7 @@ def test_the_recipe_and_the_workflow_run_the_proof():
     """The proof runs where the bots run it, through the Makefile."""
 
     # Given the Makefile and the issue-bot workflow
-    makefile = MAKEFILE.read_text()
+    makefile = makefiles_text(REPO)  # the smoke recipe lives in mk/agents.mk (issue #2676)
     workflow = WORKFLOW.read_text()
 
     # When  the smoke recipe and the workflow's smoke step are read
