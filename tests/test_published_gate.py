@@ -65,7 +65,9 @@ def test_the_serve_leg_serves_the_published_image():
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
     assert "pull-published" in recipe
     assert "test_published_engine_binary.py" in recipe
-    assert "$(MAKE) test-engine-image" in recipe  # test-engine-image runs the -h/--version binary probe
+    # (issue #2675) the delegation rides scripts/published_engine.py's MAKE_SEQUENCE
+    seq = (REPO / "scripts/published_engine.py").read_text()
+    assert "make test-engine-image" in seq  # test-engine-image runs the -h/--version binary probe
     # no --serve INVOCATION in CI (the recipe's prose may mention the host-only make command):
     # the check is that engine_smoke --serve is not called as a command line.
     assert "--serve;" not in recipe and "--serve " not in recipe.splitlines()[-2]

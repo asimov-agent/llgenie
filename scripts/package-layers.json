@@ -109,16 +109,21 @@
   ],
   "CI entrypoints": [
    "all_pipelines",
+   "build_server",
    "ci_engines",
    "ci_health",
    "ci_images",
    "ci_scope",
    "ci_slow_rows",
+   "ci_unit",
    "ci_verdict",
    "engine_build_trigger",
    "engine_capability",
    "lane_preflight",
-   "loop_harness"
+   "loop_harness",
+   "make_help",
+   "published_engine",
+   "test_clean"
   ],
   "Bots and automation": [
    "acceptance_writeback",
@@ -195,6 +200,11 @@
    "from": "provision_agent_profiles",
    "to": "check_agent_profiles",
    "reason": "the provisioning entrypoint reuses check_agent_profiles' manifest reader (via agent_profile_sync) rather than restating the lane roster."
+  },
+  {
+   "from": "build_server",
+   "to": "detect_server",
+   "reason": "build-server builds the llama.cpp server for THIS card, so it needs the resolved tree/backend; the pre-extraction recipe ran `python3 scripts/detect_server.py` as its first step and scripts/ci_unit's extraction keeps that call as an import (issue #2675)."
   },
   {
    "from": "architecture_bot",

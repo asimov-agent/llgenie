@@ -22,7 +22,7 @@ import scripts.engine_skills as es
 import scripts.proc as proc
 
 REPO = Path(__file__).resolve().parent.parent
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 FIXTURE = REPO / "tests" / "fixtures" / "trending-models.json"
 
 ADA_16GB = {"os": "linux", "arch": "amd64", "machine": "x86_64", "backend": "cuda",
@@ -816,7 +816,7 @@ def test_ci_checks_params_are_fresh():
     mk = makefiles_text(REPO)
 
     # When its steps and its make target are read
-    recipe = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    recipe = ci_unit_expanded(REPO).split("ci-unit:", 1)[1].split("\n\n", 1)[0]
 
     # Then check-engine-params runs
     assert "make ci-unit" in steps and "$(MAKE) check-engine-params" in recipe
@@ -1759,6 +1759,12 @@ def test_every_published_image_is_started_and_answers_hi():
     --serve tier make test-engine-serve."""
     mk = makefiles_text(REPO)
     recipe = mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
+    #: issue #2675: test-published-engine is a thin wrapper; its 3-step sequence lives in
+    #: scripts/published_engine.py's MAKE_SEQUENCE. Render the hops into the window.
+    recipe += "\n" + "\n".join(
+        f"\t$(MAKE) {m}" for m in re.findall(
+            r"""^\s*["']make ([a-z0-9][a-z0-9._-]*)""",
+            (REPO / "scripts" / "published_engine.py").read_text(), re.M))
     assert "pull-published" in recipe
     assert "$(MAKE) test-engine-image" in recipe  # test-engine-image runs the -h/--version binary probe
     # the binary gate is exactly -h/--version; the CI recipe never INVOKES --serve (prose may name the

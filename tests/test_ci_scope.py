@@ -24,7 +24,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import ci_scope as cs  # noqa: E402
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2458)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2458/#2675)
 
 CI = REPO / ".github" / "workflows" / "ci.yml"
 
@@ -207,8 +207,7 @@ def test_an_engine_pin_change_is_held_to_the_security_gate_set_in_ci_unit():
     """
     # Assert the named gate targets still live under the `ci-unit` body — if the battery moves, the
     # unit-reinclusion test must move with it, not silently guard a target that no longer exists.
-    makefile = makefiles_text(REPO)
-    body = makefile.split("ci-unit:")[1].split("\n\n")[0]
+    body = ci_unit_expanded(REPO).split("ci-unit:", 1)[1].split("\n\n", 1)[0]
     for target in ("check-engine-pins-published", "check-secret-output", "check-proc-gate",
                    "check-security-scan", "check-actions"):
         assert target in body, f"{target} moved out of ci-unit — re-anchor the #2227 unit test"

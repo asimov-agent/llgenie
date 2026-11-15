@@ -181,18 +181,37 @@ def _make_recipes(root: Path) -> dict[str, str]:
     return out
 
 
-def _runs_it(root: Path, target: str, doc: str, recipes: dict[str, str]) -> bool:
+def _seq_hops(text: str) -> list[str]:
+    """Targets named by quoted `make <target>` sequence data inside an entry-point script
+    (issue #2675): a thin recipe calls `scripts/<entry>.py`, and that script's MAKE_SEQUENCE
+    elements continue the chain into other targets' recipes."""
+    return re.findall(r"""['"]\s*make\s+([a-z0-9][a-z0-9._-]*)""", text)
+
+
+def _runs_it(root: Path, target: str, doc: str, recipes: dict[str, str], _seen: set[str] | None = None) -> bool:
     """Does `make <target>` actually run `doc`? The recipe names the file, OR the recipe runs a
     `scripts/*.py` that names it — `make test-engine` runs `scripts/engine_smoke.py`, which
     pytest-runs `tests/test_engine_runs.py` inside the engine image. Naming the file in the
-    recipe is the direct case; the script hop is the same evidence the wiring guard accepts."""
+    recipe is the direct case; the script hop is the same evidence the wiring guard accepts.
+    Issue #2675 adds the sequence hop: a script whose MAKE_SEQUENCE entries are quoted
+    `make <target>` commands continues the search in those targets' recipes."""
+    seen = _seen if _seen is not None else set()
+    if target in seen:
+        return False
+    seen.add(target)
     recipe = recipes.get(target, "")
     if doc in recipe:
         return True
     for script in re.findall(r"scripts/[A-Za-z0-9_./-]+\.py", recipe):
         path = root / script
-        if path.exists() and doc in path.read_text():
+        if not path.exists():
+            continue
+        text = path.read_text()
+        if doc in text:
             return True
+        for hop in _seq_hops(text):
+            if _runs_it(root, hop, doc, recipes, seen):
+                return True
     return False
 
 

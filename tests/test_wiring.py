@@ -457,7 +457,9 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
 
     # When the ci-unit job and the unit suite are read
     # Then ci-unit runs the wiring check, and this test file is in the discovered suite
-    assert "$(MAKE) check-wiring" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    # (issue #2675: ci-unit's calls ride scripts/ci_unit.py's MAKE_SEQUENCE)
+    assert "scripts/ci_unit.py" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert '"make check-wiring",' in (REPO / "scripts/ci_unit.py").read_text()
     assert "tests/test_wiring.py" in ut.select(REPO)
     assert "check-wiring:" in mk and "wiring-report:" in mk
 

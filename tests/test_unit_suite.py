@@ -377,3 +377,38 @@ def test_the_wiring_guard_attributes_only_the_fast_group_to_make_test():
 
     # And the guard's own check passes on the real tree
     assert cw.check(graph, cw.load_exceptions(REPO / cw.EXCEPTIONS)) == []
+
+
+def test_a_sequence_entry_point_hop_counts_as_running_the_file(tmp_path):
+    """Issue #2675: a thin recipe calls `scripts/<entry>.py` whose MAKE_SEQUENCE names other
+    make targets; the roster must resolve the claim through that hop (the `test-published-engine`
+    -> `published-engine-binary` chain names `tests/test_published_engine_binary.py`)."""
+
+    # Given a checkout whose claimed target thins to an entry point, and the entry point's
+    # quoted sequence runs a second target that names the excluded file
+    makefile = ("test-a: ## x\n\tpython3 scripts/entry.py\n\n"
+                "test-a-binary:\n\t@python3 -m pytest -q tests/test_a_binary.py\n")
+    tests = {"test_a_binary.py": "def test_a_binary():\n    assert True\n",
+             "test_keep.py": "def test_keep():\n    assert True\n"}
+    root = _tree(tmp_path, makefile, tests,
+                 {"excluded": {"tests/test_a_binary.py": _entry(target="test-a")},
+                  "deselect": {}})
+    (root / "scripts").mkdir(parents=True, exist_ok=True)
+    (root / "scripts/entry.py").write_text(
+        'MAKE_SEQUENCE = (\n    "make test-a-binary",\n)\n')
+
+    # When the roster check resolves the claim through the sequence hop
+    r = _run(root, "check")
+
+    # Then the hop counts as evidence: the claim is accepted, not reported stale
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    # And without the sequence data the same claim still fails loudly (the hop is the
+    # difference, not a blanket waiver of the rule)
+    root2 = _tree(tmp_path / "b", makefile, tests,
+                  {"excluded": {"tests/test_a_binary.py": _entry(target="test-a")},
+                   "deselect": {}})
+    (root2 / "scripts").mkdir(parents=True, exist_ok=True)
+    (root2 / "scripts/entry.py").write_text("def run():\n    pass\n")
+    r2 = _run(root2, "check")
+    assert r2.returncode == 1 and "names the file" in r2.stderr, r2.stderr

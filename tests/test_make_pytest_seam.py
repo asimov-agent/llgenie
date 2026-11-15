@@ -15,7 +15,7 @@ import re
 
 from pathlib import Path
 
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader, issue #2456)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 
 REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = REPO / "Makefile"
@@ -105,7 +105,13 @@ def test_every_pytest_in_a_make_recipe_runs_through_the_test_seam():
 
     # And  the target that failed, specifically, is the one that carries the published-image env
     published = [c for t, c in recipes if t == "test-published-engine" and "pytest" in c]
-    assert published, "test-published-engine no longer runs its pytest"
+    if not published:
+        # issue #2675: test-published-engine is a thin wrapper whose pytest hop lives behind
+        # scripts/published_engine.py's MAKE_SEQUENCE; follow the hop, as scripts/unit_tests.py does
+        hops = re.findall(r"""^\s*["']make ([a-z0-9][a-z0-9._-]*)""",
+                          (REPO / "scripts" / "published_engine.py").read_text(), re.M)
+        published = [c for t, c in recipes if t in hops and "pytest" in c]
+    assert published, "test-published-engine (nor its entry-point seam) runs its pytest"
     assert any("$(call engine_test," in c and "LLGENIE_PUBLISHED_PULLED=1" in c for c in published), \
         f"test-published-engine must pass its env into the test image, got: {published}"
 

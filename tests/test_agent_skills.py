@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2675)
 
 from scripts import check_agent_skills as guard
 
@@ -412,7 +412,7 @@ def test_the_gate_is_wired_into_ci_unit_and_make():
     # Then  all four exist and `make -n` prints the real command
     assert "check-agent-skills: ## " in makefile
     assert "check-agent-skills" in phony_block(makefile), "the target must be declared .PHONY"
-    assert "\t$(MAKE) check-agent-skills\n" in makefile
+    assert "\t$(MAKE) check-agent-skills\n" in ci_unit_expanded()
     printed = subprocess.run(["make", "-n", "check-agent-skills"], cwd=REPO,
                              capture_output=True, text=True, check=True).stdout
     assert "python3 scripts/check_agent_skills.py check" in printed

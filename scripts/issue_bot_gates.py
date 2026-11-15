@@ -113,6 +113,28 @@ DEFERRED: dict[str, str] = {
 
 _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a-z0-9._-]*)")
 
+#: (issue #2675) A scripts/ entry point's command sequence: lines whose first token is a
+#: quoted `make ...` command — the convention `scripts/ci_unit.py`'s `MAKE_SEQUENCE` follows.
+#: Docstring prose is deliberately NOT sequence text: a sequence command starts the line.
+_SEQ_COMMAND = re.compile(r"^\s*[\"']\s*make\s+([a-z0-9][a-z0-9._-]*)", re.M)
+_ENTRY_SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.py")
+
+
+def _entry_point_sequence(root: Path, recipe: str) -> str:
+    """(issue #2675) The command-sequence lines of the `scripts/` entry points this recipe runs.
+
+    The #393 aggregator seam, extended to entry points: a recipe that runs a `scripts/*.py`
+    entry point calls what the entry point runs. The extraction moved `ci-unit`'s 51 `$(MAKE)`
+    lines into `scripts/ci_unit.py`; reading them from there keeps this roster — and every
+    finding built from it — identical to the recipe's own."""
+    parts: list[str] = []
+    for rel in dict.fromkeys(_ENTRY_SCRIPT.findall(recipe)):
+        path = root / rel
+        if path.is_file():
+            parts.extend(line for line in path.read_text().splitlines()
+                         if _SEQ_COMMAND.match(line))
+    return "\n".join(parts)
+
 #: The guard's OWN targets. `ci-unit` runs them too (that is how the check itself stays green), and
 #: they are not gates over the change: one runs FAST_GATES, the other asserts this file's wiring.
 #: Classifying them as fast or deferred would be a category error - they ARE the guard.
@@ -131,10 +153,13 @@ def _recipes(text: str) -> dict[str, str]:
     return out
 
 
-def _make_calls(recipe: str) -> list[str]:
-    """The make targets a recipe calls, in order, deduplicated."""
+def _make_calls(recipe: str, embedded: str = "") -> list[str]:
+    """The make targets a recipe calls, in order, deduplicated.
+
+    `embedded` (issue #2675) is the command-sequence text of the `scripts/` entry points the
+    recipe runs: a recipe that runs an entry point calls the targets that entry point runs."""
     seen: list[str] = []
-    for name in _MAKE_CALL.findall(recipe):
+    for name in _MAKE_CALL.findall(recipe + "\n" + embedded):
         if name not in seen:
             seen.append(name)
     return seen
@@ -238,7 +263,7 @@ def check(root: Path = REPO) -> list[str]:
         return [f"{MAKEFILE} is missing: the gate has nothing to read"]
     text = _makefile_text(root)
     recipes = _recipes(text)
-    calls = {t: _make_calls(r) for t, r in recipes.items()}
+    calls = {t: _make_calls(r, _entry_point_sequence(root, r)) for t, r in recipes.items()}
 
     # 1. Every gate `ci-unit` runs is classified: fast (run here) or deferred (with a reason).
     unit = calls.get("ci-unit")
