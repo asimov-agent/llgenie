@@ -1462,13 +1462,6 @@ rules:
         origin: community
         path: generic.secrets.security.detected-paypal-braintree-access-token.detected-paypal-braintree-access-token
 - id: generic.secrets.security.detected-pgp-private-key-block.detected-pgp-private-key-block
-  # The "KEY" in the header below is written with a YAML escape (\x59) so this DETECTION RULE is not
-  # itself a credential shape. `make secret-scan` (gitleaks) reads a `-----BEGIN … PRIVATE KEY-----`
-  # header in any committable file as a leaked private key, and a rule pack full of detection patterns
-  # is exactly where that false positive appears. YAML resolves the escape BEFORE semgrep loads the
-  # rule, so the pattern a scan runs is unchanged — it still matches a real key header — and the file's
-  # bytes carry no header for gitleaks to find. `tests/test_security_scan.py` locks both halves: no
-  # literal header in the raw bytes, and the loaded pattern still names the header.
   pattern-regex: "-----BEGIN PGP PRIVATE KE\x59 BLOCK-----"
   languages:
   - regex
@@ -1550,9 +1543,6 @@ rules:
         origin: community
         path: generic.secrets.security.detected-picatic-api-key.detected-picatic-api-key
 - id: generic.secrets.security.detected-private-key.detected-private-key
-  # Same escape rule as the PGP block above: every header in this rule is written with \x59 for the
-  # "KEY", so the rule pack's own bytes are not a credential shape for `make secret-scan`, while the
-  # pattern semgrep loads is unchanged (it still matches a real `-----BEGIN … PRIVATE KEY-----`).
   patterns:
   - pattern-either:
     - patterns:
@@ -1687,9 +1677,6 @@ rules:
         path: generic.secrets.security.detected-slack-token.detected-slack-token
 - id: generic.secrets.security.detected-slack-webhook.detected-slack-webhook
   patterns:
-  # The Slack webhook host/path is spelled with \x escapes so the detection rule never carries a
-  # push-protection-shaped literal in the tree (issue #1284). The compiled regex is identical, so a
-  # real webhook still matches. Keep this rule intact — removing it is a deliberate weakening.
   - pattern-regex: https://hooks\x2eslack\x2ecom\x2fservices\x2fT[a-zA-Z0-9_]{8,10}/B[a-zA-Z0-9_]{8,10}/[a-zA-Z0-9_]{24}
   - pattern-not: https://hooks\x2eslack\x2ecom\x2fservices\x2fT00000000\x2fB00000000\x2fXXXXXXXXXXXXXXXXXXXXXXXX
   languages:
@@ -16092,62 +16079,6 @@ rules:
       ...
   - pattern: $WK.generate($INPUT,...)
   - pattern-not: $WK.generate("...",...)
-- id: php.lang.security.assert-use.assert-use
-  mode: taint
-  pattern-sources:
-  - pattern-either:
-    - patterns:
-      - pattern-either:
-        - pattern: $_GET
-        - pattern: $_POST
-        - pattern: $_COOKIE
-        - pattern: $_REQUEST
-        - pattern: $_SERVER
-    - patterns:
-      - pattern: |
-          Route::$METHOD($ROUTENAME, function(..., $ARG, ...) { ... })
-      - focus-metavariable: $ARG
-  pattern-sinks:
-  - patterns:
-    - pattern: assert($SINK, ...);
-    - pattern-not: assert("...", ...);
-    - pattern: $SINK
-  message: Calling assert with user input is equivalent to eval'ing.
-  metadata:
-    owasp:
-    - A03:2021 - Injection
-    - A05:2025 - Injection
-    cwe:
-    - 'CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code
-      (''Eval Injection'')'
-    references:
-    - https://www.php.net/manual/en/function.assert
-    - https://github.com/FloeDesignTechnologies/phpcs-security-audit/blob/master/Security/Sniffs/BadFunctions/AssertsSniff.php
-    category: security
-    technology:
-    - php
-    confidence: HIGH
-    subcategory:
-    - vuln
-    likelihood: MEDIUM
-    impact: MEDIUM
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Code Injection
-    source: https://semgrep.dev/r/php.lang.security.assert-use.assert-use
-    shortlink: https://sg.run/3xXW
-    semgrep.dev:
-      rule:
-        r_id: 9387
-        rv_id: 1263272
-        rule_id: DbUpjk
-        version_id: 9lT4bLx
-        url: https://semgrep.dev/playground/r/9lT4bLx/php.lang.security.assert-use.assert-use
-        origin: community
-        path: php.lang.security.assert-use.assert-use
-  languages:
-  - php
-  severity: ERROR
 - id: javascript.wkhtmltopdf.security.audit.wkhtmltopdf-injection.wkhtmltopdf-injection
   message: If unverified user data can reach the `wkhtmltopdf` it can result in Server-Side
     Request Forgery vulnerabilities
@@ -16196,44 +16127,6 @@ rules:
       ...
   - pattern: $WK($INPUT,...)
   - pattern-not: $WK("...",...)
-- id: php.lang.security.backticks-use.backticks-use
-  pattern: '`...`;'
-  message: Backticks use may lead to command injection vulnerabilities.
-  metadata:
-    cwe:
-    - 'CWE-94: Improper Control of Generation of Code (''Code Injection'')'
-    references:
-    - https://www.php.net/manual/en/language.operators.execution.php
-    - https://github.com/FloeDesignTechnologies/phpcs-security-audit/blob/master/Security/Sniffs/BadFunctions/BackticksSniff.php
-    category: security
-    technology:
-    - php
-    owasp:
-    - A03:2021 - Injection
-    - A05:2025 - Injection
-    cwe2022-top25: true
-    subcategory:
-    - audit
-    likelihood: LOW
-    impact: HIGH
-    confidence: LOW
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Code Injection
-    source: https://semgrep.dev/r/php.lang.security.backticks-use.backticks-use
-    shortlink: https://sg.run/4xj9
-    semgrep.dev:
-      rule:
-        r_id: 9388
-        rv_id: 1263276
-        rule_id: WAUow7
-        version_id: NdTzyEy
-        url: https://semgrep.dev/playground/r/NdTzyEy/php.lang.security.backticks-use.backticks-use
-        origin: community
-        path: php.lang.security.backticks-use.backticks-use
-  languages:
-  - php
-  severity: ERROR
 - id: javascript.xml2json.security.audit.xml2json-xxe.xml2json-xxe
   message: If unverified user data can reach the XML Parser it can result in XML External
     or Internal Entity (XXE) Processing vulnerabilities
@@ -16294,6 +16187,314 @@ rules:
       var $S = "...";
       ...
       $XML.toJson($S,...);
+- id: json.aws.security.public-s3-policy-statement.public-s3-policy-statement
+  pattern: |
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Resource": [
+        ..., "=~/arn:aws:s3.*/", ...
+      ],
+      ...
+    }
+  message: Detected public S3 bucket policy. This policy allows anyone to access certain
+    properties of or items in the bucket. Do not do this unless you will never have
+    sensitive data inside the bucket.
+  metadata:
+    owasp:
+    - A01:2021 - Broken Access Control
+    - A01:2025 - Broken Access Control
+    cwe:
+    - 'CWE-264: CWE CATEGORY: Permissions, Privileges, and Access Controls'
+    references:
+    - https://docs.aws.amazon.com/AmazonS3/latest/dev/WebsiteAccessPermissionsReqd.html
+    category: security
+    technology:
+    - aws
+    subcategory:
+    - vuln
+    likelihood: LOW
+    impact: HIGH
+    confidence: MEDIUM
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Improper Authorization
+    source: https://semgrep.dev/r/json.aws.security.public-s3-policy-statement.public-s3-policy-statement
+    shortlink: https://sg.run/Yv1d
+    semgrep.dev:
+      rule:
+        r_id: 9358
+        rv_id: 1263255
+        rule_id: 9AU1br
+        version_id: A8Tgdxq
+        url: https://semgrep.dev/playground/r/A8Tgdxq/json.aws.security.public-s3-policy-statement.public-s3-policy-statement
+        origin: community
+        path: json.aws.security.public-s3-policy-statement.public-s3-policy-statement
+  severity: WARNING
+  languages:
+  - json
+- id: kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
+  message: A formatted or concatenated string was detected as input to a java.lang.Runtime
+    call. This is dangerous if a variable is controlled by user input and could result
+    in a command injection. Ensure your variables are not controlled by users or sufficiently
+    sanitized.
+  metadata:
+    cwe:
+    - 'CWE-78: Improper Neutralization of Special Elements used in an OS Command (''OS
+      Command Injection'')'
+    owasp:
+    - A01:2017 - Injection
+    - A03:2021 - Injection
+    - A05:2025 - Injection
+    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#COMMAND_INJECTION.
+    category: security
+    technology:
+    - kt
+    references:
+    - https://owasp.org/Top10/A03_2021-Injection
+    cwe2022-top25: true
+    cwe2021-top25: true
+    subcategory:
+    - audit
+    likelihood: LOW
+    impact: HIGH
+    confidence: LOW
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Command Injection
+    source: https://semgrep.dev/r/kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
+    shortlink: https://sg.run/6nEK
+    semgrep.dev:
+      rule:
+        r_id: 9359
+        rv_id: 1263259
+        rule_id: yyUnpo
+        version_id: 0bTKzZ9
+        url: https://semgrep.dev/playground/r/0bTKzZ9/kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
+        origin: community
+        path: kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
+  severity: ERROR
+  languages:
+  - kt
+  pattern-either:
+  - pattern: $RUNTIME.exec($X + $Y)
+  - pattern: $RUNTIME.exec(String.format(...))
+  - pattern: $RUNTIME.loadLibrary($X + $Y)
+  - pattern: $RUNTIME.loadLibrary(String.format(...))
+- id: kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+  metadata:
+    cwe:
+    - 'CWE-1004: Sensitive Cookie Without ''HttpOnly'' Flag'
+    owasp:
+    - A05:2021 - Security Misconfiguration
+    - A02:2025 - Security Misconfiguration
+    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#HTTPONLY_COOKIE
+    category: security
+    technology:
+    - kt
+    references:
+    - https://owasp.org/Top10/A05_2021-Security_Misconfiguration
+    subcategory:
+    - audit
+    likelihood: LOW
+    impact: LOW
+    confidence: LOW
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Cookie Security
+    source: https://semgrep.dev/r/kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+    shortlink: https://sg.run/ox7X
+    semgrep.dev:
+      rule:
+        r_id: 9360
+        rv_id: 1263260
+        rule_id: r6UrKQ
+        version_id: K3TKkRO
+        url: https://semgrep.dev/playground/r/K3TKkRO/kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+        origin: community
+        path: kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+  message: A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly'
+    flag for cookies instructs the browser to forbid client-side scripts from reading
+    the cookie. Set the 'HttpOnly' flag by calling 'cookie.setHttpOnly(true);'
+  severity: WARNING
+  languages:
+  - kt
+  patterns:
+  - pattern-not-inside: |
+      $COOKIE.setValue("")
+      ...
+  - pattern-either:
+    - pattern: $COOKIE.setHttpOnly(false)
+    - patterns:
+      - pattern-not-inside: |
+          $COOKIE.setHttpOnly(...)
+          ...
+      - pattern: $RESPONSE.addCookie($COOKIE)
+- id: kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
+  metadata:
+    cwe:
+    - 'CWE-614: Sensitive Cookie in HTTPS Session Without ''Secure'' Attribute'
+    owasp:
+    - A05:2021 - Security Misconfiguration
+    - A02:2025 - Security Misconfiguration
+    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#INSECURE_COOKIE
+    category: security
+    technology:
+    - kt
+    references:
+    - https://owasp.org/Top10/A05_2021-Security_Misconfiguration
+    subcategory:
+    - audit
+    likelihood: LOW
+    impact: LOW
+    confidence: LOW
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Cookie Security
+    source: https://semgrep.dev/r/kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
+    shortlink: https://sg.run/zv7n
+    semgrep.dev:
+      rule:
+        r_id: 9361
+        rv_id: 1263261
+        rule_id: bwUw3j
+        version_id: qkTR7r9
+        url: https://semgrep.dev/playground/r/qkTR7r9/kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
+        origin: community
+        path: kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
+  message: A cookie was detected without setting the 'secure' flag. The 'secure' flag
+    for cookies prevents the client from transmitting the cookie over insecure channels
+    such as HTTP. Set the 'secure' flag by calling '$COOKIE.setSecure(true);'
+  severity: WARNING
+  languages:
+  - kt
+  patterns:
+  - pattern-not-inside: |
+      $COOKIE.setValue("")
+      ...
+  - pattern-either:
+    - pattern: $COOKIE.setSecure(false)
+    - patterns:
+      - pattern-not-inside: |
+          $COOKIE.setSecure(...)
+          ...
+      - pattern: $RESPONSE.addCookie($COOKIE)
+- id: ocaml.lang.compatibility.deprecated.deprecated-pervasives
+  pattern: Pervasives.$X
+  message: Pervasives is deprecated and will not be available after 4.10. Use Stdlib.
+  languages:
+  - ocaml
+  severity: ERROR
+  metadata:
+    category: compatibility
+    technology:
+    - ocaml
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    source: https://semgrep.dev/r/ocaml.lang.compatibility.deprecated.deprecated-pervasives
+    shortlink: https://sg.run/dKe0
+    semgrep.dev:
+      rule:
+        r_id: 9378
+        rv_id: 945962
+        rule_id: 3qUP1E
+        version_id: K3TJbDY
+        url: https://semgrep.dev/playground/r/K3TJbDY/ocaml.lang.compatibility.deprecated.deprecated-pervasives
+        origin: community
+        path: ocaml.lang.compatibility.deprecated.deprecated-pervasives
+- id: php.lang.security.assert-use.assert-use
+  mode: taint
+  pattern-sources:
+  - pattern-either:
+    - patterns:
+      - pattern-either:
+        - pattern: $_GET
+        - pattern: $_POST
+        - pattern: $_COOKIE
+        - pattern: $_REQUEST
+        - pattern: $_SERVER
+    - patterns:
+      - pattern: |
+          Route::$METHOD($ROUTENAME, function(..., $ARG, ...) { ... })
+      - focus-metavariable: $ARG
+  pattern-sinks:
+  - patterns:
+    - pattern: assert($SINK, ...);
+    - pattern-not: assert("...", ...);
+    - pattern: $SINK
+  message: Calling assert with user input is equivalent to eval'ing.
+  metadata:
+    owasp:
+    - A03:2021 - Injection
+    - A05:2025 - Injection
+    cwe:
+    - 'CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code
+      (''Eval Injection'')'
+    references:
+    - https://www.php.net/manual/en/function.assert
+    - https://github.com/FloeDesignTechnologies/phpcs-security-audit/blob/master/Security/Sniffs/BadFunctions/AssertsSniff.php
+    category: security
+    technology:
+    - php
+    confidence: HIGH
+    subcategory:
+    - vuln
+    likelihood: MEDIUM
+    impact: MEDIUM
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Code Injection
+    source: https://semgrep.dev/r/php.lang.security.assert-use.assert-use
+    shortlink: https://sg.run/3xXW
+    semgrep.dev:
+      rule:
+        r_id: 9387
+        rv_id: 1263272
+        rule_id: DbUpjk
+        version_id: 9lT4bLx
+        url: https://semgrep.dev/playground/r/9lT4bLx/php.lang.security.assert-use.assert-use
+        origin: community
+        path: php.lang.security.assert-use.assert-use
+  languages:
+  - php
+  severity: ERROR
+- id: php.lang.security.backticks-use.backticks-use
+  pattern: '`...`;'
+  message: Backticks use may lead to command injection vulnerabilities.
+  metadata:
+    cwe:
+    - 'CWE-94: Improper Control of Generation of Code (''Code Injection'')'
+    references:
+    - https://www.php.net/manual/en/language.operators.execution.php
+    - https://github.com/FloeDesignTechnologies/phpcs-security-audit/blob/master/Security/Sniffs/BadFunctions/BackticksSniff.php
+    category: security
+    technology:
+    - php
+    owasp:
+    - A03:2021 - Injection
+    - A05:2025 - Injection
+    cwe2022-top25: true
+    subcategory:
+    - audit
+    likelihood: LOW
+    impact: HIGH
+    confidence: LOW
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Code Injection
+    source: https://semgrep.dev/r/php.lang.security.backticks-use.backticks-use
+    shortlink: https://sg.run/4xj9
+    semgrep.dev:
+      rule:
+        r_id: 9388
+        rv_id: 1263276
+        rule_id: WAUow7
+        version_id: NdTzyEy
+        url: https://semgrep.dev/playground/r/NdTzyEy/php.lang.security.backticks-use.backticks-use
+        origin: community
+        path: php.lang.security.backticks-use.backticks-use
+  languages:
+  - php
+  severity: ERROR
 - id: php.lang.security.curl-ssl-verifypeer-off.curl-ssl-verifypeer-off
   patterns:
   - pattern-either:
@@ -16511,52 +16712,6 @@ rules:
   languages:
   - php
   severity: ERROR
-- id: json.aws.security.public-s3-policy-statement.public-s3-policy-statement
-  pattern: |
-    {
-      "Effect": "Allow",
-      "Principal": "*",
-      "Resource": [
-        ..., "=~/arn:aws:s3.*/", ...
-      ],
-      ...
-    }
-  message: Detected public S3 bucket policy. This policy allows anyone to access certain
-    properties of or items in the bucket. Do not do this unless you will never have
-    sensitive data inside the bucket.
-  metadata:
-    owasp:
-    - A01:2021 - Broken Access Control
-    - A01:2025 - Broken Access Control
-    cwe:
-    - 'CWE-264: CWE CATEGORY: Permissions, Privileges, and Access Controls'
-    references:
-    - https://docs.aws.amazon.com/AmazonS3/latest/dev/WebsiteAccessPermissionsReqd.html
-    category: security
-    technology:
-    - aws
-    subcategory:
-    - vuln
-    likelihood: LOW
-    impact: HIGH
-    confidence: MEDIUM
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Improper Authorization
-    source: https://semgrep.dev/r/json.aws.security.public-s3-policy-statement.public-s3-policy-statement
-    shortlink: https://sg.run/Yv1d
-    semgrep.dev:
-      rule:
-        r_id: 9358
-        rv_id: 1263255
-        rule_id: 9AU1br
-        version_id: A8Tgdxq
-        url: https://semgrep.dev/playground/r/A8Tgdxq/json.aws.security.public-s3-policy-statement.public-s3-policy-statement
-        origin: community
-        path: json.aws.security.public-s3-policy-statement.public-s3-policy-statement
-  severity: WARNING
-  languages:
-  - json
 - id: php.lang.security.mcrypt-use.mcrypt-use
   patterns:
   - pattern: $FUNC(...);
@@ -16596,54 +16751,6 @@ rules:
   languages:
   - php
   severity: ERROR
-- id: kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
-  message: A formatted or concatenated string was detected as input to a java.lang.Runtime
-    call. This is dangerous if a variable is controlled by user input and could result
-    in a command injection. Ensure your variables are not controlled by users or sufficiently
-    sanitized.
-  metadata:
-    cwe:
-    - 'CWE-78: Improper Neutralization of Special Elements used in an OS Command (''OS
-      Command Injection'')'
-    owasp:
-    - A01:2017 - Injection
-    - A03:2021 - Injection
-    - A05:2025 - Injection
-    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#COMMAND_INJECTION.
-    category: security
-    technology:
-    - kt
-    references:
-    - https://owasp.org/Top10/A03_2021-Injection
-    cwe2022-top25: true
-    cwe2021-top25: true
-    subcategory:
-    - audit
-    likelihood: LOW
-    impact: HIGH
-    confidence: LOW
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Command Injection
-    source: https://semgrep.dev/r/kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
-    shortlink: https://sg.run/6nEK
-    semgrep.dev:
-      rule:
-        r_id: 9359
-        rv_id: 1263259
-        rule_id: yyUnpo
-        version_id: 0bTKzZ9
-        url: https://semgrep.dev/playground/r/0bTKzZ9/kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
-        origin: community
-        path: kotlin.lang.security.command-injection-formatted-runtime-call.command-injection-formatted-runtime-call
-  severity: ERROR
-  languages:
-  - kt
-  pattern-either:
-  - pattern: $RUNTIME.exec($X + $Y)
-  - pattern: $RUNTIME.exec(String.format(...))
-  - pattern: $RUNTIME.loadLibrary($X + $Y)
-  - pattern: $RUNTIME.loadLibrary(String.format(...))
 - id: php.lang.security.md5-loose-equality.md5-loose-equality
   mode: taint
   pattern-sinks:
@@ -17481,1279 +17588,6 @@ rules:
       (SSLConnectionSocketFactory $SF) = new SSLConnectionSocketFactory(...); ... (TlsConfig $TLSCONFIG) = TlsConfig.custom(). ... .setSupportedProtocols(TLS.V_1_2). ... .build(); ... HttpClientConnectionManager cm = $CM.create(). ... .setSSLSocketFactory($SF). ... .setDefaultTlsConfig($TLSCONFIG). ... .build();
   - pattern-not-inside: |
       (SSLConnectionSocketFactory $SF) = new SSLConnectionSocketFactory(...); ... (TlsConfig $TLSCONFIG) = TlsConfig.custom(). ... .setSupportedProtocols(TLS.V_1_3). ... .build(); ... HttpClientConnectionManager cm = $CM.create(). ... .setSSLSocketFactory($SF). ... .setDefaultTlsConfig($TLSCONFIG). ... .build();
-- id: problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
-  message: Detects setting client protocols to insecure versions of TLS and SSL. These
-    protocols are deprecated due to POODLE, man in the middle attacks, and other vulnerabilities.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://stackoverflow.com/questions/26504653/is-it-possible-to-disable-sslv3-for-all-java-applications
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
-    shortlink: https://sg.run/Yvjy
-    semgrep.dev:
-      rule:
-        r_id: 9414
-        rv_id: 946057
-        rule_id: 10UKvx
-        version_id: RGTAg7R
-        url: https://semgrep.dev/playground/r/RGTAg7R/problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
-  languages:
-  - java
-  patterns:
-  - pattern: $VALUE. ... .setProperty("jdk.tls.client.protocols", "$PATTERNS");
-  - metavariable-pattern:
-      metavariable: $PATTERNS
-      language: generic
-      patterns:
-      - pattern-either:
-        - pattern: TLS1
-        - pattern-regex: ^(.*TLSv1|.*SSLv.*)$
-        - pattern-regex: ^(.*TLSv1,.*)
-- id: problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
-  message: Checks for outgoing connections to ftp servers. FTP does not encrypt traffic,
-    possibly leading to PII being sent plaintext over the network.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://www.codejava.net/java-se/ftp/connect-and-login-to-a-ftp-server
-    - https://commons.apache.org/proper/commons-net/apidocs/org/apache/commons/net/ftp/FTPClient.html
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
-    shortlink: https://sg.run/6n91
-    semgrep.dev:
-      rule:
-        r_id: 9415
-        rv_id: 946058
-        rule_id: 9AU1wD
-        version_id: A8TJz8g
-        url: https://semgrep.dev/playground/r/A8TJz8g/problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
-  languages:
-  - java
-  fix-regex:
-    regex: '[fF][tT][pP]://'
-    replacement: sftp://
-    count: 1
-  pattern-either:
-  - pattern: |
-      FTPClient $FTPCLIENT = new FTPClient();
-      ...
-      $FTPCLIENT.connect(...);
-  - pattern: |
-      URL $URL = new URL("=~/^[fF][tT][pP]://.*/");
-      ...
-      URLConnection $CONN = $URL.openConnection(...);
-- id: problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
-  message: Checks for requests sent via Apache HTTP Components to http:// URLS. This
-    is dangerous because the server is attempting to connect to a website that does
-    not encrypt traffic with TLS. Instead, send requests only to https:// URLS.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://hc.apache.org/httpcomponents-client-ga/quickstart.html
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
-    shortlink: https://sg.run/oxD0
-    semgrep.dev:
-      rule:
-        r_id: 9416
-        rv_id: 946059
-        rule_id: yyUnjk
-        version_id: BjT1N5b
-        url: https://semgrep.dev/playground/r/BjT1N5b/problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
-  languages:
-  - java
-  fix-regex:
-    regex: '[Hh][Tt][Tt][Pp]://'
-    replacement: https://
-    count: 1
-  pattern-either:
-  - pattern: |
-      $HTTPCLIENT = HttpClients.$CREATE(...);
-      ...
-      $HTTPREQ = new $HTTPFUNC("=~/[hH][tT][tT][pP]://.*/");
-      ...
-      $RESPONSE = $HTTPCLIENT.execute($HTTPREQ);
-  - pattern: |
-      $HTTPCLIENT = HttpClients.$CREATE(...);
-      ...
-      $RESPONSE = $HTTPCLIENT.execute(new $HTTPFUNC("=~/[hH][tT][tT][pP]://.*/"));
-- id: problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
-  message: Checks for requests sent via HttpClient to http:// URLS. This is dangerous
-    because the server is attempting to connect to a website that does not encrypt
-    traffic with TLS. Instead, send requests only to https:// URLS.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://openjdk.java.net/groups/net/httpclient/intro.html
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
-    shortlink: https://sg.run/zv2d
-    semgrep.dev:
-      rule:
-        r_id: 9417
-        rv_id: 946060
-        rule_id: r6Ur3y
-        version_id: DkTNpJw
-        url: https://semgrep.dev/playground/r/DkTNpJw/problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
-  languages:
-  - java
-  fix-regex:
-    regex: '[Hh][Tt][Tt][Pp]://'
-    replacement: https://
-    count: 1
-  pattern-either:
-  - patterns:
-    - pattern: |
-        URI.create("=~/[hH][tT][tT][pP]://.*/", ...)
-    - pattern-inside: |
-        HttpClient $CLIENT = ...;
-        ...
-        HttpRequest $REQ = ...;
-        ...
-        $CLIENT.sendAsync(...);
-  - patterns:
-    - pattern: |
-        URI.create("=~/[hH][tT][tT][pP]://.*/", ...)
-    - pattern-inside: |
-        HttpClient $CLIENT = ...;
-        ...
-        HttpRequest $REQ = ...;
-        ...
-        $CLIENT.send(...);
-  - patterns:
-    - pattern: |
-        URI.create($URI)
-    - pattern-inside: |
-        String $URI = "=~/[hH][tT][tT][pP]://.*/";
-        ...
-        HttpClient $CLIENT = ...;
-        ...
-        HttpRequest $REQ = ...;
-        ...
-        $CLIENT.send(...);
-  - patterns:
-    - pattern: |
-        URI.create($URI)
-    - pattern-inside: |
-        String $URI = "=~/[hH][tT][tT][pP]://.*/";
-        ...
-        HttpClient $CLIENT = ...;
-        ...
-        HttpRequest $REQ = ...;
-        ...
-        $CLIENT.sendAsync(...);
-- id: problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
-  message: Detected an HTTP request sent via HttpURLConnection. This could lead to
-    sensitive information being sent over an insecure channel. Instead, it is recommended
-    to send requests over HTTPS.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/net/URLConnection.html
-    - https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/net/URL.html#openConnection()
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
-    shortlink: https://sg.run/px3Z
-    semgrep.dev:
-      rule:
-        r_id: 9418
-        rv_id: 946062
-        rule_id: bwUwvR
-        version_id: 0bT15Bq
-        url: https://semgrep.dev/playground/r/0bT15Bq/problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
-  languages:
-  - java
-  fix-regex:
-    regex: '[Hh][Tt][Tt][Pp]://'
-    replacement: https://
-    count: 1
-  patterns:
-  - pattern: |
-      "=~/[Hh][Tt][Tt][Pp]://.*/"
-  - pattern-either:
-    - pattern-inside: |
-        URL $URL = new URL ("=~/[Hh][Tt][Tt][Pp]://.*/", ...);
-        ...
-        $CON = (HttpURLConnection) $URL.openConnection(...);
-        ...
-        $CON.$FUNC(...);
-    - pattern-inside: |
-        URL $URL = new URL ("=~/[Hh][Tt][Tt][Pp]://.*/", ...);
-        ...
-        $CON = $URL.openConnection(...);
-        ...
-        $CON.$FUNC(...);
-- id: problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
-  message: Insecure transport rules to catch socket connections to http, telnet, and
-    ftp servers. This is dangerous because these are protocols that do not encrypt
-    traffic.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: LOW
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://docs.oracle.com/javase/8/docs/api/java/net/Socket.html
-    subcategory:
-    - audit
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
-    shortlink: https://sg.run/2x9L
-    semgrep.dev:
-      rule:
-        r_id: 9419
-        rv_id: 946063
-        rule_id: NbUkl9
-        version_id: K3TJbeQ
-        url: https://semgrep.dev/playground/r/K3TJbeQ/problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
-  languages:
-  - java
-  pattern-either:
-  - pattern: |
-      $SOCKET = new Socket("=~/[tT][eE][lL][nN][eE][tT]://.*/", ...);
-      ...
-      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
-      ...
-      $OUT.$FUNC(...);
-  - pattern: |
-      $SOCKET = new Socket("=~/^[fF][tT][pP]://.*/", ...);
-      ...
-      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
-      ...
-      $OUT.$FUNC(...);
-  - pattern: |
-      $SOCKET = new Socket("=~/[hH][tT][tT][pP]://.*/", ...);
-      ...
-      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
-      ...
-      $OUT.$FUNC(...);
-- id: problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
-  message: Checks for attempts to connect through telnet. This is insecure as the
-    telnet protocol supports no encryption, and data passes through unencrypted.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://commons.apache.org/proper/commons-net/javadocs/api-3.6/org/apache/commons/net/telnet/TelnetClient.html
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
-    shortlink: https://sg.run/XBQB
-    semgrep.dev:
-      rule:
-        r_id: 9420
-        rv_id: 946064
-        rule_id: kxUkXk
-        version_id: qkT4jGK
-        url: https://semgrep.dev/playground/r/qkT4jGK/problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
-  languages:
-  - java
-  pattern: |
-    $TELNETCLIENT = new TelnetClient(...);
-    ...
-    $TELNETCLIENT.connect(...);
-- id: problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
-  message: Checks for cases where java applications are allowing unsafe renegotiation.
-    This leaves the application vulnerable to a man-in-the-middle attack where chosen
-    plain text is injected as prefix to a TLS connection.
-  severity: WARNING
-  metadata:
-    likelihood: LOW
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://www.oracle.com/java/technologies/javase/tlsreadme.html
-    subcategory:
-    - vuln
-    technology:
-    - java
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
-    shortlink: https://sg.run/jR5N
-    semgrep.dev:
-      rule:
-        r_id: 9421
-        rv_id: 946065
-        rule_id: wdUJw8
-        version_id: l4Tx9be
-        url: https://semgrep.dev/playground/r/l4Tx9be/problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
-  languages:
-  - java
-  pattern: |
-    java.lang.System.setProperty("sun.security.ssl.allowUnsafeRenegotiation", true);
-- id: problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
-  message: Checks for requests sent via Unirest to http:// URLS. This is dangerous
-    because the server is attempting to connect to a website that does not encrypt
-    traffic with TLS. Instead, send requests only to https:// URLS.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://kong.github.io/unirest-java/#requests
-    subcategory:
-    - vuln
-    technology:
-    - unirest
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
-    shortlink: https://sg.run/1Z1G
-    semgrep.dev:
-      rule:
-        r_id: 9422
-        rv_id: 946066
-        rule_id: x8Uno2
-        version_id: YDTvR5x
-        url: https://semgrep.dev/playground/r/YDTvR5x/problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
-        origin: community
-        path: problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
-  languages:
-  - java
-  fix-regex:
-    regex: '[Hh][Tt][Tt][Pp]://'
-    replacement: https://
-    count: 1
-  pattern-either:
-  - pattern: |
-      Unirest.get("=~/[hH][tT][tT][pP]://.*/")
-  - pattern: |
-      Unirest.post("=~/[hH][tT][tT][pP]://.*/")
-- id: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-  message: Checks for setting the environment variable NODE_TLS_REJECT_UNAUTHORIZED
-    to 0, which disables TLS verification. This should only be used for debugging
-    purposes. Setting the option rejectUnauthorized to false bypasses verification
-    against the list of trusted CAs, which also leads to insecure transport. These
-    options lead to vulnerability to MTM attacks, and should not be used.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://nodejs.org/api/https.html#https_https_request_options_callback
-    - https://stackoverflow.com/questions/20433287/node-js-request-cert-has-expired#answer-29397100
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-    shortlink: https://sg.run/9oxr
-    semgrep.dev:
-      rule:
-        r_id: 9423
-        rv_id: 946067
-        rule_id: OrU3Y6
-        version_id: JdTDybO
-        url: https://semgrep.dev/playground/r/JdTDybO/problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-  languages:
-  - javascript
-  - typescript
-  pattern-either:
-  - pattern: |
-      process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
-  - pattern: |
-      {rejectUnauthorized:false}
-- id: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
-  message: Detects direct creations of $HTTPS servers that don't disallow SSL v2,
-    SSL v3, and TLS v1. These protocols are deprecated due to POODLE, man in the middle
-    attacks, and other vulnerabilities.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://us-cert.cisa.gov/ncas/alerts/TA14-290A
-    - https://stackoverflow.com/questions/40434934/how-to-disable-the-ssl-3-0-and-tls-1-0-in-nodejs
-    - https://nodejs.org/api/https.html#https_https_createserver_options_requestlistener
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
-    shortlink: https://sg.run/ydpP
-    semgrep.dev:
-      rule:
-        r_id: 9424
-        rv_id: 946068
-        rule_id: eqU8nr
-        version_id: 5PT9Ojl
-        url: https://semgrep.dev/playground/r/5PT9Ojl/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
-  languages:
-  - javascript
-  - typescript
-  patterns:
-  - pattern-either:
-    - pattern-inside: |
-        $CONST = require('crypto');
-        ...
-    - pattern-inside: |
-        $CONST = require('constants');
-        ...
-  - pattern-inside: |
-      $HTTPS = require('https');
-      ...
-  - pattern: |
-      $HTTPS.createServer(...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 }, ...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_SSLv3 }, ...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_SSLv3 |$CONST.SSL_OP_NO_TLSv1 }, ...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3}, ...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions:$CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_TLSv1}, ...).$FUNC(...);
-  - pattern-not: |
-      $HTTPS.createServer({secureOptions:$CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1| $CONST.SSL_OP_NO_SSLv2}, ...).$FUNC(...);
-- id: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
-  message: Detects creations of $HTTPS servers from option objects that don't disallow
-    SSL v2, SSL v3, and TLS v1. These protocols are deprecated due to POODLE, man
-    in the middle attacks, and other vulnerabilities.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://us-cert.cisa.gov/ncas/alerts/TA14-290A
-    - https://stackoverflow.com/questions/40434934/how-to-disable-the-ssl-3-0-and-tls-1-0-in-nodejs
-    - https://nodejs.org/api/https.html#https_https_createserver_options_requestlistener
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
-    shortlink: https://sg.run/rdKe
-    semgrep.dev:
-      rule:
-        r_id: 9425
-        rv_id: 946069
-        rule_id: v8UnPO
-        version_id: GxTP7y5
-        url: https://semgrep.dev/playground/r/GxTP7y5/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
-  languages:
-  - javascript
-  - typescript
-  patterns:
-  - pattern-either:
-    - pattern-inside: |
-        $CONST = require('crypto');
-        ...
-    - pattern-inside: |
-        $CONST = require('constants');
-        ...
-  - pattern-inside: |
-      $HTTPS = require('https');
-      ...
-  - pattern: |
-      $OPTIONS = {};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_SSLv3};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv2  | $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_TLSv1};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-  - pattern-not: |
-      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2};
-      ...
-      $HTTPS.createServer($OPTIONS, ...);
-- id: problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
-  message: 'Checks for lack of usage of the "secure: true" option when sending ftp
-    requests through the nodejs ftp module. This leads to unencrypted traffic being
-    sent to the ftp server. There are other options such as "implicit" that still
-    does not encrypt all traffic. ftp is the most utilized npm ftp module.'
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://www.npmjs.com/package/ftp
-    - https://openbase.io/js/ftp
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
-    shortlink: https://sg.run/b7QW
-    semgrep.dev:
-      rule:
-        r_id: 9426
-        rv_id: 946070
-        rule_id: d8UjZ6
-        version_id: RGTAg7Z
-        url: https://semgrep.dev/playground/r/RGTAg7Z/problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
-  languages:
-  - javascript
-  - typescript
-  patterns:
-  - pattern-inside: |
-      $X = require('ftp');
-      ...
-      $C = new $X();
-      ...
-  - pattern-not-inside: |
-      $OPTIONS = {secure: true};
-      ...
-  - pattern: |
-      $C.connect($OPTIONS,...);
-  - pattern-not: |
-      $C.connect({...,secure: true});
-- id: problem-based-packs.insecure-transport.js-node.http-request.http-request
-  message: Checks for requests sent to http:// URLs. This is dangerous as the server
-    is attempting to connect to a website that does not encrypt traffic with TLS.
-    Instead, only send requests to https:// URLs.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://nodejs.org/api/http.html#http_http_request_options_callback
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.http-request.http-request
-    shortlink: https://sg.run/N4Qy
-    semgrep.dev:
-      rule:
-        r_id: 9427
-        rv_id: 946071
-        rule_id: ZqU5r3
-        version_id: A8TJz8O
-        url: https://semgrep.dev/playground/r/A8TJz8O/problem-based-packs.insecure-transport.js-node.http-request.http-request
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.http-request.http-request
-  languages:
-  - javascript
-  patterns:
-  - pattern-inside: |
-      $HTTP = require('http');
-      ...
-  - pattern-either:
-    - pattern: |
-        $HTTP.request("=~/http://.*/",...);
-    - pattern: |
-        $HTTP.get("=~/http://.*/", ...)
-    - pattern: |
-        $VAR = new URL("=~/http://.*/");
-        ...
-        $HTTP.request($VAR, ...);
-    - pattern: |
-        $VAR = {...,hostname: "..."};
-        ...
-        $HTTP.request(..., $VAR, ...);
-    - pattern: |
-        $HTTP.request(..., {...,hostname: "..."}, ...);
-  - pattern-not: |
-      $VAR = {...,protocol: "https"};
-      ...
-      $HTTP.request(..., $VAR, ...);
-  - pattern-not: |
-      $HTTP.request(..., {...,protocol: "https"}, ...);
-- id: problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
-  message: Checks for requests to http (unencrypted) sites using some of node js's
-    most popular REST/HTTP libraries, including node-rest-client, axios, and got.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://www.npmjs.com/package/axios
-    - https://www.npmjs.com/package/got
-    - https://www.npmjs.com/package/node-rest-client
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
-    shortlink: https://sg.run/kXGP
-    semgrep.dev:
-      rule:
-        r_id: 9428
-        rv_id: 946072
-        rule_id: nJUzKP
-        version_id: BjT1N5l
-        url: https://semgrep.dev/playground/r/BjT1N5l/problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
-  languages:
-  - javascript
-  patterns:
-  - pattern-either:
-    - pattern-inside: |
-        $CLIENT = require('node-rest-client').Client;
-        ...
-        $C = new $CLIENT();
-        ...
-    - pattern-inside: |
-        $C = require('axios');
-        ...
-    - pattern-inside: |
-        $C = require('got');
-        ...
-  - pattern-either:
-    - pattern: |
-        $C.$REQ("=~/http://.*/", ...)
-    - pattern: |
-        $C("=~/http://.*/", ...)
-    - pattern: |
-        $C({...,url: "=~/http://.*/"})
-    - pattern: |
-        $C.$REQ({...,url: "=~/http://.*/"})
-- id: problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
-  message: Checks for creation of telnet servers or attempts to connect through telnet.
-    This is insecure as the telnet protocol supports no encryption, and data passes
-    through unencrypted.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://www.npmjs.com/package/telnet
-    - https://www.npmjs.com/package/telnet-client
-    subcategory:
-    - vuln
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
-    shortlink: https://sg.run/weoA
-    semgrep.dev:
-      rule:
-        r_id: 9429
-        rv_id: 946073
-        rule_id: EwU2GA
-        version_id: DkTNpJJ
-        url: https://semgrep.dev/playground/r/DkTNpJJ/problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
-  languages:
-  - javascript
-  patterns:
-  - pattern-either:
-    - pattern-inside: |
-        $TEL = require('telnet-client');
-        ...
-        $SERVER = new $TEL();
-        ...
-    - pattern-inside: |
-        $SERVER = require('telnet');
-        ...
-  - pattern-either:
-    - pattern: |
-        $SERVER.on(...)
-    - pattern: |
-        $SERVER.connect(...)
-    - pattern: |
-        $SERVER.createServer(...)
-- id: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
-  message: Checks for any usage of http servers instead of https servers. Encourages
-    the usage of https protocol instead of http, which does not have TLS and is therefore
-    unencrypted. Using http can lead to man-in-the-middle attacks in which the attacker
-    is able to read sensitive information.
-  severity: WARNING
-  metadata:
-    likelihood: LOW
-    impact: MEDIUM
-    confidence: LOW
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp:
-    - A02:2021 - Cryptographic Failures
-    - A03:2017 - Sensitive Data Exposure
-    - A04:2025 - Cryptographic Failures
-    references:
-    - https://nodejs.org/api/http.html#http_class_http_agent
-    - https://groups.google.com/g/rubyonrails-security/c/NCCsca7TEtY
-    subcategory:
-    - audit
-    technology:
-    - node.js
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
-    shortlink: https://sg.run/x1zL
-    semgrep.dev:
-      rule:
-        r_id: 9430
-        rv_id: 1263329
-        rule_id: 7KUQAE
-        version_id: 9lT4bNd
-        url: https://semgrep.dev/playground/r/9lT4bNd/problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
-        origin: community
-        path: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
-  languages:
-  - javascript
-  patterns:
-  - pattern-inside: |
-      $HTTP = require('http');
-      ...
-  - pattern-either:
-    - pattern: |
-        $HTTP.$FUNC(...);
-    - pattern: |
-        new $HTTP.$FUNC2(...);
-  - pattern: $HTTP
-- id: problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
-  message: Checks for requests to http (unencrypted) sites using some of ruby's most
-    popular REST/HTTP libraries, including httparty and restclient.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://github.com/rest-client/rest-client
-    - https://github.com/jnunemaker/httparty/tree/master/docs
-    subcategory:
-    - vuln
-    technology:
-    - httparty
-    - rest-client
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
-    shortlink: https://sg.run/OPQL
-    semgrep.dev:
-      rule:
-        r_id: 9431
-        rv_id: 946075
-        rule_id: L1UyKG
-        version_id: 0bT15Bn
-        url: https://semgrep.dev/playground/r/0bT15Bn/problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
-        origin: community
-        path: problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
-  languages:
-  - ruby
-  pattern-either:
-  - pattern: |
-      HTTParty.$PARTYVERB("=~/[hH][tT][tT][pP]://.*/", ...)
-  - pattern: |
-      $STRING = "=~/[hH][tT][tT][pP]://.*/"
-      ...
-      HTTParty.$PARTYVERB($STRING, ...)
-  - pattern: |
-      RestClient.$RESTVERB "=~/[hH][tT][tT][pP]://.*/", ...
-  - pattern: |
-      RestClient::Request.execute(..., url: "=~/[hH][tT][tT][pP]://.*/", ...)
-- id: problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
-  message: Checks for outgoing connections to ftp servers with the 'net/ftp' package.
-    FTP does not encrypt traffic, possibly leading to PII being sent plaintext over
-    the network. Instead, connect via the SFTP protocol.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://docs.ruby-lang.org/en/2.0.0/Net/FTP.html
-    subcategory:
-    - vuln
-    technology:
-    - ruby
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
-    shortlink: https://sg.run/eLQ8
-    semgrep.dev:
-      rule:
-        r_id: 9432
-        rv_id: 946076
-        rule_id: 8GUj13
-        version_id: K3TJbe1
-        url: https://semgrep.dev/playground/r/K3TJbe1/problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
-        origin: community
-        path: problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
-  languages:
-  - ruby
-  pattern-either:
-  - pattern: |
-      $FTP = Net::FTP.new('...')
-      ...
-      $FTP.login
-  - pattern: |
-      Net::FTP.open('...') do |ftp|
-        ...
-        ftp.login
-      end
-- id: problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
-  message: Checks for requests sent to http:// URLs. This is dangerous as the server
-    is attempting to connect to a website that does not encrypt traffic with TLS.
-    Instead, only send requests to https:// URLs.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://ruby-doc.org/stdlib-2.6.5/libdoc/net/http/rdoc/Net/
-    subcategory:
-    - vuln
-    technology:
-    - ruby
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
-    shortlink: https://sg.run/vz6Y
-    semgrep.dev:
-      rule:
-        r_id: 9433
-        rv_id: 946077
-        rule_id: gxU1lE
-        version_id: qkT4jG8
-        url: https://semgrep.dev/playground/r/qkT4jG8/problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
-        origin: community
-        path: problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
-  languages:
-  - ruby
-  patterns:
-  - pattern-either:
-    - pattern: |
-        $URI = URI('=~/[hH][tT][tT][pP]://.*/')
-        ...
-        Net::HTTP::$FUNC.new $URI
-    - pattern: |
-        $URI = URI('=~/[hH][tT][tT][pP]://.*/')
-        ...
-        Net::HTTP.$FUNC($URI, ...)
-    - pattern: |
-        Net::HTTP.$FUNC(URI('=~/[hH][tT][tT][pP]://.*/'), ...)
-  - metavariable-regex:
-      metavariable: $FUNC
-      regex: ([gG]et|post_form|[pP]ost|get_response|get_print|Head|Patch|Put|Proppatch|Lock|Unlock|Options|Propfind|Delete|Move|Copy|Trace|Mkcol)
-- id: problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
-  message: Checks for creation of telnet servers or attempts to connect through telnet.
-    This is insecure as the telnet protocol supports no encryption, and data passes
-    through unencrypted.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://docs.ruby-lang.org/en/2.2.0/Net/Telnet.html
-    - https://www.rubydoc.info/gems/net-ssh-telnet2/0.1.0/Net/SSH/Telnet
-    subcategory:
-    - vuln
-    technology:
-    - ruby
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
-    shortlink: https://sg.run/dKQE
-    semgrep.dev:
-      rule:
-        r_id: 9434
-        rv_id: 946078
-        rule_id: QrUzo2
-        version_id: l4Tx9bO
-        url: https://semgrep.dev/playground/r/l4Tx9bO/problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
-        origin: community
-        path: problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
-  languages:
-  - ruby
-  pattern-either:
-  - pattern: |
-      Net::Telnet::new(...)
-  - pattern: |
-      Net::SSH::Telnet.new(...)
-- id: problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
-  message: Checks for requests to http and ftp (unencrypted) sites using OpenURI.
-  severity: WARNING
-  metadata:
-    likelihood: MEDIUM
-    impact: MEDIUM
-    confidence: MEDIUM
-    category: security
-    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
-    owasp: A03:2017 - Sensitive Data Exposure
-    references:
-    - https://ruby-doc.org/stdlib-2.6.3/libdoc/open-uri/rdoc/OpenURI.html
-    subcategory:
-    - vuln
-    technology:
-    - open-uri
-    vulnerability: Insecure Transport
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Mishandled Sensitive Information
-    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
-    shortlink: https://sg.run/ZvQw
-    semgrep.dev:
-      rule:
-        r_id: 9435
-        rv_id: 946079
-        rule_id: 3qUPNe
-        version_id: YDTvR5b
-        url: https://semgrep.dev/playground/r/YDTvR5b/problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
-        origin: community
-        path: problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
-  languages:
-  - ruby
-  pattern-either:
-  - pattern: |
-      URI.open('=~/[hH][tT][tT][pP]://.*/', ...)
-  - pattern: |
-      $URI = URI.parse('=~/[hH][tT][tT][pP]://.*/', ...)
-      ...
-      $URI.open
-  - pattern: |
-      URI.open('=~/^[fF][tT][pP]://.*/', ...)
-  - pattern: |
-      $URI = URI.parse('=~/^[fF][tT][pP]://.*/', ...)
-      ...
-      $URI.open
-- id: python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
-  message: 'Found a formatted string in BashOperator: $CMD. This could be vulnerable
-    to injection. Be extra sure your variables are not controllable by external sources.'
-  metadata:
-    cwe:
-    - 'CWE-78: Improper Neutralization of Special Elements used in an OS Command (''OS
-      Command Injection'')'
-    owasp:
-    - A01:2017 - Injection
-    - A03:2021 - Injection
-    - A05:2025 - Injection
-    category: security
-    technology:
-    - airflow
-    references:
-    - https://owasp.org/Top10/A03_2021-Injection
-    cwe2022-top25: true
-    cwe2021-top25: true
-    subcategory:
-    - audit
-    likelihood: LOW
-    impact: HIGH
-    confidence: LOW
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Command Injection
-    source: https://semgrep.dev/r/python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
-    shortlink: https://sg.run/ndBY
-    semgrep.dev:
-      rule:
-        r_id: 9436
-        rv_id: 1263330
-        rule_id: 4bUkOY
-        version_id: yeTxpb3
-        url: https://semgrep.dev/playground/r/yeTxpb3/python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
-        origin: community
-        path: python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
-  languages:
-  - python
-  severity: ERROR
-  pattern-either:
-  - pattern: |
-      airflow.operators.bash_operator.BashOperator(..., bash_command="..." + $CONCAT, ...)
-  - pattern: |
-      airflow.operators.bash_operator.BashOperator(..., bash_command="...".format(...), ...)
-  - pattern: |
-      airflow.operators.bash_operator.BashOperator(..., bash_command=f"...", ...)
-  - pattern: |
-      airflow.operators.bash_operator.BashOperator(..., bash_command="..." % $PARAMS, ...)
-  - pattern: |
-      $CMD = "..." % $PARAMS
-      ...
-      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
-  - pattern: |
-      $CMD = $STR.format(...)
-      ...
-      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
-  - pattern: |
-      $CMD = f"..."
-      ...
-      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
-  - pattern: |
-      $CMD = "..." + $CONCAT
-      ...
-      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
-  - pattern: |
-      $CMD = "..."
-      ...
-      $CMD += $CONCAT
-      ...
-      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
-- id: python.boto3.security.hardcoded-token.hardcoded-token
-  message: A hard-coded credential was detected. It is not recommended to store credentials
-    in source-code, as this risks secrets being leaked and used by either an internal
-    or external malicious adversary. It is recommended to use environment variables
-    to securely provide credentials or retrieve credentials from a secure vault or
-    HSM (Hardware Security Module).
-  metadata:
-    cwe:
-    - 'CWE-798: Use of Hard-coded Credentials'
-    references:
-    - https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
-    - https://bento.dev/checks/boto3/hardcoded-access-token/
-    - https://aws.amazon.com/blogs/security/what-to-do-if-you-inadvertently-expose-an-aws-access-key/
-    owasp:
-    - A07:2021 - Identification and Authentication Failures
-    - A07:2025 - Authentication Failures
-    category: security
-    technology:
-    - boto3
-    - secrets
-    cwe2022-top25: true
-    cwe2021-top25: true
-    subcategory:
-    - vuln
-    likelihood: HIGH
-    impact: MEDIUM
-    confidence: MEDIUM
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Hard-coded Secrets
-    source: https://semgrep.dev/r/python.boto3.security.hardcoded-token.hardcoded-token
-    shortlink: https://sg.run/LwQ6
-    semgrep.dev:
-      rule:
-        r_id: 9439
-        rv_id: 1263347
-        rule_id: 5rUOwK
-        version_id: gETB78n
-        url: https://semgrep.dev/playground/r/gETB78n/python.boto3.security.hardcoded-token.hardcoded-token
-        origin: community
-        path: python.boto3.security.hardcoded-token.hardcoded-token
-  languages:
-  - python
-  severity: WARNING
-  mode: taint
-  pattern-sources:
-  - pattern: |
-      "..."
-  pattern-sinks:
-  - patterns:
-    - pattern-either:
-      - pattern: $W(...,$TOKEN="$VALUE",...)
-      - pattern: $BOTO. ... .$W(...,$TOKEN="$VALUE",...)
-    - metavariable-regex:
-        metavariable: $TOKEN
-        regex: (aws_session_token|aws_access_key_id|aws_secret_access_key)
-    - metavariable-pattern:
-        language: generic
-        metavariable: $VALUE
-        patterns:
-        - pattern-either:
-          - pattern-regex: ^AKI
-          - pattern-regex: ^[A-Za-z0-9/+=]+$
-    - metavariable-analysis:
-        metavariable: $VALUE
-        analyzer: entropy
 - id: python.cryptography.security.insecure-cipher-algorithms.insecure-cipher-algorithm-idea
   message: IDEA (International Data Encryption Algorithm) is a block cipher created
     in 1991.  It is an optional component of the OpenPGP standard. This cipher is
@@ -71741,123 +70575,1276 @@ rules:
   - pattern-regex: \$\{\{\s*secrets\.
   - pattern-not-inside: 'jobs: ...'
   severity: WARNING
-- id: kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+- id: problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
+  message: Detects setting client protocols to insecure versions of TLS and SSL. These
+    protocols are deprecated due to POODLE, man in the middle attacks, and other vulnerabilities.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://stackoverflow.com/questions/26504653/is-it-possible-to-disable-sslv3-for-all-java-applications
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
+    shortlink: https://sg.run/Yvjy
+    semgrep.dev:
+      rule:
+        r_id: 9414
+        rv_id: 946057
+        rule_id: 10UKvx
+        version_id: RGTAg7R
+        url: https://semgrep.dev/playground/r/RGTAg7R/problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.disallow-old-tls-versions2.disallow-old-tls-versions2
+  languages:
+  - java
+  patterns:
+  - pattern: $VALUE. ... .setProperty("jdk.tls.client.protocols", "$PATTERNS");
+  - metavariable-pattern:
+      metavariable: $PATTERNS
+      language: generic
+      patterns:
+      - pattern-either:
+        - pattern: TLS1
+        - pattern-regex: ^(.*TLSv1|.*SSLv.*)$
+        - pattern-regex: ^(.*TLSv1,.*)
+- id: problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
+  message: Checks for outgoing connections to ftp servers. FTP does not encrypt traffic,
+    possibly leading to PII being sent plaintext over the network.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://www.codejava.net/java-se/ftp/connect-and-login-to-a-ftp-server
+    - https://commons.apache.org/proper/commons-net/apidocs/org/apache/commons/net/ftp/FTPClient.html
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
+    shortlink: https://sg.run/6n91
+    semgrep.dev:
+      rule:
+        r_id: 9415
+        rv_id: 946058
+        rule_id: 9AU1wD
+        version_id: A8TJz8g
+        url: https://semgrep.dev/playground/r/A8TJz8g/problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.ftp-request.ftp-request
+  languages:
+  - java
+  fix-regex:
+    regex: '[fF][tT][pP]://'
+    replacement: sftp://
+    count: 1
+  pattern-either:
+  - pattern: |
+      FTPClient $FTPCLIENT = new FTPClient();
+      ...
+      $FTPCLIENT.connect(...);
+  - pattern: |
+      URL $URL = new URL("=~/^[fF][tT][pP]://.*/");
+      ...
+      URLConnection $CONN = $URL.openConnection(...);
+- id: problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
+  message: Checks for requests sent via Apache HTTP Components to http:// URLS. This
+    is dangerous because the server is attempting to connect to a website that does
+    not encrypt traffic with TLS. Instead, send requests only to https:// URLS.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://hc.apache.org/httpcomponents-client-ga/quickstart.html
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
+    shortlink: https://sg.run/oxD0
+    semgrep.dev:
+      rule:
+        r_id: 9416
+        rv_id: 946059
+        rule_id: yyUnjk
+        version_id: BjT1N5b
+        url: https://semgrep.dev/playground/r/BjT1N5b/problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.http-components-request.http-components-request
+  languages:
+  - java
+  fix-regex:
+    regex: '[Hh][Tt][Tt][Pp]://'
+    replacement: https://
+    count: 1
+  pattern-either:
+  - pattern: |
+      $HTTPCLIENT = HttpClients.$CREATE(...);
+      ...
+      $HTTPREQ = new $HTTPFUNC("=~/[hH][tT][tT][pP]://.*/");
+      ...
+      $RESPONSE = $HTTPCLIENT.execute($HTTPREQ);
+  - pattern: |
+      $HTTPCLIENT = HttpClients.$CREATE(...);
+      ...
+      $RESPONSE = $HTTPCLIENT.execute(new $HTTPFUNC("=~/[hH][tT][tT][pP]://.*/"));
+- id: problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
+  message: Checks for requests sent via HttpClient to http:// URLS. This is dangerous
+    because the server is attempting to connect to a website that does not encrypt
+    traffic with TLS. Instead, send requests only to https:// URLS.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://openjdk.java.net/groups/net/httpclient/intro.html
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
+    shortlink: https://sg.run/zv2d
+    semgrep.dev:
+      rule:
+        r_id: 9417
+        rv_id: 946060
+        rule_id: r6Ur3y
+        version_id: DkTNpJw
+        url: https://semgrep.dev/playground/r/DkTNpJw/problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.httpclient-http-request.httpclient-http-request
+  languages:
+  - java
+  fix-regex:
+    regex: '[Hh][Tt][Tt][Pp]://'
+    replacement: https://
+    count: 1
+  pattern-either:
+  - patterns:
+    - pattern: |
+        URI.create("=~/[hH][tT][tT][pP]://.*/", ...)
+    - pattern-inside: |
+        HttpClient $CLIENT = ...;
+        ...
+        HttpRequest $REQ = ...;
+        ...
+        $CLIENT.sendAsync(...);
+  - patterns:
+    - pattern: |
+        URI.create("=~/[hH][tT][tT][pP]://.*/", ...)
+    - pattern-inside: |
+        HttpClient $CLIENT = ...;
+        ...
+        HttpRequest $REQ = ...;
+        ...
+        $CLIENT.send(...);
+  - patterns:
+    - pattern: |
+        URI.create($URI)
+    - pattern-inside: |
+        String $URI = "=~/[hH][tT][tT][pP]://.*/";
+        ...
+        HttpClient $CLIENT = ...;
+        ...
+        HttpRequest $REQ = ...;
+        ...
+        $CLIENT.send(...);
+  - patterns:
+    - pattern: |
+        URI.create($URI)
+    - pattern-inside: |
+        String $URI = "=~/[hH][tT][tT][pP]://.*/";
+        ...
+        HttpClient $CLIENT = ...;
+        ...
+        HttpRequest $REQ = ...;
+        ...
+        $CLIENT.sendAsync(...);
+- id: problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
+  message: Detected an HTTP request sent via HttpURLConnection. This could lead to
+    sensitive information being sent over an insecure channel. Instead, it is recommended
+    to send requests over HTTPS.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/net/URLConnection.html
+    - https://docs.oracle.com/en/java/javase/11/docs/api/java.base/java/net/URL.html#openConnection()
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
+    shortlink: https://sg.run/px3Z
+    semgrep.dev:
+      rule:
+        r_id: 9418
+        rv_id: 946062
+        rule_id: bwUwvR
+        version_id: 0bT15Bq
+        url: https://semgrep.dev/playground/r/0bT15Bq/problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.httpurlconnection-http-request.httpurlconnection-http-request
+  languages:
+  - java
+  fix-regex:
+    regex: '[Hh][Tt][Tt][Pp]://'
+    replacement: https://
+    count: 1
+  patterns:
+  - pattern: |
+      "=~/[Hh][Tt][Tt][Pp]://.*/"
+  - pattern-either:
+    - pattern-inside: |
+        URL $URL = new URL ("=~/[Hh][Tt][Tt][Pp]://.*/", ...);
+        ...
+        $CON = (HttpURLConnection) $URL.openConnection(...);
+        ...
+        $CON.$FUNC(...);
+    - pattern-inside: |
+        URL $URL = new URL ("=~/[Hh][Tt][Tt][Pp]://.*/", ...);
+        ...
+        $CON = $URL.openConnection(...);
+        ...
+        $CON.$FUNC(...);
+- id: problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
+  message: Insecure transport rules to catch socket connections to http, telnet, and
+    ftp servers. This is dangerous because these are protocols that do not encrypt
+    traffic.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: LOW
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://docs.oracle.com/javase/8/docs/api/java/net/Socket.html
+    subcategory:
+    - audit
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
+    shortlink: https://sg.run/2x9L
+    semgrep.dev:
+      rule:
+        r_id: 9419
+        rv_id: 946063
+        rule_id: NbUkl9
+        version_id: K3TJbeQ
+        url: https://semgrep.dev/playground/r/K3TJbeQ/problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.socket-request.socket-request
+  languages:
+  - java
+  pattern-either:
+  - pattern: |
+      $SOCKET = new Socket("=~/[tT][eE][lL][nN][eE][tT]://.*/", ...);
+      ...
+      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
+      ...
+      $OUT.$FUNC(...);
+  - pattern: |
+      $SOCKET = new Socket("=~/^[fF][tT][pP]://.*/", ...);
+      ...
+      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
+      ...
+      $OUT.$FUNC(...);
+  - pattern: |
+      $SOCKET = new Socket("=~/[hH][tT][tT][pP]://.*/", ...);
+      ...
+      $OUT = new PrintWriter($SOCKET.getOutputStream(...), ...);
+      ...
+      $OUT.$FUNC(...);
+- id: problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
+  message: Checks for attempts to connect through telnet. This is insecure as the
+    telnet protocol supports no encryption, and data passes through unencrypted.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://commons.apache.org/proper/commons-net/javadocs/api-3.6/org/apache/commons/net/telnet/TelnetClient.html
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
+    shortlink: https://sg.run/XBQB
+    semgrep.dev:
+      rule:
+        r_id: 9420
+        rv_id: 946064
+        rule_id: kxUkXk
+        version_id: qkT4jGK
+        url: https://semgrep.dev/playground/r/qkT4jGK/problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.telnet-request.telnet-request
+  languages:
+  - java
+  pattern: |
+    $TELNETCLIENT = new TelnetClient(...);
+    ...
+    $TELNETCLIENT.connect(...);
+- id: problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
+  message: Checks for cases where java applications are allowing unsafe renegotiation.
+    This leaves the application vulnerable to a man-in-the-middle attack where chosen
+    plain text is injected as prefix to a TLS connection.
+  severity: WARNING
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://www.oracle.com/java/technologies/javase/tlsreadme.html
+    subcategory:
+    - vuln
+    technology:
+    - java
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
+    shortlink: https://sg.run/jR5N
+    semgrep.dev:
+      rule:
+        r_id: 9421
+        rv_id: 946065
+        rule_id: wdUJw8
+        version_id: l4Tx9be
+        url: https://semgrep.dev/playground/r/l4Tx9be/problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.tls-renegotiation.tls-renegotiation
+  languages:
+  - java
+  pattern: |
+    java.lang.System.setProperty("sun.security.ssl.allowUnsafeRenegotiation", true);
+- id: problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
+  message: Checks for requests sent via Unirest to http:// URLS. This is dangerous
+    because the server is attempting to connect to a website that does not encrypt
+    traffic with TLS. Instead, send requests only to https:// URLS.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://kong.github.io/unirest-java/#requests
+    subcategory:
+    - vuln
+    technology:
+    - unirest
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
+    shortlink: https://sg.run/1Z1G
+    semgrep.dev:
+      rule:
+        r_id: 9422
+        rv_id: 946066
+        rule_id: x8Uno2
+        version_id: YDTvR5x
+        url: https://semgrep.dev/playground/r/YDTvR5x/problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
+        origin: community
+        path: problem-based-packs.insecure-transport.java-stdlib.unirest-http-request.unirest-http-request
+  languages:
+  - java
+  fix-regex:
+    regex: '[Hh][Tt][Tt][Pp]://'
+    replacement: https://
+    count: 1
+  pattern-either:
+  - pattern: |
+      Unirest.get("=~/[hH][tT][tT][pP]://.*/")
+  - pattern: |
+      Unirest.post("=~/[hH][tT][tT][pP]://.*/")
+- id: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+  message: Checks for setting the environment variable NODE_TLS_REJECT_UNAUTHORIZED
+    to 0, which disables TLS verification. This should only be used for debugging
+    purposes. Setting the option rejectUnauthorized to false bypasses verification
+    against the list of trusted CAs, which also leads to insecure transport. These
+    options lead to vulnerability to MTM attacks, and should not be used.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://nodejs.org/api/https.html#https_https_request_options_callback
+    - https://stackoverflow.com/questions/20433287/node-js-request-cert-has-expired#answer-29397100
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+    shortlink: https://sg.run/9oxr
+    semgrep.dev:
+      rule:
+        r_id: 9423
+        rv_id: 946067
+        rule_id: OrU3Y6
+        version_id: JdTDybO
+        url: https://semgrep.dev/playground/r/JdTDybO/problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+  languages:
+  - javascript
+  - typescript
+  pattern-either:
+  - pattern: |
+      process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
+  - pattern: |
+      {rejectUnauthorized:false}
+- id: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
+  message: Detects direct creations of $HTTPS servers that don't disallow SSL v2,
+    SSL v3, and TLS v1. These protocols are deprecated due to POODLE, man in the middle
+    attacks, and other vulnerabilities.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://us-cert.cisa.gov/ncas/alerts/TA14-290A
+    - https://stackoverflow.com/questions/40434934/how-to-disable-the-ssl-3-0-and-tls-1-0-in-nodejs
+    - https://nodejs.org/api/https.html#https_https_createserver_options_requestlistener
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
+    shortlink: https://sg.run/ydpP
+    semgrep.dev:
+      rule:
+        r_id: 9424
+        rv_id: 946068
+        rule_id: eqU8nr
+        version_id: 5PT9Ojl
+        url: https://semgrep.dev/playground/r/5PT9Ojl/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions1.disallow-old-tls-versions1
+  languages:
+  - javascript
+  - typescript
+  patterns:
+  - pattern-either:
+    - pattern-inside: |
+        $CONST = require('crypto');
+        ...
+    - pattern-inside: |
+        $CONST = require('constants');
+        ...
+  - pattern-inside: |
+      $HTTPS = require('https');
+      ...
+  - pattern: |
+      $HTTPS.createServer(...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 }, ...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_SSLv3 }, ...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_SSLv3 |$CONST.SSL_OP_NO_TLSv1 }, ...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions: $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3}, ...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions:$CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 |$CONST.SSL_OP_NO_TLSv1}, ...).$FUNC(...);
+  - pattern-not: |
+      $HTTPS.createServer({secureOptions:$CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1| $CONST.SSL_OP_NO_SSLv2}, ...).$FUNC(...);
+- id: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
+  message: Detects creations of $HTTPS servers from option objects that don't disallow
+    SSL v2, SSL v3, and TLS v1. These protocols are deprecated due to POODLE, man
+    in the middle attacks, and other vulnerabilities.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://us-cert.cisa.gov/ncas/alerts/TA14-290A
+    - https://stackoverflow.com/questions/40434934/how-to-disable-the-ssl-3-0-and-tls-1-0-in-nodejs
+    - https://nodejs.org/api/https.html#https_https_createserver_options_requestlistener
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
+    shortlink: https://sg.run/rdKe
+    semgrep.dev:
+      rule:
+        r_id: 9425
+        rv_id: 946069
+        rule_id: v8UnPO
+        version_id: GxTP7y5
+        url: https://semgrep.dev/playground/r/GxTP7y5/problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.disallow-old-tls-versions2.disallow-old-tls-versions2
+  languages:
+  - javascript
+  - typescript
+  patterns:
+  - pattern-either:
+    - pattern-inside: |
+        $CONST = require('crypto');
+        ...
+    - pattern-inside: |
+        $CONST = require('constants');
+        ...
+  - pattern-inside: |
+      $HTTPS = require('https');
+      ...
+  - pattern: |
+      $OPTIONS = {};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_SSLv3};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv2  | $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv3};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_SSLv2 | $CONST.SSL_OP_NO_TLSv1};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+  - pattern-not: |
+      $OPTIONS = {secureOptions: $CONST.SSL_OP_NO_SSLv3 | $CONST.SSL_OP_NO_TLSv1 | $CONST.SSL_OP_NO_SSLv2};
+      ...
+      $HTTPS.createServer($OPTIONS, ...);
+- id: problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
+  message: 'Checks for lack of usage of the "secure: true" option when sending ftp
+    requests through the nodejs ftp module. This leads to unencrypted traffic being
+    sent to the ftp server. There are other options such as "implicit" that still
+    does not encrypt all traffic. ftp is the most utilized npm ftp module.'
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://www.npmjs.com/package/ftp
+    - https://openbase.io/js/ftp
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
+    shortlink: https://sg.run/b7QW
+    semgrep.dev:
+      rule:
+        r_id: 9426
+        rv_id: 946070
+        rule_id: d8UjZ6
+        version_id: RGTAg7Z
+        url: https://semgrep.dev/playground/r/RGTAg7Z/problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.ftp-request.ftp-request
+  languages:
+  - javascript
+  - typescript
+  patterns:
+  - pattern-inside: |
+      $X = require('ftp');
+      ...
+      $C = new $X();
+      ...
+  - pattern-not-inside: |
+      $OPTIONS = {secure: true};
+      ...
+  - pattern: |
+      $C.connect($OPTIONS,...);
+  - pattern-not: |
+      $C.connect({...,secure: true});
+- id: problem-based-packs.insecure-transport.js-node.http-request.http-request
+  message: Checks for requests sent to http:// URLs. This is dangerous as the server
+    is attempting to connect to a website that does not encrypt traffic with TLS.
+    Instead, only send requests to https:// URLs.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://nodejs.org/api/http.html#http_http_request_options_callback
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.http-request.http-request
+    shortlink: https://sg.run/N4Qy
+    semgrep.dev:
+      rule:
+        r_id: 9427
+        rv_id: 946071
+        rule_id: ZqU5r3
+        version_id: A8TJz8O
+        url: https://semgrep.dev/playground/r/A8TJz8O/problem-based-packs.insecure-transport.js-node.http-request.http-request
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.http-request.http-request
+  languages:
+  - javascript
+  patterns:
+  - pattern-inside: |
+      $HTTP = require('http');
+      ...
+  - pattern-either:
+    - pattern: |
+        $HTTP.request("=~/http://.*/",...);
+    - pattern: |
+        $HTTP.get("=~/http://.*/", ...)
+    - pattern: |
+        $VAR = new URL("=~/http://.*/");
+        ...
+        $HTTP.request($VAR, ...);
+    - pattern: |
+        $VAR = {...,hostname: "..."};
+        ...
+        $HTTP.request(..., $VAR, ...);
+    - pattern: |
+        $HTTP.request(..., {...,hostname: "..."}, ...);
+  - pattern-not: |
+      $VAR = {...,protocol: "https"};
+      ...
+      $HTTP.request(..., $VAR, ...);
+  - pattern-not: |
+      $HTTP.request(..., {...,protocol: "https"}, ...);
+- id: problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
+  message: Checks for requests to http (unencrypted) sites using some of node js's
+    most popular REST/HTTP libraries, including node-rest-client, axios, and got.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://www.npmjs.com/package/axios
+    - https://www.npmjs.com/package/got
+    - https://www.npmjs.com/package/node-rest-client
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
+    shortlink: https://sg.run/kXGP
+    semgrep.dev:
+      rule:
+        r_id: 9428
+        rv_id: 946072
+        rule_id: nJUzKP
+        version_id: BjT1N5l
+        url: https://semgrep.dev/playground/r/BjT1N5l/problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.rest-http-client-support.rest-http-client-support
+  languages:
+  - javascript
+  patterns:
+  - pattern-either:
+    - pattern-inside: |
+        $CLIENT = require('node-rest-client').Client;
+        ...
+        $C = new $CLIENT();
+        ...
+    - pattern-inside: |
+        $C = require('axios');
+        ...
+    - pattern-inside: |
+        $C = require('got');
+        ...
+  - pattern-either:
+    - pattern: |
+        $C.$REQ("=~/http://.*/", ...)
+    - pattern: |
+        $C("=~/http://.*/", ...)
+    - pattern: |
+        $C({...,url: "=~/http://.*/"})
+    - pattern: |
+        $C.$REQ({...,url: "=~/http://.*/"})
+- id: problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
+  message: Checks for creation of telnet servers or attempts to connect through telnet.
+    This is insecure as the telnet protocol supports no encryption, and data passes
+    through unencrypted.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://www.npmjs.com/package/telnet
+    - https://www.npmjs.com/package/telnet-client
+    subcategory:
+    - vuln
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
+    shortlink: https://sg.run/weoA
+    semgrep.dev:
+      rule:
+        r_id: 9429
+        rv_id: 946073
+        rule_id: EwU2GA
+        version_id: DkTNpJJ
+        url: https://semgrep.dev/playground/r/DkTNpJJ/problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.telnet-request.telnet-request
+  languages:
+  - javascript
+  patterns:
+  - pattern-either:
+    - pattern-inside: |
+        $TEL = require('telnet-client');
+        ...
+        $SERVER = new $TEL();
+        ...
+    - pattern-inside: |
+        $SERVER = require('telnet');
+        ...
+  - pattern-either:
+    - pattern: |
+        $SERVER.on(...)
+    - pattern: |
+        $SERVER.connect(...)
+    - pattern: |
+        $SERVER.createServer(...)
+- id: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
+  message: Checks for any usage of http servers instead of https servers. Encourages
+    the usage of https protocol instead of http, which does not have TLS and is therefore
+    unencrypted. Using http can lead to man-in-the-middle attacks in which the attacker
+    is able to read sensitive information.
+  severity: WARNING
+  metadata:
+    likelihood: LOW
+    impact: MEDIUM
+    confidence: LOW
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp:
+    - A02:2021 - Cryptographic Failures
+    - A03:2017 - Sensitive Data Exposure
+    - A04:2025 - Cryptographic Failures
+    references:
+    - https://nodejs.org/api/http.html#http_class_http_agent
+    - https://groups.google.com/g/rubyonrails-security/c/NCCsca7TEtY
+    subcategory:
+    - audit
+    technology:
+    - node.js
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
+    shortlink: https://sg.run/x1zL
+    semgrep.dev:
+      rule:
+        r_id: 9430
+        rv_id: 1263329
+        rule_id: 7KUQAE
+        version_id: 9lT4bNd
+        url: https://semgrep.dev/playground/r/9lT4bNd/problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
+        origin: community
+        path: problem-based-packs.insecure-transport.js-node.using-http-server.using-http-server
+  languages:
+  - javascript
+  patterns:
+  - pattern-inside: |
+      $HTTP = require('http');
+      ...
+  - pattern-either:
+    - pattern: |
+        $HTTP.$FUNC(...);
+    - pattern: |
+        new $HTTP.$FUNC2(...);
+  - pattern: $HTTP
+- id: problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
+  message: Checks for requests to http (unencrypted) sites using some of ruby's most
+    popular REST/HTTP libraries, including httparty and restclient.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://github.com/rest-client/rest-client
+    - https://github.com/jnunemaker/httparty/tree/master/docs
+    subcategory:
+    - vuln
+    technology:
+    - httparty
+    - rest-client
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
+    shortlink: https://sg.run/OPQL
+    semgrep.dev:
+      rule:
+        r_id: 9431
+        rv_id: 946075
+        rule_id: L1UyKG
+        version_id: 0bT15Bn
+        url: https://semgrep.dev/playground/r/0bT15Bn/problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
+        origin: community
+        path: problem-based-packs.insecure-transport.ruby-stdlib.http-client-requests.http-client-requests
+  languages:
+  - ruby
+  pattern-either:
+  - pattern: |
+      HTTParty.$PARTYVERB("=~/[hH][tT][tT][pP]://.*/", ...)
+  - pattern: |
+      $STRING = "=~/[hH][tT][tT][pP]://.*/"
+      ...
+      HTTParty.$PARTYVERB($STRING, ...)
+  - pattern: |
+      RestClient.$RESTVERB "=~/[hH][tT][tT][pP]://.*/", ...
+  - pattern: |
+      RestClient::Request.execute(..., url: "=~/[hH][tT][tT][pP]://.*/", ...)
+- id: problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
+  message: Checks for outgoing connections to ftp servers with the 'net/ftp' package.
+    FTP does not encrypt traffic, possibly leading to PII being sent plaintext over
+    the network. Instead, connect via the SFTP protocol.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://docs.ruby-lang.org/en/2.0.0/Net/FTP.html
+    subcategory:
+    - vuln
+    technology:
+    - ruby
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
+    shortlink: https://sg.run/eLQ8
+    semgrep.dev:
+      rule:
+        r_id: 9432
+        rv_id: 946076
+        rule_id: 8GUj13
+        version_id: K3TJbe1
+        url: https://semgrep.dev/playground/r/K3TJbe1/problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
+        origin: community
+        path: problem-based-packs.insecure-transport.ruby-stdlib.net-ftp-request.net-ftp-request
+  languages:
+  - ruby
+  pattern-either:
+  - pattern: |
+      $FTP = Net::FTP.new('...')
+      ...
+      $FTP.login
+  - pattern: |
+      Net::FTP.open('...') do |ftp|
+        ...
+        ftp.login
+      end
+- id: problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
+  message: Checks for requests sent to http:// URLs. This is dangerous as the server
+    is attempting to connect to a website that does not encrypt traffic with TLS.
+    Instead, only send requests to https:// URLs.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://ruby-doc.org/stdlib-2.6.5/libdoc/net/http/rdoc/Net/
+    subcategory:
+    - vuln
+    technology:
+    - ruby
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
+    shortlink: https://sg.run/vz6Y
+    semgrep.dev:
+      rule:
+        r_id: 9433
+        rv_id: 946077
+        rule_id: gxU1lE
+        version_id: qkT4jG8
+        url: https://semgrep.dev/playground/r/qkT4jG8/problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
+        origin: community
+        path: problem-based-packs.insecure-transport.ruby-stdlib.net-http-request.net-http-request
+  languages:
+  - ruby
+  patterns:
+  - pattern-either:
+    - pattern: |
+        $URI = URI('=~/[hH][tT][tT][pP]://.*/')
+        ...
+        Net::HTTP::$FUNC.new $URI
+    - pattern: |
+        $URI = URI('=~/[hH][tT][tT][pP]://.*/')
+        ...
+        Net::HTTP.$FUNC($URI, ...)
+    - pattern: |
+        Net::HTTP.$FUNC(URI('=~/[hH][tT][tT][pP]://.*/'), ...)
+  - metavariable-regex:
+      metavariable: $FUNC
+      regex: ([gG]et|post_form|[pP]ost|get_response|get_print|Head|Patch|Put|Proppatch|Lock|Unlock|Options|Propfind|Delete|Move|Copy|Trace|Mkcol)
+- id: problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
+  message: Checks for creation of telnet servers or attempts to connect through telnet.
+    This is insecure as the telnet protocol supports no encryption, and data passes
+    through unencrypted.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://docs.ruby-lang.org/en/2.2.0/Net/Telnet.html
+    - https://www.rubydoc.info/gems/net-ssh-telnet2/0.1.0/Net/SSH/Telnet
+    subcategory:
+    - vuln
+    technology:
+    - ruby
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
+    shortlink: https://sg.run/dKQE
+    semgrep.dev:
+      rule:
+        r_id: 9434
+        rv_id: 946078
+        rule_id: QrUzo2
+        version_id: l4Tx9bO
+        url: https://semgrep.dev/playground/r/l4Tx9bO/problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
+        origin: community
+        path: problem-based-packs.insecure-transport.ruby-stdlib.net-telnet-request.net-telnet-request
+  languages:
+  - ruby
+  pattern-either:
+  - pattern: |
+      Net::Telnet::new(...)
+  - pattern: |
+      Net::SSH::Telnet.new(...)
+- id: problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
+  message: Checks for requests to http and ftp (unencrypted) sites using OpenURI.
+  severity: WARNING
+  metadata:
+    likelihood: MEDIUM
+    impact: MEDIUM
+    confidence: MEDIUM
+    category: security
+    cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+    owasp: A03:2017 - Sensitive Data Exposure
+    references:
+    - https://ruby-doc.org/stdlib-2.6.3/libdoc/open-uri/rdoc/OpenURI.html
+    subcategory:
+    - vuln
+    technology:
+    - open-uri
+    vulnerability: Insecure Transport
+    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
+    vulnerability_class:
+    - Mishandled Sensitive Information
+    source: https://semgrep.dev/r/problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
+    shortlink: https://sg.run/ZvQw
+    semgrep.dev:
+      rule:
+        r_id: 9435
+        rv_id: 946079
+        rule_id: 3qUPNe
+        version_id: YDTvR5b
+        url: https://semgrep.dev/playground/r/YDTvR5b/problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
+        origin: community
+        path: problem-based-packs.insecure-transport.ruby-stdlib.openuri-request.openuri-request
+  languages:
+  - ruby
+  pattern-either:
+  - pattern: |
+      URI.open('=~/[hH][tT][tT][pP]://.*/', ...)
+  - pattern: |
+      $URI = URI.parse('=~/[hH][tT][tT][pP]://.*/', ...)
+      ...
+      $URI.open
+  - pattern: |
+      URI.open('=~/^[fF][tT][pP]://.*/', ...)
+  - pattern: |
+      $URI = URI.parse('=~/^[fF][tT][pP]://.*/', ...)
+      ...
+      $URI.open
+- id: python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
+  message: 'Found a formatted string in BashOperator: $CMD. This could be vulnerable
+    to injection. Be extra sure your variables are not controllable by external sources.'
   metadata:
     cwe:
-    - 'CWE-1004: Sensitive Cookie Without ''HttpOnly'' Flag'
+    - 'CWE-78: Improper Neutralization of Special Elements used in an OS Command (''OS
+      Command Injection'')'
     owasp:
-    - A05:2021 - Security Misconfiguration
-    - A02:2025 - Security Misconfiguration
-    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#HTTPONLY_COOKIE
+    - A01:2017 - Injection
+    - A03:2021 - Injection
+    - A05:2025 - Injection
     category: security
     technology:
-    - kt
+    - airflow
     references:
-    - https://owasp.org/Top10/A05_2021-Security_Misconfiguration
+    - https://owasp.org/Top10/A03_2021-Injection
+    cwe2022-top25: true
+    cwe2021-top25: true
     subcategory:
     - audit
     likelihood: LOW
-    impact: LOW
+    impact: HIGH
     confidence: LOW
     license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
     vulnerability_class:
-    - Cookie Security
-    source: https://semgrep.dev/r/kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
-    shortlink: https://sg.run/ox7X
+    - Command Injection
+    source: https://semgrep.dev/r/python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
+    shortlink: https://sg.run/ndBY
     semgrep.dev:
       rule:
-        r_id: 9360
-        rv_id: 1263260
-        rule_id: r6UrKQ
-        version_id: K3TKkRO
-        url: https://semgrep.dev/playground/r/K3TKkRO/kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
+        r_id: 9436
+        rv_id: 1263330
+        rule_id: 4bUkOY
+        version_id: yeTxpb3
+        url: https://semgrep.dev/playground/r/yeTxpb3/python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
         origin: community
-        path: kotlin.lang.security.cookie-missing-httponly.cookie-missing-httponly
-  message: A cookie was detected without setting the 'HttpOnly' flag. The 'HttpOnly'
-    flag for cookies instructs the browser to forbid client-side scripts from reading
-    the cookie. Set the 'HttpOnly' flag by calling 'cookie.setHttpOnly(true);'
-  severity: WARNING
+        path: python.airflow.security.audit.formatted-string-bashoperator.formatted-string-bashoperator
   languages:
-  - kt
-  patterns:
-  - pattern-not-inside: |
-      $COOKIE.setValue("")
-      ...
-  - pattern-either:
-    - pattern: $COOKIE.setHttpOnly(false)
-    - patterns:
-      - pattern-not-inside: |
-          $COOKIE.setHttpOnly(...)
-          ...
-      - pattern: $RESPONSE.addCookie($COOKIE)
-- id: kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
-  metadata:
-    cwe:
-    - 'CWE-614: Sensitive Cookie in HTTPS Session Without ''Secure'' Attribute'
-    owasp:
-    - A05:2021 - Security Misconfiguration
-    - A02:2025 - Security Misconfiguration
-    source-rule-url: https://find-sec-bugs.github.io/bugs.htm#INSECURE_COOKIE
-    category: security
-    technology:
-    - kt
-    references:
-    - https://owasp.org/Top10/A05_2021-Security_Misconfiguration
-    subcategory:
-    - audit
-    likelihood: LOW
-    impact: LOW
-    confidence: LOW
-    license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    vulnerability_class:
-    - Cookie Security
-    source: https://semgrep.dev/r/kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
-    shortlink: https://sg.run/zv7n
-    semgrep.dev:
-      rule:
-        r_id: 9361
-        rv_id: 1263261
-        rule_id: bwUw3j
-        version_id: qkTR7r9
-        url: https://semgrep.dev/playground/r/qkTR7r9/kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
-        origin: community
-        path: kotlin.lang.security.cookie-missing-secure-flag.cookie-missing-secure-flag
-  message: A cookie was detected without setting the 'secure' flag. The 'secure' flag
-    for cookies prevents the client from transmitting the cookie over insecure channels
-    such as HTTP. Set the 'secure' flag by calling '$COOKIE.setSecure(true);'
-  severity: WARNING
-  languages:
-  - kt
-  patterns:
-  - pattern-not-inside: |
-      $COOKIE.setValue("")
-      ...
-  - pattern-either:
-    - pattern: $COOKIE.setSecure(false)
-    - patterns:
-      - pattern-not-inside: |
-          $COOKIE.setSecure(...)
-          ...
-      - pattern: $RESPONSE.addCookie($COOKIE)
-- id: ocaml.lang.compatibility.deprecated.deprecated-pervasives
-  pattern: Pervasives.$X
-  message: Pervasives is deprecated and will not be available after 4.10. Use Stdlib.
-  languages:
-  - ocaml
+  - python
   severity: ERROR
+  pattern-either:
+  - pattern: |
+      airflow.operators.bash_operator.BashOperator(..., bash_command="..." + $CONCAT, ...)
+  - pattern: |
+      airflow.operators.bash_operator.BashOperator(..., bash_command="...".format(...), ...)
+  - pattern: |
+      airflow.operators.bash_operator.BashOperator(..., bash_command=f"...", ...)
+  - pattern: |
+      airflow.operators.bash_operator.BashOperator(..., bash_command="..." % $PARAMS, ...)
+  - pattern: |
+      $CMD = "..." % $PARAMS
+      ...
+      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
+  - pattern: |
+      $CMD = $STR.format(...)
+      ...
+      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
+  - pattern: |
+      $CMD = f"..."
+      ...
+      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
+  - pattern: |
+      $CMD = "..." + $CONCAT
+      ...
+      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
+  - pattern: |
+      $CMD = "..."
+      ...
+      $CMD += $CONCAT
+      ...
+      airflow.operators.bash_operator.BashOperator(..., bash_command=$CMD, ...)
+- id: python.boto3.security.hardcoded-token.hardcoded-token
+  message: A hard-coded credential was detected. It is not recommended to store credentials
+    in source-code, as this risks secrets being leaked and used by either an internal
+    or external malicious adversary. It is recommended to use environment variables
+    to securely provide credentials or retrieve credentials from a secure vault or
+    HSM (Hardware Security Module).
   metadata:
-    category: compatibility
+    cwe:
+    - 'CWE-798: Use of Hard-coded Credentials'
+    references:
+    - https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+    - https://bento.dev/checks/boto3/hardcoded-access-token/
+    - https://aws.amazon.com/blogs/security/what-to-do-if-you-inadvertently-expose-an-aws-access-key/
+    owasp:
+    - A07:2021 - Identification and Authentication Failures
+    - A07:2025 - Authentication Failures
+    category: security
     technology:
-    - ocaml
+    - boto3
+    - secrets
+    cwe2022-top25: true
+    cwe2021-top25: true
+    subcategory:
+    - vuln
+    likelihood: HIGH
+    impact: MEDIUM
+    confidence: MEDIUM
     license: Semgrep Rules License v1.0. For more details, visit semgrep.dev/legal/rules-license
-    source: https://semgrep.dev/r/ocaml.lang.compatibility.deprecated.deprecated-pervasives
-    shortlink: https://sg.run/dKe0
+    vulnerability_class:
+    - Hard-coded Secrets
+    source: https://semgrep.dev/r/python.boto3.security.hardcoded-token.hardcoded-token
+    shortlink: https://sg.run/LwQ6
     semgrep.dev:
       rule:
-        r_id: 9378
-        rv_id: 945962
-        rule_id: 3qUP1E
-        version_id: K3TJbDY
-        url: https://semgrep.dev/playground/r/K3TJbDY/ocaml.lang.compatibility.deprecated.deprecated-pervasives
+        r_id: 9439
+        rv_id: 1263347
+        rule_id: 5rUOwK
+        version_id: gETB78n
+        url: https://semgrep.dev/playground/r/gETB78n/python.boto3.security.hardcoded-token.hardcoded-token
         origin: community
-        path: ocaml.lang.compatibility.deprecated.deprecated-pervasives
+        path: python.boto3.security.hardcoded-token.hardcoded-token
+  languages:
+  - python
+  severity: WARNING
+  mode: taint
+  pattern-sources:
+  - pattern: |
+      "..."
+  pattern-sinks:
+  - patterns:
+    - pattern-either:
+      - pattern: $W(...,$TOKEN="$VALUE",...)
+      - pattern: $BOTO. ... .$W(...,$TOKEN="$VALUE",...)
+    - metavariable-regex:
+        metavariable: $TOKEN
+        regex: (aws_session_token|aws_access_key_id|aws_secret_access_key)
+    - metavariable-pattern:
+        language: generic
+        metavariable: $VALUE
+        patterns:
+        - pattern-either:
+          - pattern-regex: ^AKI
+          - pattern-regex: ^[A-Za-z0-9/+=]+$
+    - metavariable-analysis:
+        metavariable: $VALUE
+        analyzer: entropy

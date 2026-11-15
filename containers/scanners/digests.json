@@ -10,10 +10,10 @@
     "dockerfile": "containers/scanners/semgrep/Dockerfile",
     "image_digest": "sha256:180c3f7e5696cad357c16ab77034e696b1f0482d1de2d1849a6e2f9d75df2d4b",
     "ref": "ghcr.io/asimov-agent/llgenie/semgrep:5954e2aad609",
-    "rules_captured_at": "2026-11-08",
+    "rules_captured_at": "2026-11-15",
     "rules_count": "1073",
     "rules_file": "containers/scanners/semgrep/rules/default.yml",
-    "rules_sha": "35377b8f3956d14a382d44886fa2b76a81ddb78c64744d8ae01af9f063ab5828",
+    "rules_sha": "38d0935ccd57d19884d307859433939cefc9492ac71d0ddeed863e289bf04312",
     "tag": "5954e2aad609",
     "version": "1.165.0-r0"
   },
