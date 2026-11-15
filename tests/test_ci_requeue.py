@@ -272,10 +272,12 @@ def test_the_window_parser_refuses_garbage():
     assert rq.parse_window("1d") == dt.timedelta(days=1)
 
 
-def test_the_scheduled_healer_is_wired_to_the_manual_target():
-    """A cron that runs something other than the measured target is a schedule that heals nothing."""
+def test_the_healer_is_wired_to_the_manual_target_and_dispatch_only():
+    """The healer runs THE measured manual target, and its clock is gone under the CI-discipline
+    policy (issue #2702) so it cannot re-trigger pipelines on its own — only a human dispatch or
+    `make ci-requeue-cancelled` runs it. A re-added schedule is the regression this test refuses."""
 
-    # Given the scheduled workflow this repository ships for the healer
+    # Given the healer's workflow file
     import pathlib
     import re
 
@@ -285,11 +287,10 @@ def test_the_scheduled_healer_is_wired_to_the_manual_target():
     wf = yaml.safe_load(path.read_text())
     on = wf.get("on") or wf.get(True)
 
-    # Then  it fires every 30 minutes on minutes no other bot owns …
-    crons = [str(slot.get("cron")) for slot in on["schedule"]]
-    assert crons == ["15,45 * * * *"], crons
+    # Then  it no longer owns a schedule (dispatch-only after issue #2702) …
+    assert not on.get("schedule"), f"ci-requeue must not declare a schedule (issue #2702)"
 
-    # … it can be dispatched by hand …
+    # … and it is still dispatchable by hand …
     assert "workflow_dispatch" in on
 
     # … its round cannot be cancelled by the next round (that is the bug it heals) …

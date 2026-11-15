@@ -124,23 +124,24 @@ def _dirty_doc(root: Path, text: str = LONG_DOC + "\nA new paragraph about the p
 # ------------------------------------------------------------------ the workflow
 
 
-def test_workflow_is_six_hourly_dispatchable_and_guarded():
-    """The bot owns minute :47 every 6 hours, is dispatchable, and guards before any secret."""
+def test_workflow_is_dispatchable_and_guarded():
+    """The bot is dispatchable (its 6-hourly schedule was removed under the CI-discipline policy,
+    issue #2702 — only the weekly engine/registry lane keeps cron), and guards before any secret."""
 
     # Given the architecture bot's workflow file
     text = WORKFLOW.read_text()
     wf = yaml.safe_load(text)
     on = wf.get("on") or wf.get(True)
 
-    # When its schedule, dispatch form, concurrency and first job are read
-    crons = [e["cron"] for e in on["schedule"]]
+    # When its trigger surface, dispatch form, concurrency and first job are read
+    schedule = on.get("schedule")
     inputs = on["workflow_dispatch"]["inputs"]
     conc = wf["concurrency"]
     first_job = next(iter(wf["jobs"]))
     guard_text = text.split("architecture:", 1)[0]
 
-    # Then the cron is 6-hourly on :47, and both inputs are documented with defaults
-    assert crons == ["47 */6 * * *"]
+    # Then the schedule is gone (dispatch-only after #2702), the inputs stay documented
+    assert not schedule, f"architecture-bot must no longer declare a schedule (issue #2702): {schedule}"
     assert set(inputs) == {"dry", "doc"}
     for name, spec in inputs.items():
         assert len(spec["description"]) >= 10, name

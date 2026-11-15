@@ -159,9 +159,10 @@ def test_the_scope_is_derived_from_the_workflow_files():
         f"(issue #301): scope={sorted(BOT_WORKFLOWS)} disk={sorted(derived)}"
     )
 
-    # And it is not vacuous: the bots that exist today are all in scope
+    # And it is not vacuous: the lanes that remain scheduled today are all in scope
     assert len(BOT_WORKFLOWS) >= 9, f"only {len(BOT_WORKFLOWS)} scheduled bots found: {BOT_WORKFLOWS}"
-    for known in ("issue-bot.yml", "rebase-bot.yml", "issue-refiner.yml", "code-review-bot.yml"):
+    for known in ("engine-bump.yml", "registry-sync.yml", "auto-merge.yml",
+                  "code-review-bot.yml", "ci-frozen-reaper.yml"):
         assert known in BOT_WORKFLOWS, f"{known} declares a schedule but is out of scope"
 
 

@@ -1,6 +1,8 @@
 # The rebase bot (issue #246): keep every open PR on the latest `main`, EVERY eligible PR per run.
 #
-# Triggered every 6 hours (and by hand). AGENTS.md's own rule is that a PR behind `main` cannot
+# Dispatched by hand after 2026-11-15 (issue #2702): its every-6-hours schedule was REMOVED under the
+# CI-discipline policy — Hermes-driven rebase is an agent job, and only the weekly engine/registry lane
+# keeps cron. AGENTS.md's own rule is that a PR behind `main` cannot
 # be merged, so a stale PR silently blocks itself until someone rebases it — that is what this
 # bot exists to prevent. It runs as ONE job that always runs: the decision ("which PR, or none")
 # lives in scripts/rebase_bot_sweep.py, because issue #107 forbids a CI job that can skip itself.
@@ -28,10 +30,12 @@
 #   * the implementer cannot be raced: it pushes a NEW branch and only then opens the PR, so a PR
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
-# Trigger surface: its own schedule (every 6 hours, `29 */6 * * *`) and `workflow_dispatch` by hand
-#                  (owner/collaborator, optionally bounded by `max_prs`, optionally aimed at ONE
-#                  open PR via `pr` — an aimed run decides only for that PR and exercises the
-#                  action=rebase path on demand, #2446).
+# Trigger surface: `workflow_dispatch` by hand (owner/collaborator, optionally bounded by `max_prs`,
+#                  optionally aimed at ONE open PR via `pr` — an aimed run decides only for that PR and
+#                  exercises the action=rebase path on demand, #2446). The every-6-hours schedule
+#                  (`29 */6 * * *`) was REMOVED 2026-11-15 under the CI-discipline policy
+#                  (issue #2702): Hermes-driven rebase is an agent job, only the weekly engine/registry
+#                  lane keeps cron, so the rebase bot now runs when a human dispatches it.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which
 #       PR, or none) -> make rebase-bot PR=.. HEAD_BRANCH=.. HEAD_REPO=.. (fetch, forward-merge `main`,
 #       hand a conflict to make rebase-bot-agent, verify, push --force-with-lease to the PR's OWN head
@@ -42,9 +46,6 @@
 name: rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
 
 on:
-  schedule:
-    - cron: "29 */6 * * *"   # every 6 hours, at an odd minute — :29, its OWN slot (issue #301:
-                             # :23 is issue-bot's, and sharing it meant both started at 06:23 UTC)
   workflow_dispatch:
     inputs:
       max_prs:

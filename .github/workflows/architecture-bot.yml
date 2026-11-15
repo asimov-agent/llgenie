@@ -6,9 +6,12 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 # registry-sync): a deterministic decision, one bounded agent leg, and a publish step that never
 # merges.
 #
-# Trigger surface: a 6-hourly schedule (minute :47, its own slot) and workflow_dispatch for the
+# Trigger surface: workflow_dispatch for the
 #                  owner/collaborators/bots with write access (`dry` previews the bodies, `doc`
-#                  picks the markdown file to refresh).
+#                  picks the markdown file to refresh). The 6-hourly schedule (`47 */6 * * *`)
+#                  was REMOVED 2026-11-15 under the CI-discipline policy (issue #2702): only the
+#                  weekly engine/registry lane keeps cron; a human or GitHub event may still
+#                  dispatch this lane.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make architecture-bot-brief
 #       (real git: the doc's last commit, the drift since it, and the code surface; no model)
 #       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
@@ -21,8 +24,6 @@ name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens
 #        note+row pair `check-docs` owes a doc change (issue #2598), never
 #        files a second issue while its own architecture PR is open.
 on:
-  schedule:
-    - cron: "47 */6 * * *"
   workflow_dispatch:
     inputs:
       dry:

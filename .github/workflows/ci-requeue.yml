@@ -6,19 +6,12 @@ name: ci-requeue — re-runs only the cancelled runs no later run superseded, ev
 # `run-failure-reactor` no longer treats a cancellation as "nothing to do". This is the scheduled half
 # of the healer; `make ci-requeue-cancelled` is the manual half and takes WINDOW/DRY.
 
-# Trigger surface: the 30-minute schedule (`15,45 * * * *`) and `workflow_dispatch` - never a
-#   `pull_request` or a `push`: this workflow heals runs, it does not gate a change.
-# Flow: `make ci-requeue-cancelled` reads the completed runs in the window, re-runs ONLY a cancelled
-#   run with no later run of the same workflow on its branch, and reports every superseded one.
-# Never: never cancels a run (a sweep that kills a 20-minute matrix is what it exists to undo), never
-#   re-runs a superseded one, and never touches a `push` to main.
-# dispatch: no inputs — the healer takes no target: it re-runs every cancelled run in the window that
-# no later run of the same workflow superseded. The window is a make variable (WINDOW=2h), not
-# a dispatch input.
+# Trigger surface: `workflow_dispatch` only after 2026-11-15 (CI-discipline policy, issue #2702):
+#   the 30-minute schedule was REMOVED — `ci-requeue` re-triggers pipelines outside GitHub's own
+#   event flow, so a human must call `make ci-requeue-cancelled` (or the `workflow_dispatch`) to
+#   run the healer now. This file's clock is gone; the requeue machinery itself is tracked for
+#   retirement by issue #2703.
 on:
-  schedule:
-    - cron: "15,45 * * * *" # every 30 minutes at :15 and :45 — minutes no other bot owns (issue #275: a shared
-                            # minute is a collision, and the collision test failed on :23 issue-bot and :53 engine-bump)
   workflow_dispatch:
 
 permissions:
