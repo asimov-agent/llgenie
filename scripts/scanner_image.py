@@ -224,14 +224,25 @@ def write() -> int:
     if rules_sha:
         data["semgrep"]["rules_sha"] = rules_sha
         data["semgrep"]["rules_file"] = f"{SCANNER_DIR}/semgrep/rules/default.yml"
-        data["semgrep"]["rules_captured_at"] = _dt.date.today().isoformat()
         data["semgrep"]["rules_count"] = str(sum(
             1 for line in semgrep_pack.read_text(encoding="utf-8").splitlines()
             if line.startswith("- id: ")))
     path = REPO / DIGESTS
+    prior = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    if rules_sha:
+        # `rules_captured_at` tracks the PACK, not this write (issue #2713): the capture date
+        # is a fact about WHEN the rules pack content was captured, so a rewrite that changes
+        # nothing keeps the committed date; only a changed (or never-recorded) pack is stamped
+        # with today. A silent advance would make a stale pack look freshly captured to the
+        # recency-floor gate (issue #1284).
+        old_sem = prior.get("semgrep") or {}
+        data["semgrep"]["rules_captured_at"] = (
+            old_sem["rules_captured_at"]
+            if old_sem.get("rules_sha") == rules_sha and old_sem.get("rules_captured_at")
+            else _dt.date.today().isoformat()
+        )
     # `image_digest` survives a rewrite of the same tag (issue #2609): the pin describes the
     # published image for THAT content hash, and regenerating from the Dockerfile must not drop it.
-    prior = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     for scanner, entry in data.items():
         old = prior.get(scanner) or {}
         if old.get("tag") == entry["tag"] and DIGEST_PIN.fullmatch(str(old.get("image_digest") or "")):
