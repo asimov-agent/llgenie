@@ -544,8 +544,10 @@ the old `publish failed: <scanner>`.
 
 `digests.json` also carries the **committed semgrep rules pack** the scan actually runs
 (issue #1284): `containers/scanners/semgrep/rules/default.yml` is baked into the pinned image,
-and `make scanner-digests` content-addresses it as `rules_sha = sha256(file)` with
-`rules_captured_at = today` and `rules_count = n(- id:)`. `make check-scanner-images` (and
+and `make scanner-digests` content-addresses it as `rules_sha = sha256(file)`, stamping
+`rules_captured_at = today` only when the pack actually moved — an unchanged `rules_sha` keeps the
+committed capture date across rewrites (issue #2713) — and `rules_count = n(- id:)`. `make
+check-scanner-images` (and
 `make check-security-scan`) fail when the pack is absent, when `rules_sha` does not match the
 committed file, or when a scanner version is older than the declared current-release baseline
 (`RELEASE_BASELINE` in `scanner_image.py`, issue #1284).

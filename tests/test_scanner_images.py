@@ -14,6 +14,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import datetime as _dt
 import subprocess
 from pathlib import Path
 
@@ -168,6 +169,76 @@ def test_a_moved_tag_drops_the_old_image_digest(tmp_path, monkeypatch):
     data = json.loads(digest_path.read_text())
     assert data["trivy"]["tag"] == si.content_hash("trivy")
     assert "image_digest" not in data["trivy"]
+
+
+def _semgrep_tree(tmp_path: Path) -> Path:
+    """A repository-shaped fixture carrying the semgrep scanner AND its rules pack (issue #2713)."""
+    root = _tree(tmp_path)
+    d = root / "containers" / "scanners" / "semgrep"
+    (d / "rules").mkdir(parents=True)
+    (d / "Dockerfile").write_text(
+        "# syntax=docker/dockerfile:1\n"
+        f"FROM cgr.dev/chainguard/wolfi-base@{BASE_DIGEST}\n\n"
+        "ARG SEMGREP_VERSION=1.165.0-r0\n"
+        'RUN apk add --no-cache "semgrep=${SEMGREP_VERSION}"\n\n'
+        'ENTRYPOINT ["semgrep"]\n'
+        'CMD ["--version"]\n',
+        encoding="utf-8")
+    (d / "rules" / "default.yml").write_text("- id: rule-one\n", encoding="utf-8")
+    return root
+
+
+def test_rewriting_an_unchanged_rules_pack_keeps_the_capture_date(tmp_path, monkeypatch):
+    """`rules_captured_at` tracks the PACK, not the write (issue #2713): a `make scanner-digests`
+    run that changes no rule keeps the committed capture date — a silent advance would make a
+    stale pack look freshly captured to the recency-floor gate (issue #1284)."""
+
+    # Given a written record whose rules pack was captured on an earlier date
+    root = _semgrep_tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"semgrep": si.SCANNERS["semgrep"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    si.write()
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_captured_at"] == _dt.date.today().isoformat()  # first capture stamps today
+    data["semgrep"]["rules_captured_at"] = "2026-11-08"
+    digest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    # When  digests are re-written over the SAME rules pack (rules_sha unchanged)
+    si.write()
+
+    # Then  the capture date survives and the pack identity is unchanged
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_captured_at"] == "2026-11-08"
+    assert data["semgrep"]["rules_sha"] == si.hashlib.sha256(
+        (root / "containers" / "scanners" / "semgrep" / "rules" / "default.yml").read_bytes()
+    ).hexdigest()
+
+
+def test_a_changed_rules_pack_advances_the_capture_date(tmp_path, monkeypatch):
+    """The keep is identity-checked on `rules_sha`: a pack that actually moved is a new capture
+    and MUST be stamped with today (issue #2713)."""
+
+    # Given a written record captured on an earlier date
+    root = _semgrep_tree(tmp_path)
+    monkeypatch.setattr(si, "REPO", root)
+    monkeypatch.setattr(si, "SCANNERS", {"semgrep": si.SCANNERS["semgrep"]})
+    digest_path = root / "containers" / "scanners" / "digests.json"
+    si.write()
+    data = json.loads(digest_path.read_text())
+    old_sha = data["semgrep"]["rules_sha"]
+    data["semgrep"]["rules_captured_at"] = "2026-11-08"
+    digest_path.write_text(json.dumps(data), encoding="utf-8")
+
+    # When  a rule is added to the pack and digests are re-written
+    (root / "containers" / "scanners" / "semgrep" / "rules" / "default.yml").write_text(
+        "- id: rule-one\n- id: rule-two\n", encoding="utf-8")
+    si.write()
+
+    # Then  the new pack is stamped with today
+    data = json.loads(digest_path.read_text())
+    assert data["semgrep"]["rules_sha"] != old_sha
+    assert data["semgrep"]["rules_captured_at"] == _dt.date.today().isoformat()
 
 
 def test_an_entry_without_an_image_digest_fails(tmp_path, monkeypatch, capsys):
