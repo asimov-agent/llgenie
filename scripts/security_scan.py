@@ -11,6 +11,11 @@ Commands (driven by make, never by hand):
     sbom              Syft -> security-reports/sbom.cdx.json        make sbom
     scan <tool>       syft | trivy | grype | semgrep                make security-scan TOOL=<id>
     all               sbom + every scanner, in dependency order     make security-scan-all
+    scan-images       every published image in containers/scanned-images.json,
+                      scanned BY DIGEST (issue #2706)               make security-scan-images
+    scan-image <ref>  one <ref>@sha256:<64 hex> image               make security-scan-image REF=<ref>
+    scan-published    the just-built ENGINE/ARCH image by its pushed digest   (engine-build lane)
+    scan-fixture      known-vulnerable fixture image, report-only proof       make security-scan-fixture
     verdict [--mode]  apply data/security-policy.json               make security-verdict [MODE=pr]
     findings          print every finding in one normalised shape   (diagnostics)
     check             policy + digests are sane                     make check-security-scan
@@ -159,6 +164,17 @@ def policy() -> dict:
 #: A manifest digest as GHCR reports it (`sha256:<64 hex>`); the shape `image_digest` must carry
 #: so a scan can prove which image it runs (issue #2609).
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
+#: The allow-list of published images the security lane scans (issue #2706). Engine entries name
+#: `(engine, variant)` and resolve their CURRENT pinned tag through scripts/engine_image.py, so
+#: the manifest never carries a stale digest literal; the registry digest is read at scan time and
+#: the scan runs against `ref@sha256:…` — issue #2609's digest proof applied to the images a scan
+#: TARGETS, not just the scanners it runs.
+SCANNED_IMAGES = REPO / "containers" / "scanned-images.json"
+#: The lane that scans each engine image right after it is published (issue #2706). `check`
+#: requires both lane wirings so neither can silently drop the image scan.
+ENGINE_WORKFLOW = REPO / ".github" / "workflows" / "engine-build.yml"
+#: The report names the image scan writes; the slug is the manifest entry's `name`.
+IMAGE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 def registry_manifest_digests(image_ref: str) -> dict:
@@ -261,15 +277,21 @@ def ensure_image(tool: str) -> str:
     return ref
 
 
-def _run(argv: list[str], image: str, entrypoint: str | None = None) -> int:
-    """Run one scanner from its image, with the checkout mounted so it writes its reports."""
+def _run(argv: list[str], image: str, entrypoint: str | None = None,
+         volumes: list[str] | None = None) -> int:
+    """Run one scanner from its image, with the checkout mounted so it writes its reports.
+
+    `volumes` overrides the mount (published-image scans, issue #2706: the target is a registry
+    ref, not the tree — only the reports dir needs to be writable from inside the container).
+    """
     REPORTS.mkdir(parents=True, exist_ok=True)
     # The image's own USER is a non-root one, but the mounted checkout belongs to the RUNNER user:
     # without `--user` the scanner cannot create its report ("permission denied") and would leave
     # root-owned files in the worktree (issue #433). Running as the invoking user fixes both.
     extra = ["--entrypoint", entrypoint] if entrypoint else []
+    mounts = volumes if volumes is not None else [f"{REPO}:/work:rw"]
     cmd = [RUNTIME, "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", *extra,
-           "-v", f"{REPO}:/work:rw", "-w", "/work",
+           *(item for vol in mounts for item in ("-v", vol)), "-w", "/work",
            "-e", "HOME=/tmp", ensure_image_for(image), *argv]
     print(f"[security-scan] $ {' '.join(cmd)}")
     return subprocess.run(cmd).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
@@ -367,6 +389,140 @@ def all_scans() -> int:
     rc = sbom()
     for tool in TOOLS:
         rc = scan(tool) or rc
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Published-image scans (issue #2706): the runtime package set the product SHIPS
+# ---------------------------------------------------------------------------
+# The tree scans above judge sources. An engine image's installed wheel set and its base-image OS
+# packages exist only in the built artifact — `trivy fs .` never sees them (issue #2608's audit).
+# The image scans here run the SAME digest-pinned scanner images against a published image, and
+# every target is addressed BY DIGEST: an undigested ref is refused, so a scan can always name the
+# exact manifest it judged (issue #2609's rule, turned onto the scan target).
+
+def scanned_images() -> dict:
+    """The allow-list of images the lane scans (`containers/scanned-images.json`)."""
+    if not SCANNED_IMAGES.is_file():
+        raise SystemExit(f"[security-scan] {SCANNED_IMAGES} is missing — the published-image "
+                         "allow-list must exist (issue #2706)")
+    return json.loads(SCANNED_IMAGES.read_text(encoding="utf-8"))
+
+
+def scan_image(ref: str, slug: str = "target") -> int:
+    """ONE published image, scanned BY DIGEST with the pinned trivy/syft/grype (issue #2706).
+
+    `ref` MUST carry `@sha256:<64 hex>`. Trivy scans the image's vulnerability set (`vuln` only:
+    committed secrets and IaC misconfigurations are the tree scans' domain), Syft writes the image
+    SBOM, Grype matches exactly that SBOM — the same three-stage shape as the tree scan. The target
+    is a registry ref, so the mount the containers need is the reports dir (`/reports`), not the
+    checkout. The exact ref scanned is recorded in `image-<slug>.meta.json` so `findings()` can
+    name the image.
+    """
+    if not re.search(r"@sha256:[0-9a-f]{64}$", ref or ""):
+        raise SystemExit(f"[security-scan] image scan target {ref!r} is not digest-pinned — pass "
+                         "<ref>@sha256:<64 hex>; a target without a digest is refused (issue #2706)")
+    if not IMAGE_SLUG_RE.fullmatch(slug):
+        raise SystemExit(f"[security-scan] image slug {slug!r} is not a lowercase slug")
+    REPORTS.mkdir(parents=True, exist_ok=True)
+    volumes = [f"{REPORTS.resolve()}:/reports:rw"]
+    rc = _run(["image", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln",
+               "--timeout", "30m",  # CUDA-scale base layers exceed trivy's default 10m analysis
+               "--format", "json", "--output", f"/reports/image-{slug}.trivy.json", ref],
+              image_ref("trivy"), volumes=volumes)
+    rc |= _run(["-o", f"cyclonedx-json=/reports/image-{slug}.cdx.json", ref],
+               image_ref("grype"), entrypoint="syft", volumes=volumes)
+    rc |= _run([f"sbom:/reports/image-{slug}.cdx.json", "-o", "json",
+                "--file", f"/reports/image-{slug}.grype.json"], image_ref("grype"),
+               volumes=volumes)
+    (REPORTS / f"image-{slug}.meta.json").write_text(
+        json.dumps({"ref": ref, "scanned_at": _dt.date.today().isoformat()}, indent=2) + "\n",
+        encoding="utf-8")
+    return rc
+
+
+def _resolve_engine_ref(engine: str, variant: str) -> str:
+    """`<registry>/<name>:<pinned-hash>-<variant>` for an engine entry — resolved at call time
+    from the committed engine params, so the manifest never carries a stale tag (issue #2706).
+    Imported lazily: the security lane must not pay the engine stack's import cost to read a ref."""
+    try:
+        from . import engine_image as _ei
+    except ImportError:
+        import engine_image as _ei  # type: ignore
+    spec = _ei.resolve(engine, None, variant)
+    return f"{_ei.REGISTRY}/{spec['tag']}"
+
+
+def resolve_scan_targets(manifest: dict | None = None) -> list[tuple[str, str]]:
+    """`(slug, ref@sha256:<64 hex>)` for every manifest entry. The registry must answer for the
+    ref: an image that is not published yet is a hard failure, never a silent skip."""
+    manifest = manifest or scanned_images()
+    out: list[tuple[str, str]] = []
+    for entry in manifest.get("images") or []:
+        slug = str(entry.get("name") or "")
+        if entry.get("engine"):
+            ref = _resolve_engine_ref(str(entry["engine"]), str(entry.get("variant") or ""))
+        else:
+            ref = str(entry.get("ref") or "")
+        index = (registry_manifest_digests(ref) or {}).get("index") or ""
+        if not DIGEST_RE.fullmatch(index):
+            raise SystemExit(f"[security-scan] scanned-images.json: the registry serves no index "
+                             f"digest for {ref} — the image is not published (or the ref is wrong); "
+                             "an image scan never proceeds undigested (issue #2706)")
+        out.append((slug, f"{ref}@{index}"))
+    return out
+
+
+def scan_images_all() -> int:
+    """The lane step: every image the manifest allows, each resolved to its current ref and
+    scanned by the digest the registry serves for it (issue #2706)."""
+    rc = 0
+    for slug, ref in resolve_scan_targets():
+        print(f"[security-scan] image scan: {slug} -> {ref}")
+        rc |= scan_image(ref, slug=slug)
+    return rc
+
+
+def scan_published_image(engine: str, variant: str) -> int:
+    """The engine-build lane step (issue #2706): scan the image this cell JUST pushed, addressed
+    by the digest the registry now serves for its pinned tag — the published artifact is measured,
+    not assumed."""
+    ref = _resolve_engine_ref(engine, variant)
+    index = (registry_manifest_digests(ref) or {}).get("index") or ""
+    if not DIGEST_RE.fullmatch(index):
+        raise SystemExit(f"[security-scan] {engine}/{variant}: no registry digest for {ref} — the "
+                         "push did not land where the scan can reach it (issue #2706)")
+    slug = f"{ref.rsplit('/', 1)[-1].replace(':', '-').replace('.', '-')}"
+    print(f"[security-scan] published-image scan: {slug} -> {ref}@{index}")
+    return scan_image(f"{ref}@{index}", slug=slug)
+
+
+def scan_image_fixture() -> int:
+    """The loud AC proof (issue #2706): a deliberate known-vulnerable image, scanned report-only
+    into the current SECURITY_REPORTS. It never flows into the lane's verdict/issues reports and it
+    FAILS when the fixture produces no findings — a fixture the scanners cannot see is a broken
+    proof, not a clean run."""
+    fx = scanned_images().get("fixture") or {}
+    ref = str(fx.get("ref") or "")
+    slug = str(fx.get("name") or "fixture")
+    index = (registry_manifest_digests(ref) or {}).get("index") or ""
+    if not DIGEST_RE.fullmatch(index):
+        raise SystemExit(f"[security-scan] fixture {ref}: the registry serves no index digest — "
+                         "the fixture image must be pullable by digest (issue #2706)")
+    rc = scan_image(f"{ref}@{index}", slug=slug)
+    items = findings()
+    by_source: dict[str, int] = {}
+    for item in items:
+        by_source[item["source"]] = by_source.get(item["source"], 0) + 1
+    print(f"[security-scan] fixture {ref}@{index}: {len(items)} normalized finding(s) "
+          f"({', '.join(f'{k}: {v}' for k, v in sorted(by_source.items())) or 'NONE'})")
+    for item in items[:20]:
+        print(f"  {item['source']}: {item['id']} {item['package']} {item['current']} -> "
+              f"{item['fixed']} ({item['severity']}) image={item.get('image', '')}")
+    if not items:
+        print("[security-scan] FIXTURE PROVED NOTHING — the image-scan path is broken "
+              "(issue #2706); this is a failure, never a clean result")
+        return 1
     return rc
 
 
@@ -482,6 +638,27 @@ def findings(reports: Path | None = None) -> list[dict]:
             continue
         try:
             out.extend(reader(json.loads(path.read_text(encoding="utf-8"))))
+        except json.JSONDecodeError:
+            raise SystemExit(f"[security-scan] {path} does not parse — the run is not green")
+    # Published-image reports (issue #2706): `image-<slug>.trivy.json` and `image-<slug>.grype.json`
+    # are read by the SAME normalisers, and every finding is tagged with the exact `ref@digest` the
+    # scan recorded in `image-<slug>.meta.json`. From here on the pipeline does not distinguish an
+    # image finding from a tree finding: `verdict()`, `blocking()` and `security-issues` judge them
+    # under one policy, and the issue body names the image the advisory lives in.
+    for path in sorted(reports.glob("image-*.trivy.json")) + sorted(reports.glob("image-*.grype.json")):
+        reader = _trivy_findings if path.name.endswith(".trivy.json") else _grype_findings
+        meta = reports / f"{path.name.split('.')[0]}.meta.json"
+        image = ""
+        if meta.is_file():
+            try:
+                image = str(json.loads(meta.read_text(encoding="utf-8")).get("ref") or "")
+            except json.JSONDecodeError:
+                raise SystemExit(f"[security-scan] {meta} does not parse — the run is not green")
+        try:
+            for item in reader(json.loads(path.read_text(encoding="utf-8"))):
+                if image:
+                    item["image"] = image
+                out.append(item)
         except json.JSONDecodeError:
             raise SystemExit(f"[security-scan] {path} does not parse — the run is not green")
     return out
@@ -698,6 +875,54 @@ def check() -> int:
                             f"than the declared current-release baseline {syft_baseline!r} — bump "
                             "the grype Dockerfile's `ARG SYFT_VERSION` and `make scanner-digests` "
                             "(issue #2708)")
+    # The published-image allow-list (issue #2706) must exist, carry a shape the resolver can use,
+    # and be wired into BOTH lanes: the scheduled security lane and the engine publish cell. An
+    # empty allow-list or a dropped step is the silent-skip this issue exists to prevent.
+    manifest = {}
+    if not SCANNED_IMAGES.is_file():
+        problems.append("containers/scanned-images.json is missing — no published image would "
+                        "ever be scanned (issue #2706)")
+    else:
+        try:
+            manifest = json.loads(SCANNED_IMAGES.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            problems.append(f"containers/scanned-images.json does not parse: {exc}")
+        entries = manifest.get("images") or []
+        if not entries:
+            problems.append("containers/scanned-images.json: `images` is empty — the published-"
+                            "image scan would scan nothing (issue #2706)")
+        seen_slugs: set[str] = set()
+        for entry in entries:
+            slug = str(entry.get("name") or "")
+            if not IMAGE_SLUG_RE.fullmatch(slug):
+                problems.append(f"scanned-images.json: entry name {slug!r} is not a lowercase slug")
+            elif slug in seen_slugs:
+                problems.append(f"scanned-images.json: duplicate slug {slug!r} — two entries would "
+                                "overwrite each other's reports")
+            else:
+                seen_slugs.add(slug)
+            if entry.get("engine"):
+                if not entry.get("variant"):
+                    problems.append(f"scanned-images.json: engine entry {slug!r} has no `variant`")
+                try:
+                    _resolve_engine_ref(str(entry["engine"]), str(entry.get("variant") or ""))
+                except SystemExit as exc:
+                    problems.append(f"scanned-images.json: engine entry {slug!r} does not resolve "
+                                    f"to a pinned image: {exc}")
+            elif not entry.get("ref"):
+                problems.append(f"scanned-images.json: entry {slug!r} has neither `engine`+`variant` "
+                                "nor `ref`")
+        fixture = manifest.get("fixture") or {}
+        if not fixture.get("ref") or not fixture.get("name"):
+            problems.append("scanned-images.json: `fixture` needs a `name` and a `ref` — the "
+                            "known-vulnerable proof image must be declared (issue #2706)")
+    if manifest.get("images") and "security-scan-images" not in workflow:
+        problems.append(f"{_display(WORKFLOW)}: no `make security-scan-images` step — the lane "
+                        "would never scan the published images the manifest allows (issue #2706)")
+    engine_workflow = ENGINE_WORKFLOW.read_text(encoding="utf-8") if ENGINE_WORKFLOW.is_file() else ""
+    if manifest.get("images") and "security-scan-published" not in engine_workflow:
+        problems.append(f"{_display(ENGINE_WORKFLOW)}: no `make security-scan-published` step — a "
+                        "published engine image would never be scanned at publish time (issue #2706)")
     if problems:
         print(f"[security-scan] {len(problems)} problem(s):")
         for item in problems:
@@ -714,7 +939,8 @@ def check() -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command",
-                    choices=("ref", "sbom", "scan", "all", "verdict", "findings", "check"))
+                    choices=("ref", "sbom", "scan", "all", "scan-images", "scan-image",
+                             "scan-published", "scan-fixture", "verdict", "findings", "check"))
     ap.add_argument("tool", nargs="?", default="")
     ap.add_argument("--mode", default="", choices=("", "full", "pr"),
                     help="force a mode; empty resolves it from --event via `enforce_events`")
@@ -725,6 +951,17 @@ def main(argv: list[str]) -> int:
         return 0
     if args.command == "scan":
         return scan(args.tool)
+    if args.command == "scan-image":
+        return scan_image(args.tool)
+    if args.command == "scan-images":
+        return scan_images_all()
+    if args.command == "scan-published":
+        engine, _, variant = args.tool.partition("/")
+        if not variant:
+            raise SystemExit("usage: scan-published <engine>/<variant>")
+        return scan_published_image(engine, variant)
+    if args.command == "scan-fixture":
+        return scan_image_fixture()
     if args.command == "findings":
         print(json.dumps(findings(), indent=2))
         return 0

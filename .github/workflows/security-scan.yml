@@ -134,6 +134,21 @@ jobs:
             make security-scan TOOL="$tools"
           fi
 
+      - name: make security-scan-images (the published images the allow-list names, each scanned BY DIGEST — issue #2706)
+        # The tree scans judge sources; this step judges the runtime package set the shipped images
+        # actually carry (the wheels an engine image installs, the base-image OS packages). Each
+        # target resolves its current pinned tag through scripts/engine_image.py and is addressed by
+        # the registry digest. The image-*.json reports join the tree reports below: the verdict
+        # step applies one policy, and security-issues files image findings named by ref@digest.
+        run: make security-scan-images
+
+      - name: make security-scan-fixture (loud known-vulnerable image proof, report-only — issue #2706)
+        # The fixture image (containers/scanned-images.json `fixture`) is deliberately vulnerable:
+        # this step FAILS when it yields zero findings, because a scanner path that cannot see a
+        # known-bad image is broken. Its reports live in security-reports-fixture/ — never read by
+        # the verdict/issues steps below, never filed, never gating.
+        run: make security-scan-fixture
+
       - name: make security-verdict (the policy decides whether THIS event may gate)
         # The verdict must NOT abort the job: filing the tagged issues (#716) and opening the floor
         # bump PR (#738) are the reason this pipeline exists, and both used to be skipped whenever

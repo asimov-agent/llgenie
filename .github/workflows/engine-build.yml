@@ -273,6 +273,10 @@ jobs:
       - name: "published-binary-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH) and verify the engine BINARY answers -h/--version only (issue #2319). No server is started in CI; the serve conformance test is host-only (make test-engine-host / make test-engine-serve, run manually by the llgenie-engine-improver with the smallest model that fits)."
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "published-image-scan: make security-scan-published ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — scan the image this cell just pushed BY DIGEST with the pinned trivy/Syft/Grype (issue #2706): the wheels and base-OS packages the runtime ships are invisible to the tree scans, so the artifact is measured at publish time. Report-only here — findings land in this log and the scheduled security lane judges/files them under data/security-policy.json; a scanner hiccup must not red a cell whose image is already published and binary-verified, so this step continues on error."
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        continue-on-error: true
+        run: make security-scan-published ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}

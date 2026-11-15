@@ -75,6 +75,9 @@ class Finding:
     severity: str
     source: str
     component: str = ""
+    #: The exact `ref@sha256:<64 hex>` when the finding came from a published-image scan
+    #: (issue #2706); empty for a tree-scan finding.
+    image: str = ""
     labels: list[str] = field(default_factory=list)
 
     @property
@@ -90,15 +93,19 @@ class Finding:
         return f"security({self.severity}): {self.advisory} in {self.package} ({self.source})"
 
 
-def component_of(package: str, source: str) -> str:
+def component_of(package: str, source: str, image: str = "") -> str:
     """Which component a finding belongs to — the label a reviewer filters on.
 
-    SAST findings are code by definition. A package named in the container images is a container
-    one; anything else the Python scanners report is a Python dependency.
+    SAST findings are code by definition. A finding seen inside a published image is a container
+    finding whatever the package family is: the defect is in the built artifact, not in a pin the
+    tree ships (published-image scan, issue #2706). Otherwise a package named in the container
+    images is a container one; anything else the Python scanners report is a Python dependency.
     """
     if source not in ("trivy", "grype"):
         # anything that is not a CVE scanner over packages is a rule over source
         return "component:code"
+    if image:
+        return "component:container"
     container_markers = ("openssl", "libc", "wolfi", "debian", "ubuntu", "libssl", "zlib", "glibc")
     if any(marker in package.lower() for marker in container_markers):
         return "component:container"
@@ -134,8 +141,9 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
         finding = Finding(
             advisory=str(advisory), package=str(package), current=str(item.get("current") or ""),
             fixed=str(item.get("fixed") or ""), severity=item["severity"], source=item["source"],
+            image=str(item.get("image") or ""),
         )
-        finding.component = component_of(finding.package, finding.source)
+        finding.component = component_of(finding.package, finding.source, finding.image)
         finding.labels = labels_for(finding.severity, finding.component, bool(finding.fixed))
         if finding.key in seen:  # one issue per (advisory, package), even across scanners
             continue
@@ -154,6 +162,8 @@ def _technical(finding: Finding, run_url: str) -> list[str]:
     return [
         f"**Advisory:** `{finding.advisory}` — scanner: `{finding.source}`",
         f"**Affected package:** `{finding.package}`",
+        *([f"**Image:** `{finding.image}` (published-image scan, issue #2706 — the finding "
+          "lives in the built artifact named by this digest)"] if finding.image else []),
         f"**Current → fixed:** `{finding.current}` → `{finding.fixed or '(none named)'}`",
         f"**Severity:** `{finding.severity}`",
         f"**Component:** `{finding.component}`",

@@ -58,6 +58,20 @@ security-scan: ## Run ONE scanner from its immutable image (TOOL=syft|trivy|gryp
 security-scan-all: engine-pins ## Run every scanner from its pinned image in dependency order (Syft SBOM, then Trivy, Grype, Semgrep); the engine pins are inventoried before Syft so the SBOM covers them (issue #1282)
 	python3 scripts/security_scan.py all
 
+security-scan-images: ## Run the pinned scanners over every published image the containers/scanned-images.json allow-list names, each addressed BY DIGEST (trivy image + Syft SBOM + Grype; issue #2706)
+	python3 scripts/security_scan.py scan-images
+
+security-scan-image: ## Scan ONE image: REF=<registry/ref@sha256:...> — a target without a digest is refused (issue #2706)
+	@test -n "$(REF)" || { echo "Usage: make security-scan-image REF=<ref@sha256:...>"; exit 1; }
+	python3 scripts/security_scan.py scan-image "$(REF)"
+
+security-scan-published: ## Scan the ENGINE/ARCH image this workspace just pushed, by the digest the registry serves for its pinned tag (the engine-build publish-cell step; issue #2706)
+	@test -n "$(ENGINE)" || { echo "Usage: make security-scan-published ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
+	python3 scripts/security_scan.py scan-published "$(ENGINE)/$(if $(ARCH),$(ARCH),cuda)"
+
+security-scan-fixture: ## Loud proof of the image-scan path (issue #2706): the declared known-vulnerable fixture image, scanned by digest into security-reports-fixture/ and normalized through findings(); exits non-zero when the fixture proves NOTHING — report-only, never filed, never gating
+	SECURITY_REPORTS="$(CURDIR)/security-reports-fixture" python3 scripts/security_scan.py scan-fixture
+
 security-verdict: ## Apply data/security-policy.json to the reports (EVENT=<github event> decides whether that event may gate; ENFORCE=pr forces report-only; issue #715, #738)
 	python3 scripts/security_scan.py verdict --event "$(EVENT)" $(if $(ENFORCE),--mode "$(ENFORCE)",)
 

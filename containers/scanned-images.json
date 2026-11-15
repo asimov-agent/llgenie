@@ -1,0 +1,21 @@
+{
+  "note": "Published images the security lane scans BY DIGEST (issue #2706). An `engine`+`variant` entry resolves its CURRENT pinned tag through scripts/engine_image.py at scan time; a `ref` entry is scanned as named. The registry index digest is read per scan and the scanner runs against `ref@sha256:...` — no stale digest literals live here. The image scan flows through the same security-verdict policy and security-issues path as the tree scans; the lane gates only its own events (data/security-policy.json), never a merge.",
+  "images": [
+    {
+      "name": "agent",
+      "ref": "ghcr.io/asimov-agent/llgenie/agent:latest",
+      "owner": "containers/agent/Dockerfile (published by publish-agent-image.yml; :latest names the current content-hash tag)"
+    },
+    {
+      "name": "llama-cpp-cuda",
+      "engine": "llama.cpp",
+      "variant": "cuda",
+      "owner": "containers/engines/params/llama.cpp.json (the pinned tag follows the pin bump)"
+    }
+  ],
+  "fixture": {
+    "name": "fixture-alpine-315",
+    "ref": "docker.io/library/alpine:3.15.1",
+    "note": "Deliberately known-vulnerable base image for the loud image-scan proof (`make security-scan-fixture`): scanned report-only into security-reports-fixture/, never filed as issues, never gating. The target FAILS when the fixture produces no findings."
+  }
+}
