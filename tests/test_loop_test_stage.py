@@ -76,7 +76,8 @@ def test_install_assertions_are_still_in_some_gate():
     """Removing them from the containerized command must not remove them from every gate."""
     reachable = ["test", "test-install-host", "test-install-ci", "ci-install"]
     for target in reachable:
-        recipe = _recipe(target) if re.search(rf"^{re.escape(target)}:", MAKEFILE.read_text(), re.M) else ""
+        # issue #2677: `test` moved into mk/tests.mk — the exists?-test reads the include chain
+        recipe = _recipe(target) if re.search(rf"^{re.escape(target)}:", makefiles_text(REPO), re.M) else ""
         if "tests/test_install.py" in recipe:
             return
     raise AssertionError(

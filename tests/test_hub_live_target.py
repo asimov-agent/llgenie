@@ -20,8 +20,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import unit_tests as ut
+from conftest import makefiles_text  # the target moved into mk/tests.mk (#2677)
 
-MAKEFILE = (REPO / "Makefile").read_text()
+MAKEFILE = makefiles_text(REPO)
 
 LIVE_NODES = (
     "tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer",
