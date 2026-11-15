@@ -18,4 +18,4 @@
 
 ## 5. Verification
 - [x] 5.1 `make openspec-validate NAME=registry-review-rest-body-edit` exits 0
-- [ ] 5.2 `make test-unit` exits 0 at head (the whole unit suite)
+- [x] 5.2 `make test-unit` exits 0 at head (the whole unit suite)
