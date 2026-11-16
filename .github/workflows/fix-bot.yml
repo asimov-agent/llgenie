@@ -330,8 +330,12 @@ jobs:
 
       # The body a repair leaves behind must satisfy the same gate as a fresh PR (issue #2050): the
       # preflight pair is re-measured and re-written when the branch was synced onto the latest main
-      # (a sync moves the base; a repair that could not sync keeps the base it opened with).
-      - name: "Re-stamp the repaired PR body with the preflight AGENTS/BASE pair (issue #2050)"
+      # (a sync moves the base; a repair that could not sync keeps the base it opened with). The WRITE
+      # goes through the guarded seam (issue #2131): it re-reads the LIVE body and refuses the write —
+      # logging the skip and commenting the PR — when the proposed copy would drop a section or a
+      # proven-ticked item the owning lane recorded, the deletion that re-reddeled check-pr-acceptance
+      # twice on #2113. No hand-rolled body replacement is left in the repair path.
+      - name: "Re-stamp the repaired PR body and write it through the guarded seam (issues #2050, #2131)"
         id: stamp
         if: steps.pr.outputs.number != '' && steps.push.outputs.pushed != '' && steps.sync.outputs.rc == '0'
         env:
@@ -339,14 +343,8 @@ jobs:
         run: |
           set -euo pipefail
           gh pr view "$NUM" --repo "${{ github.repository }}" --json body -q .body > /tmp/pr-body.md
-          cp /tmp/pr-body.md /tmp/pr-body.before.md
           make bot-stamp-body BODY=/tmp/pr-body.md
-          if cmp -s /tmp/pr-body.before.md /tmp/pr-body.md; then
-            echo "stamped=0" >> "$GITHUB_OUTPUT"
-          else
-            gh pr edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md
-            echo "stamped=1" >> "$GITHUB_OUTPUT"
-          fi
+          make bot-body-write PR="$NUM" REPO="${{ github.repository }}" NEW=/tmp/pr-body.md
 
       - name: Comment the outcome on the PR
         if: always() && steps.pr.outputs.number != ''
