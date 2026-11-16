@@ -3,6 +3,12 @@
 Depth for `SKILL.md` §"A PR that carries another PR's file" — read this before adding a file under
 `agents/`, before touching a checker that several PRs carry, or when a fleet-wide rule needs one text.
 
+A lane's memory topology is not in this file. The host-side fleet memory wiring — one Hindsight daemon
+per host, a shared plugin profile, restart recovery — is described in
+[docs/BOTS.md — Fleet memory](../../../../../docs/BOTS.md#fleet-memory-one-hindsight-daemon-per-host-shared-plugin-profile-issue-2057);
+read it before adding a profile, wiring a new lane's memory, or recovering a lane after a daemon
+restart (issue #2064).
+
 ## Four PRs each carrying the same foundation
 
 Two lanes building the same foundation (`agents/manifest.json`, a `scripts/check_*.py`, a `make` target)
