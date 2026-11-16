@@ -9,6 +9,9 @@ name: search-smoke — one real Firecrawl request proves the masked web reach
 #
 # Trigger surface: workflow_dispatch (owner/collaborator) only — the daily slot
 #                  (`11 7 * * *`, an odd minute, its own slot — issue #275) is OFF per issue #2701.
+# Triggered now (issue #2703): keep-dispatch-only — a manual dispatch by the owner, a
+#                  collaborator, or GitHub (the #2718 roster); the local proof is
+#                  `make search-smoke` on the host.
 # dispatch: no inputs — the smoke takes no target: it always proves the same leg with one request.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make agent-shell-keys-check
 #       AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY (the AGENT's own shell must see the key, issue #358)

@@ -214,3 +214,66 @@ def test_the_gate_is_classified_by_the_issue_bot_gate_roster():
 
     assert "check-ci-discipline" in DEFERRED
     assert "check-ci-discipline" not in FAST_GATES
+
+# ---------------------------------------------------------------- #2703: dispatch-only classification
+
+DISPATCH_ONLY_SAMPLE = "issue-dedupe.yml"
+
+
+def test_the_dispatch_only_roster_covers_the_seven_deactivated_lanes_and_the_files_exist():
+    gate = (REPO / "scripts" / "check_ci_discipline.py").read_text()
+    roster = [l for l in gate.splitlines() if l.startswith('    "') and '": "keep-' in l]
+    assert len(roster) == 7, roster
+    for lane in ("architecture-bot.yml", "issue-bot.yml", "issue-dedupe.yml",
+                 "issue-refiner.yml", "registry-sync-review.yml", "search-smoke.yml",
+                 "rebase-bot.yml"):
+        assert f'"{lane}": "keep-' in gate, lane
+        assert (WORKFLOWS / lane).exists(), f"{lane} was retired but stays in the roster"
+    assert '": "retire-' not in gate
+
+
+def test_a_kept_lane_without_its_trigger_header_is_a_finding(tmp_path):
+    root = _tree(tmp_path)
+    target = root / ".github" / "workflows" / DISPATCH_ONLY_SAMPLE
+    text = target.read_text()
+    assert "# Triggered now (issue #2703):" in text, "the real file must carry the marker this test removes"
+    target.write_text(text.replace("# Triggered now (issue #2703):", "# Trigger surface:"))
+
+    proc = _run(root)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert DISPATCH_ONLY_SAMPLE in proc.stderr
+    assert "Triggered now" in proc.stderr
+
+
+def test_a_dispatch_only_lane_that_re_adds_its_clock_is_a_finding(tmp_path):
+    root = _tree(tmp_path)
+    target = root / ".github" / "workflows" / DISPATCH_ONLY_SAMPLE
+    text = target.read_text()
+    rescheduled = text.replace("on:\n  workflow_dispatch:",
+                               "on:\n  schedule:\n    - cron: \"7 3 * * *\"\n  workflow_dispatch:", 1)
+    assert rescheduled != text, "fixture could not re-add the clock — issue-dedupe.yml shape changed"
+    target.write_text(rescheduled)
+
+    proc = _run(root)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert DISPATCH_ONLY_SAMPLE in proc.stderr
+    assert "schedule" in proc.stderr
+
+
+def test_report_lists_the_dispatch_only_classification(tmp_path):
+    root = _tree(tmp_path)
+    proc = _run(root, "report")
+    assert proc.returncode == 0
+    out = proc.stdout
+    assert "dispatch-only classifications (issue #2703): 7" in out
+    for lane in ("architecture-bot.yml", "rebase-bot.yml", "search-smoke.yml"):
+        assert lane in out.split("dispatch-only classifications")[1]
+
+
+def test_retiring_the_lane_file_while_it_stays_classified_is_a_finding(tmp_path):
+    root = _tree(tmp_path)
+    (root / ".github" / "workflows" / DISPATCH_ONLY_SAMPLE).unlink()
+    proc = _run(root)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert DISPATCH_ONLY_SAMPLE in proc.stderr
+

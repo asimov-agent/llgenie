@@ -13,7 +13,11 @@
 # SKIP_LABELS). A duplicate close retires the COPY only: the canonical issue is queued (agent:implement) when
 # it carries no queue label, so the work is never lost (the lesson of #521).
 #
-# Trigger surface: its own schedule and `workflow_dispatch` by hand (owner/collaborator).
+# Trigger surface: `workflow_dispatch` by hand only (its own schedule was removed by issue
+#                  #2701).
+# Triggered now (issue #2703): keep-dispatch-only — the dispatch belongs to the #2718 roster
+#                  (owner/collaborator, GitHub). Duplicate detection also runs locally via
+#                  make issue-dedup-pick / issue-dedup / issue-dedup-apply.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-dedup-pick (the pair, or none) ->
 #       make issue-dedup (the agent reads dedup-in.md and writes dedup.md) -> make issue-dedup-apply (comment
 #       citing the canonical + agent:duplicate on the copy, then queue the canonical).

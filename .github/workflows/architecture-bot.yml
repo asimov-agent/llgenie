@@ -1,14 +1,18 @@
 name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
 
-# ARCHITECTURE — reads the real tree and the real git drift every 6 hours, rewrites
+# ARCHITECTURE — reads the real tree and the real git drift, rewrites
 # `docs/ARCHITECTURE.md` to match it, and leaves the refresh as ONE issue + ONE reviewable PR
 # (issue #449). It is the same shape as the repository's other readers (issue-bot, code-review,
 # registry-sync): a deterministic decision, one bounded agent leg, and a publish step that never
 # merges.
 #
-# Trigger surface: a 6-hourly schedule (minute :47, its own slot) and workflow_dispatch for the
-#                  owner/collaborators/bots with write access (`dry` previews the bodies, `doc`
-#                  picks the markdown file to refresh).
+# Trigger surface: `workflow_dispatch` only (the 6-hourly clock, minute :47, was removed by
+#                  issue #2701).
+# Triggered now (issue #2703): keep-dispatch-only — a manual dispatch by the owner, a
+#                  collaborator, or GitHub (the #2718 roster) is the only way this lane starts
+#                  (`dry` previews the bodies, `doc` picks the markdown file to refresh). The
+#                  interactive host agent runs the same architecture scan locally and never
+#                  dispatches this lane.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make architecture-bot-brief
 #       (real git: the doc's last commit, the drift since it, and the code surface; no model)
 #       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
