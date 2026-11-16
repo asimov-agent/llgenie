@@ -141,7 +141,9 @@ jobs:
       - name: Report
         if: always()
         run: |
-          echo "### code-review" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Findings: see the scan step above; issues filed: see the filer step." >> "$GITHUB_STEP_SUMMARY"
-          echo "The bot never edits code, never opens a PR and never merges." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### code-review"
+            echo ""
+            echo "Findings: see the scan step above; issues filed: see the filer step."
+            echo "The bot never edits code, never opens a PR and never merges."
+          } >> "$GITHUB_STEP_SUMMARY"

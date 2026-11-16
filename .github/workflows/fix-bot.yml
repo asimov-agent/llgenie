@@ -161,10 +161,12 @@ jobs:
             --json headRepositoryOwner,headRepository \
             -q '.headRepositoryOwner.login, .headRepository.nameWithOwner' | paste -sd' ' -)
           echo "head owner: ${headowner:-?} repo: ${headrepo:-?}"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "number=$num" >> "$GITHUB_OUTPUT"
-          echo "headowner=$headowner" >> "$GITHUB_OUTPUT"
-          echo "headrepo=$headrepo" >> "$GITHUB_OUTPUT"
+          {
+            echo "branch=$branch"
+            echo "number=$num"
+            echo "headowner=$headowner"
+            echo "headrepo=$headrepo"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout with the owner PAT (so the push re-triggers CI)
         if: steps.pr.outputs.branch != ''

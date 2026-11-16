@@ -228,9 +228,11 @@ jobs:
             fi
           done
           echo "rebased=$rebased failed=$failed failed_prs=$failed_prs"
-          echo "rebased=$rebased" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "failed_prs=$failed_prs" >> "$GITHUB_OUTPUT"
+          {
+            echo "rebased=$rebased"
+            echo "failed=$failed"
+            echo "failed_prs=$failed_prs"
+          } >> "$GITHUB_OUTPUT"
           if [ "$failed" != "0" ]; then
             echo "::error::$failed PR(s) were picked and not rebased ($failed_prs); each carries the reason on the PR and the rest were processed."
             exit 1

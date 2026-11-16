@@ -191,9 +191,11 @@ jobs:
           action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
           pr=$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p' | tail -1)
           branch=$(printf '%s\n' "$out" | sed -n 's/^branch=//p' | tail -1)
-          echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "pr_url=$pr" >> "$GITHUB_OUTPUT"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          {
+            echo "action=${action:-unknown}"
+            echo "pr_url=$pr"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Report
         if: always()

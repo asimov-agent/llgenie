@@ -173,7 +173,7 @@ jobs:
         run: |-
           set -euo pipefail
           ENFORCE="${{ github.event.inputs.enforce || '' }}"
-          if [ "$ENFORCE" = "report" ]; then ENFORCE=pr; fi
+          if [ "$ENFORCE" = "report" ]; then ENFORCE="pr"; fi
           make security-verdict EVENT="${{ github.event_name }}" ENFORCE="$ENFORCE"
 
       - name: make security-issues (file or update one tagged issue per finding)
