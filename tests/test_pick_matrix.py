@@ -280,3 +280,139 @@ def test_matrix_skips_a_fitting_model_outside_the_default_vram_band(monkeypatch)
     inband_skipped = {s["model"]: s["why"] for s in res["skipped"]}.get("qwen-8b", "")
     assert "VRAM band" not in inband_skipped, (inband_skipped, res["skipped"])
 
+
+# -- issue #2048: hermetic full-shape coverage of offer-or-skip + band semantics
+# The #669 offer-or-skip invariant and the #227 band-narrowing must be RED in
+# `make test-unit` (hermetic gate) for any change to matrix()/offer(), not only
+# minutes later in ci-hf-live. Hub + engine registry stubbed; zero network I/O.
+
+def _band_trees():
+    trees = _trees()
+    trees.update({
+        "FakeOrg/Bon-2B-GGUF": [_f("Bon-2B-Q4_K_M.gguf", 5 * GB)],
+        "FakeOrg/Cpu-7B-GGUF": [_f("Cpu-7B-Q4_K_M.gguf", 4 * GB)],
+        "FakeOrg/Mlx-16B-GGUF": [_f("Mlx-16B-Q4_K_M.gguf", 9 * GB)],
+    })
+    return trees
+
+
+def _bandreg():
+    """A registry exercising every home a card-gated model must land in:
+    offered, band-skipped, engine-skipped, download-skipped, and a CPU-tier row."""
+    bon = _model("bon-2b", "Bonsai 2 2B", "6GB", "FakeOrg/Bon-2B-GGUF", 150, "RTX 3060 12GB")
+    bon["vram_min"] = "4GB"                      # measured min fits 16 GB; tier is off-band
+    cpu = _model("cpu-7b", "Cpu 7B", "CPU", "FakeOrg/Cpu-7B-GGUF", 30, "CPU only")
+    mlx = _model("mlx-16b", "Mlx 16B", "16GB", "FakeOrg/Mlx-16B-GGUF", 90, "RTX 4090",
+                 supported=["mlx"])
+    mlx["engines"] = []   # no measured run and no mlx image for this arch -> engine-home skip
+    return {
+        "generated_utc": "2026-11-16T00:00:00Z",
+        "models": [
+            _model("qwen-8b", "Qwen 8B", "8GB", "Qwen/Qwen3-8B-GGUF", 120, "RTX 3060 12GB"),
+            _model("big-16b", "Big 16B", "16GB", "FakeOrg/Big-16B-GGUF", 60, "RTX 4090"),
+            bon, cpu, mlx,
+        ],
+    }
+
+
+def _stubs(monkeypatch):
+    """Hub tree stubbed; the engine registry is the real local `image_ids.json`
+    (a hermetic file, not network) so engine-presence reasons are real too."""
+    monkeypatch.setattr(mp, "_tree", lambda repo, revision="main": _band_trees().get(repo, []))
+    monkeypatch.setenv("LLGENIE_QUANT_CATALOG", "0")
+    monkeypatch.delenv("LLGENIE_VRAM_RANGE", raising=False)
+
+
+def _homes(res):
+    offered = {r["model"]["id"] for r in res["permutations"]}
+    skip_ids = [s["model"] for s in res["skipped"]]
+    return offered, skip_ids
+
+
+# -- AC1: every card-gated model is offered OR skipped-with-a-reason, never absent ---
+def test_matrix_accounts_every_card_gated_model_offer_or_skip(monkeypatch):
+    """Full-shape accounting across the card sizes the suite covers: the union of
+    `permutations` ids and `skipped` ids is EXACTLY the card-gate enumeration
+    (`trend_list(registry, gb, ram)`), the two homes are disjoint, no model is
+    skipped twice, and every skip row carries a non-empty reason (issues #669,
+    #2047, formalized by #2048). Hermetic: stubbed Hub tree + engine registry."""
+    _stubs(monkeypatch)
+    reg = _mkreg()
+    for gb in (8, 16, 48):
+        res = mp.matrix(reg, gb, 32, "cuda")
+        gated = {m["id"] for m in mp.trend_list(reg, gb, 32)}
+        offered, skip_ids = _homes(res)
+        assert offered | set(skip_ids) == gated, (gb, offered, skip_ids, gated)
+        assert not (offered & set(skip_ids)), (gb, offered & set(skip_ids))
+        assert len(skip_ids) == len(set(skip_ids)), (gb, skip_ids)
+        assert all(s["why"] for s in res["skipped"]), (gb, res["skipped"])
+
+
+# -- AC1: the band narrows only the OFFERED set; the gate is band-independent --------
+def test_band_narrows_only_the_offered_rows(monkeypatch):
+    """Default band, an explicit `vram_range`, and `LLGENIE_VRAM_RANGE` share ONE
+    card-gate enumeration; the widened views offer exactly the off-band-but-fitting
+    model the default skipped, and the default skip names the band (#227 narrows the
+    view, #669/#2047 never silently drops). CPU-tier rows are band-immune."""
+    _stubs(monkeypatch)
+    reg = _bandreg()
+    gated = {m["id"] for m in mp.trend_list(reg, 16, 32)}
+
+    dflt = mp.matrix(reg, 16, 32, "cuda")
+    wide = mp.matrix(reg, 16, 32, "cuda", vram_range=(4, 64))
+    monkeypatch.setenv("LLGENIE_VRAM_RANGE", "4, 64")   # no explicit arg: same band
+    envw = mp.matrix(reg, 16, 32, "cuda")
+
+    d_off, d_skip = _homes(dflt)
+    w_off, _ = _homes(wide)
+    e_off, _ = _homes(envw)
+
+    # the off-band shape is skipped-by-band in the default view...
+    bon_why = {s["model"]: s["why"] for s in dflt["skipped"]}.get("bon-2b", "")
+    assert "VRAM band" in bon_why and "6GB" in bon_why, dflt["skipped"]
+    assert "bon-2b" not in d_off
+    # ...offered under BOTH widened forms (explicit arg and env), and only it differs
+    assert "bon-2b" in w_off and "bon-2b" in e_off
+    assert w_off == d_off | {"bon-2b"} and e_off == d_off | {"bon-2b"}
+    assert not any("VRAM band" in s["why"] for s in wide["skipped"])
+    assert not any("VRAM band" in s["why"] for s in envw["skipped"])
+    # a CPU/Apple-only row (no numeric tier) is never band-excluded
+    cpu_why = {s["model"]: s["why"] for s in dflt["skipped"]}.get("cpu-7b", "")
+    assert "VRAM band" not in cpu_why, dflt["skipped"]
+    # every variant accounts for the same gate enumeration exactly
+    for res in (dflt, wide, envw):
+        off, skip = _homes(res)
+        assert off | set(skip) == gated, (off, skip, gated)
+        assert not (off & set(skip))
+
+
+# -- AC1: the three skip reasons stay distinct homes ---------------------------------
+def test_skip_reason_shapes_are_distinct(monkeypatch):
+    """Band, no-engine-image and no-download skips are three different reasons; a
+    mutation conflating one into another must red the gate (#2048)."""
+    _stubs(monkeypatch)
+    res = mp.matrix(_bandreg(), 16, 32, "cuda")
+    whys = {s["model"]: s["why"] for s in res["skipped"]}
+    assert "VRAM band" in whys["bon-2b"]
+    assert "engine image" in whys["mlx-16b"] and "VRAM band" not in whys["mlx-16b"]
+    assert "VRAM band" not in whys["big-16b"] and "engine image" not in whys["big-16b"], whys
+
+
+# -- AC1: offer()'s default view never bands; an explicit range narrows the view ----
+def test_offer_default_view_never_bands(monkeypatch, tmp_path):
+    """#669/#2047 in `offer()`: every fitting model is a row (plans or `why`) under
+    the default view, including the off-band bonsai shape; naming the band explicitly
+    filters it from the view — narrowing only what is shown, never the gate."""
+    _stubs(monkeypatch)
+    reg = _bandreg()
+    rows = mp.offer(reg, "cuda", 16, tmp_path, 32)
+    ids = {r["model"]["id"] for r in rows}
+    assert "bon-2b" in ids
+    for r in rows:
+        assert r.get("why") or r["plans"] or r["engine_plans"] or r["local"]
+
+    banded = mp.offer(reg, "cuda", 16, tmp_path, 32, vram_range=(8, 48))
+    assert "bon-2b" not in {r["model"]["id"] for r in banded}
+    assert {"qwen-8b"} <= {r["model"]["id"] for r in banded}
+
+
