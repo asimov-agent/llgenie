@@ -11,6 +11,10 @@ bot-stamp-body: ## Stamp BODY=<pr body file> in place (or into OUT=) with the `A
 	@test -n "$(BODY)" || { echo "Usage: make bot-stamp-body BODY=<pr body file> [OUT=<file>] [BASE=origin/main] [REFS=origin/HEAD,main]"; exit 1; }
 	python3 scripts/bot_preflight.py --stamp "$(BODY)" $(if $(OUT),--out "$(OUT)",) $(if $(BASE),--base "$(BASE)",) $(if $(REFS),--refs "$(REFS)",)
 
+bot-body-write: ## Write NEW=<pr body file> onto PR=<n> ONLY if it preserves every section/proven tick the LIVE body carries — the guarded bot body-write seam (issue #2131): reads the live body through gh, refuses a write that would drop a heading or a ticked `(proven: …)` item (logs the skip and comments the PR naming the section), writes nothing when equal, writes only a preserving rewrite; REPO= defaults to GH_REPO
+	@test -n "$(PR)" -a -n "$(NEW)" || { echo "Usage: make bot-body-write PR=<n> NEW=<body file> [REPO=<owner/repo>]"; exit 1; }
+	python3 scripts/pr_body_write.py --repo "$(if $(REPO),$(REPO),$(GH_REPO))" --pr "$(PR)" --new "$(NEW)"
+
 check-tick-prompt: ## Fail when the live orchestrator cron prompt diverges from the versioned copy under agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md (issue #2159) — host-only: a CI runner has no live jobs.json; exit 0 identical, 1 diverged, 2 a read/missing failure (LIVE=; VERSIONED=), HOST-ONLY
 	@python3 scripts/check_tick_prompt.py $(if $(LIVE),--live "$(LIVE)",) $(if $(VERSIONED),--versioned "$(VERSIONED)",)
 
