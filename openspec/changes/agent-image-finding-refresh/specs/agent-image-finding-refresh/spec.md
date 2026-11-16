@@ -85,6 +85,7 @@ THEN every module the provisioning chain imports at import time is present in th
 
 - hidden path components (`.archive/…` and any dot-directory) are skipped by Hermes' loader, so an archived tree is not carried fleet behaviour and the proof must not count it;
 - a skill whose frontmatter `platforms:` list excludes the platform running the proof is hidden by design, not missing, and the proof must not demand it;
+- a skill whose frontmatter `environments:` tags are ALL inactive in the proof's context (Hermes' `_detect_environment` semantics: unknown tags fail open) is hidden at list time, and the proof must not demand it; no fleet profile activates the `kanban` environment — provisioning writes no profile toolset config and AGENTS.md bars kanban lanes — so lane trees MUST NOT carry a kanban-gated skill at all;
 - the resolved identity of a skill is its frontmatter `name` (what Hermes' table shows), not its directory name.
 
 The lane trees MUST additionally carry no two skills with the same identity on the proof platform: Hermes resolves duplicates by category-qualifying one label (`software-development/…`), which the table proof cannot match.
@@ -109,3 +110,16 @@ THEN every demanded skill is one Hermes resolves on that platform, and no demand
 - **Given** every lane under `agents/`
 - **Then** no two visible, platform-carried SKILL.md files share one identity
 - **Test:** `tests/test_provision_agent_profiles.py::test_no_lane_tree_carries_the_same_skill_identity_twice`
+
+#### Scenario: an inactive-environment skill is demanded only where its environment is active
+
+- **Given** a lane tree with an `environments: [kanban]` skill and an unknown-tag skill
+- **When** the proof runs with no kanban context, then with one
+- **Then** the kanban-gated skill is demanded only with the kanban context active, and the unknown tag fails open
+- **Test:** `tests/test_provision_agent_profiles.py::test_environment_gated_skill_is_carried_only_where_the_environment_is_active`
+
+#### Scenario: no lane tree carries a kanban-gated skill
+
+- **Given** every lane under `agents/`
+- **Then** no visible SKILL.md declares an `environments:` gate containing `kanban` (the fleet can never activate it; the planner's `devops/sdlc-review` was removed for exactly this, issue #2836)
+- **Test:** `tests/test_provision_agent_profiles.py::test_no_lane_tree_carries_a_kanban_gated_skill`

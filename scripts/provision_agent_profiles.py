@@ -77,6 +77,47 @@ def _base(explicit: str | None) -> Path:
 _CURRENT_PLATFORM = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
 
 
+def _environments_gate(md: Path) -> list[str]:
+    """The raw top-level ``environments:`` tags from a SKILL.md frontmatter.
+
+    The shared flat parser only reads single-line values; an ``environments:`` gate is
+    usually block form (``environments:\\n  - kanban``), so the gate reads it from the
+    frontmatter text directly — the same gate Hermes' catalog applies via
+    ``skill_matches_environment`` (agent/skill_utils.py).
+    """
+    try:
+        text = md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    m = re.match(r"^---\n(.*?)\n---", text, re.S)
+    if not m:
+        return []
+    vm = re.search(r"^environments:(.*?)(?=^[A-Za-z_][A-Za-z0-9_-]*:|\Z)", m.group(1), re.M | re.S)
+    if not vm:
+        return []
+    return [t.lower() for t in re.findall(r"[A-Za-z][A-Za-z0-9_-]*", vm.group(1))]
+
+
+def _environment_carried(tags: list[str]) -> bool:
+    """Whether ANY declared environment tag is active HERE (absent = all; unknown tags fail
+    open, exactly like Hermes' ``_detect_environment``):
+
+    - ``kanban`` activates only for a dispatcher-owned worker or a profile that opted into the
+      kanban toolset; fleet provisioning writes no profile toolset config and AGENTS.md bars
+      kanban lanes, so a kanban-gated skill is never resolvable by a fleet proof — the data
+      guard test rejects such a tree instead of demanding it forever.
+    - ``docker`` / ``s6`` mirror Hermes' container and s6-overlay detectors.
+    """
+    if not tags:
+        return True
+    active = {
+        "kanban": bool(os.environ.get("HERMES_KANBAN_TASK") or os.environ.get("HERMES_KANBAN_BOARD")),
+        "docker": os.path.exists("/.dockerenv"),
+        "s6": os.path.isdir("/run/s6") or os.path.isdir("/package/admin/s6-overlay"),
+    }
+    return any(active.get(tag, True) for tag in tags)
+
+
 def _platform_carried(fm: dict) -> bool:
     """Whether a skill's frontmatter `platforms:` list includes the platform running the proof.
 
@@ -99,6 +140,8 @@ def tree_skill_names(agents: Path, name: str) -> list[str]:
     - hidden path components (`.archive/…`) are skipped by the loader, so they are not carried
       fleet behaviour;
     - skills whose frontmatter `platforms:` exclude this OS are hidden by design, not missing;
+    - skills whose frontmatter `environments:` tags are all inactive here (e.g. a kanban-only
+      skill in a fleet profile that never activates kanban) are hidden at list time;
     - the skill's identity is its frontmatter `name` (what Hermes' table shows), not the
       directory name — a directory `pi-delegate` declaring `name: pi` resolves as `pi`.
     """
@@ -113,6 +156,8 @@ def tree_skill_names(agents: Path, name: str) -> list[str]:
             continue
         fm = frontmatter(md) or {}
         if not _platform_carried(fm):
+            continue
+        if not _environment_carried(_environments_gate(md)):
             continue
         names.add(fm.get("name") or md.parent.name)
     return sorted(names)

@@ -30,10 +30,17 @@ finding refresh leg of the security lane).
   build (hidden by design), directory-named skills whose frontmatter renames them
   (`pi-delegate` → `pi`, `obsidian-vault-automation` → `vault-cron-workflow`), and one identity
   collision in the issse lane (a flattened `bulk-mechanical-migration` copy beside its category
-  copy; Hermes category-qualifies one, which the table proof cannot match). `tree_skill_names`
-  now mirrors Hermes' loader exactly (measured empirically against the CLI on this host), the
-  stale flattened copy is removed, and `tests/test_provision_agent_profiles.py` guards all four
-  shapes — including a data guard that fails any lane tree carrying one identity twice.
+  copy; Hermes category-qualifies one, which the table proof cannot match), and one
+  `environments: [kanban]` skill in the planner lane (`devops/sdlc-review` — Hermes hides
+  environment-gated skills whose environment is inactive, and no fleet profile can activate
+  kanban: provisioning writes no toolset config and AGENTS.md bars kanban lanes).
+  `tree_skill_names` now mirrors Hermes' loader exactly (measured empirically against the CLI on
+  this host): hidden trees skipped, `platforms:` gates honoured, `environments:` gates resolved
+  against the same context Hermes detects (`kanban` via dispatcher env, `docker` via
+  `/.dockerenv`, `s6` via s6-overlay paths, unknown tags fail open), frontmatter name as
+  identity; the stale flattened copy and the kanban-gated skill are removed from the trees, and
+  `tests/test_provision_agent_profiles.py` guards every shape — duplicate-identity and
+  kanban-carry data guards included.
 - Out of scope, each its own linked issue on #2836: the 15 llama-cpp CUDA findings (weekly
   engine lane, human permission gate for engine rebuilds) and the Wolfi scanner-binary findings
   (`make scanner-freshness` confirms the pins are newest published).

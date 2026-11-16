@@ -186,6 +186,44 @@ def test_tree_skill_names_reads_every_skill_the_lane_carries():
     assert "pi" in names, names  # dir pi-delegate declares `name: pi`
     assert "vault-cron-workflow" in names, names  # dir obsidian-vault-automation
     assert "pi-delegate" not in names and "obsidian-vault-automation" not in names, names
+    # an environments-gated skill the fleet never activates is not demanded (sdlc-review, #2836).
+    assert "sdlc-review" not in names, names
+
+
+def test_environment_gated_skill_is_carried_only_where_the_environment_is_active(tmp_path, monkeypatch):
+    """`environments:` is a relevance gate resolved against the runtime context: a kanban-only
+    skill is invisible to a fleet profile listing (kanban never activates there) but demanded
+    when the kanban context IS active; an unknown tag fails open exactly like Hermes' detector."""
+    prov = _prov()
+    agents = tmp_path / "agents"
+    kb = agents / "lane" / "skills" / "kanban-only" / "SKILL.md"
+    kb.parent.mkdir(parents=True)
+    kb.write_text("---\nname: kanban-only\ndescription: x\nenvironments:\n  - kanban\n---\n# x\n")
+    unknown = agents / "lane" / "skills" / "anywhere-tag" / "SKILL.md"
+    unknown.parent.mkdir(parents=True)
+    unknown.write_text("---\nname: anywhere-tag\ndescription: x\nenvironments: [totally-unknown]\n---\n# x\n")
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.delenv("HERMES_KANBAN_BOARD", raising=False)
+    assert prov.tree_skill_names(agents, "lane") == ["anywhere-tag"]
+    monkeypatch.setenv("HERMES_KANBAN_BOARD", "1")
+    assert prov.tree_skill_names(agents, "lane") == ["anywhere-tag", "kanban-only"]
+
+
+def test_no_lane_tree_carries_a_kanban_gated_skill():
+    """A skill gated `environments: [kanban]` is hidden from every fleet profile listing: fleet
+    provisioning writes no profile toolset config and AGENTS.md bars kanban lanes on the host, so
+    a lane carrying one carries behaviour the fleet can never activate — the agent image build
+    failed on exactly this (planner's devops/sdlc-review, issue #2836). The tree rejects it."""
+    prov = _prov()
+    offenders = [
+        str(md.relative_to(REPO / "agents"))
+        for lane_dir in sorted((REPO / "agents").iterdir())
+        if (base := lane_dir / "skills").is_dir()
+        for md in base.rglob("SKILL.md")
+        if not any(p.startswith(".") for p in md.relative_to(base).parts)
+        and "kanban" in prov._environments_gate(md)
+    ]
+    assert not offenders, f"lanes carrying kanban-gated skills: {offenders}"
 
 
 def test_hidden_skill_trees_are_not_carried_behaviour(tmp_path):
