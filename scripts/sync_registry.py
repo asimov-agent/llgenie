@@ -405,6 +405,61 @@ def _merge_measurements(rows: list[dict], measurements: dict | None) -> list[dic
     return rows
 
 
+#: Posts are identified by the `/status/<id>` of their source post (issue #668): a profile/handle
+#: link carries no post identity, and a `seen_posts` placeholder entry (no status URL) is DERIVED
+#: state upstream rebuilds from measurements on every merge — neither may be carried forward.
+_STATUS_POST_RE = re.compile(r"/status/(\d+)")
+
+
+def _post_identity(url: object) -> str | None:
+    m = _STATUS_POST_RE.search(str(url or ""))
+    return f"/status/{m.group(1)}" if m else None
+
+
+def _rehydrate_seen_posts(rows: list[dict], previous_rows: list[dict]) -> list[str]:
+    """Carry retention-pruned `engagement.seen_posts` posts from the previous vendored copy
+    (issue #2659).
+
+    The producer prunes `engagement.seen_posts` entries older than 30 days on every store merge
+    (their `update_trending.py::prune_posts`, `RETENTION_DAYS = 30`: "the model row is never
+    removed — only its stale post history is pruned"), and a post that left the window without
+    being re-seen never reaches their `data/posts.json` either. llgenie's additive-only guard
+    tracks every `/status/<id>` post across `engines[]` AND `engagement.seen_posts` and is
+    forbidden from widening — so a windowed trending store could never be vendored unless the
+    vendor seam carries the ledger forward: this is the third rehydrate in the same pattern as
+    measurements (issue #1634) and post counters (issue #687).
+
+    Entries union by post identity: a NEW-store entry for a post wins (fresher counters), a
+    carried entry is appended to the surviving row that previously held it, a post the store
+    re-attributed to another surviving row is kept exactly once, and a model row the new store
+    no longer carries is never resurrected — a removed row must stay a guard failure.
+    Placeholder entries (no `/status/<id>`) are derived state and are never carried.
+    """
+    live: set[str] = set()
+    for m in rows:
+        rows_with_posts = list(m.get("engines") or []) + list(
+            (m.get("engagement") or {}).get("seen_posts") or [])
+        for p in rows_with_posts:
+            key = _post_identity(p.get("url") or p.get("source_post") if isinstance(p, dict) else p)
+            if key:
+                live.add(key)
+    carried: list[str] = []
+    by_id = {str(m.get("id") or ""): m for m in rows}
+    for prev in previous_rows:
+        row = by_id.get(str(prev.get("id") or ""))
+        if row is None:
+            continue  # a removed model row stays the guard's failure, never a rehydrate target
+        for p in (prev.get("engagement") or {}).get("seen_posts") or []:
+            key = _post_identity(p.get("url") if isinstance(p, dict) else p)
+            if not key or key in live:
+                continue
+            eng = row.setdefault("engagement", {})
+            eng.setdefault("seen_posts", []).append(p)
+            live.add(key)
+            carried.append(f"{prev.get('id')}: {key}")
+    return carried
+
+
 def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
          readme_dest: Path | None = None, contract_src: str | None = UPSTREAM_CONTRACT,
          contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC,
@@ -468,6 +523,19 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
                 for counter in POST_COUNTERS:
                     if counter not in e:
                         e[counter] = p.get(counter, 0)
+    # Rehydrate retention-pruned seen_posts from the previous vendored ledger (issue #2659):
+    # the producer prunes `engagement.seen_posts` older than 30 days on every merge and a post
+    # that left the window un-re-seen is absent from its models.json, measurements.json AND
+    # posts.json alike. The additive-only guard tracks those posts and is never widened, so the
+    # seam carries them forward from the copy llgenie already owns — the third rehydrate of the
+    # same pattern as measurements (issue #1634) and counters (issue #687).
+    if dest.exists():
+        try:
+            previous_rows = json.loads(dest.read_text()).get("models") or []
+        except (OSError, ValueError):
+            previous_rows = []
+        for note in _rehydrate_seen_posts(store["models"], previous_rows):
+            notes.append(f"carried retention-pruned post: {note}")
     if readme is not None:
         check_readme_matches(store, readme, measurements)
     raw = (json.dumps(store, indent=2, ensure_ascii=False) + "\n").encode()

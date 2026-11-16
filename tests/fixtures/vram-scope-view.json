@@ -1,13 +1,14 @@
 {
-  "generated_utc": "2026-11-04T15:29:04Z",
+  "generated_utc": "2026-11-15T08:29:53Z",
   "vram_range": [
     8.0,
     48.0
   ],
   "note": "The default consumer/workstation VRAM band llgenie works with (8-48 GB, issue #227): a model whose README vram_tier falls in [8, 48] is in scope; a CPU/Apple-only row (no numeric tier) is always in scope; a wider/smaller box widens the band via LLGENIE_VRAM_RANGE or a scope_models(registry, vram_range) call. The vendored data/models.json is unchanged \u2014 this is a read-time filtered view, never a sync-time drop.",
-  "model_count_total": 117,
-  "model_count_in_scope": 96,
+  "model_count_total": 118,
+  "model_count_in_scope": 97,
   "in_scope_model_ids": [
+    "alpie-seed-9b",
     "bonsai-2-27b",
     "bonsai-2-27b-3090-bonsai-agent",
     "bonsai-2-27b-mlx",
