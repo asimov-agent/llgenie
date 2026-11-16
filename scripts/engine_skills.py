@@ -1002,7 +1002,11 @@ def render_base_dockerfile(backend: str) -> str:
         f"# BACKEND={backend}` (CI: engine-base job), cached and published, never per engine.",
         f"FROM {DEFAULT_BASE[backend]}",
         "ENV DEBIAN_FRONTEND=noninteractive PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}",
-        "RUN apt-get update && apt-get install -y --no-install-recommends \\",
+        # Upgrade the debs INHERITED from the base image: the base package set is frozen at the
+        # base image's build date, so without this line every rebuilt engine image re-ships the same
+        # vulnerable debs (15 HIGH inherited findings on llama-cpp CUDA; issue #2839/#2836 chain) -
+        # the standing-upgrade shape the agent image Dockerfile adopted in #2836/#2838.
+        "RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \\",
         f"        {' '.join(tools)} \\",
         "    && rm -rf /var/lib/apt/lists/*",
         "COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/",

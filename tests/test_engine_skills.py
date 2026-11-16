@@ -1889,9 +1889,11 @@ def test_vllm_rocm_opens_its_root_only_base_venv_for_uid_1000():
         assert b"base_access" not in hashed, f"{untouched} must not move its tag"
     # The published cuda digest (vllm:3a4d82f5-4c1f3eee-cuda) stays reachable; rocm moves
     # (db98981b -> a new digest) because its image content actually changed. Update these
-    # only with a real vllm version bump that re-publishes the fleet.
+    # only with a real image-content change that re-publishes the fleet. The cpu digest moved
+    # again on #2839 (engine base now runs `apt-get upgrade -y`, re-pinning the shared
+    # llgenie/base-cpu tag vllm cpu builds from) — 524f7326 -> 169d2720.
     assert es._image_hash(params, "cuda") == "4c1f3eee"
-    assert es._image_hash(params, "cpu") == "524f7326"
+    assert es._image_hash(params, "cpu") == "169d2720"
     assert es._image_hash(params, "rocm") != "db98981b"
     cuda_df = (REPO / "containers/engines/dockerfiles/vllm/Dockerfile.cuda").read_text()
     assert 'find "$d"' not in cuda_df

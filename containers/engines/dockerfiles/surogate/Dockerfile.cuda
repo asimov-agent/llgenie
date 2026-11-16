@@ -3,7 +3,7 @@
 # Build: make build-engine ENGINE=surogate ARCH=cuda
 # Run:   make run-engine ENGINE=surogate ARCH=cuda MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM llgenie/base-cuda:6d50abe567
+FROM llgenie/base-cuda:b70085bed2
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
