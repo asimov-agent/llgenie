@@ -343,8 +343,12 @@ IMAGE_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 def registry_manifest_digests(image_ref: str) -> dict:
-    """The manifest digests the registry serves for a ref: the index digest and its per-platform
-    children (issue #2609). `{}` when the registry cannot answer for this ref."""
+    """The manifest digests the registry serves for a ref: the index digest, its per-platform
+    children (issue #2609), and each child manifest's CONFIG-blob digest (issue #2727 — a
+    classic, non-containerd daemon reports a pulled image's `.Id` as the config digest, so the
+    family of ids a correct pull legitimately reports includes it). `{}` when the registry
+    cannot answer for this ref; a child whose manifest cannot be read is simply absent from
+    `configs`, never a silent pass of a foreign id."""
     res = subprocess.run([RUNTIME, "buildx", "imagetools", "inspect", image_ref,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                           "--format", "{{json .Manifest}}"], capture_output=True, text=True)
     if res.returncode != 0:
@@ -357,7 +361,38 @@ def registry_manifest_digests(image_ref: str) -> dict:
         return {}
     children = [str(m.get("digest")) for m in (man.get("manifests") or man.get("children") or [])
                 if isinstance(m, dict) and m.get("digest")]
-    return {"index": str(man.get("digest") or ""), "children": children}
+    return {"index": str(man.get("digest") or ""), "children": children,
+            "configs": _child_config_digests(image_ref, children)}
+
+
+def _child_config_digests(image_ref: str, children: list[str]) -> list[str]:
+    """Ask the registry for each manifest the index names and read its `config.digest`.
+
+    The child digest is content-addressed, so re-inspecting it at `name@<child>` is exact.
+    The child read uses `--raw`, not `--format {{json .Manifest}}`: the format form
+    normalizes a single-manifest (non-index) ref and DROPS the `config` field entirely —
+    the defect that reddened dispatch run 43784224774 while every stubbed test stayed
+    green. `--raw` serves the manifest exactly as the registry stored it, `config.digest`
+    included. All pinned refs are `ghcr.io/<path>:<tag>` (no registry port), so dropping
+    everything from the last `:` is the repository name (issue #2727).
+    """
+    base = image_ref.split("@", 1)[0].rsplit(":", 1)[0]
+    out: list[str] = []
+    for child in children:
+        res = subprocess.run([RUNTIME, "buildx", "imagetools", "inspect",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                              f"{base}@{child}", "--raw"],
+                             capture_output=True, text=True)
+        if res.returncode != 0:
+            continue
+        try:
+            man = json.loads((res.stdout or "").strip())
+        except json.JSONDecodeError:
+            continue
+        config = man.get("config") if isinstance(man, dict) else None
+        digest = config.get("digest") if isinstance(config, dict) else config
+        if isinstance(digest, str) and DIGEST_RE.fullmatch(digest):
+            out.append(digest)
+    return out
 
 
 def _local_image_digest(image_ref: str) -> str:
@@ -374,9 +409,14 @@ def verify_pinned_digest(tool: str, ref: str, *, built: bool) -> None:
     package repository publishes that day (measured 2026-11-13: `semgrep:5954e2aad609` served
     `sha256:180c3f7e…` while the same tag cached on a host ran `sha256:7fd77096…`), so the tag
     alone does not pin what a scan runs. The recorded index digest must equal what the registry
-    serves, and the image the daemon holds must be one of that index's manifests. A mismatch exits
-    non-zero naming BOTH digests; the locally built deferral image (issue #2518) prints its built
-    digest and says the registry pin is not registry-verifiable for an unpublished ref.
+    serves, and the image the daemon holds must belong to that index's own family: a classic
+    (non-containerd) daemon reports a pulled image's id as the CONFIG digest of the child it ran
+    (measured 2026-11-15, run 43710607827: `grype:a607057cfd07` reported `sha256:c585d524…` — the
+    config digest of the child `sha256:ccff82ef…` of the pinned index `sha256:12ef938b…`), while a
+    containerd daemon reports the index/manifest digest; all of those ids are accepted, and none
+    outside that family is (issue #2727). A mismatch exits non-zero naming BOTH digests; the
+    locally built deferral image (issue #2518) prints its built digest and says the registry pin
+    is not registry-verifiable for an unpublished ref.
     """
     recorded = str((digests().get(tool) or {}).get("image_digest") or "")
     if not DIGEST_RE.fullmatch(recorded):
@@ -398,7 +438,7 @@ def verify_pinned_digest(tool: str, ref: str, *, built: bool) -> None:
         raise SystemExit(f"[security-scan] {tool}: the pinned ref {ref} serves {index} but "
                          f"digests.json records {recorded} — the tag moved (issue #2609); the scan "
                          "refuses the moved image")
-    accepted = {index, *man.get("children", [])}
+    accepted = {index, *man.get("children", []), *man.get("configs", [])}
     if actual and actual not in accepted:
         raise SystemExit(f"[security-scan] {tool}: the local copy of {ref} is {actual}, not the "
                          f"pinned image (recorded {recorded}) — a stale local scanner image "

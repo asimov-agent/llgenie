@@ -11,6 +11,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import stat
@@ -580,11 +581,20 @@ def _manifest_json(index: str, child: str) -> str:
 
 def _digest_pair(tool: str, index: str | None = None) -> dict:
     """A manifest/index pair consistent with `digests.json`'s pinned digest for `tool` — or,
-    with an explicit `index`, one for a tag whose published image has moved off the record."""
+    with an explicit `index`, one for a tag whose published image has moved off the record.
+    Also carries the child manifest digest AND that child's config-blob digest plus the child
+    manifest json (issue #2727: a classic daemon reports a pulled image's id as THAT config
+    digest). All deterministic."""
     recorded = str(ss.digests()[tool]["image_digest"])
     index = index or recorded
     child = "sha256:" + "".join(reversed(index[7:]))  # deterministic synthetic child manifest
-    return {"manifest": _manifest_json(index, child), "child": child, "recorded": recorded}
+    child_config = "sha256:" + hashlib.sha256(child.encode()).hexdigest()  # its config blob
+    return {"manifest": _manifest_json(index, child), "child": child, "recorded": recorded,
+            "child_config": child_config,
+            "child_manifest": json.dumps({
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "digest": child,
+                "config": {"digest": child_config}})}
 
 
 def _docker_stub(tmp_path: Path, monkeypatch, *, pull_ok: bool, build_ok: bool = True,
@@ -604,10 +614,18 @@ def _docker_stub(tmp_path: Path, monkeypatch, *, pull_ok: bool, build_ok: bool =
         "ok = os.environ.get('DOCKER_STUB_' + which.upper(), '0') == '1'\n"
         "man = json.loads(os.environ.get('DOCKER_STUB_MANIFESTS', '{}'))\n"
         "ref = next((a for a in sys.argv if a.startswith('ghcr.io/')), '')\n"
-        "tool = ref.rsplit('/', 1)[-1].split(':')[0]\n"
+        "tool = ref.rsplit('/', 1)[-1].split(':')[0].split('@')[0]\n"
         "rec = man.get(tool) or {}\n"
         "if which == 'buildx' and rec.get('manifest'):\n"
-        "    sys.stdout.write(rec['manifest'])\n"
+        "    at = [a.rsplit('@', 1)[1] for a in sys.argv if '@sha256:' in a]\n"
+        "    kids = rec.get('children') or {}\n"
+        "    if at and at[0] in kids:\n"
+        "        kid = json.loads(kids[at[0]])\n"
+        "        if '--raw' not in sys.argv:\n"
+        "            kid.pop('config', None)  # faithful buildx: --format .Manifest on a single-manifest ref drops config (run 43784224774)\n"
+        "        sys.stdout.write(json.dumps(kid))\n"
+        "    else:\n"
+        "        sys.stdout.write(rec['manifest'])\n"
         "if which == 'image' and rec.get('id'):\n"
         "    sys.stdout.write(rec['id'] + '\\n')\n"
         "sys.exit(0 if ok else 1)\n",
@@ -774,6 +792,62 @@ def test_a_stale_local_copy_is_refused(tmp_path, monkeypatch):
         assert pinned["recorded"] in message
     else:
         raise AssertionError("a stale local scanner copy was accepted")
+
+
+def test_the_daemon_reported_child_config_digest_is_accepted(tmp_path, monkeypatch, capsys):
+    """A classic (non-containerd) daemon — the one on `ubuntu-latest` — reports a pulled image's
+    id as the CONFIG digest of the platform child it ran. Measured 2026-11-15 in run 43710607827:
+    `grype:a607057cfd07` reported `sha256:c585d524…`, the config digest of child `sha256:ccff82ef…`
+    of the pinned index `sha256:12ef938b…`, and the lane called that fresh, correct pull a stale
+    copy (issue #2727). A config digest named by a child of the PINNED index is a legitimate
+    identity of the pinned image."""
+
+    # Given a registry serving the pinned index whose child manifest names a config digest, and a
+    # daemon reporting exactly that config digest as the local image id. The stub answers a child
+    # inspect with faithful buildx semantics — only --raw carries `config` — so this acceptance
+    # proves the helper reads the child at --raw (the second measured chain, run 43784224774:
+    # grype:c52ac5da0f5c index sha256:806d7ac2… -> child sha256:022b1f83… -> config
+    # sha256:8b0f527c…, is why --format {{json .Manifest}} is not enough for children).
+    pinned = _digest_pair("trivy")
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True,
+                       image={"trivy": {"manifest": pinned["manifest"], "id": pinned["child_config"],
+                                        "children": {pinned["child"]: pinned["child_manifest"]}}})
+
+    # When  the image is resolved
+    ref = ss.ensure_image("trivy")
+
+    # Then  the pull is accepted and the run names the daemon-reported id as the executed digest
+    out = capsys.readouterr().out
+    assert ref == ss.image_ref("trivy")
+    assert pinned["child_config"] in out
+    assert "stale local scanner" not in out
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert any(pinned["child"] in " ".join(argv) and "--raw" in argv for argv in calls)
+
+
+def test_a_config_digest_of_a_foreign_manifest_is_still_refused(tmp_path, monkeypatch):
+    """Accepting config digests must not launder a substituted image: the accepted set is only
+    the configs named by the PINNED index's own children."""
+
+    # Given the pinned family (with the child manifest readable) and a local id that is a valid
+    # config-shaped digest of NO manifest the pinned index names
+    pinned = _digest_pair("trivy")
+    foreign_config = "sha256:" + hashlib.sha256(b"foreign-image-config").hexdigest()
+    _docker_stub(tmp_path, monkeypatch, pull_ok=True,
+                 image={"trivy": {"manifest": pinned["manifest"], "id": foreign_config,
+                                  "children": {pinned["child"]: pinned["child_manifest"]}}})
+
+    # When  the image is resolved
+    try:
+        ss.ensure_image("trivy")
+    except SystemExit as exc:
+        # Then  it is refused as stale, naming the foreign id and the recorded pin
+        message = str(exc)
+        assert "stale local scanner" in message
+        assert foreign_config in message
+        assert pinned["recorded"] in message
+    else:
+        raise AssertionError("a config digest outside the pinned index's family was accepted")
 
 
 def test_the_deferred_build_names_its_digest(tmp_path, monkeypatch, capsys):
