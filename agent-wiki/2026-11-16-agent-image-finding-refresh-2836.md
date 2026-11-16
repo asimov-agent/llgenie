@@ -18,6 +18,22 @@ finding refresh leg of the security lane).
   The agent tag hash already folds in `tag("test")`, so the rebuilt chain cannot silently drift.
 - Tests: `tests/test_agent_image_refresh.py` (5 hermetic pins) rc=0; `make openspec-validate`
   rc=0. Local rebuild + pinned-grype disposition evidence is posted on issue #2836.
+- The local rebuild caught a latent main breakage from issue #2680: the build-time provisioning
+  step imports `check_agent_profiles`, which imports `check_agent_skills` at import time
+  (`scripts/check_agent_profiles.py:74`), but that module was never in the agent image's staged
+  inputs — every agent-image build from main died at step 16/18. `scripts/check_agent_skills.py`
+  is now an agent input with a matching COPY; publish-agent-image is dispatch-only, so no CI leg
+  exercised the build until this rebuild did.
+- The rebuild then exposed a second, older failure class: the resolution proof's denominator
+  (`tree_skill_names`) demanded skills Hermes can never resolve — 24 archived planner skills
+  under `.archive/` (the loader skips hidden directories), 4 macOS-gated skills on the Linux
+  build (hidden by design), directory-named skills whose frontmatter renames them
+  (`pi-delegate` → `pi`, `obsidian-vault-automation` → `vault-cron-workflow`), and one identity
+  collision in the issse lane (a flattened `bulk-mechanical-migration` copy beside its category
+  copy; Hermes category-qualifies one, which the table proof cannot match). `tree_skill_names`
+  now mirrors Hermes' loader exactly (measured empirically against the CLI on this host), the
+  stale flattened copy is removed, and `tests/test_provision_agent_profiles.py` guards all four
+  shapes — including a data guard that fails any lane tree carrying one identity twice.
 - Out of scope, each its own linked issue on #2836: the 15 llama-cpp CUDA findings (weekly
   engine lane, human permission gate for engine rebuilds) and the Wolfi scanner-binary findings
   (`make scanner-freshness` confirms the pins are newest published).

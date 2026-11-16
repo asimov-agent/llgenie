@@ -64,3 +64,48 @@ THEN upstream `install.sh` receives the `HERMES_INSTALL_ARGS` flag list, and the
 - **When** the Hermes install command is read
 - **Then** it pipes the installer into `bash -s --` with `${HERMES_INSTALL_ARGS:-}` expanded
 - **Test:** `tests/test_agent_image_refresh.py::test_install_script_forwards_hermes_args`
+
+### Requirement: the agent image stages every module its provisioning step imports
+
+The agent image build MUST stage `scripts/check_agent_skills.py` into the image's bin dir beside the other profile modules: `check_agent_profiles.py` imports `frontmatter()` from it at import time, and the build-time provisioning step (`provision_agent_profiles.py`) imports it transitively. A provisioning step that dies with `ModuleNotFoundError` makes `publish-agent-image` unbuildable — and because that workflow is dispatch-only, the breakage sat on `main` unnoticed (issue #2836 caught it by rebuilding locally).
+
+WHEN the agent image build runs the profile-provisioning step
+THEN every module the provisioning chain imports at import time is present in the image.
+
+#### Scenario: check_agent_skills.py is in the hashed inputs and the COPY list
+
+- **Given** the agent entry of `scripts/ci_images.py` and `containers/agent/Dockerfile`
+- **When** the agent image's staged inputs are read
+- **Then** `scripts/check_agent_skills.py` is a hashed input AND the Dockerfile COPYs it to `/opt/llgenie/bin/check_agent_skills.py`
+- **Test:** `tests/test_agent_image_refresh.py::test_agent_image_stages_profile_import_chain`
+
+### Requirement: the fleet resolution proof demands only what Hermes can resolve
+
+`provision_agent_profiles.py`'s resolution denominator MUST mirror Hermes' own skill loader, so the build-time proof demands exactly what the runtime can provide (measured against the Hermes CLI, issue #2836):
+
+- hidden path components (`.archive/…` and any dot-directory) are skipped by Hermes' loader, so an archived tree is not carried fleet behaviour and the proof must not count it;
+- a skill whose frontmatter `platforms:` list excludes the platform running the proof is hidden by design, not missing, and the proof must not demand it;
+- the resolved identity of a skill is its frontmatter `name` (what Hermes' table shows), not its directory name.
+
+The lane trees MUST additionally carry no two skills with the same identity on the proof platform: Hermes resolves duplicates by category-qualifying one label (`software-development/…`), which the table proof cannot match.
+
+WHEN the agent image build resolves each lane's skills
+THEN every demanded skill is one Hermes resolves on that platform, and no demanded pair comes from a hidden, other-platform, or identity-collided tree.
+
+#### Scenario: archived and other-platform skills are not demanded
+
+- **Given** a lane tree with a `.archive/` skill and a `platforms: [macos]` skill, proof running on Linux
+- **Then** `tree_skill_names` carries neither
+- **Test:** `tests/test_provision_agent_profiles.py::test_hidden_skill_trees_are_not_carried_behaviour`, `::test_platform_gated_skill_is_carried_only_on_a_matching_platform`
+
+#### Scenario: identity is the frontmatter name
+
+- **Given** the planner tree's `pi-delegate` directory declaring `name: pi`
+- **Then** `tree_skill_names` names `pi`, not `pi-delegate`
+- **Test:** `tests/test_provision_agent_profiles.py::test_tree_skill_names_reads_every_skill_the_lane_carries`
+
+#### Scenario: no lane tree carries a duplicate identity
+
+- **Given** every lane under `agents/`
+- **Then** no two visible, platform-carried SKILL.md files share one identity
+- **Test:** `tests/test_provision_agent_profiles.py::test_no_lane_tree_carries_the_same_skill_identity_twice`

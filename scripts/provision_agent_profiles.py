@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agent_profile_sync import AGENTS_DIR, REPO_ROOT, check, write  # noqa: E402
 from check_agent_profiles import MANIFEST, profiles_from_manifest  # noqa: E402
+from check_agent_skills import frontmatter  # noqa: E402  (the skill frontmatter parser the proof shares with the fleet check)
 
 DEFAULT_BASE = Path.home() / ".hermes" / "profiles"
 
@@ -73,12 +74,48 @@ def _base(explicit: str | None) -> Path:
 
 # ---- resolution proof (issue #2669) -----------------------------------------------------------
 
+_CURRENT_PLATFORM = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform, "linux")
+
+
+def _platform_carried(fm: dict) -> bool:
+    """Whether a skill's frontmatter `platforms:` list includes the platform running the proof.
+
+    A skill gated to another OS is not a build failure: Hermes deliberately hides it here
+    (a macOS-only skill on the Linux agent image never resolves, and demanding it would make
+    the proof un-green forever). No `platforms:` key means every platform.
+    """
+    raw = (fm.get("platforms") or "").strip()
+    if not raw:
+        return True
+    items = [p.strip() for p in raw.strip("[]").split(",") if p.strip()]
+    return (not items) or _CURRENT_PLATFORM in items
+
+
 def tree_skill_names(agents: Path, name: str) -> list[str]:
-    """Every skill the lane's tree carries: the directory name of each `skills/**/SKILL.md`."""
+    """The skills Hermes resolves from the lane's tree on THIS platform.
+
+    The denominator mirrors Hermes' own loader (measured against the CLI, issue #2836), so the
+    proof demands exactly what Hermes can provide:
+    - hidden path components (`.archive/…`) are skipped by the loader, so they are not carried
+      fleet behaviour;
+    - skills whose frontmatter `platforms:` exclude this OS are hidden by design, not missing;
+    - the skill's identity is its frontmatter `name` (what Hermes' table shows), not the
+      directory name — a directory `pi-delegate` declaring `name: pi` resolves as `pi`.
+    """
     base = agents / name / "skills"
     if not base.is_dir():
         return []
-    return sorted({md.parent.name for md in base.rglob("SKILL.md") if md.is_file()})
+    names: set[str] = set()
+    for md in base.rglob("SKILL.md"):
+        if not md.is_file():
+            continue
+        if any(part.startswith(".") for part in md.relative_to(base).parts):
+            continue
+        fm = frontmatter(md) or {}
+        if not _platform_carried(fm):
+            continue
+        names.add(fm.get("name") or md.parent.name)
+    return sorted(names)
 
 
 def _skill_resolved(text: str, skill: str) -> bool:

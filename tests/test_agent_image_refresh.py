@@ -68,3 +68,19 @@ def test_install_script_forwards_hermes_args():
     # Then the installer receives the forwarded flag list
     assert re.search(r"bash -s -- \$\{HERMES_INSTALL_ARGS:-\}", text), \
         "install_hermes_ci.sh must forward HERMES_INSTALL_ARGS to install.sh"
+
+
+def test_agent_image_stages_profile_import_chain():
+    """check_agent_profiles.py imports frontmatter() from check_agent_skills.py at import time,
+    and the agent image's build-time provisioning step imports that chain transitively. The
+    module must be a hashed build input AND COPY'd into the image's bin dir, or the provisioning
+    step dies with ModuleNotFoundError (the latent main breakage issue #2836 caught)."""
+    import scripts.ci_images as ci_images  # noqa: PLC0415  (the real seam)
+
+    staged = {p.name for p in ci_images.inputs("agent", REPO)}
+    assert "check_agent_skills.py" in staged, sorted(staged)
+
+    text = AGENT_DOCKERFILE.read_text(encoding="utf-8")
+    assert re.search(
+        r"COPY check_agent_skills\.py /opt/llgenie/bin/check_agent_skills\.py", text
+    ), "the Dockerfile must COPY check_agent_skills.py beside the other profile modules"
