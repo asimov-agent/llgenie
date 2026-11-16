@@ -11,6 +11,10 @@ bot-stamp-body: ## Stamp BODY=<pr body file> in place (or into OUT=) with the `A
 	@test -n "$(BODY)" || { echo "Usage: make bot-stamp-body BODY=<pr body file> [OUT=<file>] [BASE=origin/main] [REFS=origin/HEAD,main]"; exit 1; }
 	python3 scripts/bot_preflight.py --stamp "$(BODY)" $(if $(OUT),--out "$(OUT)",) $(if $(BASE),--base "$(BASE)",) $(if $(REFS),--refs "$(REFS)",)
 
+bot-body-guard: ## Refuse a bot body-write that would drop the LIVE body's protected content (a `## Not covered` section, a ticked `- [x] (proven: …)` item) — the conditional body-write gate the fix-bot re-stamp runs before `gh pr edit` so a repair push never deletes another lane's acceptance evidence (LIVE=<live body file read from the API> PROPOSED=<body about to be written>; exit 0 = safe to write, non-zero = would drop or usage error)
+	@test -n "$(LIVE)" && test -n "$(PROPOSED)" || { echo "Usage: make bot-body-guard LIVE=<pr body file read from the API> PROPOSED=<body about to be written>"; exit 2; }
+	@python3 scripts/bot_preflight.py --guard-live "$(LIVE)" --guard-proposed "$(PROPOSED)"
+
 check-tick-prompt: ## Fail when the live orchestrator cron prompt diverges from the versioned copy under agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md (issue #2159) — host-only: a CI runner has no live jobs.json; exit 0 identical, 1 diverged, 2 a read/missing failure (LIVE=; VERSIONED=), HOST-ONLY
 	@python3 scripts/check_tick_prompt.py $(if $(LIVE),--live "$(LIVE)",) $(if $(VERSIONED),--versioned "$(VERSIONED)",)
 

@@ -338,10 +338,36 @@ jobs:
           NUM: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
-          gh pr view "$NUM" --repo "${{ github.repository }}" --json body -q .body > /tmp/pr-body.md
-          cp /tmp/pr-body.md /tmp/pr-body.before.md
-          make bot-stamp-body BODY=/tmp/pr-body.md
-          if cmp -s /tmp/pr-body.before.md /tmp/pr-body.md; then
+          gh pr view "$NUM" --repo "${{ github.repository }}" --json body -q .body > /tmp/pr-body.live.md
+          cp /tmp/pr-body.live.md /tmp/pr-body.md
+          # The re-stamp may only refresh the AGENTS:/BASE: pair; it must never drop a lane's
+          # `## Not covered` bound or its ticked `- [x] (proven: …)` acceptance evidence. A stamp
+          # refusal is not a CI error — it is how the bot leaves a lane's body alone.
+          if ! make bot-stamp-body BODY=/tmp/pr-body.md >/tmp/pr-stamp.out 2>/tmp/pr-stamp.log; then
+            cat /tmp/pr-stamp.log >&2
+            echo "stamped=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The conditional body-write gate (the fix-bot body-write guard): compare the LIVE body
+          # (read above) with the body about to be written. If writing it would drop a section or a
+          # ticked (proven: …) item the live body carries, do NOT overwrite — leave the live body
+          # and name the section on the PR, so the lane that owns the body sees the decision.
+          if ! make bot-body-guard LIVE=/tmp/pr-body.live.md PROPOSED=/tmp/pr-body.md 2>/tmp/pr-guard.log; then
+            cat /tmp/pr-guard.log >&2
+            {
+              echo "The fix-bot re-stamp refused to overwrite this PR's body: the body it was about to write"
+              echo "would have dropped content the live body carries, so the live body was left untouched."
+              echo
+              echo "The re-stamp only refreshes the \`AGENTS:\`/\`BASE:\` pair and never deletes another lane's"
+              echo "acceptance evidence. It refused to drop:"
+              echo
+              grep -E '^  - (heading|tick):' /tmp/pr-guard.log | sed 's/^  - / - /'
+            } > /tmp/pr-guard-comment.md
+            gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-guard-comment.md
+            echo "stamped=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if cmp -s /tmp/pr-body.live.md /tmp/pr-body.md; then
             echo "stamped=0" >> "$GITHUB_OUTPUT"
           else
             gh pr edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md

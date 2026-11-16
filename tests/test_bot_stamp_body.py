@@ -331,3 +331,127 @@ def test_the_stamp_target_is_wired_and_documented():
     recipe = MAKEFILE.split("\nbot-stamp-body:", 1)[1].split("\n\n", 1)[0]
     assert "BODY=" in recipe and "--stamp" in recipe
     assert "BASE" in recipe and "REFS" in recipe
+
+
+# ---------------------------------------------------------------------------
+# The conditional body-write guard (the fix-bot body-write guard): a bot's
+# body-write step must never drop a lane's `## Not covered` section or its
+# ticked `(proven: …)` acceptance evidence. `fix-bot` re-reads the LIVE body and
+# re-stamps only the AGENTS:/BASE: pair; before writing it runs
+# `body_write_guard` so a rewrite that would drop load-bearing content is
+# refused and named on the PR.
+# ---------------------------------------------------------------------------
+
+_LIVE = (
+    "Issue: a lane's body is not the bot's to rewrite\ncloses #?\n\n"
+    "## Acceptance criteria\n"
+    "- [x] the body-write step skips when a section the template lacks is live  (proven: run 42448318954 @ae4bb883)\n"
+    "- [ ] a deferred item stays unticked\n\n"
+    "## Not covered\n"
+    "- a deferred bound (its own issue)\n\n"
+)
+
+
+def test_protected_items_read_headings_and_ticked_proven_lines():
+    """A section heading and a `- [x] (proven: …)` line are both load-bearing content."""
+
+    # Given a body carrying a lane's `## Not covered` bound and a ticked (proven: …) item
+    live = _LIVE + "AGENTS: c 1b 1l\nBASE: c (== origin/main at open)\n"
+
+    # When  its protected content is read
+    items = bp.protected_items(live)
+
+    # Then  both the acceptance heading and the ticked proven line are present, in order
+    kinds = [k for k, _p in items]
+    assert "Acceptance criteria" in [p for k, p in items if k == "heading"]
+    assert "Not covered" in [p for k, p in items if k == "heading"]
+    ticks = [p for k, p in items if k == "tick"]
+    assert len(ticks) == 1 and "proven:" in ticks[0]
+    # and the unticked `- [ ]` item is NOT protected (only a TICKED line with (proven: …) is)
+    assert not any("deferred item" in p for p in ticks)
+
+
+def test_body_write_guard_refuses_a_write_that_would_drop_the_lane_section():
+    """AC1+AC3: the guard names every protected item a proposed rewrite would drop."""
+
+    # Given the live body carrying the lane's `## Not covered` (and its tick)
+    live = _LIVE + "AGENTS: c 1b 1l\nBASE: c (== origin/main at open)\n"
+    # and a proposed rewrite (the template) that regenerated the body WITHOUT that section
+    proposed = (
+        "Issue: a lane's body is not the bot's to rewrite\ncloses #?\n\n"
+        "## Acceptance criteria\n- [x] a repair shipped  (proven: run 42449007827 @84b68fd7)\n\n"
+    )
+
+    # When  the body-write guard compares them
+    dropped = bp.body_write_guard(live, proposed)
+
+    # Then  it non-empty, and names the section (and the differing tick) it would drop
+    assert dropped, "the guard accepted a rewrite that drops the lane's bound"
+    assert any("Not covered" in d for d in dropped), dropped
+    assert any("proven:" in d for d in dropped), dropped
+
+
+def test_body_write_guard_passes_when_the_write_preserves_every_protected_item():
+    """A re-stamp that keeps the lane's section and tick is a safe write."""
+
+    # Given the live body and a stamp that PRESERVES the section and tick (only re-pairs AGENTS/BASE)
+    live = _LIVE + "AGENTS: old 1b 1l\nBASE: old (== origin/main at open)\n"
+    stamped = bp.stamp_body(live, RECORD)
+
+    # When  the guard compares the live body with its own re-stamp
+    dropped = bp.body_write_guard(live, stamped)
+
+    # Then  there is nothing to refuse — the write is safe
+    assert dropped == [], dropped
+
+
+def test_stamp_body_preserves_the_not_covered_section_and_its_ticks():
+    """AC2: the body-write step over a fixture carrying `## Not covered` leaves the section and
+    its `- [x]` items intact — the re-stamp may only touch the AGENTS:/BASE: pair."""
+
+    # Given a live body carrying a lane's `## Not covered` section and a ticked (proven: …) item
+    live = (_LIVE + "## Verify\n- [x] served  (proven: run 1 @aaaaaaa)\n"
+            "AGENTS: c 1b 1l\nBASE: c (== origin/main at open)\n")
+
+    # When  the body-write step stamps it
+    stamped = bp.stamp_body(live, RECORD)
+
+    # Then  the `## Not covered` section, both ticked (proven: …) items, and every heading survive
+    assert "## Not covered" in stamped
+    assert "a deferred bound (its own issue)" in stamped
+    assert "run 42448318954 @ae4bb883" in stamped
+    assert "run 1 @aaaaaaa" in stamped
+    assert bp.agents_line(RECORD) in stamped.splitlines() and bp.base_line(RECORD) in stamped.splitlines()
+    assert "## Verify" in stamped and "## Acceptance criteria" in stamped
+
+
+def test_the_fix_bot_re_stamp_runs_the_body_write_guard_before_gh_pr_edit():
+    """The fix-bot repair pass runs the conditional body-write gate in the re-stamp step, and
+    refuses (by leaving the body + a PR comment) when the write would drop a lane's content."""
+
+    # Given the fix-bot workflow and the body-guard make target
+    text = WORKFLOWS["fix-bot.yml"]
+
+    # Then the re-stamp step runs the guard before any `gh pr edit`
+    assert "make bot-body-guard" in text, "the re-stamp step is not guarded"
+    assert "gh pr edit" in text, "the re-stamp step no longer writes the body at all"
+
+    # And a refusal leaves the live body untouched and names the refused section on the PR (AC3)
+    assert "left the live body untouched" in text or "left untouched" in text
+    assert "gh pr comment" in text, "a refusal must be reported on the PR (AC3)"
+    assert "Not covered" in text or "(proven: …)" in text, "the comment must name the refused item kind"
+
+
+def test_the_body_guard_target_is_wired_phony_and_documented():
+    """`make bot-body-guard` exists, is phony, refuses without both files, and documents its codes."""
+
+    # Given the trailing-added make target
+    assert "\nbot-body-guard:" in MAKEFILE
+    assert ".PHONY: bot-body-guard" in MAKEFILE, "a target that writes no file of its own name must be phony (#392)"
+
+    # Then  it documents usage and the two inputs, and refuses without LIVE and PROPOSED
+    recipe = MAKEFILE.split("\nbot-body-guard:", 1)[1].split("\n\n", 1)[0]
+    assert "LIVE=" in recipe and "PROPOSED=" in recipe
+    assert "--guard-live" in recipe and "--guard-proposed" in recipe
+    assert "non-zero = would drop" in recipe, "the exit contract must say a refusal is non-zero"
+    assert 'test -n "$(LIVE)"' in recipe and 'test -n "$(PROPOSED)"' in recipe

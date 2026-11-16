@@ -1,0 +1,11 @@
+# Tasks
+
+- [x] 1. `scripts/bot_preflight.py`: `protected_items` reads every `## ` heading and every ticked `- [x] (proven: …)` line as load-bearing body content
+- [x] 2. `body_write_guard(live, proposed)` returns the protected items a proposed write would drop; `stamp_body` enforces the invariant (only the AGENTS:/BASE: pair may be replaced)
+- [x] 3. `bot_preflight.py --guard-live/--guard-proposed` CLI mode: exit 0 safe, non-zero + prints the refused items on a would-drop
+- [x] 4. `make bot-body-guard` in `mk/bots.mk` (LIVE=/PROPOSED=, both flags, documented non-zero exit contract) and `.PHONY` row in the top Makefile
+- [x] 5. `.github/workflows/fix-bot.yml` re-stamp step: read LIVE body, re-stamp the pair, run `make bot-body-guard` before `gh pr edit`; on refusal leave the body untouched and post a PR comment naming the refused section
+- [x] 6. `tests/test_bot_stamp_body.py` regression tests: guard refuses a would-drop of `## Not covered` and a `(proven: …)` tick; re-stamp preserves the section and its ticks; the workflow runs the guard before `gh pr edit` and comments on refusal; the target is wired/phony/documented
+- [x] 7. Local verification: `pytest tests/test_bot_stamp_body.py` (18 pass), `python3 scripts/check_workflows.py check` green, `pytest tests/test_bot_stamp_body.py tests/test_bot_preflight_base_line.py tests/test_acceptance_writeback.py tests/test_engine_bump_pr_body.py` (52 pass), and a live `make bot-body-guard` run over temp fixture files refuses a would-drop and passes a preserving re-stamp
+- [x] 8. `agent-wiki/2026-11-16-fix-bot-body-write-guard.md` (references the issue + PR #2113) and a `CHANGES.md` row; `bot-body-guard` is documented for `make check-docs`
+- [x] 9. OpenSpec change authored in the CLI's validated shape: spec-driven schema (`.openspec.yaml`, `config.yaml` schema), proposal with the change's Why/What Changes/Not covered, `specs/fix-bot-body-write-guard/spec.md` with a top-level WHEN/THEN per Requirement and separate Given/When/Then lines plus a `- **Test:**` per Scenario, and tasks.md ticked as verified — so `make openspec-validate NAME=fix-bot-body-write-guard` passes in CI (this container has neither the Docker daemon nor node, so the CLI's own gate runs where those exist)

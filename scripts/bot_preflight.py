@@ -59,6 +59,12 @@ RECORD = "preflight.txt"
 
 HEADING = re.compile(r"^(#{2,3})\s+(.*\S)\s*$", re.M)
 
+#: A ticked acceptance line carrying a `(proven: …)` marker. `check-pr-acceptance` reads the LIVE
+#: PR body by design (issue #1589), so a `- [x]` line with a `(proven: …)` suffix is load-bearing
+#: evidence a bot body-write must never drop — the mirror of the issue-side tick
+#: (`acceptance_writeback.tick_acceptance` writes it, `_PROVEN_ON_LINE`).
+TICKED_PROVEN = re.compile(r"^\s*-\s+\[[xX]\][^\n]*?\(\s*proven\s*:", re.M)
+
 
 class PreflightError(RuntimeError):
     """The tree cannot be proven current — a leg must stop, not proceed."""
@@ -167,6 +173,42 @@ def base_line(record: dict) -> str:
     return f"BASE: {record['main']} (== origin/main at open)"
 
 
+def protected_items(text: str) -> list[tuple[str, str]]:
+    """Load-bearing body content a bot body-write must never drop, in order.
+
+    Two kinds, both of which the repo already treats as authoritative:
+      * every `## ` heading (group text) — a section (e.g. `## Not covered`, `## Acceptance
+        criteria`) another lane or a reviewer is reading;
+      * every ticked `- [x]` line carrying a `(proven: …)` marker — the live evidence
+        `check-pr-acceptance` mirrors and reads (issues #1644, #1589), written by
+        `acceptance_writeback.tick_acceptance`.
+
+    `issue_body.HEADING_RE`-equivalent matching and the `(proven:` suffix shape follow the
+    parsers the gates already use (`scripts/issue_body.py`, `scripts/acceptance_writeback.py`),
+    never a restated copy of their text.
+    """
+    out: list[tuple[str, str]] = []
+    for m in HEADING.finditer(text or ""):
+        out.append(("heading", m.group(2).strip()))
+    for m in TICKED_PROVEN.finditer(text or ""):
+        out.append(("tick", m.group(0).strip()))
+    return out
+
+
+def body_write_guard(live: str, proposed: str) -> list[str]:
+    """The protected items `live` carries that `proposed` would silently drop.
+
+    Returns a list of `"heading: <text>"` / `"tick: <line>"` strings — empty when writing
+    `proposed` is safe. A bot leg must NOT write `proposed` when this list is non-empty: each
+    dropped item is a lane's acceptance evidence or an out-of-scope bound another lane recorded,
+    and a body write that drops it turns `make check-pr-acceptance` (which reads the LIVE body)
+    back red on the next push (the fix-bot self-re-trigger the issue names).
+    """
+    live_set = set(protected_items(live))
+    dropped = live_set - set(protected_items(proposed))
+    return [f"{kind}: {payload}" for kind, payload in sorted(dropped)]
+
+
 def stamp_body(text: str, record: dict) -> str:
     """Insert or REPLACE the `AGENTS:`/`BASE:` pair in a PR body — the one stamp authority (#2050).
 
@@ -194,7 +236,17 @@ def stamp_body(text: str, record: dict) -> str:
     pair = [agents_line(record), base_line(record)]
     if not (AGENTS_LINE.fullmatch(pair[0]) and BASE_LINE.fullmatch(pair[1])):
         raise PreflightError(f"the stamp would not satisfy the gate: {pair!r}")
-    return "\n".join([*kept, "", *pair, ""])
+    result = "\n".join([*kept, "", *pair, ""])
+    # Defense in depth at the stamp authority itself: the re-stamp may only touch the AGENTS:/
+    # BASE: pair. If the body it would write drops a section or a `(proven: …)` tick the live body
+    # carries (a lane's `## Not covered` bound, an acceptance tick), refuse rather than clobber it.
+    dropped = body_write_guard(text, result)
+    if dropped:
+        raise PreflightError(
+            "refusing a body-write that would drop the live body's protected content: "
+            + "; ".join(dropped)
+        )
+    return result
 
 
 def resolve_record(root: Path = REPO_ROOT, base: str = BASE, refs: tuple[str, ...] = ()) -> dict:
@@ -332,8 +384,35 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --stamp: comma-separated fallback refs to measure main at (e.g. "
                         "'origin/HEAD,main'), tried after --base; a producer checked out ON main passes "
                         "'main'")
+    p.add_argument("--guard-live", default=None,
+                   help="with --guard-proposed: a file holding the LIVE PR body read from the API")
+    p.add_argument("--guard-proposed", default=None,
+                   help="with --guard-live: the body the bot is about to write (the proposed body)")
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
+    if args.guard_live or args.guard_proposed:
+        if not (args.guard_live and args.guard_proposed):
+            print("[bot-preflight] REFUSED: --guard-live and --guard-proposed must be used together",
+                  file=sys.stderr)
+            return 1
+        try:
+            live = Path(args.guard_live).read_text()
+            proposed = Path(args.guard_proposed).read_text()
+        except OSError as exc:
+            print(f"[bot-preflight] REFUSED: cannot read a guard input: {exc}", file=sys.stderr)
+            return 1
+        dropped = body_write_guard(live, proposed)
+        if dropped:
+            print("[bot-preflight] BODY-GUARD REFUSED: the proposed body would drop the LIVE body's "
+                  "protected content (a `## Not covered` section, a ticked `- [x] (proven: …)` "
+                  "item) — leaving the live body untouched - the fix-bot body-write guard:",
+                  file=sys.stderr)
+            for item in dropped:
+                print(f"  - {item}", file=sys.stderr)
+            return 1
+        print("[bot-preflight] BODY-GUARD OK: the proposed body preserves every protected section "
+              "and (proven: …) tick of the live body", file=sys.stderr)
+        return 0
     if args.stamp:
         try:
             body = Path(args.stamp).read_text()
