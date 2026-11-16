@@ -3,7 +3,7 @@
 # Build: make build-engine ENGINE=llama.cpp-laurentzuijdwijk ARCH=rocm
 # Run:   make run-engine ENGINE=llama.cpp-laurentzuijdwijk ARCH=rocm MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM llgenie/base-rocm:fb26cfcb22 AS build
+FROM llgenie/base-rocm:e1da4cc1fd AS build
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
