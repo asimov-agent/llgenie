@@ -361,28 +361,56 @@ def _edit_body(repo: str, number: int, body: str) -> bool:
     return True
 
 
+def _marker_issue(marker: str, repo: str | None) -> int | None:
+    """Find the open issue carrying this run's marker — by body search, never a page (#2848).
+
+    The measured defect: the old dedupe scan read `gh issue list --state open --limit 100`
+    (newest-first) and filtered the marker locally. At 2026-11-16 the open window spanned
+    #2845..#2738 and the marker-bearing #2659 sat at open-list position 110 — the filer forgot
+    an issue it had filed itself and created the duplicate #2847 for the same store. A search
+    finds the marker wherever it ranks. The query is LOUD when it fails: a filer that cannot
+    read its own filing memory files nothing blind rather than guessing.
+    """
+    slug = repo_slug(repo)
+    needle = marker.removeprefix("<!-- ").removesuffix(" -->")
+    try:
+        hits = json.loads(_gh_api(["-X", "GET", "search/issues",
+                                   "-f", f'q=repo:{slug} "{needle}" in:body state:open']))
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"[registry-change] the dedupe search for {needle!r} failed ({exc}); "
+                         "the filer cannot read its own filing memory, so it files nothing "
+                         "blind (#2848)")
+    numbers = sorted(int(h["number"]) for h in (hits.get("items") or [])
+                     if "pull_request" not in h)
+    for number in numbers:
+        # Search tokenises bodies; the exact marker is confirmed on the issue itself before
+        # the filer claims a hit.
+        body = _gh_api([f"repos/{slug}/issues/{number}", "--jq", ".body"])
+        if marker in (body or ""):
+            return number
+    return None
+
+
 def open_issue(body: str, utc: str, repo: str | None, dry: bool = False) -> str:
     """Create ONE issue for this store, or update the open one carrying its marker."""
     marker = MARKER.format(utc=utc)
     body = f"{body}\n\n{marker}\n"
     title = _title(utc)
     base = ["--repo", repo] if repo else []
-    listing = json.loads(run_gh(["issue", "list", *base, "--state", "open", "--limit", "100",
-                                 "--json", "number,body"]))
-    for issue in listing:
-        if marker in (issue.get("body") or ""):
-            if dry:
-                return f"would update #{issue['number']}"
-            # Issue #2673: the body write goes over REST, not `gh issue edit` (GraphQL
-            # `updateIssue` is refused by this leg's fine-grained owner PAT — run
-            # 43577357338) — and its read-back decides whether the update happened.
-            if not _edit_body(repo_slug(repo), issue["number"], body):
-                return f"update refused for #{issue['number']}"
-            # An issue that carries the marker but lost its label is re-queued, not skipped: a
-            # re-run after a dropped write is how the store review gets back to the bots (#724).
-            if LABEL not in labels_of(repo_slug(repo), issue["number"]):
-                set_labels(repo_slug(repo), issue["number"], [LABEL])
-            return f"updated #{issue['number']}"
+    found = _marker_issue(marker, repo)
+    if found is not None:
+        if dry:
+            return f"would update #{found}"
+        # Issue #2673: the body write goes over REST, not `gh issue edit` (GraphQL
+        # `updateIssue` is refused by this leg's fine-grained owner PAT — run
+        # 43577357338) — and its read-back decides whether the update happened.
+        if not _edit_body(repo_slug(repo), found, body):
+            return f"update refused for #{found}"
+        # An issue that carries the marker but lost its label is re-queued, not skipped: a
+        # re-run after a dropped write is how the store review gets back to the bots (#724).
+        if LABEL not in labels_of(repo_slug(repo), found):
+            set_labels(repo_slug(repo), found, [LABEL])
+        return f"updated #{found}"
     if dry:
         return "would create one issue"
     # No `--label`: it is dropped on the runner path, so the issue would be filed invisible.
