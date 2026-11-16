@@ -225,6 +225,103 @@ def test_preflight_without_a_body_still_warns_loudly_on_a_profile_branch(repo: P
     assert "check_pr_hygiene.py:499" in err
 
 
+# ---------------------------------------------------------------------------
+# issue #2097: preflight is the PRODUCER of the honest line — it measures the tree copy against the
+# live profile home (HERMES_PROFILE_HOME points the fixture home; the same knob sync uses) and prints
+# the line the measurement supports, so a truncated-seed profile never has to author a false `SYNC:`.
+# ---------------------------------------------------------------------------
+
+def test_preflight_prints_the_measured_blocked_line_for_a_truncated_profile(repo: Path, tmp_path: Path,
+                                                                            monkeypatch, capsys):
+    """AC3 shape: a touched profile whose live copy is larger gets the paste-ready
+    `SYNC-BLOCKED: <p> #<issue> <measured counts>` line naming the ISSUE=<n> tracking issue."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed rule\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main", "--issue", "2090"])
+    assert rc == 0  # WARN, not refuse: the lane still owes the line in its body
+    err = capsys.readouterr().err
+    assert "paste this line: SYNC-BLOCKED: llgenie-planner #2090" in err
+    assert "would SHRINK" in err
+
+
+def test_preflight_without_an_issue_still_prints_the_measured_reason(repo: Path, tmp_path: Path,
+                                                                     monkeypatch, capsys):
+    """Without ISSUE=<n> the blocked profile still gets its measured counts and is told which knob
+    turns them into the paste-ready line — no placeholder line is ever printed."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed rule\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "truncated seed" in err and "ISSUE=<n>" in err
+    assert "paste this line: SYNC-BLOCKED: llgenie-planner #<" not in err, "no completed placeholder line"
+
+
+def test_preflight_keeps_the_sync_obligation_for_a_profile_the_sync_would_not_block(repo: Path,
+                                                                                    tmp_path: Path,
+                                                                                    monkeypatch, capsys):
+    """A profile the sync would happily run (tree copy not truncated) still gets the plain `SYNC:`
+    guidance — the blocked line is never suggested where measurement does not support it."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("old\n")  # tree copy (9 b) is LARGER than live (4 b): sync would not shrink
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main", "--issue", "2090"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "paste this line: SYNC: llgenie-planner make sync-agent-profile PROFILE=llgenie-planner" in err
+
+
+def test_preflight_refuses_a_body_with_a_fabricated_blocked_line(repo: Path, tmp_path: Path,
+                                                                 monkeypatch):
+    """#2097 pre-push honesty: a body claiming `SYNC-BLOCKED:` for a profile whose host measurement
+    does not support it is refused here, before CI would red it."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("new rule\n")  # byte-identical: nothing would SHRINK
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    body = tmp_path / "body.md"
+    body.write_text("Closes #2097.\n\n"
+                    "SYNC-BLOCKED: llgenie-planner #2090 1/1 file(s) differ, 1 would SHRINK "
+                    "the live profile\n\nBody.\n")
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                  "--body-file", str(body)])
+    assert rc == 1
+
+
+def test_preflight_passes_a_body_carrying_the_measured_blocked_line(repo: Path, tmp_path: Path,
+                                                                    monkeypatch):
+    """End-to-end: the line the preflight measured, pasted into the body beside the AGENTS:/BASE:
+    pair, preflight-green — the honest alternative is a COMPLETE answer for the blocked case."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed rule\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    sha = git(repo, "rev-parse", "main")
+    body = tmp_path / "body.md"
+    body.write_text("Closes #2097.\n\n"
+                    f"AGENTS: {sha} {len(RULEBOOK.encode())}b {RULEBOOK.count(chr(10))}l\n"
+                    f"BASE: {sha} (== origin/main at open)\n\n"
+                    "SYNC-BLOCKED: llgenie-planner #2090 1/1 file(s) differ, 1 would SHRINK "
+                    "the live profile\n\nBody.\n")
+    assert bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                    "--body-file", str(body)]) == 0
+
+
 def _agents_doc(repo: Path) -> tuple[str, str]:
     """The AGENTS/BASE lines a real preflight writes for the seed `main` — ancestor of a `leg` cut from it."""
     sha = git(repo, "rev-parse", "main")

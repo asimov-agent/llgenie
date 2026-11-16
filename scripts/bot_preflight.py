@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -276,6 +277,46 @@ def sync_line_verdict(root: Path, head: str, base: str, body: str) -> list[dict]
     return pr_sync_line_findings(root, head, base, body)
 
 
+def sync_blocked_guidance(root: Path, base: str, body: str, issue: str | None) -> list[str]:
+    """Print the honest line each touched profile needs — the #2097 producer half of the sync-line gate.
+
+    For every profile the working range edits that the body has covered with NEITHER line, the preflight
+    measures the tree copy against the live profile home (issue #1780's one resolver) and prints the line
+    that fits the measurement: a truncated seed (a differing file whose live copy is larger — the exact
+    thing `make sync-agent-profile PROFILE=<p> CHECK=1` refuses on) gets the paste-ready
+    `SYNC-BLOCKED: <p> #<issue> <measured counts>` line, so the producer pastes a line the host just
+    verified instead of authoring a false `SYNC:` claim; a profile the sync would NOT block keeps the
+    `SYNC: <p> make sync-agent-profile PROFILE=<p>` obligation. Without `ISSUE=<n>` the blocked profile
+    still gets its measured reason, but the paste-ready line needs the tracking issue the re-copy
+    obligation lives in.
+    """
+    from check_pr_hygiene import SYNC_BLOCKED_LINE, SYNC_LINE, _diff_profiles  # noqa: PLC0415
+    from agent_profile_sync import destination, truncation_report  # noqa: PLC0415
+
+    touched = _diff_profiles(root, base, "HEAD")
+    if not touched:
+        return []
+    reported = set(SYNC_LINE.findall(body))
+    blocked = {p for p, _issue, _reason in SYNC_BLOCKED_LINE.findall(body)}
+    lines: list[str] = []
+    for p in touched:
+        if p in reported or p in blocked:
+            continue
+        report = truncation_report(root / "agents", p, destination(p, None)[0])
+        if report is not None and report["shrink"]:
+            if issue:
+                lines.append(f"paste this line: SYNC-BLOCKED: {p} #{issue} {report['reason']}")
+            else:
+                lines.append(
+                    f"profile {p} tree copy is a truncated seed ({report['reason']}) — the sync refuses "
+                    f"(issue #1780); pass ISSUE=<n> to get the paste-ready `SYNC-BLOCKED: {p} #<n> ...` "
+                    "line for the tracking issue that holds the re-copy obligation (issue #2097)"
+                )
+        else:
+            lines.append(f"paste this line: SYNC: {p} make sync-agent-profile PROFILE={p}")
+    return lines
+
+
 def render_sync_line_findings(items: list[dict]) -> str:
     """One line per #1724 finding, naming the contract location (`check_pr_hygiene.py:499`)."""
     lines = []
@@ -332,6 +373,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --stamp: comma-separated fallback refs to measure main at (e.g. "
                         "'origin/HEAD,main'), tried after --base; a producer checked out ON main passes "
                         "'main'")
+    p.add_argument("--issue", default=(os.environ.get("ISSUE") or None),
+                   help="the tracking issue a SYNC-BLOCKED line must name (ISSUE=<n> from the Makefile); "
+                        "with it, a touched profile whose tree copy is a truncated seed gets the "
+                        "paste-ready `SYNC-BLOCKED: <p> #<n> <measured counts>` line (issue #2097)")
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
     if args.stamp:
@@ -372,18 +417,28 @@ def main(argv: list[str] | None = None) -> int:
               f"{record['agents_lines']} l of AGENTS.md, {record['agents_headings']} headings)", file=sys.stderr)
         # #1724: surface the SYNC-line verdict a profile-touching PR will meet in CI (issue #1782).
         findings = sync_line_verdict(root, "HEAD", args.base, body)
+        # #2097: the honest line is MEASURED here, not authored by the lane — print the line each
+        # uncovered touched profile actually deserves (paste-ready SYNC-BLOCKED for a truncated tree
+        # copy, SYNC: otherwise), so a blocked profile never has to write a false SYNC: claim.
+        guidance = sync_blocked_guidance(root, args.base, body, args.issue) if findings else []
         if findings and args.body_file:
             print("[bot-preflight] REFUSED: the PR body is missing or mis-citing a required "
-                  "`SYNC:` line for a touched agent profile — CI `make check-pr-sync-line` will red it "
-                  "(issue #1724):", file=sys.stderr)
+                  "`SYNC:`/`SYNC-BLOCKED:` line for a touched agent profile — CI `make check-pr-sync-line` "
+                  "will red it (issue #1724, blocked alternative issue #2097):", file=sys.stderr)
             print(render_sync_line_findings(findings), file=sys.stderr)
+            for line in guidance:
+                print(f"  {line}", file=sys.stderr)
             return 1
         if findings:
             print("[bot-preflight] WARN: this branch changes an agent profile; the PR body must carry a "
-                  "`SYNC: <p> make sync-agent-profile PROFILE=<p>` line per touched profile or CI `make "
+                  "`SYNC: <p> make sync-agent-profile PROFILE=<p>` line (or, where that sync refuses "
+                  "because the tree copy is a truncated seed, a measured `SYNC-BLOCKED: <p> #<issue> "
+                  "<counts>` line, issue #2097) per touched profile or CI `make "
                   "check-pr-sync-line` will red it (issue #1724; contract scripts/check_pr_hygiene.py:499):",
                   file=sys.stderr)
             print(render_sync_line_findings(findings), file=sys.stderr)
+            for line in guidance:
+                print(f"  {line}", file=sys.stderr)
         # #1790: surface the AGENTS/BASE verdict a bot PR body will meet in CI (issues #792/#845).
         agents_findings = agents_base_verdict(root, "HEAD", args.base, body)
         if agents_findings and args.body_file:

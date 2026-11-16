@@ -192,6 +192,48 @@ def check(agents: Path, name: str, dest: Path) -> int:
     return 0
 
 
+def truncation_report(agents: Path, name: str, dest: Path) -> dict | None:
+    """A quiet, read-only truncation measurement for gates and preflights (issue #2097).
+
+    Returns None when the profile's live home does not exist — there is nothing to measure there
+    (a CI checkout). Otherwise: {files, differ, shrink, first, tree_bytes, live_bytes, reason},
+    using the SAME criterion `check()` calls truncation — a file that differs AND whose live copy
+    is larger than the tree copy. `reason` is the compact measured line (counts and the first
+    truncating file's tree-vs-live bytes) that `check_pr_hygiene`'s `SYNC-BLOCKED:` line and
+    `bot_preflight`'s emitted line carry, so the refusal, the gate and the preflight all read one
+    implementation (issue #2097). Never writes, never raises on an undecodable file.
+    """
+    if not dest.is_dir():
+        return None
+    files = profile_files(agents, name)
+    differ = shrink = 0
+    first: str | None = None
+    tree_bytes = live_bytes = 0
+    for path in files:
+        rel = _rel(path, agents / name)
+        target = dest / rel
+        if not target.is_file():
+            differ += 1
+            first = first or rel
+            continue
+        try:
+            same = filecmp.cmp(path, target, shallow=False)
+        except OSError:
+            same = path.stat().st_size == target.stat().st_size
+        if not same:
+            differ += 1
+            t, l = path.stat().st_size, target.stat().st_size
+            if l > t:
+                shrink += 1
+                if first is None or (tree_bytes == 0 and live_bytes == 0):
+                    first, tree_bytes, live_bytes = rel, t, l
+    reason = f"{differ}/{len(files)} file(s) differ, {shrink} would SHRINK the live profile"
+    if shrink and first:
+        reason += f", first {first} tree {tree_bytes} b vs live {live_bytes} b"
+    return {"files": len(files), "differ": differ, "shrink": shrink, "first": first,
+            "tree_bytes": tree_bytes, "live_bytes": live_bytes, "reason": reason}
+
+
 #: A synced file smaller than this fraction of the live one is treated as a truncated seed, not an edit.
 #: The defect this exists for: a seed taken from an issue's excerpt stopped at an inner code fence, so
 #: `sync` would have replaced a 7,509-byte rulebook with 5,149 bytes of it, with every gate green.
