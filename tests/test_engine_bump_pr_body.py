@@ -51,7 +51,13 @@ _EXPECTED_BASE = (
     "02480ca2a47153e1f9c31cbe1e05536da97ce1ba..."
     "02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
     "- CI builds and tests ONLY this engine's images. A red PR means the new "
-    "commit needs a manual skill fix."
+    "commit needs a manual skill fix.\n"
+    "\n"
+    # The hygiene gate reads a standalone `OPENSPEC: <name>` line from every PR
+    # body; a bump PR belongs to `publish-changed-pin-images` (issue #2865 — the
+    # 2026-11-16 bump wave was red on the guard precisely because this line was
+    # absent).
+    "OPENSPEC: publish-changed-pin-images"
 )
 
 

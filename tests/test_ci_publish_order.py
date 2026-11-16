@@ -563,11 +563,15 @@ def test_the_2517_retag_is_deferred_against_its_pre_merge_main():
     assert deferred >= moved, f"retagged engines not deferred: {sorted(moved - deferred)}"
 
 
-def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
+def test_an_identical_params_file_defers_only_when_a_tag_retags(tmp_path):
     """An engine whose params AND whose tag computation equal the base copy is still checked
     against the registry (#672). A tag-computation change (issue #823 re-enabling prism CUDA) re-tags
     the whole fleet to not-yet-published tags and DOES defer an unchanged params file, because the
-    producer publishes those new tags — deferred, not required from the registry."""
+    producer publishes those new tags — deferred, not required from the registry. A pin bump is the
+    one-engine shape of the same rule (issue #2865): the bump moves that engine's pin, its tag
+    retags, and the params file can be byte-identical to base — `retagged_engine_ids` must classify
+    it deferred. Measured red on the 2026-11-16 bump PRs, which changed the pin without touching
+    `scripts/engine_image.py`."""
 
     engine = "llama.cpp"
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
@@ -598,8 +602,12 @@ def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
     root2.mkdir()
     (root2 / f"{engine}.json").write_text(base_main.stdout)
     got = _deferred_engines(params_dir=root2, base="origin/main")
-    if tag_src_changed:
-        assert "llama.cpp" in got, got
+    moved = set(cpp.retagged_engine_ids("origin/main", REPO))
+    if tag_src_changed or "llama.cpp" in moved:
+        # A touched tag source re-tags the whole fleet, and a pin bump re-tags
+        # its engine — both publish new tags, so an identical params file is
+        # deferred in either case (issue #823; the #2865 bump-PR measurement).
+        assert "llama.cpp" in got, (got, sorted(moved))
     else:
         assert "llama.cpp" not in got, got
 
