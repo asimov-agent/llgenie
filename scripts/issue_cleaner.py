@@ -93,10 +93,13 @@ def merged_to_base(pr: dict, base: str = DEFAULT_BASE) -> bool:
 
 
 def open_issues(repo: str) -> list[dict]:
-    """Every open issue, with the title the report quotes (paged by gh)."""
-    out = _gh(["issue", "list", "--repo", repo, "--state", "open", "--limit", "200",
-               "--json", "number,title"])
-    return json.loads(out or "[]")
+    """Every open issue, with the title the report quotes (paged to exhaustion).
+
+    The old scan was `gh issue list --limit 200` — one newest-first page of 200 — so an issue behind
+    the 200th open position was invisible and its merged-PR close was never seen (issue #2847). The
+    `gh api` walk pages until a short page and covers the whole board.
+    """
+    return bot_claims.paginate_open_issues(_gh, repo)
 
 
 def not_covered(body: str | None) -> set[int]:

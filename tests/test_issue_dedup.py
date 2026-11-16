@@ -34,7 +34,20 @@ with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 ISSUES = json.loads({json.dumps(issues)!r})
 META = json.loads({json.dumps(meta or {})!r})
-if args[:2] == ["issue", "list"]:
+if args[:2] == ["issue", "list"] or (args and args[0] == "api"):
+    if args[0] == "api":
+        # repos/OWNER/REPO/issues?state=open&per_page=100&page=N — slice the page
+        url = args[1]
+        page, per = 1, 100
+        if "?" in url:
+            for kv in url.split("?", 1)[1].split("&"):
+                k, _, v = kv.partition("=")
+                if k == "page":
+                    page = int(v or 1)
+                elif k == "per_page":
+                    per = int(v or 100)
+        start = (page - 1) * per
+        print(json.dumps(ISSUES[start:start + per])); sys.exit(0)
     print(json.dumps(ISSUES)); sys.exit(0)
 if args[:2] == ["issue", "view"]:
     num = args[2]
@@ -203,3 +216,34 @@ def test_a_bot_generated_tracker_issue_is_not_a_candidate(tmp_path):
 
     # Then  only the human issue remains — a generated pair can never be "the same defect"
     assert [i["number"] for i in free] == [500]
+
+
+# ---- pagination: the scan covers the whole board, not one newest-first page of 200 (issue #2847) ----
+
+def test_a_pair_straddling_the_old_200_boundary_is_still_found(tmp_path, monkeypatch):
+    """The duplicate whose older member sits past open-list position 200 must still be detected."""
+
+    from datetime import datetime, timedelta
+
+    # Given an open board of 205 issues, newest-first, with a similar pair whose older member is
+    # the OLDEST (index 204) — beyond the 200 the old `--limit 200` single page returned
+    newest = datetime(2026, 11, 5)
+    copy = _issue(1001, "flaky top-tier job on macos", "the top-tier serve job fails intermittently on macos runners",
+                  newest.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    canonical = _issue(1000, "flaky top-tier job on macos", "the top-tier serve job fails intermittently on macos runners",
+                       (newest - timedelta(days=204)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    fillers = [_issue(1000 + 1 + k, f"t{k}", f"u{k}",
+                      (newest - timedelta(days=k)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+               for k in range(1, 204)]
+    issues = [copy] + fillers + [canonical]          # newest-first: copy at 0, canonical at 204
+    assert len(issues) == 205
+    gh = _fake_gh(tmp_path, issues)
+    monkeypatch.chdir(tmp_path)
+
+    # When  the sweep picks the best pair
+    picked = dedup.pick(str(gh), REPO)
+
+    # Then  the straddling pair is found with the older (index 204) as canonical
+    assert picked and picked["canonical"] == 1000 and picked["copy"] == 1001
+    text = (tmp_path / "dedup-in.md").read_text()
+    assert "#1000" in text and "#1001" in text

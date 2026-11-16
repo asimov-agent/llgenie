@@ -146,6 +146,39 @@ def _gh(args: list[str]) -> str:
     return r.stdout
 
 
+#: How many open issues one `gh api` page requests. Pages repeat until a SHORT page (< per_page),
+#: so the scan covers the whole board however large it grows (issue #2847).
+ISSUE_PAGE = 100
+
+
+def paginate_open_issues(gh_call, repo: str, per_page: int = ISSUE_PAGE) -> list[dict]:
+    """Every open issue (never a pull request), newest-first, paged to exhaustion.
+
+    `gh_call(args: list[str])` runs one `gh` command and returns its stdout, so each caller plugs in
+    its own transport seam (the bots carry different ones; the claim liveness probe has a third).
+
+    The `issues` endpoint returns pull requests alongside issues, so they are filtered out here,
+    where only one caller could forget them. `gh issue list --limit 200` used to be the scan, but it
+    is a single newest-first page of 200: once the open board exceeds that, the older half is
+    invisible to every pairwise scan (issue #2847, measured with `registry_change_issue` behind
+    open-list position 100). Walking the API `?per_page=&page=` and stopping on a short page covers
+    the whole board. Keys are normalised to those `gh issue list --json` produced (`createdAt`), so
+    consumers read the same shape they did before.
+    """
+    out: list[dict] = []
+    page = 1
+    while True:
+        raw = gh_call(["api", f"repos/{repo}/issues?state=open&per_page={per_page}&page={page}"])
+        arr = json.loads(raw or "[]")
+        arr = [i for i in arr if not i.get("pull_request")]
+        for i in arr:
+            i["createdAt"] = i.pop("created_at", "") or i.get("createdAt", "")
+        out.extend(arr)
+        if len(arr) < per_page:
+            return out
+        page += 1
+
+
 #: One per-process cache of the liveness probe (issue #291, #799): a leg cannot grow its own, so
 #: two readers in the same process agree about whether the run that posted a claim is still going.
 _LIVE: dict[int, "bool | None"] = {}
