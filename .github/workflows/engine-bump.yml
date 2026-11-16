@@ -262,8 +262,12 @@ jobs:
           # from it, so that local branch IS origin/main at open.
           printf '%s\n' "$body" > /tmp/pr-body.md
           make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
-          if gh pr view "$branch" --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body-file /tmp/pr-body.md
+          if [ "$(gh pr view "$branch" --json state -q .state 2>/dev/null || echo NONE)" = OPEN ]; then
+            gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}"
+            # The body reaches the PR only through the guarded write seam (issue #2852): a weekly
+            # re-bump must not silently drop a section or a proven tick a reviewer left on the live body.
+            make bot-body-write PR="$(gh pr view "$branch" --json number -q .number)" REPO="${{ github.repository }}" NEW=/tmp/pr-body.md
           else
             gh pr create --base main --head "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body-file /tmp/pr-body.md
           fi
+

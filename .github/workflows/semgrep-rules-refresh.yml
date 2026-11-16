@@ -163,8 +163,12 @@ jobs:
           # The AGENTS:/BASE: pair is written by the seam that OPENS the PR, not by a leg
           # remembering it (issue #2050). BASE=main because this job checks `ref: main` out.
           make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
-          if gh pr view chore/semgrep-rules-refresh --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit chore/semgrep-rules-refresh --title "security(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)" --body-file /tmp/pr-body.md
+          if [ "$(gh pr view chore/semgrep-rules-refresh --json state -q .state 2>/dev/null || echo NONE)" = OPEN ]; then
+            gh pr edit chore/semgrep-rules-refresh --title "security(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)"
+            # The body reaches the PR only through the guarded write seam (issue #2852): a re-capture
+            # must not silently drop a section or a proven tick a reviewer left on the live body.
+            make bot-body-write PR="$(gh pr view chore/semgrep-rules-refresh --json number -q .number)" REPO="${{ github.repository }}" NEW=/tmp/pr-body.md
           else
             gh pr create --base main --head chore/semgrep-rules-refresh --title "security(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)" --body-file /tmp/pr-body.md
           fi
+

@@ -219,8 +219,12 @@ jobs:
           # `ref: main` out and branches from it, so that local branch IS origin/main at open.
           printf '%s\n' "$body" > /tmp/pr-body.md
           make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
-          if gh pr view chore/registry-sync --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body-file /tmp/pr-body.md
+          if [ "$(gh pr view chore/registry-sync --json state -q .state 2>/dev/null || echo NONE)" = OPEN ]; then
+            gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)"
+            # The body reaches the PR only through the guarded write seam (issue #2852): a weekly
+            # re-sync must not silently drop a section or a proven tick a reviewer left on the live body.
+            make bot-body-write PR="$(gh pr view chore/registry-sync --json number -q .number)" REPO="${{ github.repository }}" NEW=/tmp/pr-body.md
           else
             gh pr create --base main --head chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body-file /tmp/pr-body.md
           fi
+
