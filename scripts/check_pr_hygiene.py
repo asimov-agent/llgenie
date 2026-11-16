@@ -497,6 +497,17 @@ BASE_LINE = re.compile(r"^BASE:\s+([0-9a-f]{7,40})\s+\(==\s*origin/main at open\
 #: profile (`make sync-agent-profile PROFILE=<p>`), and the PR body must say so, so a reviewer can verify
 #: propagation happened rather than just a commit. Each line names exactly one profile + its command.
 SYNC_LINE = re.compile(r"^SYNC:\s+([A-Za-z0-9_-]+)\s+make sync-agent-profile PROFILE=\1\s*$", re.M)
+#: The `SYNC-BLOCKED:` line issue #2097 adds as the honest alternative when the sync REFUSES: a tree
+#: copy that is a truncated seed makes `make sync-agent-profile PROFILE=<p> CHECK=1` exit 1 (syncing
+#: would SHRINK live behaviour), so writing a `SYNC:` line would claim a sync that was never run and
+#: must not run. The blocked line names the profile, the tracking issue holding the re-copy obligation
+#: (`#<n>`), and the measured reason from the refusal — at least one number (the file/byte counts),
+#: which is what makes the claim checkable instead of an escape hatch.
+SYNC_BLOCKED_LINE = re.compile(r"^SYNC-BLOCKED:\s+([A-Za-z0-9_-]+)\s+#(\d{2,6})\s+(\S.*\S)\s*$", re.M)
+
+#: Profiles whose `SYNC-BLOCKED:` claim this process accepted UNMEASURED (no live profile home to
+#: re-measure against — a CI checkout). Printed by the CLI so the acceptance is stated, not silent.
+UNMEASURED_BLOCKS: list[str] = []
 
 #: The `OPENSPEC:` body line issue #1807 adds: an implementing PR with no openspec/ diff of its own may
 #: deliberately name the active change it implements against, so a legitimately change-less PR opts out
@@ -623,8 +634,45 @@ def pr_sync_line_findings(root: Path, head: str, base: str, body: str) -> list[d
     return sync_line_findings(root, head, base, body)
 
 
+def _blocked_line_finding(root: Path, profile: str, claim: tuple[str, str]) -> dict | None:
+    """Check a `SYNC-BLOCKED:` claim against the measurement the sync refusal itself uses (#2097).
+
+    The claim is honest only when the sync really refuses for that profile, so the gate re-measures
+    with `agent_profile_sync.truncation_report` — the same criterion `check()` flags as truncation (a
+    differing file whose live copy is larger than the tree copy). Three outcomes: the live home exists
+    and nothing would shrink → the named line is a FABRICATION (the honest line for that profile is the
+    `SYNC:` one) and it is a finding; the live home exists and a file would shrink → measured, no
+    finding; the live home does not exist (a CI checkout) → the claim is accepted on format and recorded
+    in `UNMEASURED_BLOCKS` so the CLI states the acceptance instead of hiding it. A reason without a
+    single digit carries no measurement and never passes.
+    """
+    from agent_profile_sync import destination, truncation_report
+
+    issue, reason = claim
+    if not any(ch.isdigit() for ch in reason):
+        return {"key": "profile-sync-blocked", "where": "PR body",
+                "detail": (f"`SYNC-BLOCKED: {profile}` names no measured counts in its reason — the "
+                           "blocked line must carry the file/byte counts from the sync refusal "
+                           "(issue #2097)")}
+    dest, _knob = destination(profile, None)
+    report = truncation_report(Path(root) / "agents", profile, dest)
+    if report is None:
+        if profile not in UNMEASURED_BLOCKS:
+            UNMEASURED_BLOCKS.append(profile)
+        return None
+    if report["shrink"] == 0:
+        return {"key": "profile-sync-blocked", "where": "PR body",
+                "detail": (f"`SYNC-BLOCKED: {profile} #{issue}` claims a refused sync, but the tree copy is "
+                           f"not a truncated seed ({report['differ']}/{report['files']} differ, "
+                           f"{report['shrink']} would SHRINK) — `make sync-agent-profile PROFILE={profile} "
+                           f"CHECK=1` does not block it; the honest line is `SYNC: {profile} "
+                           f"make sync-agent-profile PROFILE={profile}` (issue #2097)")}
+    return None
+
+
 def sync_line_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
-    """A bot PR that changes `agents/<profile>/` must report the live re-sync (issue #1724).
+    """A bot PR that changes `agents/<profile>/` must report the live re-sync (issue #1724) — or,
+    where that re-sync genuinely REFUSES, the measured blocked line (issue #2097).
 
     The owner's propagation rule: behaviour-versioned changes (SOUL/skills/rule) must be re-synced from
     the tree INTO the live profile (`make sync-agent-profile PROFILE=<p>`), and that re-sync must be
@@ -632,23 +680,38 @@ def sync_line_findings(root: Path, head: str, base: str, body: str) -> list[dict
     diff touches with no matching `SYNC:` line is a finding: the tree can hold the new rule while the live
     profile that acts under it still runs the old one (the #1707 tree-vs-live drift, the #1719 lane that
     did not know its own PR merged). `--no-merges` keeps the merge-range commit from hiding a citation
-    that was never on either side.
+    that was never on either side. Issue #2097 adds the honest alternative for the case the sync REFUSES
+    (a truncated tree copy — syncing would SHRINK live behaviour): a `SYNC-BLOCKED: <p> #<issue>
+    <measured counts>` line, honored only when measurement supports it (fabrication is a finding, a CI
+    checkout accepts on format and says so). A body with neither line stays the #1724 finding.
     """
     touched = _diff_profiles(root, base, head)
     if not touched:
         return []
     reported = set(SYNC_LINE.findall(body))
-    missing = [p for p in touched if p not in reported]
-    if not missing:
-        return []
-    return [{
-        "key": "profile-sync",
-        "where": "PR body",
-        "detail": "this PR changes agents/ under "
-                  f"{', '.join('`' + p + '`' for p in missing)} — the owner's propagation rule (#1724) "
-                  "requires the profile-owning lane to re-sync the live profile and report it: "
-                  "add a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line for each changed profile",
-    }]
+    blocked: dict[str, tuple[str, str]] = {}
+    for profile, issue, reason in SYNC_BLOCKED_LINE.findall(body):
+        blocked.setdefault(profile, (issue, reason))
+    findings: list[dict] = []
+    for profile in sorted(blocked):
+        if profile in touched and profile not in reported:
+            finding = _blocked_line_finding(Path(root), profile, blocked[profile])
+            if finding is not None:
+                findings.append(finding)
+    missing = [p for p in touched if p not in reported and p not in blocked]
+    if missing:
+        findings.append({
+            "key": "profile-sync",
+            "where": "PR body",
+            "detail": "this PR changes agents/ under "
+                      f"{', '.join('`' + p + '`' for p in missing)} — the owner's propagation rule (#1724) "
+                      "requires the profile-owning lane to re-sync the live profile and report it: "
+                      "add a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line for each changed "
+                      "profile — or, where `make sync-agent-profile PROFILE=<p> CHECK=1` refuses because "
+                      "the tree copy is a truncated seed, the measured `SYNC-BLOCKED: <p> #<issue> "
+                      "<counts>` line (#2097)",
+        })
+    return findings
 
 
 def openspec_change_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
@@ -997,12 +1060,19 @@ def main(argv=None) -> int:
         return 0
     if args.cmd == "sync-line":
         body = Path(args.body_file).read_text()
+        UNMEASURED_BLOCKS.clear()
         items = pr_sync_line_findings(root, args.head, args.base, body)
         if items:
             for it in items:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
-        print("[check-pr-hygiene] OK: every changed agent profile reports its live re-sync (`SYNC:` line)")
+        print("[check-pr-hygiene] OK: every changed agent profile reports its live re-sync (`SYNC:` line) "
+              "or a measured `SYNC-BLOCKED:` line")
+        if UNMEASURED_BLOCKS:
+            print("[check-pr-hygiene] NOTE: `SYNC-BLOCKED:` for "
+                  f"{', '.join(UNMEASURED_BLOCKS)} accepted UNMEASURED — no live profile home exists at "
+                  "this checkout to re-measure the truncation (issue #2097); the host `make bot-preflight` "
+                  "is where the block is verified against the real profile.")
         return 0
     if args.cmd == "openspec-change":
         body = Path(args.body_file).read_text()

@@ -170,3 +170,118 @@ def test_the_sync_gate_is_wired_into_both_guard_docs_and_full_ci():
         between = txt[step_from:txt.index("make check-pr-sync-line")]
         assert "gh api" in between, rel
         assert "PR_HEAD:" in txt and "PR_BASE: origin/main" in txt, rel
+
+
+# ---------------------------------------------------------------------------
+# issue #2097: the honest `SYNC-BLOCKED:` alternative — accepted only when measured.
+# A truncated tree copy makes `make sync-agent-profile PROFILE=<p> CHECK=1` refuse (syncing would
+# SHRINK the live profile), so the lane's choices were a false `SYNC:` claim or a stuck red. These
+# tests set HERMES_PROFILE_HOME (agent_profile_sync's one destination knob) to a fixture live home,
+# so the gate's re-measurement runs against a real directory instead of the operator's profiles.
+# ---------------------------------------------------------------------------
+
+BLOCKED_REASON = "60/115 file(s) differ, 56 would SHRINK the live profile"
+
+
+def blocked_body(profile: str, issue: str = "2090", reason: str = BLOCKED_REASON) -> str:
+    return f"Closes #2097.\n\nSYNC-BLOCKED: {profile} #{issue} {reason}\n\nBody.\n"
+
+
+def test_a_blocked_profile_with_a_measured_sync_blocked_line_passes(repo: Path, tmp_path: Path,
+                                                                    monkeypatch):
+    """Case 1 of #2097: the tree copy IS a truncated seed (the live SOUL.md is larger than the tree's)
+    and the body names the measured blocked line — the gate passes with no finding."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed rule\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    assert hy.sync_line_findings(repo, "feature", "main", blocked_body("llgenie-planner")) == []
+
+
+def test_a_profile_edit_with_no_line_at_all_still_fails(repo: Path, tmp_path: Path, monkeypatch):
+    """Case 2 of #2097: a truncated tree copy with NEITHER line is still the #1724 finding — the
+    blocked alternative is offered, never assumed."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed rule\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    items = hy.sync_line_findings(repo, "feature", "main", "Closes #2097.\n\nBody.\n")
+    assert [i["key"] for i in items] == ["profile-sync"]
+    assert "SYNC-BLOCKED" in items[0]["detail"], "the finding must name the honest alternative"
+
+
+def test_the_exact_sync_line_still_passes_a_blocked_profile(repo: Path, tmp_path: Path, monkeypatch):
+    """Case 3 of #2097: the #1724 `SYNC:` line contract is unchanged — a measured-sync lane still
+    passes with the exact line, even for a profile whose home exists."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    body = ("Closes #2097.\n\n"
+            "SYNC: llgenie-planner make sync-agent-profile PROFILE=llgenie-planner\n\nBody.\n")
+    assert hy.sync_line_findings(repo, "feature", "main", body) == []
+
+
+def test_a_sync_blocked_line_the_measurement_does_not_support_is_a_fabrication(repo: Path,
+                                                                               tmp_path: Path,
+                                                                               monkeypatch):
+    """The honesty half: home exists, nothing would SHRINK — a claimed blocked line is a finding,
+    and the detail names the honest line the profile actually needs."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("new rule\n")
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    items = hy.sync_line_findings(repo, "feature", "main", blocked_body("llgenie-planner"))
+    assert [i["key"] for i in items] == ["profile-sync-blocked"]
+    assert "not a truncated seed" in items[0]["detail"]
+    assert "make sync-agent-profile PROFILE=llgenie-planner" in items[0]["detail"]
+
+
+def test_a_blocked_line_without_measured_counts_never_passes(repo: Path, tmp_path: Path, monkeypatch):
+    """A reason with no digits carries no measurement — it is refused even where the home is
+    unmeasurable, so the line cannot become a numbers-free escape hatch."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(tmp_path / "does-not-exist"))
+    items = hy.sync_line_findings(repo, "feature", "main",
+                                  blocked_body("llgenie-planner", reason="tree is a truncated seed"))
+    assert [i["key"] for i in items] == ["profile-sync-blocked"]
+    assert "measured counts" in items[0]["detail"]
+
+
+def test_a_blocked_line_covers_only_its_own_profile(repo: Path, tmp_path: Path, monkeypatch):
+    """A blocked line for a measured truncated profile must not excuse a second touched profile that
+    needs its own line."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "seed A\n")
+    commit(repo, "agents/llgenie-architect/SOUL.md", "new rule B\n")
+    home = tmp_path / "live-planner"
+    home.mkdir()
+    (home / "SOUL.md").write_text("seed A\n" + "live authority\n" * 80)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(home))
+    items = hy.sync_line_findings(repo, "feature", "main", blocked_body("llgenie-planner"))
+    assert [i["key"] for i in items] == ["profile-sync"]
+    assert "llgenie-architect" in items[0]["detail"]
+    assert "llgenie-planner" not in items[0]["detail"]
+
+
+def test_the_cli_accepts_an_unmeasurable_blocked_line_and_says_so(repo: Path, tmp_path: Path,
+                                                                  monkeypatch, capsys):
+    """A CI checkout has no live profile home: the CLI exits 0 on format AND prints that the
+    acceptance was unmeasured (issue #2097) — the honest alternative never passes silently."""
+    commit(repo, "agents/llgenie-planner/SOUL.md", "seed rule\n")
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(tmp_path / "does-not-exist"))
+    hy.UNMEASURED_BLOCKS.clear()
+    f = tmp_path / "body.md"
+    f.write_text(blocked_body("llgenie-planner"))
+    rc = hy.main(["sync-line", "--root", str(repo), "--head", "feature", "--base", "main",
+                  "--body-file", str(f)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "UNMEASURED" in out and "llgenie-planner" in out
+    # without a blocked line the same CLI still reds (case 2 end-to-end)
+    f.write_text("Closes #2097.\n\nBody.\n")
+    assert hy.main(["sync-line", "--root", str(repo), "--head", "feature", "--base", "main",
+                    "--body-file", str(f)]) == 1

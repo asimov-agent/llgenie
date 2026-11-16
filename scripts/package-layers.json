@@ -298,6 +298,11 @@
    "reason": "the acceptance items are read from acceptance_writeback, reused rather than restated (issue #1796)."
   },
   {
+   "from": "check_pr_hygiene",
+   "to": "agent_profile_sync",
+   "reason": "the sync-line gate re-measures a `SYNC-BLOCKED:` claim with agent_profile_sync's own refusal criterion (truncation_report/destination), so gate, sync and preflight cannot diverge (issue #2097)."
+  },
+  {
    "from": "check_zero_job_pending",
    "to": "ci_scope",
    "reason": "ci_scope owns the verdict grammar and the check-run payload the monitor posts."
