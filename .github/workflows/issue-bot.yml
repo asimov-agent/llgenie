@@ -338,6 +338,11 @@ jobs:
               echo "  restatement instead of guessing. No branch, no PR."
             elif [ "${VERDICT}" = "close" ]; then
               echo "- outcome: closed as no longer applicable, with the evidence cited above."
+            elif [ "${VERDICT}" = "hold" ]; then
+              echo "- outcome: an OPEN PR already implements this issue and is awaiting merge,"
+              echo "  so this run did NOT close it (issue #2869) — it released its own claim and"
+              echo "  posted a hold comment naming that PR. The PR's own closing keyword closes"
+              echo "  the issue as completed on merge. No branch, no PR."
             else
               echo "- implementation: changed=${CHANGED:-unknown} (make implement-issue rc=${IMPL_RC:-unknown})"
             fi

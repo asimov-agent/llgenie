@@ -57,13 +57,29 @@ the file that shows the premise is gone — a path:line, a command you ran, a UR
 REASON: <one line>
 ```
 
+```
+TRIAGE: hold
+PR: #<n>
+EVIDENCE: <what you checked: the OPEN implementing PR that already covers this issue and is
+awaiting merge>
+REASON: <one line>
+```
+
 ## Rules
 
 - **One verdict, and only one.** `implement` when the issue is actionable as written; `refine` when
   the thread leaves a decision open (that is not a guess you get to make, and not a close);
-  `close` when the work is already done, is a duplicate, or is not a change this repo can make.
+  `close` when the work is already done, is a duplicate, or is not a change this repo can make;
+  `hold` when an OPEN PR already implements the issue and is awaiting merge.
 - **A close without `EVIDENCE:` is refused downstream.** "It looks old" is not evidence; name the
   artifact you checked.
+- **`close` carries one of two reasons, and the open-PR case is NOT a close (issue #2869).**
+  duplicate / invalid / discontinued -> `not_planned`; already implemented by a MERGED PR ->
+  `completed`. An implemented-by-an-OPEN-PR issue is `hold`, never `close`: closing it as
+  `not_planned` retires implemented work before its PR merges and breaks the PR→merge closure
+  evidence (#2048). On `hold`, name the PR (`PR: #<n>`) and cite it as `EVIDENCE`; the lane abandons
+  its own claim and posts ONE hold comment naming the PR, and the issue stays OPEN so the PR's own
+  closing keyword closes it on merge.
 - **Do not implement anything.** No code, no branch, no PR, no comment on the issue. The host reads
   `triage.md` and acts; a comment you post yourself will appear twice.
 - **A refine restates the issue in the repository's shape** — `## Problem`, `## Why it matters`,

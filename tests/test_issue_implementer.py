@@ -703,6 +703,68 @@ def test_a_close_without_evidence_is_refused_and_mutates_nothing(tmp_path):
     assert _calls(log) == [], "a refused close must not comment, label or close anything"
 
 
+# ---- a `hold` verdict: an OPEN implementing PR owns the issue, so it is NOT closed (issue #2869) ----
+
+def test_a_hold_leaves_the_issue_open_and_posts_a_hold_comment_naming_the_pr(tmp_path):
+    """An issue an OPEN PR already implements is held for that PR, never closed as not_planned.
+
+    Measured (issue #2869): closing it as `not_planned` while the PR is still open retired
+    implemented work before its PR merged. The lane abandons its OWN claim and posts a hold
+    comment naming the PR; the issue stays OPEN so the PR's own closing keyword closes it as
+    `completed` on merge.
+    """
+
+    # Given a `hold` verdict naming the open implementing PR
+    gh, log = _fake_gh(tmp_path)
+
+    # When  the hold verdict is applied
+    v = ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                         "TRIAGE: hold\nPR: #2863\nEVIDENCE: open PR #2863 already implements this\n"
+                         "REASON: awaiting merge\n")
+
+    # Then  the issue is NOT closed, not labelled agent:closed, and a single hold comment
+    #      naming the PR was posted that also released the lane's own claim
+    assert v["verdict"] == "hold" and v["pr"] == "#2863"
+    calls = _calls(log)
+    assert not [c for c in calls if c[:2] == ["issue", "close"]], \
+        "a hold must never close the issue (issue #2869)"
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]], \
+        "a hold must not label the issue agent:closed"
+    assert not [c for c in calls if c[:2] == ["pr", "create"]]
+    comments = [c for c in calls if c[:2] == ["issue", "comment"]]
+    assert len(comments) == 1
+    body = " ".join(comments[0])
+    assert "#2863" in body and "Holding" in body
+    assert "bot-done: implementer" in body and "held" in body, \
+        "the hold comment must release the lane's own claim via a bot-done marker"
+
+
+def test_a_hold_without_a_pr_block_is_refused_and_mutates_nothing(tmp_path):
+    """A hold must name the PR that holds the issue, or it is not a hold — it is a guess."""
+    gh, log = _fake_gh(tmp_path)
+    with pytest.raises(SystemExit):
+        ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                         "TRIAGE: hold\nEVIDENCE: open PR implements it\n")
+    assert _calls(log) == [], "a refused hold must not comment or close anything"
+
+
+def test_parse_verdict_reads_a_hold_pr_block():
+    """The `PR:` line a hold verdict carries is machine-read, never inferred from prose."""
+    v = ii.parse_verdict("TRIAGE: hold\nPR: #2863\nEVIDENCE: open PR #2863 implements it\n")
+    assert v["verdict"] == "hold" and v["pr"] == "#2863"
+
+
+def test_a_dry_hold_would_comment_and_release_but_closes_nothing(tmp_path):
+    """`--dry` shows the hold decision and performs no request at all."""
+    gh, log = _fake_gh(tmp_path)
+    v = ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                         "TRIAGE: hold\nPR: #2863\nEVIDENCE: open PR #2863 implements it\n",
+                         dry=True)
+    assert v["verdict"] == "hold"
+    assert _calls(log) == [], "a dry hold must not comment or close anything"
+
+
+
 # ---- the claim protocol on the implementer's side (scripts/bot_claims.py) ----
 
 def test_pick_free_skips_an_issue_another_bot_claimed_and_takes_the_next(monkeypatch):

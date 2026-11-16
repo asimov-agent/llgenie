@@ -73,7 +73,7 @@ PR_CLAIM_TTL = dt.timedelta(hours=4)
 #: the outcomes a run posts when it stops without finishing, so an abandoned subject is released by
 #: an explicit statement instead of only by the TTL (#291).
 DONE_RELEASES = ("refined", "closed", "merged", "done", "rejected", "cancelled", "gave-up",
-                 "repaired")
+                 "held", "repaired")
 DONE_OCCUPIES = ("pr-open", "implemented")
 
 

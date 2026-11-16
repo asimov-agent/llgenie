@@ -119,8 +119,17 @@ read, not a verdict per issue.
 - **`gh issue close <n> --comment "…"` is shell-parsed.** Backticks and parentheses in a realistic comment
   kill it (`syntax error near unexpected token '('`). Post the body as JSON through
   `gh api -X POST repos/<o>/<r>/issues/<n>/comments --input -` from a Python dict, then
-  `PATCH repos/<o>/<r>/issues/<n>` with `{"state": "closed", "state_reason": "not_planned"}`. Same shape
-  for a refine comment (comment only, no state change). If you batch-close through the CLI anyway, define
+  `PATCH repos/<o>/<r>/issues/<n>` with `{"state": "closed", "state_reason": "not_planned"}`.
+  **There are two close reasons, and a third case that must NOT close (issue #2869):**
+  - duplicate / invalid / discontinued -> `state_reason: "not_planned"` (no plan exists);
+  - already implemented by a MERGED PR -> `state_reason: "completed"` (the merge recorded it);
+  - implemented by an OPEN PR, awaiting merge -> **do not close the issue at all.** Abandon your
+    lane's own claim and post ONE hold comment naming the PR; the PR's own closing keyword closes
+    the issue as `completed` on merge. Closing an open-PR issue as `not_planned` retires implemented
+    work before its PR merges and breaks the PR→merge closure evidence (#2048 was hand-corrected to
+    `completed` the same evening #2869 noticed it).
+  Same shape for a refine comment (comment only, no state change). If you batch-close through the CLI
+  anyway, define
   `close(){ gh issue close "$1" --repo <o>/<r> --comment "$2"; }` and escape every `$` and backtick in the
   body (`\$(call …)`) — an unescaped `$(...)` in a double-quoted comment is command-substituted, not
   printed. The same quoting trap hits read commands: `gh pr view <n> --json statusCheckRollup --jq

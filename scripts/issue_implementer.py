@@ -16,11 +16,21 @@ comment that says "only for CPU builds" is a different issue. It then decides ON
   refine      real ambiguity left         -> ONE comment with an implementable restatement,
                                              the `agent:refined` label, no PR that run
   close       no longer makes sense       -> comment the reason WITH cited evidence, close it
+  hold        an OPEN implementing PR     -> DO NOT close the issue: abandon the lane's own
+                                             claim and post a hold comment naming the PR, so
+                                             the PR's own closing keyword closes it on merge
+                                             (AGENTS.md: never close by hand while a PR
+                                             implements it). Issue state `not_planned` must
+                                             keep meaning "no plan" — an implemented issue is
+                                             `completed`, recorded when its PR merges.
 
 Closing requires evidence: a close whose verdict carries no `EVIDENCE:` block is refused
 loudly, because "hard" or "vague" is `refine`, and "already done / superseded / duplicate /
 not a code change" is what closing is for. An issue labelled `agent:closed` or
-`agent:closed` is never picked again, so neither verdict can loop.
+`agent:closed` is never picked again, so neither verdict can loop. `hold` is distinct from
+`close`: a close is a decision (duplicate, invalid, no plan — recorded `not_planned`); a
+hold is the discovery that an OPEN implementing PR already owns the work, and that the
+issue must stay open until the PR merges.
 
 A close QUEUES what it cites (issue #521). The picker only lists `agent:implement` /
 `agent:ready`, and the canonical issue a duplicate points at is usually filed without either —
@@ -161,7 +171,7 @@ def _slug(title: str) -> str:
     return s[:SLUG_LEN].rstrip("-") or "issue"
 
 
-VERDICTS = ("implement", "refine", "close")
+VERDICTS = ("implement", "refine", "close", "hold")
 #: An issue carrying either label has already been decided this way and is never picked again.
 #: Only a CLOSE is a decision (issue #522). `agent:refined` is a marker that a restatement exists: a
 #: refined issue is *more* implementable than before, so it must stay in the picker's queue. While it was
@@ -195,6 +205,12 @@ choose exactly ONE verdict and put it in `triage.md` at the repo root, in this s
               supersedes or duplicates it, or why this is not a change this repo can make>
     REASON: <one line>
 
+    TRIAGE: hold
+    PR: #<n>
+    EVIDENCE: <what you checked — the OPEN implementing PR that already covers this issue
+              and is awaiting merge>
+    REASON: <one line>
+
 Rules for the verdict:
 
 - `implement` — the body plus thread are actionable now. Then implement exactly the acceptance
@@ -202,10 +218,15 @@ Rules for the verdict:
 - `refine` — a real decision is still open or the acceptance criteria are missing, so any
   implementation would be a guess. Post nothing yourself: write the `REFINED:` block and stop.
   Do NOT open a PR on a refine.
-- `close` — the issue no longer makes sense: already implemented, superseded, a duplicate, or
-  not a code change this repo can make. `EVIDENCE:` is REQUIRED and must name what you checked;
-  a close without it is refused. Never close because an issue is hard, large or vague — that is
-  `refine`, or a human's call.
+- `close` — the issue no longer makes sense: duplicate, invalid, retroactively "not a plan"
+  (`not_planned`), superseded, merged, or not a code change this repo can make. `EVIDENCE:` is
+  REQUIRED and must name what you checked; a close without it is refused. Never close because an
+  issue is hard, large or vague — that is `refine`, or a human's call.
+- `hold` — an OPEN PR already implements this issue and is awaiting merge. Do NOT close the
+  issue (AGENTS.md: never close by hand while a PR implements it — the PR's own closing keyword
+  closes it on merge). Name the PR with `PR: #<n>`, cite that open PR in `EVIDENCE:`. The lane
+  abandons its own claim and posts a hold comment; the issue stays OPEN. `hold` is never used
+  for an issue a MERGED PR already implemented — that is `close` with the merged PR cited.
 """
 
 
@@ -570,7 +591,8 @@ def parse_verdict(text: str) -> dict:
         return b.group(1).strip() if b else ""
 
     return {"verdict": verdict, "refined": block("REFINED"), "evidence": block("EVIDENCE"),
-            "reason": block("REASON").splitlines()[0].strip() if block("REASON") else ""}
+            "reason": block("REASON").splitlines()[0].strip() if block("REASON") else "",
+            "pr": block("PR").strip()}
 
 
 def cited_issues(text: str, own: int = 0) -> list[int]:
@@ -638,6 +660,45 @@ def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) ->
     v = parse_verdict(text)
     if v["verdict"] == "implement":
         print(f"[issue-implementer] verdict: implement #{num} — the existing path runs")
+        return v
+
+    if v["verdict"] == "hold":
+        # Issue #2869: an OPEN implementing PR already owns this issue. Closing it now as
+        # `not_planned` (the generic close) retired implemented work before its PR merged,
+        # broke the PR->merge closure evidence, and forced a human reconciliation (#2048 was
+        # hand-corrected to `completed` the same evening). The lane abandons its OWN claim and
+        # posts a hold comment naming the PR; the issue stays OPEN so the PR's own closing
+        # keyword closes it as `completed` on merge (AGENTS.md: never close by hand while a PR
+        # implements it). A merged PR is still a `close` with the merged PR cited, never a hold.
+        if not v["pr"]:
+            raise SystemExit("[issue-implementer] verdict hold carries no `PR: #<n>` block — "
+                             "a hold must name the open implementing PR so the reader knows "
+                             "what must merge before the issue closes")
+        if v["reason"]:
+            body = (f"Holding this issue open — open PR {v['pr']} already implements it and is "
+                    f"awaiting merge; the issue's closing keyword on that PR closes it as "
+                    f"`completed` on merge. The issue-bot abandons its own claim and does not "
+                    f"close the issue. {v['reason']}\n")
+        else:
+            body = (f"Holding this issue open — open PR {v['pr']} already implements it and is "
+                    f"awaiting merge; the issue's closing keyword on that PR closes it as "
+                    f"`completed` on merge. The issue-bot abandons its own claim and does not "
+                    f"close the issue.\n")
+        if v["evidence"]:
+            body += f"\n**Evidence**\n\n{v['evidence']}\n"
+        if dry:
+            print(f"[issue-implementer] would hold #{num}: comment naming {v['pr']} + release "
+                  "the lane's claim (no close, no agent:closed)")
+            return v
+        # The hold comment both tells the reader what is holding the issue and, through the
+        # `bot-done: ... held` marker, releases the implementer's OWN claim so it stops blocking
+        # the picker for its TTL (bot_claims: an abandoned subject is released by a done marker).
+        _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
+                 bot_claims.done_comment(bot_claims.IMPLEMENTER, datetime.now(timezone.utc),
+                                         "held")
+                 + "\n" + body])
+        print(f"[issue-implementer] held #{num}: open PR {v['pr']} implements it, issue left "
+              "open, claim released")
         return v
 
     if v["verdict"] == "refine":

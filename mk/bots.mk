@@ -133,9 +133,12 @@ _issue-bot-triage: # (internal) the host recipe the agent image runs: the decisi
 issue-bot-changed: ## Did the implement step actually change the tree? Prints changed=true|false, the bot's own run inputs excluded; exit 2 when git cannot read the tree (issue #428)
 	python3 scripts/issue_implementer.py changed
 
-issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE)
+issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE), hold -> an OPEN implementing PR owns the issue: release the lane's own claim + ONE hold comment naming the PR, and DO NOT close the issue (its closing keyword closes it on merge)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(GH_REPO) --issue $(ISSUE)
+
+issue-close-backfill: ## Report every issue the issue-bot closed as not_planned that a merged PR carries a `closes #` reference to, so the reason can be corrected to `completed` (reads GitHub only, never writes; REPO= picks the repo; issue #2869)
+	python3 scripts/issue_close_backfill.py read --repo "$(GH_REPO)" $(if $(LIMIT),--limit $(LIMIT),)
 
 issue-bot-gates: ## Run the FAST repository gates in order, stopping at the FIRST failure and naming it (lint, workflows, wiring, docs, PR hygiene, OpenSpec tasks): what the issue-bot runs after the implement step and BEFORE it pushes, so a bookkeeping red never reaches the PR (issue #475)
 	python3 scripts/issue_bot_gates.py run

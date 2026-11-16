@@ -370,7 +370,7 @@ own bot may do.
 | skill | leg | what it decides |
 |---|---|---|
 | `bot-unattended` | every leg | the shared unattended contract (never ask, never wait) |
-| `issue-triage` | `make issue-bot-triage` | `implement` / `refine` / `close` → `triage.md` |
+| `issue-triage` | `make issue-bot-triage` | `implement` / `refine` / `close` / `hold` → `triage.md` |
 | `issue-refiner` | `make issue-refiner` | restate the issue or say it is clear → `refine.md` (flags a body without the acceptance-criteria form, #1805) |
 | `issue-dedup` | `make issue-dedup` | duplicate or distinct → `dedup.md` |
 | `issue-implement` | `make implement-issue` | the change + `pr-body.md` |
@@ -610,7 +610,7 @@ make issue-bot-image      # build/pull the agent image the bot runs in (same ima
 make hermes-smoke          # prove the alias can CALL A TOOL (a terminal call that prints a per-run nonce), die in seconds
 make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
-make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
+make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close | hold
 make issue-bot-changed    # did the implement step change the tree? changed=true|false (run inputs excluded)
 make issue-bot-gates      # re-check the FAST gates in order, stopping at the first failure and naming it
 make issue-bot-gates-check  # CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push
@@ -744,6 +744,16 @@ picks ONE verdict, written to `triage.md`:
 - **`close`** — already implemented, superseded, a duplicate, or not a change this repo can make:
   the bot comments the reason **with the evidence it checked** and closes the issue. A close
   whose verdict carries no evidence is **refused**, because "hard" or "vague" is a refine.
+- **`hold`** — an OPEN PR already implements this issue and is awaiting merge (issue #2869): **do
+  not close the issue** — the bot abandons its own claim and posts ONE hold comment naming the PR,
+  so the PR's own closing keyword closes it as `completed` on merge. Closing it as `not_planned`
+  (the generic close) retired #2048 while implementing PR #2863 was still open, making the merge's
+  closing keyword a no-op and forcing a human reconciliation. Same rule everywhere: a close is
+  `not_planned` (duplicate / invalid / discontinued) or `completed` (a merged PR did it) — never
+  `not_planned` for a MERGED implementation, and never a close at all while the PR is still open.
+
+`make issue-close-backfill` (READ-ONLY) reports any historical bot-closed `not_planned` issue a
+merged PR closes, so the reason can be corrected to `completed`.
 
 An issue labelled `agent:closed` is never picked again, so a close cannot loop, and it opens no PR — so
 it does not consume the 3/day PR cap. **`agent:refined` is a marker, not a decision (issue #522):** the
@@ -2490,6 +2500,13 @@ make issue-cleaner-apply  # the same decision, then: an evidence comment on the 
                           # `.github/workflows/stale-branch-cleanup.yml` runs this target daily at
                           # 03:39 UTC and on workflow_dispatch. Branch deletion in that workflow stays
                           # behind APPLY; this close does not.
+make issue-close-backfill # READ-ONLY backfill (issue #2869): report every issue the issue-bot closed as
+                          # `not_planned` that a MERGED PR carries a `closes #` reference to, so the
+                          # reason can be corrected to `completed`. The bug that started it: the bot
+                          # closed #2048 as not_planned while implementing PR #2863 was still open, so
+                          # the merge's closing keyword was a no-op and the implemented issue was
+                          # retired as "not planned". This read names the class; it never PATCHes.
+                          # REPO= picks the repo, LIMIT= bounds the merged-PR window.
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make worktree-report   # measure the bench before a bot starts, and mutate NOTHING (issue #794): one row per
                        # `git worktree list --porcelain` entry with its path, branch (`detached` when it holds
