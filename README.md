@@ -316,6 +316,18 @@ post re-attributed to a split model row, and a profile link upgraded to its real
 measurement — keying on `(engine, hardware)` read all of them as a loss and froze the weekly sync for 13
 days.
 
+**Why the sync carries retention-pruned posts forward.** Upstream's producer prunes each model's
+`engagement.seen_posts` to a 30-day window on every store merge (their `update_trending.py::prune_posts`,
+`RETENTION_DAYS = 30`: "the model row is never removed — only its stale post history is pruned"), and a
+post that left the window without being re-seen never reaches their `data/posts.json` either. The guard
+above tracks those posts and may not be widened, so `make sync-registry` **carries** such a post from the
+copy llgenie already vendored into the row that previously held it — the same rehydrate pattern as
+measurements and post counters — instead of waiting for a new sighting to re-materialise it. A fresher
+entry the new store carries wins, a post re-attributed to another row is kept exactly once, a model row
+the new store dropped is never resurrected (that stays a guard failure), and `seen_posts` **placeholders**
+(no `/status/<id>`) are never carried: they are derived state upstream rebuilds from measurements every
+merge.
+
 ```bash
 make sync-registry    # download upstream data/models.json + README.md + data/model_contract.json
                       # (+ MODEL_CONTRACT.md) into data/ (validated: the store must satisfy that
