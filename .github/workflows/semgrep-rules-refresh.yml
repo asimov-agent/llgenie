@@ -128,7 +128,7 @@ jobs:
           {
             echo 'Issue: the committed semgrep rules pack (containers/scanners/semgrep/rules/default.yml) reached or passed its recency floor or drifted from upstream p/default (issue #2283). The SAST surface was content-pinned with no refresh path.'
             echo ''
-            echo 'Fix: re-resolved upstream p/default through the pinned scanner image (semgrep --config p/default --validate), rewrote default.yml (re-applying the \x59 / \x2e / \x2f escapes so no rule body is a credential shape), and re-stamped containers/scanners/digests.json: rules_sha == sha256 of the rewritten default.yml, rules_captured_at == the refresh date, rules_count updated — via make semgrep-rules-refresh / make scanner-digests.'
+            printf '%s\n' 'Fix: re-resolved upstream p/default through the pinned scanner image (semgrep --config p/default --validate), rewrote default.yml (re-applying the \x59 / \x2e / \x2f escapes so no rule body is a credential shape), and re-stamped containers/scanners/digests.json: rules_sha == sha256 of the rewritten default.yml, rules_captured_at == the refresh date, rules_count updated — via make semgrep-rules-refresh / make scanner-digests.'
             echo ''
             echo 'Benefit: the daily SAST scan reflects rules at most the declared-baseline age old, and the pack carries a working re-resolve path instead of a red-only floor.'
             echo ''

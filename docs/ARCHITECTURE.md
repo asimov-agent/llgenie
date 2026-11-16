@@ -1049,7 +1049,11 @@ rather than to a stale board (issues #1773-#1777, #1791).
 
 The structural gates are make targets, so the same command runs locally and in CI:
 `make check-workflows` (GitHub expressions parse, trailing newlines, every workflow has a
-`name:`, every `workflow_run` roster names workflows that exist and leaves none unwatched), `make check-dispatch-forms` (a dispatchable workflow documents its inputs and
+`name:`, every `workflow_run` roster names workflows that exist and leaves none unwatched; and,
+chained via `make check-workflows-shellcheck`, the digest-pinned full actionlint ruleset — shellcheck
+findings and section syntax — over `.github/workflows/`, where the only exception is the one
+documented queue-key `-ignore` because `concurrency.queue: max` in `engine-build.yml` is
+load-bearing (issue #2294) while GitHub-accepted-but-uncatalogued (issue #329)), `make check-dispatch-forms` (a dispatchable workflow documents its inputs and
 stages), `make check-wiring` (every script/test reachable from a target CI runs),
 `make check-docs` (every `##` make target is in `README.md` or a `docs/` page the README
 links, every `agent-wiki/` note names its issue and PR and has its own index row in

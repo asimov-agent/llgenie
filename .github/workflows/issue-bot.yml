@@ -155,9 +155,11 @@ jobs:
           branch=$(printf '%s\n' "$out" | sed -n 's/^branch=//p' | tail -1)
           issue=$(printf '%s\n' "$out" | sed -n 's/^issue=//p' | tail -1)
           action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "issue=$issue" >> "$GITHUB_OUTPUT"
-          echo "action=$action" >> "$GITHUB_OUTPUT"
+          {
+            echo "branch=$branch"
+            echo "issue=$issue"
+            echo "action=$action"
+          } >> "$GITHUB_OUTPUT"
           # A CRASHED decision is not "nothing to do" (issue #312). Without this check an empty
           # `action` falls through the cap/none test below, so `dispatch=true` and the run marches on
           # to triage/implement with no issue picked — failing somewhere later, or not at all. Fail

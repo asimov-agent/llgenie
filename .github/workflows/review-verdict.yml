@@ -293,8 +293,10 @@ jobs:
           REPORT_HEAD: ${{ steps.resolve.outputs.HEAD }}
         run: |
           set -euo pipefail
-          echo "### review-verdict" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "PR #$REPORT_PR: " \
-               "recorded $REPORT_VERDICT at head $REPORT_HEAD" >> "$GITHUB_STEP_SUMMARY"
-          echo "The bot never merges and never pushes; it records the verdict the merge decision reads." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### review-verdict"
+            echo ""
+            echo "PR #$REPORT_PR: " \
+                 "recorded $REPORT_VERDICT at head $REPORT_HEAD"
+            echo "The bot never merges and never pushes; it records the verdict the merge decision reads."
+          } >> "$GITHUB_STEP_SUMMARY"

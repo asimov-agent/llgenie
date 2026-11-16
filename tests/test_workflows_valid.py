@@ -15,6 +15,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -774,3 +775,72 @@ def test_every_cron_in_this_repository_fits_githubs_grammar():
     grammar GitHub uses — a future edit that writes an out-of-grammar cron (or re-ships the 15th
     in the day-of-week field) reds `make check-workflows` instead of ghost-firing on every event."""
     assert cw.check_scheduled_crons(REPO) == [], cw.render(cw.findings(REPO))
+
+
+# ---- full-ruleset actionlint step (issue #329) ---------------------------------------------
+# `check-workflows` held the gate on the class of defect GitHub REJECTS. #329 fixed every live
+# shellcheck finding, kept the one load-bearing actionlint finding (`concurrency.queue: max` in
+# engine-bump.yml, issue #2294) documented, and chained a full-ruleset actionlint step onto the
+# gate so the class cannot re-accumulate. The unit suite has no docker inside the test image, so
+# these tests pin the WIRING — chain, digest pin, single narrow ignore — the same way
+# `check-gitleaks-pin` pins that gate's image; the tree-wide finding sweep itself is the chained
+# step's job in `make check-workflows`.
+
+GATES_MK = (REPO / "mk" / "gates.mk").read_text(encoding="utf-8")
+MAKEFILE = (REPO / "Makefile").read_text(encoding="utf-8")
+
+
+def _recipe(text: str, target: str) -> str:
+    """The tab-indented recipe of `target` in a make file (empty if the target has none)."""
+    out: list[str] = []
+    seen = False
+    for line in text.splitlines():
+        if line.startswith(f"{target}:"):
+            seen = True
+            continue
+        if seen:
+            if line.startswith("\t"):
+                out.append(line)
+            else:
+                break
+    return "\n".join(out)
+
+
+def test_check_workflows_chains_the_full_ruleset_actionlint_step():
+    """`make check-workflows` must run the expression parse AND the actionlint full ruleset.
+    Dropping the chained line re-opens the #329 hole: shellcheck findings inside accepted files."""
+    chain = _recipe(GATES_MK, "check-workflows")
+    assert "python3 scripts/check_workflows.py check" in chain, chain
+    assert "+$(MAKE) --no-print-directory check-workflows-shellcheck" in chain, chain
+    step = _recipe(GATES_MK, "check-workflows-shellcheck")
+    assert "$(ACTIONLINT_RUN)" in step, step
+    assert "check-workflows check-workflows-shellcheck" in MAKEFILE, ".PHONY lost the step"
+
+
+def test_the_actionlint_reference_is_a_digest_pin_like_every_other_gate_image():
+    """Same discipline as GITLEAKS_IMAGE (#2235): a gate image is referenced by digest, never by
+    a mutable tag — a retagged `latest` can turn the gate itself into the supply chain."""
+    pin = re.search(r"^ACTIONLINT_IMAGE\s*:=\s*rhysd/actionlint@sha256:[0-9a-f]{64}\s*$",
+                    MAKEFILE, re.M)
+    assert pin, "ACTIONLINT_IMAGE is not a rhysd/actionlint@sha256:<64hex> digest pin"
+    run = re.search(r"^ACTIONLINT_RUN\s*:=.*\$\(ACTIONLINT_IMAGE\)", MAKEFILE, re.M)
+    assert run, "ACTIONLINT_RUN does not run the pinned image"
+    assert "ACTIONLINT_IMAGE:latest" not in MAKEFILE
+
+
+def test_actionlint_ignore_carries_only_the_queue_key_rule():
+    """The documented exception is EXACTLY one regex, the queue-key message. A second ignore
+    pattern is a silent gate weakening — this test is what forces it to be a filed decision."""
+    ignore = re.search(r'^ACTIONLINT_IGNORE\s*:=\s*(.+?)\s*$', MAKEFILE, re.M)
+    assert ignore, "ACTIONLINT_IGNORE is not declared"
+    assert ignore.group(1) == 'unexpected key "queue" for "concurrency" section', ignore.group(1)
+    step = _recipe(GATES_MK, "check-workflows-shellcheck")
+    assert step.count("-ignore") == 1, step
+    assert "$(ACTIONLINT_IGNORE)" in step, step
+
+
+def test_the_load_bearing_queue_key_survives_the_cleanup():
+    """#2294: `queue: max` on engine-build's concurrency is what stopped cancelled producers.
+    A 'make actionlint quiet' edit that deletes it would pass every other gate; this pins it."""
+    eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text(encoding="utf-8")
+    assert re.search(r"^concurrency:\n(?:[^\n]*\n)*?\s{2}queue: max(?:\s*#.*)?$", eb, re.M), eb

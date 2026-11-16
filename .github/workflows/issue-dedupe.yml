@@ -126,10 +126,12 @@ jobs:
           action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
           canonical=$(printf '%s\n' "$out" | sed -n 's/^canonical=//p' | tail -1)
           copy=$(printf '%s\n' "$out" | sed -n 's/^copy=//p' | tail -1)
-          echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "canonical=$canonical" >> "$GITHUB_OUTPUT"
-          echo "copy=$copy" >> "$GITHUB_OUTPUT"
-          [ "$action" = "pick" ] && echo "picked=true" >> "$GITHUB_OUTPUT" || echo "picked=false" >> "$GITHUB_OUTPUT"
+          {
+            echo "action=${action:-unknown}"
+            echo "canonical=$canonical"
+            echo "copy=$copy"
+            if [ "$action" = "pick" ]; then echo "picked=true"; else echo "picked=false"; fi
+          } >> "$GITHUB_OUTPUT"
           exit 0
 
       # `make jev-preflight-required` keeps this step's failure red but makes it answerable: the run

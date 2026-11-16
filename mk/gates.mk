@@ -208,8 +208,12 @@ git-identity-line:
 git-identity-report:
 	python3 scripts/git_identity.py report
 
-check-workflows: ## CI: fail when a YAML file's GitHub expression does not parse, when a YAML file lacks a trailing newline, when a workflow has no top-level name, or when a `workflow_run` roster names a workflow that does not exist or leaves one unwatched (issues #330, #349)
+check-workflows: ## CI: fail when a YAML file's GitHub expression does not parse, when a YAML file lacks a trailing newline, when a workflow has no top-level name, when a `workflow_run` roster names a workflow that does not exist or leaves one unwatched, and (chained) when actionlint's full ruleset — shellcheck or section syntax — reports any finding in `.github/workflows/` (issues #330, #349, #329)
 	python3 scripts/check_workflows.py check
+	+$(MAKE) --no-print-directory check-workflows-shellcheck
+
+check-workflows-shellcheck: ## CI: run the digest-pinned rhysd/actionlint full ruleset (shellcheck + section syntax) over `.github/workflows/`; every finding fails the gate except the single documented queue-key ignore (`concurrency.queue: max` is load-bearing, issue #2294) (issue #329)
+	$(ACTIONLINT_RUN) -ignore '$(ACTIONLINT_IGNORE)'
 
 workflows-report: ## Show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 	python3 scripts/check_workflows.py report

@@ -714,7 +714,10 @@ same line and no merge can re-dirty an open PR (issue #934). [`CHANGES.md`](CHAN
 index rendered into one table; `make changes-index` writes it and no change PR edits it by hand.
 The history is never a section of this file. `make check-dispatch-forms` verifies the
 generated dispatch table in [`docs/BOTS.md`](docs/BOTS.md) against the workflows themselves, and
-`make check-workflows` validates every workflow file.
+`make check-workflows` validates every workflow file — its GitHub expressions parse, and a chained
+`make check-workflows-shellcheck` step runs the digest-pinned full actionlint ruleset (shellcheck +
+section syntax) over `.github/workflows/`, with the single documented `concurrency.queue` exception
+(issue #329, queue-key rationale in issue #2294).
 
 ## Layout
 
