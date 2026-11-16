@@ -123,8 +123,22 @@ with open("{log}", "a") as fh:
     print(" ".join(a), file=fh)
 if a[:2] == ["pr", "list"]:
     print(json.dumps(sc["merged"]))
-elif a[:2] == ["issue", "list"]:
-    print(json.dumps(sc["issues"]))
+elif a[:2] == ["issue", "list"] or (a and a[0] == "api"):
+    if a and a[0] == "api":
+        # repos/OWNER/REPO/issues?state=open&per_page=100&page=N — slice the page
+        url = a[1]
+        page, per = 1, 100
+        if "?" in url:
+            for kv in url.split("?", 1)[1].split("&"):
+                k, _, v = kv.partition("=")
+                if k == "page":
+                    page = int(v or 1)
+                elif k == "per_page":
+                    per = int(v or 100)
+        start = (page - 1) * per
+        print(json.dumps(sc["issues"][start:start + per]))
+    else:
+        print(json.dumps(sc["issues"]))
 elif a[:2] == ["issue", "comment"] or a[:2] == ["issue", "close"]:
     pass
 else:
@@ -355,3 +369,29 @@ def test_json_mode_emits_the_findings(tmp_path):
     assert r.returncode == 0, r.stderr
     rows = json.loads(r.stdout)
     assert rows[0]["action"] == "close" and rows[0]["issue"] == 256
+
+
+def test_a_close_behind_open_list_position_200_is_still_seen(tmp_path):
+    """The open scan pages to exhaustion, so a merged PR implemented by the 205th open issue closes it.
+
+    The old `gh issue list --limit 200` returned one newest-first page of 200, so an issue past the
+    200th open position was invisible and its merged-PR close was never seen (issue #2847).
+    """
+
+    # Given 205 open issues, newest-first, whose implemented issue is the OLDEST (position 205)
+    behind = {"number": 2847, "title": "behind the 200-window"}
+    issues = [{"number": 10000 + j, "title": f"t{j}"} for j in range(204)] + [behind]
+    assert len(issues) == 205 and issues[204] == behind
+    gh_stub(tmp_path,
+            [{"number": 1, "title": "x (#2847)", "body": "", "mergedAt": "2026-10-16T09:04:00Z",
+              "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "Issue: #2847"}}],
+            issues)
+
+    # When  the cleaner scans the open board (pages until a short page)
+    r = run_cleaner(tmp_path)
+
+    # Then  the issue behind the old 200-boundary is seen and its merged-PR close happens
+    assert r.returncode == 0, r.stderr
+    assert "closed #2847" in r.stdout
+    assert "issue close 2847" in (tmp_path / "gh-calls").read_text()

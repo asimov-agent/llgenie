@@ -96,10 +96,12 @@ def similarity(a: dict, b: dict) -> float:
 
 
 def candidates(gh: str, repo: str) -> list[dict]:
-    """Every open, unclaimed issue — the only issues this bot may consider."""
-    out = _gh(gh, ["issue", "list", "--repo", repo, "--state", "open", "--limit", "200",
-                   "--json", "number,title,body,labels,createdAt"])
-    issues = json.loads(out or "[]")
+    """Every open, unclaimed issue — the only issues this bot may consider.
+
+    The open board is scanned to exhaustion through `gh api`, paged until a short page, so a pair
+    whose older member sits past any fixed window stays visible (issue #2847).
+    """
+    issues = bot_claims.paginate_open_issues(lambda args: _gh(gh, args), repo)
     free = [i for i in issues if not is_protected(i) and not is_generated(i)]
     skipped = [i["number"] for i in issues if is_protected(i)]
     generated = [i["number"] for i in issues if not is_protected(i) and is_generated(i)]
