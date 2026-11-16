@@ -1,0 +1,1 @@
+| 2026-11-16 | engine-bump companions: the bump PR ships its agent-wiki note + docs/changes.d row, its OPENSPEC body line, and fresh frozen image-hash asserts (issue #2865) | [2026-11-16-engine-bump-companions.md](agent-wiki/2026-11-16-engine-bump-companions.md) | #2865 |

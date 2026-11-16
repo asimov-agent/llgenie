@@ -379,6 +379,159 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     assert (record / "spec.md").read_text() == "pinned at v0.40.15\n"
 
 
+# ---------------------------------------------------------------------------
+# Companion seam: the note+row pair a bump PR owes check-docs (issue #1123)
+# ---------------------------------------------------------------------------
+def test_bump_writes_the_companion_note_and_row(tmp_path, monkeypatch):
+    """A bump adds the `agent-wiki/` note and its `docs/changes.d/` row (issue #1123).
+
+    `make check-docs` reddens `scope` when a branch changes a behavioural surface
+    (scripts/, containers/, data/) without adding an agent-wiki/ note indexed by a
+    fragment of its own name. The lane must write that pair in the SAME commit as
+    the pin move, and rebuild CHANGES.md from the fragments.
+    """
+
+    # Given a skill whose pin moved, on a tree where the "repo" paths live under tmp
+    repo = _make_repo(tmp_path, "up", {"CMakeLists.txt": "option(GGML_X ON)\n"})
+    old = "a" * 40
+    new = _git(repo, "rev-parse", "HEAD")
+    skill = _skill(tmp_path, str(repo), "v0.40.15", "tag", old, version="v0.40.15")
+    # the dockerfile the image-hash rewriter hashes must exist for the variant
+    df = tmp_path / "containers" / "engines" / "dockerfiles" / "testengine" / "Dockerfile.cpu"
+    df.parent.mkdir(parents=True, exist_ok=True)
+    df.write_text("FROM ubuntu:24.04\n")
+    (tmp_path / "containers" / "engines" / "entrypoint.sh").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\n")
+    (tmp_path / "scripts" / "engine_runner.py").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "scripts" / "engine_runner.py").write_text("# runner\n")
+
+    monkeypatch.setattr(eb, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(es, "load_skills", lambda: {"testengine": skill})
+    monkeypatch.setattr(es, "SKILLS_DIR", tmp_path / "skills" / "engines")
+    monkeypatch.setattr(eb, "_regen_guard", lambda sid: [])
+    monkeypatch.setattr(eb, "plan", lambda eid: [{
+        "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.40.15",
+        "new_ref": "v0.41.0", "status": "moved"}])
+
+    # When the bump runs as THE LANE (emit_companions True, like make engine-bump)
+    eb.bump("testengine", emit_companions=True)
+
+    # Then the note + its index row exist and CHANGES.md was rebuilt from them
+    import scripts.changes_index as ci
+    stems = [p.stem for p in (tmp_path / ci.WIKI_DIR).glob("*.md")]
+    assert len(stems) == 1, stems
+    stem = stems[0]
+    note = tmp_path / ci.WIKI_DIR / f"{stem}.md"
+    frag = tmp_path / ci.FRAGMENTS / f"{stem}.md"
+    assert note.is_file() and frag.is_file()
+    assert "#107" in note.read_text()          # references the engine-bump issue
+    assert f"{old[:8]} -> {new[:8]}" in note.read_text()
+    # the fragment is exactly one well-formed row pointing at the note of its own name
+    row, errs = ci.parse_row(frag.read_text(), stem)
+    assert not errs, errs
+    assert row["note"] == f"{stem}.md"
+    # CHANGES.md was rebuilt to carry the row, and the whole index is clean
+    changes = (tmp_path / ci.CHANGES).read_text()
+    assert f"agent-wiki/{stem}.md" in changes
+    assert ci.check(tmp_path) == []
+    # the change->note gate itself now passes for this tree (a bump touches a
+    # behavioural surface, and this branch added an agent-wiki/ note + its row)
+    import scripts.check_docs as cd
+    stems2 = [p.stem for p in (tmp_path / ci.WIKI_DIR).glob("*.md")]
+    monkeypatch.setattr(cd, "_changed_paths",
+                        lambda root, base: ["scripts/engine_bump.py",
+                                            f"agent-wiki/{stems2[0]}.md"])
+    assert cd.change_note_problems(tmp_path, base="HEAD") == []
+
+
+# ---------------------------------------------------------------------------
+# Frozen image-hash constants (issue #2386) the bump's own pin move makes stale
+# ---------------------------------------------------------------------------
+def test_bump_rewrites_frozen_image_hash_asserts(tmp_path, monkeypatch):
+    """A bump recomputes and rewrites the frozen image-hash asserts its pin moves.
+
+    `tests/test_engine_skills.py` pins the published image hashes as
+    `es._image_hash(params, "<variant>") == "<8hex>"` (issue #2386). Those hashes are
+    sha256 of the variant's params + Dockerfile + entrypoint + runner, so a version
+    bump that moves the base tag moves the hash. The lane recomputes them from the
+    regenerated params and rewrites the `==` literals — a `!= "old"` stays a moved
+    assert and must not be rewritten.
+    """
+
+    # Given a params file and its dockerfile, plus a test asserting an OLD hash
+    variant = "cpu"
+    params_dir = tmp_path / "containers" / "engines" / "params"
+    params_dir.mkdir(parents=True)
+    base = "docker.io/org/engine:v0.33.0"
+    params = {"id": "testengine", "pinned": "a" * 40, "variants": {
+        variant: {"base": base, "prebuilt": True, "install": []}}}
+    (params_dir / "testengine.json").write_text(json.dumps(params))
+    df_dir = tmp_path / "containers" / "engines" / "dockerfiles" / "testengine"
+    df_dir.mkdir(parents=True)
+    df_dir.joinpath(f"Dockerfile.{variant}").write_text(f"FROM {base}\n")
+    (tmp_path / "containers" / "engines" / "entrypoint.sh").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\n")
+    (tmp_path / "scripts" / "engine_runner.py").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "scripts" / "engine_runner.py").write_text("# runner\n")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    test_py = tests / "test_skills.py"
+    # the old literal is deliberately wrong (an older base produced it); the file
+    # loads this engine's params (params/testengine.json), which is the scope the
+    # rewriter keys on
+    test_py.write_text(
+        f"import json\n"
+        f"from pathlib import Path as _P\n"
+        f"params = json.loads(_P('containers/engines/params/testengine.json').read_text())\n"
+        f"import scripts.engine_skills as es\n"
+        f"assert es._image_hash(params, '{variant}') == '7f000000'\n"
+        f"assert es._image_hash(params, '{variant}') != 'deadbeef'\n"
+    )
+    monkeypatch.setattr(eb, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(es, "REPO_ROOT", tmp_path)
+
+    # When the lane recomputes the hashes
+    changed = eb._rewrite_image_hash_asserts("testengine")
+
+    # Then the == literal moved to the real derived hash, and the != is untouched
+    assert changed == ["tests/test_skills.py"]
+    got = test_py.read_text()
+    import hashlib
+    want = hashlib.sha256(b"".join([
+        json.dumps(params["variants"][variant], sort_keys=True).encode(),
+        f"FROM {base}\n".encode(),
+        b"#!/bin/sh\n",
+        b"# runner\n",
+    ])).hexdigest()[:8]
+    assert f"== '{want}'" in got
+    assert "!= 'deadbeef'" in got
+    assert "7f000000" not in got
+
+
+# ---------------------------------------------------------------------------
+# OpenSpec line + the staging of the companion files (guard + scope, issues
+# #1807 / #1123)
+# ---------------------------------------------------------------------------
+def test_bump_pr_body_carries_openspec_line_and_stages_companions():
+    """The bump PR body names an active OpenSpec change; the commit stages the
+    companion note pair so `scope`'s check-docs and the guard's openspec-change
+    finding both pass on the bump head.
+    """
+
+    # Given the bump workflow
+    text = (REPO / ".github" / "workflows" / "engine-bump.yml").read_text()
+
+    # Then the body template carries an OPENSPEC line naming an ACTIVE change
+    assert "OPENSPEC: publish-changed-pin-images" in text
+    import scripts.check_pr_hygiene as cph
+    active = cph._active_change_names(REPO)
+    assert "publish-changed-pin-images" in active
+    # and the git add stages the note pair + the rendered index
+    assert "agent-wiki/" in text
+    assert "docs/changes.d/" in text
+    assert "CHANGES.md" in text
+
+
 def test_e4_recipe_flag_mirrored(tmp_path):
     """A mirrored recipe flag is auto-added; non-mirrored is report-only."""
     repo = _make_repo(tmp_path, "up", {

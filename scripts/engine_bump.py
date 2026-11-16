@@ -66,8 +66,21 @@ except ImportError:  # pragma: no cover - script mode
         release_archive_install,
     )
 
+try:  # the change-index one-row renderer (issue #934), same package as the skills loader
+    from . import changes_index  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    import changes_index  # type: ignore
+
 REPO_ROOT = es.REPO_ROOT
 SKILLS_DIR = es.SKILLS_DIR
+
+#: CLI (make engine-bump) bumps ship their repo-writing companions: the dated
+#: agent-wiki/ note + its one-row docs/changes.d/ fragment (issue #1123) and the
+#: frozen image-hash rewrite (issue #2386). These SAME commit must carry them or
+#: `scope`/`unit` redden on the bump PR, so `bump()` takes an explicit
+#: `emit_companions` flag that ONLY the lane turns on — a library caller (a unit
+#: test driving `bump()` against a scratch tree) never accidentally writes to the
+#: real repo.
 
 # Keys the pin editor may change. Everything else in SKILL.md must stay identical.
 PIN_KEYS = ("pinned", "ref", "version", "verified")
@@ -502,6 +515,114 @@ def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
     return changed
 
 
+def _rewrite_image_hash_asserts(skill_id: str) -> list[str]:
+    """Recompute and rewrite the frozen image-hash asserts the pin move makes stale.
+
+    The unit suite pins the published image hashes it cares about in the form
+    `es._image_hash(params, \"<variant>\") == \"<8hex>\"` (issue #2386, e.g.
+    `tests/test_engine_skills.py` lines 1893-1895). Those hashes are sha256 of the
+    variant's regenerated params + its committed Dockerfile + `entrypoint.sh` +
+    `engine_runner.py` — so a version bump that moves the base image tag moves the
+    hash too, and the assert literal goes stale. `_rewrite_pin_asserts` only
+    substitutes pin *strings* (sha/tag); it cannot know the new computed hash. This
+    runs AFTER `_regen_guard` so params and Dockerfiles are final: it recomputes
+    each variant's hash from the regenerated params and rewrites the `== \"<old>\"`
+    literals in `tests/` and `docs/`. Only `==` equality asserts move (a `.get(\"base\")`
+    base tag is rewritten by `_rewrite_pin_asserts`; a `!= \"<hash>\"` must stay a
+    moved assert, so `!=` is left alone).
+    """
+    params_file = REPO_ROOT / "containers/engines/params" / f"{skill_id}.json"
+    if not params_file.is_file():
+        return []
+    import hashlib
+    params = json.loads(params_file.read_text())
+    new_hashes = {}
+    for variant in params["variants"]:
+        new_hashes[variant] = es._image_hash(params, variant)
+    changed: list[str] = []
+    roots = [REPO_ROOT / "tests", REPO_ROOT / "docs"]
+    files: list[Path] = []
+    for root in roots:
+        if root.is_file():
+            files.append(root)
+        elif root.is_dir():
+            files.extend(p for p in root.rglob("*") if p.is_file() and p.suffix in {".py", ".md"})
+    for path in files:
+        text = path.read_text()
+        # Only touch a file that loads THIS engine's params (its JSON path appears
+        # in the text), so any `_image_hash(other, "cuda") == …` assert for a
+        # different engine is never overwritten with this engine's hash.
+        if f"params/{skill_id}.json" not in text:
+            continue
+        new = text
+        for variant, h in new_hashes.items():
+            # `_image_hash(<ref>, "<variant>") == "XXXX"` (variant and hash may be
+            # single- or double-quoted in the test source); an equality assert only
+            # — a `!= "<hash>"` stays a moved assert and is left untouched. Group 1
+            # ends with the hash's opening quote, so the closing quote survives.
+            new = re.sub(
+                r'(_image_hash\([^)]*,\s*(["\'])%s\2\)\s*==\s*(["\']))[0-9a-f]{8}'
+                % re.escape(variant),
+                lambda m: m.group(1) + h,
+                new,
+            )
+        if new != text:
+            path.write_text(new)
+            changed.append(str(path.relative_to(REPO_ROOT)))
+    return changed
+
+
+def _companion_note(skill_id: str, old_sha: str, new_sha: str,
+                    old_ref: str, new_ref: str) -> list[str]:
+    """Write the change-note + index-row pair `make check-docs` owes a bump (issue #1123).
+
+    A bump PR changes `scripts/`, `containers/` and `data/` — all behavioural
+    surfaces — so `check-docs`' change→note rule reddens `scope` unless the SAME
+    commit adds an `agent-wiki/<stem>.md` note, indexed by its own
+    `docs/changes.d/<stem>.md` row (one row per change; `CHANGES.md` is rendered
+    from those fragments by `make changes-index`). This is the lane's deterministic
+    half: it writes the dated per-engine note and its single-row fragment, rebuilds
+    `CHANGES.md`, and returns the paths so the workflow stages them.
+
+    The stem carries the engine id so a weekly wave can add one note per engine
+    without colliding, and the note carries the ship-pipeline refs a reviewer needs
+    (`#107` the engine-bump issue). The OpenSpec change the lane implements against
+    is named in the PR body, not here (the note names the engine pin, which is the
+    actual record).
+    """
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    stem = f"{date}-engine-bump-{skill_id}"
+    note = REPO_ROOT / changes_index.WIKI_DIR / f"{stem}.md"
+    frag = REPO_ROOT / changes_index.FRAGMENTS / f"{stem}.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    frag.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        f"# {stem} — engine pin bump for `{skill_id}`\n"
+        f"\n"
+        f"- **Problem:** the pinned upstream commit {old_sha[:8]} in "
+        f"`skills/engines/{skill_id}/SKILL.md` is behind {new_sha[:8]} at {new_ref or 'HEAD'} — "
+        f"the weekly rolling pin a reviewer sees a pin move, not why it moved.\n"
+        f"- **Companion:** this note and its one-row `docs/changes.d/` fragment (issue #1123) "
+        f"pay the change→note pair `make check-docs` owes a bump PR: the same commit that "
+        f"changes `scripts/`, `containers/` and `data/` adds its own dated `agent-wiki/` record "
+        f"indexed by a fragment of its own name.\n"
+        f"- **Verified:** `make engine-bump ENGINE={skill_id}` pinned {old_sha[:8]} -> "
+        f"{new_sha[:8]} ({old_ref} -> {new_ref or 'HEAD'}), re-derived the params, regenerated "
+        f"the Dockerfiles and rewrote the frozen test asserts.\n"
+        f"- **Issue:** #107 (the engine-bump pipeline).\n"
+    )
+    frag.write_text(
+        f"| {date} | engine pin bump `{skill_id}` {old_sha[:8]} -> {new_sha[:8]} "
+        f"({new_ref or new_sha[:8]}) | [{stem}.md]({changes_index.WIKI_DIR}/{stem}.md) | #107 |\n"
+    )
+    rc = changes_index.write(REPO_ROOT)
+    if rc != 0:
+        raise SystemExit(f"[engine-bump] changes_index.write refused the index (rc={rc})")
+    return [note.relative_to(REPO_ROOT).as_posix(),
+            frag.relative_to(REPO_ROOT).as_posix(),
+            changes_index.CHANGES]
+
+
 def _sync_generated(skill_id: str) -> list[str]:
     """Re-run the generators whose output embeds this engine's pin.
 
@@ -586,13 +707,19 @@ def derive(skill_id: str, sha: str = "", old_sha: str = "", ref: str = "") -> di
         raise SystemExit(f"[engine-bump] {skill_id}: {e}")
 
 
-def bump(skill_id: str, dry: bool = False) -> list[dict]:
+def bump(skill_id: str, dry: bool = False, emit_companions: bool = False) -> list[dict]:
     """Pin the engine to its latest upstream commit, derive + apply params, regen.
 
     A derive hard-fail (removed option/flag we cannot safely rewrite) does NOT
     abort the bump: the pin still moves and a PR is still created, with the
     hard-fail recorded in the row so the PR body flags it and CI goes red on the
     build. Nothing is silently guessed.
+
+    `emit_companions` is the lane's repo-write switch (issue #1123, #2386): when
+    True it writes the agent-wiki note + docs/changes.d row pair this bump's
+    commit owes `make check-docs`, rewrites the frozen image-hash asserts the pin
+    move made stale, and rebuilds CHANGES.md. A library caller leaves it False so
+    `bump()` never writes outside the caller's tree.
     """
     row = next((r for r in plan(skill_id) if r["id"] == skill_id), None)
     if row is None:
@@ -629,11 +756,30 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
                                      row["old_ref"], row["new_ref"])
     synced = _sync_generated(skill_id)
     changed = _regen_guard(skill_id)
+    # The companion pair + the frozen image-hash rewrite are the LANE's repo
+    # writes (`make engine-bump`), gated behind `emit_companions` so a library
+    # caller (a unit test against a scratch tree) never writes outside its tree.
+    hashes: list[str] = []
+    companions: list[str] = []
+    if emit_companions:
+        hashes = _rewrite_image_hash_asserts(skill_id)
+        # The companion pair `make check-docs` owes a bump (issue #1123): a dated
+        # agent-wiki/ note + its one-row docs/changes.d/ fragment, which the same
+        # commit must carry or `scope` reddens. Written AFTER regen so the note can
+        # report the final pin, and rebuilt `CHANGES.md` from the fragments.
+        try:
+            companions = _companion_note(skill_id, row["old_sha"], row["new_sha"],
+                                         row["old_ref"], row["new_ref"])
+        except Exception as e:  # a broken index must still open the PR, flagged in the body
+            row["companion_fail"] = str(e)
+            print(f"[engine-bump] {skill_id}: companion note failed: {e}")
     print(f"[engine-bump] {skill_id}: {row['old_sha'][:8]} -> {row['new_sha'][:8]} "
           f"({row['new_ref']}); applied: {', '.join(applied) or 'none'}; "
           f"asserts: {', '.join(rewritten) or 'none'}; "
+          f"hashes: {', '.join(hashes) or 'none'}; "
           f"synced: {', '.join(synced) or 'none'}; "
-          f"regen: {', '.join(changed)}")
+          f"regen: {', '.join(changed)}; "
+          f"companion: {', '.join(companions) or 'none'}")
     print(f"[engine-bump] {skill_id}: findings {json.dumps(findings, sort_keys=True)}")
     return [row]
 
@@ -657,7 +803,7 @@ def bump_daily(dry: bool = False) -> int:
             failed += 1
             continue
         try:
-            bump(r["id"])
+            bump(r["id"], emit_companions=not dry)
         except SystemExit as e:
             print(f"[engine-bump] {r['id']}: {e}")
             failed += 1
@@ -695,7 +841,7 @@ def main(argv=None) -> int:
         print(pin(a.engine, a.new_ref, a.new_sha, a.dry))
         return 0
     if a.cmd == "bump":
-        bump(a.engine, a.dry)
+        bump(a.engine, a.dry, emit_companions=not a.dry)
         return 0
     if a.cmd == "bump-daily":
         return bump_daily(a.dry)
