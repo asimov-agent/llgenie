@@ -103,13 +103,14 @@ class _Gh:
 
     def __init__(self, open_issues: list | None = None, label_sticks: bool = True,
                  label_refused: bool = False, body_sticks: bool = True,
-                 body_refused: bool = False):
+                 body_refused: bool = False, search_refused: bool = False):
         self.calls: list[list[str]] = []
         self.open_issues = open_issues or []
         self.label_sticks = label_sticks
         self.label_refused = label_refused
         self.body_sticks = body_sticks
         self.body_refused = body_refused
+        self.search_refused = search_refused
         self.labels: dict[str, list[str]] = {}
         self.bodies = {str(i["number"]): i["body"] for i in self.open_issues}
         self._next = 705
@@ -118,6 +119,16 @@ class _Gh:
         self.calls.append(args)
         if args[:2] == ["issue", "list"]:
             return json.dumps(self.open_issues)
+        if args[:1] == ["api"] and "search/issues" in args:
+            # #2848: the dedupe lookup is a body SEARCH, not a page. The fake answers the
+            # query over EVERY issue it holds — search has no newest-first window.
+            if self.search_refused:
+                raise RuntimeError(f"gh {' '.join(args)} failed: "
+                                   "HTTP 403 (secondary rate limit)")
+            quoted = next(a for a in args if a.startswith("q="))
+            needle = quoted.split('"')[1] if '"' in quoted else ""
+            items = [dict(i) for i in self.open_issues if needle in (i.get("body") or "")]
+            return json.dumps({"total_count": len(items), "items": items})
         if args[:2] == ["issue", "edit"]:
             # #2673: the product must not reach this transport at all — real gh answers
             # `updateIssue` here with "GraphQL: Resource not accessible by personal access
@@ -193,6 +204,55 @@ def test_a_second_open_for_the_same_store_updates_instead_of_duplicating(monkeyp
     assert len(posts) == 1 and "repos/asimov-agent/llgenie/issues/704/labels" in posts[0]
     assert f"labels[]={RCI.LABEL}" in posts[0]
     assert gh.labels["704"] == [RCI.LABEL]
+
+
+def test_a_marker_issue_past_the_hundred_issue_window_is_still_updated(monkeypatch):
+    """#2848: the filer's memory is a search, not a page. Measured on main 2026-11-16: the open
+    window spanned #2845..#2738 while the marker-bearing #2659 sat at open-list position 110 —
+    the old window scan forgot it and re-filed the same store as the duplicate #2847."""
+    utc = "2026-11-15T08:29:53Z"
+    marker = RCI.MARKER.format(utc=utc)
+    board = [{"number": 2845 - i, "body": f"bulk issue {i}"} for i in range(107)]
+    board.append({"number": 2659, "body": f"old body\n\n{marker}\n"})  # past the old window
+    gh = _Gh(open_issues=board)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    result = RCI.open_issue("new body", utc, "asimov-agent/llgenie")
+
+    # Then the search finds it wherever it ranks, and the update path is the usual one
+    assert result == "updated #2659"
+    assert gh.bodies["2659"] == f"new body\n\n{marker}\n"
+    # And the bounded listing no longer participates in the dedupe lookup
+    assert not [c for c in gh.calls if c[:2] == ["issue", "list"]]
+    assert any("search/issues" in c for c in gh.calls)
+
+
+def test_a_filer_that_cannot_read_its_memory_files_nothing_blind(monkeypatch):
+    """A failed dedupe search is LOUD (spec scenario): the create path must not run when the
+    filer's memory is unreadable — filing blind is how #2847 was born."""
+    gh = _Gh(search_refused=True)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+    try:
+        RCI.open_issue("body", "2026-11-15T08:29:53Z", "asimov-agent/llgenie")
+    except SystemExit as exc:
+        assert "filing memory" in str(exc), exc
+    else:                                            # pragma: no cover - the failure is the assertion
+        raise AssertionError("a failed dedupe search must fail the step, not file blind")
+    assert not any(c[:2] == ["issue", "create"] for c in gh.calls)
+
+
+def test_a_search_hit_on_a_pull_request_body_is_not_an_issue_hit(monkeypatch):
+    """Issue search answers PRs too; a PR body echoing the marker must not route the update."""
+    utc = "2026-11-15T08:29:53Z"
+    marker = RCI.MARKER.format(utc=utc)
+    gh = _Gh(open_issues=[{"number": 2846, "body": f"PR prose {marker}",
+                           "pull_request": {"url": "https://github.com/x/2846"}}])
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    result = RCI.open_issue("body", utc, "asimov-agent/llgenie")
+
+    assert result.startswith("https://github.com/asimov-agent/llgenie/issues/")
+    assert not [c for c in gh.calls if c[:3] == ["api", "-X", "PATCH"]]
 
 
 def test_a_body_write_that_claims_success_but_never_sticks_fails_the_step(monkeypatch):
@@ -317,7 +377,7 @@ def test_a_change_issue_survives_a_label_write_the_credential_refuses(monkeypatc
 
 
 def test_dry_run_mutates_nothing(monkeypatch):
-    """`DRY=1` previews the decision, it does not touch GitHub."""
+    """`DRY=1` previews the decision: the dedupe search may READ, but nothing is written."""
     # Given  a marker-less listing
     gh = _Gh()
     monkeypatch.setattr(RCI, "run_gh", gh)
@@ -328,7 +388,8 @@ def test_dry_run_mutates_nothing(monkeypatch):
     # Then   it says what it would do, and neither writes the body nor labels anything
     assert result == "would create one issue"
     assert not any(c[:2] in (["issue", "create"], ["issue", "edit"]) for c in gh.calls)
-    assert not any(c[:1] == ["api"] for c in gh.calls)
+    assert not any(c[:3] == ["api", "-X", "PATCH"] for c in gh.calls)
+    assert not any(c[:1] == ["api"] and "POST" in c for c in gh.calls)
 
 
 def test_a_dry_update_of_a_marked_issue_does_not_label_it(monkeypatch):
@@ -345,7 +406,8 @@ def test_a_dry_update_of_a_marked_issue_does_not_label_it(monkeypatch):
     # Then   nothing is written
     assert result == "would update #704"
     assert not any(c[:2] in (["issue", "edit"], ["issue", "create"]) for c in gh.calls)
-    assert not any(c[:1] == ["api"] for c in gh.calls)
+    assert not any(c[:3] == ["api", "-X", "PATCH"] for c in gh.calls)
+    assert not any(c[:1] == ["api"] and "POST" in c for c in gh.calls)
 
 
 def test_the_workflow_runs_the_step_even_when_a_gate_is_red():
