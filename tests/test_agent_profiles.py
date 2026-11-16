@@ -2681,8 +2681,34 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     assert "stated more than once" in dup_report, dup_report
     assert "lane:" in dup_report, dup_report
     assert guard.findings(tmp_path, agents) == []   # the synthetic duplicate stays informational
-    for lane in deduped:
-        assert lane not in dup_report, f"a deduped lane leaked into the synthetic report: {lane}"
+    # Issue #2330: the presence check is scoped to RULE HOLDERS — the report's
+    # `  <name>: <title> stated more than once` entries — never to a substring of the whole
+    # report. The old `lane not in dup_report` read the report header too (the absolute
+    # agents-root path), so a host whose tmp base embeds `llgenie-issse-implementer` red-falsely
+    # on a path coincidence while the report named only the synthetic `lane` profile.
+    dup_names = {l.split(":")[0].strip() for l in dup_report.splitlines()
+                 if "stated more than once" in l}
+    assert "lane" in dup_names, dup_report
+    assert not (deduped & dup_names), (
+        f"a deduped lane was re-flagged as a duplicate holder: {sorted(dup_names)}")
+
+    # AC-2 control (issue #2330): the scoped check still catches a GENUINE re-flag. A synthetic
+    # duplicate stated by a profile named exactly like a deduped lane must be NAMED as a rule
+    # holder — if the scoping ever loses that ability, this control reddens the test.
+    reflag = agents / "llgenie-tester"
+    reflag.mkdir()
+    (reflag / "SOUL.md").write_text(soul)
+    (agents / "manifest.json").write_text(json.dumps({"profiles": [
+        {"name": "lane", "rules": ["never-merge"]},
+        {"name": "llgenie-tester", "rules": ["never-merge"]},
+    ]}))
+    reflag_report = guard.report(tmp_path, agents)
+    reflag_names = {l.split(":")[0].strip() for l in reflag_report.splitlines()
+                    if "stated more than once" in l}
+    assert "llgenie-tester" in reflag_names, (
+        "the scoped check lost the ability to catch a re-flagged deduped lane name: "
+        f"{sorted(reflag_names)}")
+    assert guard.findings(tmp_path, agents) == []   # still informational debt, never a gate red
 
 
 def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
