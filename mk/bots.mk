@@ -119,7 +119,7 @@ issue-bot-open-pr: ## Open the draft-free PR linking ISSUE from BRANCH, its body
 issue-bot-image: ## Build/pull the agent image the issue-bot runs in (the same image the fix-bot uses; alias of agent-image)
 	python3 scripts/ci_images.py ensure agent
 
-issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole comment thread + the decision block) and writes its verdict to triage.md (implement | refine | close). No PR, nothing else touched; runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
+issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole comment thread + the decision block) and writes its verdict to triage.md (implement | refine | close | hold). No PR, nothing else touched; runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
 	python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
@@ -133,9 +133,12 @@ _issue-bot-triage: # (internal) the host recipe the agent image runs: the decisi
 issue-bot-changed: ## Did the implement step actually change the tree? Prints changed=true|false, the bot's own run inputs excluded; exit 2 when git cannot read the tree (issue #428)
 	python3 scripts/issue_implementer.py changed
 
-issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE)
+issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE), hold -> the issue STAYS open: comment naming the OPEN implementing PR + claim released + queue labels off (a close citing an open implementing PR converts to hold, issue #2869)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(GH_REPO) --issue $(ISSUE)
+
+bot-close-reasons-report: ## Print which closed issues the lane closed while MERGED pull requests implement them: every lane-closed issue a merged PR's closing reference targets, with its state_reason and the merged PR refs, flagging a `not_planned` closure that contradicts its own close evidence (issue #2869); REPO= defaults to GH_REPO, BOT=/PAGES=/MAX_ISSUES= override the read
+	@python3 scripts/bot_close_reasons.py report --repo "$(if $(REPO),$(REPO),$(GH_REPO))" $(if $(BOT),--bot "$(BOT)",) $(if $(PAGES),--pages $(PAGES),) $(if $(MAX_ISSUES),--max-issues $(MAX_ISSUES),)
 
 issue-bot-gates: ## Run the FAST repository gates in order, stopping at the FIRST failure and naming it (lint, workflows, wiring, docs, PR hygiene, OpenSpec tasks): what the issue-bot runs after the implement step and BEFORE it pushes, so a bookkeeping red never reaches the PR (issue #475)
 	python3 scripts/issue_bot_gates.py run

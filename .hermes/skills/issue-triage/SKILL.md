@@ -1,7 +1,7 @@
 ---
 name: issue-triage
-description: Use when an llgenie issue-bot run must decide ONE verdict for an issue — implement, refine or close — and write it to triage.md.
-version: 1.0.0
+description: Use when an llgenie issue-bot run must decide ONE verdict for an issue — implement, refine, close, or hold (an OPEN PR implements it) — and write it to triage.md.
+version: 1.1.0
 author: Asimov Agent
 license: CC-BY-4.0
 metadata:
@@ -57,13 +57,22 @@ the file that shows the premise is gone — a path:line, a command you ran, a UR
 REASON: <one line>
 ```
 
+```
+TRIAGE: hold
+EVIDENCE: <the OPEN pull request that already implements this issue: its number and where its
+title/body names this issue (its closing reference, an `Issue: #<n>` line, or `(#<n>)` in the title)>
+REASON: <one line>
+```
+
 ## Rules
 
 - **One verdict, and only one.** `implement` when the issue is actionable as written; `refine` when
   the thread leaves a decision open (that is not a guess you get to make, and not a close);
-  `close` when the work is already done, is a duplicate, or is not a change this repo can make.
-- **A close without `EVIDENCE:` is refused downstream.** "It looks old" is not evidence; name the
-  artifact you checked.
+  `close` when the work is already MERGED, is a duplicate, or is not a change this repo can make;
+  `hold` when an OPEN pull request already implements the issue — the PR's own closing reference
+  closes the issue `completed` when it lands, so the lane must not close the issue first (issue #2869).
+- **A close or hold without `EVIDENCE:` is refused downstream.** "It looks old" is not evidence; name
+  the artifact you checked. A hold names the OPEN PR's number.
 - **Do not implement anything.** No code, no branch, no PR, no comment on the issue. The host reads
   `triage.md` and acts; a comment you post yourself will appear twice.
 - **A refine restates the issue in the repository's shape** — `## Problem`, `## Why it matters`,
@@ -73,3 +82,9 @@ REASON: <one line>
   exactly this shape.
 - **`implement` means the acceptance criteria are concrete enough** that the implementer can start
   without asking anything — if they are not, that is a `refine`.
+- **A `close` is filed `state_reason: not planned`; implemented work whose PR is OPEN is a `hold`,
+  not a close.** A lane close never says "already implemented", and GitHub closes issues through a
+  PR's closing reference only when that PR merges. Measured on #2048 (issue #2869): closed
+  `not planned` while PR #2863 implementing it was OPEN and mid-landing. Before choosing `close`,
+  read `gh pr list --state open --limit 300 --json number,title,body` for a PR naming the issue;
+  if one exists, it is a `hold`. Host-side `open_implementing_pr` and `apply_hold` enforce this.

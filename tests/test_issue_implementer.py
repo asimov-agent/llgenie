@@ -67,6 +67,10 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     #: probe (`gh api repos/<repo>/git/refs/heads/agent/issue-<n>`, issue #2671) answers these as
     #: a ref array; an unseeded number answers 404 (exit 1), the way GitHub does for no match.
     branches = opts.get("branches", {})
+    #: PR number -> {"state", "title", "body"} for the `gh api repos/<repo>/pulls/<n>` lookup the
+    #: close->hold guard makes (issue #2869). An unseeded number answers 404 (exit 1), the way
+    #: GitHub does for an issue number, a typo or a deleted PR.
+    pulls = opts.get("pulls", {})
     pr_url = opts.get("pr_url", "https://github.com/acme/llgenie/pull/99")
 
     gh = tmp_path / "gh"
@@ -79,6 +83,7 @@ READY = {json.dumps(ready)}
 VIEW = {json.dumps(view)}
 ISSUES = {json.dumps(issues)}
 BRANCHES = {json.dumps(branches)}
+PULLS = {json.dumps(pulls)}
 PR_URL = {json.dumps(pr_url)}
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -95,6 +100,12 @@ elif args[0] == "api" and "/git/refs/heads/" in args[1]:
         print("gh: Not Found (HTTP 404)", file=sys.stderr)
         sys.exit(1)
     print(json.dumps([{{"ref": "refs/heads/" + b}} for b in hits]))
+elif args[0] == "api" and "/pulls/" in args[1]:
+    n = args[1].rsplit("/", 1)[-1]
+    if n not in PULLS:
+        print("gh: Not Found (HTTP 404)", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(PULLS[n]))
 elif args[:2] == ["issue", "list"] and "--label" in args:
     lab = args[args.index("--label") + 1]
     print(json.dumps(LABELED) if lab == "agent:implement" else json.dumps(READY))
@@ -701,6 +712,97 @@ def test_a_close_without_evidence_is_refused_and_mutates_nothing(tmp_path):
     with pytest.raises(SystemExit):
         ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11, "TRIAGE: close\nREASON: too hard\n")
     assert _calls(log) == [], "a refused close must not comment, label or close anything"
+
+
+# ---- the close->hold conversion (issue #2869): an OPEN implementing PR keeps the issue open ----
+
+def test_a_hold_verdict_parses_with_evidence():
+    gh_verdict = ii.parse_verdict("TRIAGE: hold\nEVIDENCE: #2863 is OPEN and closes #2048\n")
+    assert gh_verdict["verdict"] == "hold" and "#2863" in gh_verdict["evidence"]
+
+
+def test_a_close_citing_an_open_implementing_pr_holds_instead_of_closing(tmp_path):
+    """The #2048 measurement: the issue stays OPEN, the PR's closing reference owns the close.
+
+    A close whose EVIDENCE cites a PR that is OPEN and carries the issue's closing reference
+    converts to a hold: one comment naming the PR (carrying the `bot-done` release marker), the
+    queue labels come off, and NO `issue close` and no `agent:closed` happen.
+    """
+    gh, log = _fake_gh(tmp_path, {"pulls": {
+        "2863": {"state": "open", "title": "fix(issue-bot): restate the issue before closing",
+                 "body": "Completes OpenSpec change X.\n\ncloses #2048\n"},
+    }})
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                     "TRIAGE: close\nEVIDENCE: #2863 already implements this; its PR is open\n"
+                     "REASON: already implemented\n")
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"]] == [], \
+        "an OPEN implementing PR owns the close — the lane must not file `not planned`"
+    comments = [" ".join(c) for c in calls if c[:2] == ["issue", "comment"]]
+    assert comments and "#2863" in comments[0] and "bot-done" in comments[0], comments
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    joined = [" ".join(c) for c in edits]
+    assert any("--remove-label" in c and "agent:implement" in c for c in joined), edits
+    assert not any("agent:closed" in c for c in joined), "a hold decides nothing on the issue"
+
+
+def test_a_direct_hold_names_the_open_pr(tmp_path):
+    gh, log = _fake_gh(tmp_path, {"pulls": {
+        "2863": {"state": "open", "title": "fix: something", "body": "Issue: #2048\n"},
+    }})
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                     "TRIAGE: hold\nEVIDENCE: #2863 is OPEN and names this issue\n"
+                     "REASON: landing through the PR\n")
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"]] == []
+    assert [c for c in calls if c[:2] == ["issue", "comment"]]
+    assert any("--remove-label" in " ".join(c) for c in calls if c[:2] == ["issue", "edit"])
+
+
+def test_a_hold_without_an_open_claiming_pr_is_refused(tmp_path):
+    """A hold that names no OPEN claiming PR is a contradiction: refused, nothing mutated."""
+    gh, log = _fake_gh(tmp_path, {"pulls": {}})  # every pulls lookup answers 404
+    with pytest.raises(SystemExit):
+        ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                         "TRIAGE: hold\nEVIDENCE: #2863 does exactly this\nREASON: implemented\n")
+    mutations = [c for c in _calls(log)
+                 if c[:2] in (["issue", "comment"], ["issue", "close"], ["issue", "edit"])]
+    assert mutations == [], mutations
+
+
+def test_a_close_citing_a_closed_pr_still_closes(tmp_path):
+    """Merged/closed implementing work is the PR path's record, not a hold: the close stands."""
+    gh, log = _fake_gh(tmp_path, {"pulls": {
+        "999": {"state": "closed", "title": "fix: old work", "body": "closes #2048\n"},
+    }})
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                     "TRIAGE: close\nEVIDENCE: PR #999 already did this\nREASON: already implemented\n")
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"] and "2048" in c], calls
+
+
+def test_a_close_citing_an_open_pr_that_claims_another_issue_still_closes(tmp_path):
+    """The guard is per-issue: an OPEN PR claiming some OTHER issue does not hold this one."""
+    gh, log = _fake_gh(tmp_path, {"pulls": {
+        "2870": {"state": "open", "title": "fix(engine-bump): companions (#2865)",
+                 "body": "closes #2865\n"},
+    }})
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                     "TRIAGE: close\nEVIDENCE: #2870 covers it\nREASON: already implemented\n")
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"] and "2048" in c], calls
+
+
+def test_a_negated_reference_in_an_open_pr_does_not_hold(tmp_path):
+    """`does not close #N because` is a justification, not a claim — the gate's own hatch (issue #1629)."""
+    gh, log = _fake_gh(tmp_path, {"pulls": {
+        "2870": {"state": "open", "title": "chore: scope note",
+                 "body": "This PR does not close #2048 because the fix is deferred to its own issue.\n"},
+    }})
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 2048,
+                     "TRIAGE: close\nEVIDENCE: #2870 names it only to disclaim it\nREASON: superseded\n")
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"] and "2048" in c], calls
 
 
 # ---- the claim protocol on the implementer's side (scripts/bot_claims.py) ----

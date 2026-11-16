@@ -27,7 +27,7 @@ name: issue-bot — implements ONE issue per run as a reviewable PR (never merge
 #                  the lane now runs on dispatch).
 # Flow: guard -> make issue-bot-dispatch (cap -> pick ONE issue -> claim -> issue.md + branch)
 #       -> make issue-bot-triage (Hermes reads the body + the WHOLE thread and writes a verdict)
-#       -> make issue-bot-verdict (implement | refine | close) -> make implement-issue (Hermes
+#       -> make issue-bot-verdict (implement | refine | close | hold) -> make implement-issue (Hermes
 #       implements it inside the agent image, runs the gates, pushes nothing) -> push the branch
 #       -> make issue-bot-open-pr (draft-free PR that closes the issue) -> report on the issue.
 # Never: never merges, never pushes to `main`, never implements a batch, never exceeds the 3 PRs/day
@@ -192,7 +192,7 @@ jobs:
           echo "triage.md:"; sed -n '1,40p' triage.md 2>/dev/null || echo "  (the agent wrote no triage.md)"
           exit 0
 
-      - name: Apply the verdict (refine -> one comment, no PR; close -> needs cited evidence)
+      - name: Apply the verdict (refine -> one comment, no PR; close -> needs cited evidence; hold -> issue stays open, claim released)
         id: verdict
         if: steps.dispatch.outputs.dispatch == 'true' && steps.triage.outputs.rc == '0'
         env:
@@ -359,7 +359,8 @@ jobs:
           echo "::error title=Implementation budget::${{ steps.impl.outcome }} after the leg's 90-minute budget (the job allows 120). tree=$CHANGED branch=$BRANCH pushed=${PUSHED:-false} rc=${DECLARED:-?}; any change the agent made was salvaged above."
 
       - name: Fail loudly when the implementation did not happen
-        # Only a verdict of `implement` owes a PR: a refine or a close ends the run on purpose,
+        # Only a verdict of `implement` owes a PR: a refine, a close, or a hold ends the run on
+        # purpose (a hold leaves the issue to its OPEN implementing PR — issue #2869),
         # so it must not be reported as a failure. `implement` owes a CHANGE (issue #428):
         # a non-zero agent and a tree that changed nothing are both failures, and neither is
         # inferred from the agent's exit code alone.
