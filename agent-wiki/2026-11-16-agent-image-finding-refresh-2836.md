@@ -42,13 +42,20 @@ finding refresh leg of the security lane).
   `tests/test_provision_agent_profiles.py` guards every shape — duplicate-identity and
   kanban-carry data guards included.
 - Out of scope, each its own linked issue on #2836: the 15 llama-cpp CUDA findings (weekly
-  engine lane, human permission gate for engine rebuilds) and the Wolfi scanner-binary findings
-  (`make scanner-freshness` confirms the pins are newest published).
+  engine lane, human permission gate for engine rebuilds); the 23 still-reported findings that
+  sit in chains the repo cannot re-pin — Hermes 0.19.0's bootstrapped npm trees and uv-managed
+  wheel pins (latest published `hermes-agent` is 0.19.0), the Wolfi scanner-binary Go stack
+  (`make scanner-freshness` confirms the pins are newest published), and the `hermes-agent
+  0.0.0` attestation (#2803).
 - Publish stays a human act: the published `agent:latest` refreshes only through a
-  `publish-agent-image.yml` dispatch; the 91 finding issues close via their own scan-reconcile
+  `publish-agent-image.yml` dispatch; the finding issues close via their own scan-reconcile
   loop after that publish, not through this PR.
 
 ## Current status
 
-Branch `feat/agent-image-finding-refresh`; unit + validate green locally; PR against upstream
-main closing #2836; CI landing left to the auto-merge lane.
+Branch `feat/agent-image-finding-refresh`; full `make test-unit` green (3900 passed, no skips);
+rebuild + pinned re-scan disposition posted on #2836: **68 of 91** findings clear (40 gone,
+28 version moved), 23 remain upstream-pinned; the resolver's `check_agent_skills` import edge
+is stated in `scripts/package-layers.json`; both touched fleet profiles re-synced with
+`make sync-agent-profile`. PR against upstream main closing #2836; CI landing left to the
+auto-merge lane.
