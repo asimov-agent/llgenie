@@ -122,6 +122,10 @@ IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
                                               "scripts/provision_agent_profiles.py",
                                               "scripts/agent_profile_sync.py",
                                               "scripts/check_agent_profiles.py",
+                                              # check_agent_profiles.py imports frontmatter() from
+                                              # check_agent_skills.py (issue #577); the build-time
+                                              # provisioning step needs it at the same bin dir.
+                                              "scripts/check_agent_skills.py",
                                               "agents")),
 }
 

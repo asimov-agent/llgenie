@@ -145,6 +145,10 @@ COPY agent_lanes_check.py /usr/local/bin/agent_lanes_check.py
 COPY provision_agent_profiles.py /opt/llgenie/bin/provision_agent_profiles.py
 COPY agent_profile_sync.py /opt/llgenie/bin/agent_profile_sync.py
 COPY check_agent_profiles.py /opt/llgenie/bin/check_agent_profiles.py
+# check_agent_profiles.py pulls frontmatter() from check_agent_skills.py at import time
+# (scripts/check_agent_profiles.py:74); without this COPY the provisioning step below
+# dies with ModuleNotFoundError at build (the latent main breakage caught in issue #2836).
+COPY check_agent_skills.py /opt/llgenie/bin/check_agent_skills.py
 # The fleet's lane profiles (issue #2181). Before this image held NONE: no agents/ reference, no
 # profile, so a bot job asking for a named lane resolved against an empty profile home. This tree
 # (agents/manifest.json + one <name>/ per lane) is what the lane-install step below installs, and
