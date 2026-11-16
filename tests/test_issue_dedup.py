@@ -137,6 +137,31 @@ def test_pick_writes_the_pair_for_the_agent_leg(tmp_path, monkeypatch):
     assert "#30" in text and "#31" in text and "EVIDENCE" in text
 
 
+def test_a_dry_pick_prints_the_pair_and_writes_nothing(tmp_path, monkeypatch, capsys):
+    """`--dry` previews the decision and mutates nothing (issue #564) — the CLI flag reaches pick."""
+
+    # Given two similar unclaimed issues
+    issues = [_issue(30, "duplicate sweep missing", "no bot looks for duplicate issues", "2026-10-01T00:00:00Z"),
+              _issue(31, "no duplicate cleaner bot", "nothing looks for duplicate issues in the backlog", "2026-10-02T00:00:00Z")]
+    gh = _fake_gh(tmp_path, issues)
+    monkeypatch.chdir(tmp_path)
+
+    # When  the pick runs through the CLI with --dry (the `make issue-dedup-pick DRY=1` path)
+    rc = dedup.main(["pick", "--repo", REPO, "--gh", str(gh), "--dry"])
+    out = capsys.readouterr().out
+
+    # Then  the pair protocol is printed and no dedup-in.md is left behind
+    assert rc == 0
+    assert "action=pick" in out and "canonical=30" in out and "copy=31" in out
+    assert "would write dedup-in.md" in out
+    assert not (tmp_path / "dedup-in.md").exists()
+
+    # And    a dry pick returns the same decision a real pick would
+    dry_decision = dedup.pick(str(gh), REPO, dry=True)
+    assert dry_decision and dry_decision["canonical"] == 30 and dry_decision["copy"] == 31
+    assert not (tmp_path / "dedup-in.md").exists()
+
+
 # ---- the close ----
 
 def test_a_duplicate_close_retires_the_copy_and_queues_the_canonical(tmp_path):

@@ -129,8 +129,8 @@ def best_pair(issues: list[dict]) -> tuple[dict, dict, float] | None:
     return best
 
 
-def pick(gh: str, repo: str) -> dict | None:
-    """Write the pair to disk for the agent leg and print the `action=`/`pair=` protocol."""
+def pick(gh: str, repo: str, dry: bool = False) -> dict | None:
+    """Print the `action=`/`pair=` protocol; write dedup-in.md only when not `dry` (issue #564)."""
     issues = candidates(gh, repo)
     if len(issues) < 2:
         print("action=none")
@@ -151,11 +151,13 @@ def pick(gh: str, repo: str) -> dict | None:
             f"## What to answer\n\n"
             f"Write `DUPLICATE: #<older>` when they describe the same defect, with an `EVIDENCE:` block\n"
             f"naming the shared behaviour. Write `DISTINCT:` with a `REASON:` block otherwise.\n")
-    Path("dedup-in.md").write_text(body)
-    print(f"action=pick")
+    if not dry:
+        Path("dedup-in.md").write_text(body)
+    print("action=pick")
     print(f"canonical={canonical['number']}")
     print(f"copy={copy['number']}")
-    print(f"[issue-dedup] pair #{canonical['number']} <- #{copy['number']} at {score:.2f}; wrote dedup-in.md")
+    written = "would write dedup-in.md" if dry else "wrote dedup-in.md"
+    print(f"[issue-dedup] pair #{canonical['number']} <- #{copy['number']} at {score:.2f}; {written}")
     return {"canonical": canonical["number"], "copy": copy["number"], "score": score}
 
 
@@ -246,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--copy", type=int, required=True)
     args = p.parse_args(argv)
     if args.cmd == "pick":
-        pick(args.gh, args.repo)
+        pick(args.gh, args.repo, args.dry)
         return 0
     text = Path(args.file).read_text()
     apply_verdict(args.gh, args.repo, args.copy, text, args.dry)
