@@ -3,8 +3,8 @@
   "engine": "vLLM",
   "id": "vllm",
   "repo": "https://github.com/vllm-project/vllm",
-  "ref": "v0.33.0",
-  "pinned": "3a4d82f569a9f57054ba81633e9b6c73b34b51fe",
+  "ref": "v0.34.0",
+  "pinned": "0c57b4195da4a6b69a7725908e428053e51e51b8",
   "native": {},
   "variants": {
     "cuda": {
@@ -97,7 +97,7 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.33.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
+        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.34.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
         "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/cpu",
         "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/cpu.txt --index-strategy unsafe-best-match",
         "cd /opt/llgenie/engines/vllm/src && bash tools/build_rust.sh",

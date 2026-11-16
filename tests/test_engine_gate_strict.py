@@ -35,9 +35,9 @@ def test_a_version_must_look_like_a_version():
     # Given the shapes measured in run 40204145334
     accepted = {
         "sglang 0.5.21": "0.5.21",
-        # union: vllm bumped to 0.33.0 by this PR (#1520); llama.cpp commit from
+        # union: vllm bumped to 0.34.0 by this PR (#1520); llama.cpp commit from
         # the merged #1522 bump (sibling engine, main is authoritative)
-        "vllm/cpu: installed 0.33.0+cpu": "0.33.0",
+        "vllm/cpu: installed 0.34.0+cpu": "0.34.0",
         "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 7d7f02870)": "0.7.0",
         "installed pin 3c75be02f450": "pin 3c75be02f450",
         "tensorfold-native 1.2.5": "1.2.5",

@@ -696,7 +696,7 @@ def test_official_upstream_images_are_used_as_bases(skills):
     # #2386/#2429 + #1558/#2274: both vllm GPU cells are THIN over the official prebuilt serving
     # bases (vllm/cuda over vLLM's CUDA image, vllm/rocm over AMD's rocm/vllm), zero install;
     # only the cpu cell still source-compiles the pinned sha.
-    assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in df("vllm", "cuda")
+    assert "FROM docker.io/vllm/vllm-openai:v0.34.0" in df("vllm", "cuda")
     assert "FROM docker.io/rocm/vllm:rocm10.1.0" in df("vllm", "rocm")
     assert "engine_runner.py install" not in df("vllm", "cuda")
     assert "engine_runner.py install" not in df("vllm", "rocm")
@@ -1836,7 +1836,7 @@ def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
 
 def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
     """Issue #2386: the cuda cell is a THIN image over vLLM's official CUDA serving base
-    (prebuilt: true, install: [], FROM docker.io/vllm/vllm-openai:v0.33.0) — no source compile
+    (prebuilt: true, install: [], FROM docker.io/vllm/vllm-openai:v0.34.0) — no source compile
     AND no wheel-install chain. Any regression back to a source step (git clone / build_rust.sh /
     -r …/build/cuda.txt / -e .) or to the discarded wheel flow must red the gate."""
     p = json.loads((REPO / "containers/engines/params/vllm.json").read_text())["variants"]
@@ -1844,7 +1844,7 @@ def test_vllm_cuda_is_thin_prebuilt_not_a_wheel_install():
     # thin prebuilt: zero install steps, base is vLLM's official serving image
     assert cuda.get("prebuilt") is True
     assert cuda.get("install") == []
-    assert cuda.get("base") == "docker.io/vllm/vllm-openai:v0.33.0"
+    assert cuda.get("base") == "docker.io/vllm/vllm-openai:v0.34.0"
     joined = "\n".join(cuda["install"])
     # NO wheel flow and NO source-compile step on the cuda cell
     for bad in ("git clone", "build_rust.sh", "requirements/build/cuda.txt", "-e .",
@@ -1887,7 +1887,7 @@ def test_vllm_rocm_opens_its_root_only_base_venv_for_uid_1000():
     for untouched in ("cuda", "cpu"):
         hashed = es._image_inputs(params, untouched)
         assert b"base_access" not in hashed, f"{untouched} must not move its tag"
-    # The published cuda digest (vllm:3a4d82f5-4c1f3eee-cuda) stays reachable; rocm moves
+    # The published cuda digest (vllm:0c57b419-4c1f3eee-cuda) stays reachable; rocm moves
     # (db98981b -> a new digest) because its image content actually changed. Update these
     # only with a real vllm version bump that re-publishes the fleet.
     assert es._image_hash(params, "cuda") == "4c1f3eee"

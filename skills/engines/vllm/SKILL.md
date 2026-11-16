@@ -4,11 +4,11 @@ description: "Use when building the vLLM engine image from source (clone at the 
 engine: "vLLM"
 id: vllm
 repo: https://github.com/vllm-project/vllm
-ref: v0.33.0
+ref: v0.34.0
 ref_kind: tag
-version: v0.33.0
-pinned: 3a4d82f569a9f57054ba81633e9b6c73b34b51fe
-verified: "2026-11-02"
+version: v0.34.0
+pinned: 0c57b4195da4a6b69a7725908e428053e51e51b8
+verified: "2026-11-16"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm, cpu]

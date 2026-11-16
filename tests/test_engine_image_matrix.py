@@ -620,7 +620,7 @@ def test_vllm_cuda_dockerfile_base_stage_is_hermetic():
     tag = es.base_tag("cuda")
     # exempt: it pulls vLLM's official CUDA serving image by name (prebuilt: true), never the
     # shared toolchain base, so the internal-stage merge must not be applied to it
-    assert "FROM docker.io/vllm/vllm-openai:v0.33.0" in derived
+    assert "FROM docker.io/vllm/vllm-openai:v0.34.0" in derived
     assert f"FROM {tag}" not in derived
     assert "AS llgenie-base" not in derived
     # and the prebuilt Dockerfile carries no shared-base alias and no source-build wrap
