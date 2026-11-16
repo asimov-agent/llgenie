@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 # four boxes `- [ ]`. Merged 2026-11-09T05:49:50Z via armed auto-merge with `ci-verdict` SUCCESS and
 # the published-pin criterion false at the head; this is the exact defect issue #2352 measures. The
 # tests drive the REAL script with this REAL PR payload — no mock of the decision.
-BUMP_UNTICKED = """# chore(engine): bump llama.cpp to master@7d7f0287
+BUMP_UNTICKED = """# chore(engine): bump llama.cpp to master@3a766037
 
 ## Problem
 
@@ -22,7 +22,7 @@ The llama.cpp skill pins a release tag that is behind the chrome; bump to the cu
 
 ## How we fix it
 
-1. derive at master@7d7f0287
+1. derive at master@3a766037
 2. regenerate params + Dockerfiles
 3. open this bump PR with its own acceptance checklist
 
@@ -45,7 +45,7 @@ def _ticked_variant() -> str:
         if line.startswith("- [ ]"):
             tail = line[5:].strip()
             out.append(f"- [x] {tail}  (proven: reviewer=engine-bump-ci comment={i} "
-                       "head=7d7f0287 run=42191377162)")
+                       "head=3a766037 run=42191377162)")
         else:
             out.append(line)
     return "\n".join(out) + "\n"
