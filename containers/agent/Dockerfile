@@ -70,6 +70,12 @@ FROM ${TEST_IMAGE}
 # maintainer can pin a version without editing this file.
 ARG HERMES_INSTALL_URL="https://hermes-agent.nousresearch.com/install.sh"
 ARG HERMES_PACKAGE="hermes-agent"
+# Hermes install args forwarded to upstream install.sh via `bash -s --` (issue #2836):
+# the published image ships NEITHER the agent-browser/Playwright toolchain NOR the
+# computer-use stack — no llgenie lane uses them, and the Chromium they pull in is a
+# 1878-advisory stream the repo can neither fix nor audit. Re-add them with
+# --build-arg HERMES_INSTALL_ARGS="".
+ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use"
 # The model pin and its provider alias (see the header). The model id must stay
 # provider-prefixed: the Nous endpoint 404s a bare id.
 ARG HERMES_ALIAS="nous-deepseek"
@@ -105,6 +111,11 @@ ENV HOME=/home/agent HERMES_HOME=/home/agent/.hermes
 # API calls. docker CLI: the loop runs the repo's own containerised gates (llgenie/test).
 RUN set -eux; \
     apt-get update; \
+    # Upgrade the debs INHERITED from the base image: the base's package set is
+    # frozen at the base image's build date, and without this line the published
+    # image keeps serving them even after Debian pushes fixes (apt 3.0.3,
+    # libapt-pkg7.0, zlib1g, tar carried HIGH advisories; issue #2836).
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
         git curl ca-certificates gnupg jq docker.io; \
     rm -rf /var/lib/apt/lists/*; \
@@ -141,6 +152,7 @@ COPY check_agent_profiles.py /opt/llgenie/bin/check_agent_profiles.py
 # did not land.
 COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
+    HERMES_INSTALL_ARGS=${HERMES_INSTALL_ARGS} \
     HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
     HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
     HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \

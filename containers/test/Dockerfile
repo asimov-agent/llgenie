@@ -13,6 +13,11 @@ FROM python:3.11-slim AS base
 # These are regenerated from tools/requirements.in + tools/requirements-dev.in
 # (source of truth), never hand-edited.
 COPY requirements.txt requirements-dev.txt /tmp/
+# The Python build toolchain is upgraded to mirror-latest BEFORE the locked deps
+# install: the base image's bundled setuptools/wheel are frozen at the base's own
+# build date, and the published-image scan filed HIGH advisories against exactly
+# those frozen copies (setuptools 70.3.0, wheel 0.45.1; issue #2836).
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir \
         -r /tmp/requirements.txt \
         -r /tmp/requirements-dev.txt \
@@ -26,8 +31,11 @@ RUN pip install --no-cache-dir \
 # docker socket (-v /var/run/docker.sock). No inference server is built or
 # installed in this image: llama-server and every other engine run only in their
 # own images (containers/engines/), the same images CI publishes (issue #98).
-COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=docker:27-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
+# The CLI stage is the newest published one (issue #2836): the 27-cli binary was
+# a frozen 2025 Go stack (docker/cli 27.5.0, buildkit 0.19, containerd 2.0.2,
+# x/crypto 0.31 — the single biggest cluster of the agent image's HIGH findings).
+COPY --from=docker:29-cli /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker:29-cli /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl git lsof make procps \
     && rm -rf /var/lib/apt/lists/* \
