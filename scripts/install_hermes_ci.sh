@@ -21,7 +21,10 @@ if command -v hermes >/dev/null 2>&1; then
 else
   if [ -n "${HERMES_INSTALL_URL:-}" ]; then
     echo "[hermes-ci] installing from HERMES_INSTALL_URL"
-    curl -fsSL "$HERMES_INSTALL_URL" | bash
+    # HERMES_INSTALL_ARGS is word-split on purpose: it is a flag list for install.sh,
+    # not one quoted string. The agent Dockerfile defaults it to
+    # `--skip-browser --skip-computer-use` (issue #2836).
+    curl -fsSL "$HERMES_INSTALL_URL" | bash -s -- ${HERMES_INSTALL_ARGS:-}
   elif command -v uv >/dev/null 2>&1; then
     echo "[hermes-ci] installing with uv (HERMES_PACKAGE=${HERMES_PACKAGE:-hermes-agent})"
     uv tool install --quiet "${HERMES_PACKAGE:-hermes-agent}"

@@ -202,6 +202,11 @@
    "reason": "the provisioning entrypoint reuses check_agent_profiles' manifest reader (via agent_profile_sync) rather than restating the lane roster."
   },
   {
+   "from": "provision_agent_profiles",
+   "to": "check_agent_skills",
+   "reason": "tree_skill_names mirrors the Hermes skill loader's gates, and check_agent_skills.frontmatter is the repo's ONE SKILL.md frontmatter reader (issue #2836); re-stating the parser here is how the resolver drifted from the loader in the first place."
+  },
+  {
    "from": "build_server",
    "to": "detect_server",
    "reason": "build-server builds the llama.cpp server for THIS card, so it needs the resolved tree/backend; the pre-extraction recipe ran `python3 scripts/detect_server.py` as its first step and scripts/ci_unit's extraction keeps that call as an import (issue #2675)."

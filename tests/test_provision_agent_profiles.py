@@ -167,13 +167,120 @@ def _prov():
 
 
 def test_tree_skill_names_reads_every_skill_the_lane_carries():
-    """The resolution proof's denominator is the TREE: every `skills/**/SKILL.md` a lane carries
-    becomes an expected skill name. The planner's orchestration skill — present in the tree yet
-    unresolvable in the live profile when #2669 was filed — must be named by this function."""
+    """The resolution proof's denominator is the TREE — but the skills Hermes can actually
+    resolve from that tree on this platform (measured against the CLI, issue #2836): hidden
+    trees (`.archive/…`) are skipped by Hermes' loader and macOS-only skills are hidden on
+    Linux, so demanding either would make the proof un-green forever; and the identity is the
+    frontmatter `name` Hermes' table shows, not the directory name. The planner's
+    orchestration skill — present in the tree yet unresolvable in the live profile when #2669
+    was filed — must still be named by this function."""
     prov = _prov()
     names = prov.tree_skill_names(REPO / "agents", "llgenie-planner")
     assert names, "the planner lane's tree carries SKILL.md files; the seam must enumerate them"
     assert any("orchestration" in n for n in names), names
+    # archived trees are not carried fleet behaviour: the loader skips hidden directories.
+    assert "tar-gpg" not in names and "browser-drm" not in names, names
+    # a macOS-only skill is not carried by a proof that runs on Linux.
+    assert "apple-notes" not in names and "imessage" not in names, names
+    # identity is the skill's own frontmatter name.
+    assert "pi" in names, names  # dir pi-delegate declares `name: pi`
+    assert "vault-cron-workflow" in names, names  # dir obsidian-vault-automation
+    assert "pi-delegate" not in names and "obsidian-vault-automation" not in names, names
+    # an environments-gated skill the fleet never activates is not demanded (sdlc-review, #2836).
+    assert "sdlc-review" not in names, names
+
+
+def test_environment_gated_skill_is_carried_only_where_the_environment_is_active(tmp_path, monkeypatch):
+    """`environments:` is a relevance gate resolved against the runtime context: a kanban-only
+    skill is invisible to a fleet profile listing (kanban never activates there) but demanded
+    when the kanban context IS active; an unknown tag fails open exactly like Hermes' detector."""
+    prov = _prov()
+    agents = tmp_path / "agents"
+    kb = agents / "lane" / "skills" / "kanban-only" / "SKILL.md"
+    kb.parent.mkdir(parents=True)
+    kb.write_text("---\nname: kanban-only\ndescription: x\nenvironments:\n  - kanban\n---\n# x\n")
+    unknown = agents / "lane" / "skills" / "anywhere-tag" / "SKILL.md"
+    unknown.parent.mkdir(parents=True)
+    unknown.write_text("---\nname: anywhere-tag\ndescription: x\nenvironments: [totally-unknown]\n---\n# x\n")
+    monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
+    monkeypatch.delenv("HERMES_KANBAN_BOARD", raising=False)
+    assert prov.tree_skill_names(agents, "lane") == ["anywhere-tag"]
+    monkeypatch.setenv("HERMES_KANBAN_BOARD", "1")
+    assert prov.tree_skill_names(agents, "lane") == ["anywhere-tag", "kanban-only"]
+
+
+def test_no_lane_tree_carries_a_kanban_gated_skill():
+    """A skill gated `environments: [kanban]` is hidden from every fleet profile listing: fleet
+    provisioning writes no profile toolset config and AGENTS.md bars kanban lanes on the host, so
+    a lane carrying one carries behaviour the fleet can never activate — the agent image build
+    failed on exactly this (planner's devops/sdlc-review, issue #2836). The tree rejects it."""
+    prov = _prov()
+    offenders = [
+        str(md.relative_to(REPO / "agents"))
+        for lane_dir in sorted((REPO / "agents").iterdir())
+        if (base := lane_dir / "skills").is_dir()
+        for md in base.rglob("SKILL.md")
+        if not any(p.startswith(".") for p in md.relative_to(base).parts)
+        and "kanban" in prov._environments_gate(md)
+    ]
+    assert not offenders, f"lanes carrying kanban-gated skills: {offenders}"
+
+
+def test_hidden_skill_trees_are_not_carried_behaviour(tmp_path):
+    """`.archive/` (or any dot-directory) under a lane's skills is invisible to Hermes' loader;
+    the proof must not count it (issue #2836: 24 archived planner skills made the agent image
+    build un-green)."""
+    prov = _prov()
+    agents = tmp_path / "agents"
+    live = agents / "lane" / "skills" / "live-skill" / "SKILL.md"
+    live.parent.mkdir(parents=True)
+    live.write_text("# live\n")
+    archived = agents / "lane" / "skills" / ".archive" / "old-skill" / "SKILL.md"
+    archived.parent.mkdir(parents=True)
+    archived.write_text("# old\n")
+    assert prov.tree_skill_names(agents, "lane") == ["live-skill"]
+
+
+def test_platform_gated_skill_is_carried_only_on_a_matching_platform(tmp_path):
+    """A skill whose frontmatter `platforms:` excludes this OS is hidden by Hermes on purpose:
+    the proof skips it here but must carry it when the gate names this platform."""
+    prov = _prov()
+    agents = tmp_path / "agents"
+    gated = agents / "lane" / "skills" / "mac-only" / "SKILL.md"
+    gated.parent.mkdir(parents=True)
+    gated.write_text("---\nname: mac-only\ndescription: x\nplatforms: [macos]\n---\n# x\n")
+    ok = agents / "lane" / "skills" / "everywhere" / "SKILL.md"
+    ok.parent.mkdir(parents=True)
+    ok.write_text("---\nname: everywhere\ndescription: x\nplatforms: [linux, macos, windows]\n---\n# x\n")
+    assert prov.tree_skill_names(agents, "lane") == ["everywhere"]
+    assert prov._platform_carried({"platforms": "[macos]"}) is (prov._CURRENT_PLATFORM == "macos")
+    assert prov._platform_carried({}) is True
+
+
+def test_no_lane_tree_carries_the_same_skill_identity_twice():
+    """Hermes resolves a lane's skills by identity; two trees with the same frontmatter name
+    collide, and Hermes surfaces one as a category-qualified label (`software-development/…`)
+    which the resolution table proof cannot match — a data defect, exactly the one that broke
+    the agent image build in issue #2836 (a flattened root copy beside its category copy)."""
+    prov = _prov()
+    offenders = []
+    for lane_dir in sorted((REPO / "agents").iterdir()):
+        base = lane_dir / "skills"
+        if not base.is_dir():
+            continue
+        from collections import Counter
+        counter = Counter()
+        for md in base.rglob("SKILL.md"):
+            if any(part.startswith(".") for part in md.relative_to(base).parts):
+                continue
+            fm = prov.frontmatter(md) or {}
+            if not prov._platform_carried(fm):
+                continue
+            counter[fm.get("name") or md.parent.name] += 1
+        dupes = sorted(n for n, c in counter.items() if c > 1)
+        if dupes:
+            offenders.append((lane_dir.name, dupes))
+    assert not offenders, f"lanes carrying a duplicate skill identity: {offenders}"
 
 
 def test_resolve_reports_every_tree_skill_the_lister_does_not_resolve(tmp_path):
