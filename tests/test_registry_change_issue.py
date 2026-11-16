@@ -9,6 +9,7 @@ function that records the command — `gh` is the external system, the script is
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -127,6 +128,18 @@ class _Gh:
             n, self._next = self._next, self._next + 1
             self.bodies.setdefault(str(n), "")
             return f"https://github.com/asimov-agent/llgenie/issues/{n}"
+        if args[:1] == ["api"] and "search/issues" in args:
+            # The real endpoint scores the marker term against the WHOLE open board; like it,
+            # the fake returns every open issue whose body carries the term, regardless of how
+            # many issues sit between it and the newest — that is the fix (#2847/#2849).
+            q = next((args[i + 1][3:] for i, a in enumerate(args)
+                      if a == "-f" and args[i + 1].startswith("q=")), "")
+            quoted = re.findall(r'"([^"]+)"', q)
+            term = next((t for t in quoted if "registry-sync-changes" in t),
+                        quoted[0] if quoted else q)
+            items = [{"number": i["number"], "body": i.get("body", "")}
+                     for i in self.open_issues if term in i.get("body", "")]
+            return json.dumps({"total_count": len(items), "items": items})
         if args[:1] == ["api"]:
             path = next(a for a in args if a.startswith("repos/"))
             n = path.split("/issues/")[1].split("/")[0]
@@ -193,6 +206,39 @@ def test_a_second_open_for_the_same_store_updates_instead_of_duplicating(monkeyp
     assert len(posts) == 1 and "repos/asimov-agent/llgenie/issues/704/labels" in posts[0]
     assert f"labels[]={RCI.LABEL}" in posts[0]
     assert gh.labels["704"] == [RCI.LABEL]
+
+
+def test_a_marker_issue_ranked_past_the_open_window_is_still_updated(monkeypatch):
+    """The filer's dedupe memory is a SEARCH, not a position in a page of 100 (#2847/#2849).
+
+    Measured 2026-11-16: the open board spanned #2845..#2738 (100 issues) and #2659 sat at
+    open-list position 110, so an `issue list --limit 100` re-filed a store #2659 already
+    carried the marker for. `search/issues? q=... in:body` scores the marker against the
+    WHOLE open board, so an issue that happens to sit past the old window is still the one
+    updated — a duplicate work item is impossible no matter how large the board grows.
+    """
+    # Given  an open board of >100 issues whose marker-bearing issue sits LAST (past the
+    #        100-issue window a truncated listing could ever see)
+    utc = "2026-11-15T08:29:53Z"
+    marker = RCI.MARKER.format(utc=utc)
+    board = [{"number": 2845 - i, "body": f"unrelated open issue {i}"} for i in range(100)]
+    board.append({"number": 2659, "body": f"old body\n\n{marker}\n"})
+    assert len(board) == 101 > 100
+    gh = _Gh(open_issues=board)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    # When   a re-run opens that same store
+    result = RCI.open_issue("new body", utc, "asimov-agent/llgenie")
+
+    # Then   it UPDATES #2659 (found by search past the window) instead of creating a twin,
+    #        and the update is the REST body PATCH + label re-queue — never a new issue
+    assert result == "updated #2659"
+    assert not any(c[:2] == ["issue", "create"] for c in gh.calls)
+    patches = [c for c in gh.calls if c[:3] == ["api", "-X", "PATCH"]]
+    assert len(patches) == 1 and "repos/asimov-agent/llgenie/issues/2659" in patches[0]
+    posts = [c for c in gh.calls if c[:1] == ["api"] and "POST" in c]
+    assert len(posts) == 1 and "repos/asimov-agent/llgenie/issues/2659/labels" in posts[0]
+    assert gh.bodies["2659"] == f"new body\n\n{marker}\n"
 
 
 def test_a_body_write_that_claims_success_but_never_sticks_fails_the_step(monkeypatch):
@@ -328,7 +374,8 @@ def test_dry_run_mutates_nothing(monkeypatch):
     # Then   it says what it would do, and neither writes the body nor labels anything
     assert result == "would create one issue"
     assert not any(c[:2] in (["issue", "create"], ["issue", "edit"]) for c in gh.calls)
-    assert not any(c[:1] == ["api"] for c in gh.calls)
+    # And    the only api activity is the marker SEARCH (a read) — no body PATCH, no label POST
+    assert gh.calls and all(c[:2] == ["api", "search/issues"] for c in gh.calls)
 
 
 def test_a_dry_update_of_a_marked_issue_does_not_label_it(monkeypatch):
@@ -345,7 +392,8 @@ def test_a_dry_update_of_a_marked_issue_does_not_label_it(monkeypatch):
     # Then   nothing is written
     assert result == "would update #704"
     assert not any(c[:2] in (["issue", "edit"], ["issue", "create"]) for c in gh.calls)
-    assert not any(c[:1] == ["api"] for c in gh.calls)
+    # And    the only api activity is the marker SEARCH (a read) — no body PATCH, no label POST
+    assert all(c[:2] == ["api", "search/issues"] for c in gh.calls)
 
 
 def test_the_workflow_runs_the_step_even_when_a_gate_is_red():

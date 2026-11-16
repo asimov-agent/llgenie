@@ -34,6 +34,10 @@ MATRIX = "tests/fixtures/trend-list-matrix.json"
 GAP = "data/engine-skill-gap.json"
 FILES = (STORE, CONTRACT, README, CATALOG, MATRIX, GAP)
 MARKER = "<!-- registry-sync-changes: {utc} -->"
+# The marker's searchable inner text. GitHub treats `<`, `!`, `--` and `/` as query syntax,
+# so the `in:body` term is the marker WITHOUT its HTML comment delimiters; a body this term
+# matches carries the full marker, because this module only ever files the full `MARKER`.
+MARKER_SEARCH = "registry-sync-changes: {utc}"
 LABEL = "agent:implement"
 
 
@@ -362,36 +366,50 @@ def _edit_body(repo: str, number: int, body: str) -> bool:
 
 
 def open_issue(body: str, utc: str, repo: str | None, dry: bool = False) -> str:
-    """Create ONE issue for this store, or update the open one carrying its marker."""
+    """Create ONE issue for this store, or update the open one carrying its marker.
+
+    The marker is found through GitHub ISSUE SEARCH (`search/issues`, `in:body`), never a
+    truncated `issue list --limit 100` listing. The filer's memory of what it filed must not
+    depend on how many issues happen to be open: measured 2026-11-16 the weekly lane re-filed
+    the 2026-11-15T08:29:53Z store review as #2847 although #2659 already carried its exact
+    marker, because #2659 sat at open-list position 110 — outside the 100-issue window a
+    listing can see. `search/issues` scores the marker string against the WHOLE open board, so
+    a marker-bearing issue is found no matter how large the board grows; only a store with no
+    open marker issue is created.
+    """
     marker = MARKER.format(utc=utc)
     body = f"{body}\n\n{marker}\n"
     title = _title(utc)
-    base = ["--repo", repo] if repo else []
-    listing = json.loads(run_gh(["issue", "list", *base, "--state", "open", "--limit", "100",
-                                 "--json", "number,body"]))
-    for issue in listing:
-        if marker in (issue.get("body") or ""):
-            if dry:
-                return f"would update #{issue['number']}"
-            # Issue #2673: the body write goes over REST, not `gh issue edit` (GraphQL
-            # `updateIssue` is refused by this leg's fine-grained owner PAT — run
-            # 43577357338) — and its read-back decides whether the update happened.
-            if not _edit_body(repo_slug(repo), issue["number"], body):
-                return f"update refused for #{issue['number']}"
-            # An issue that carries the marker but lost its label is re-queued, not skipped: a
-            # re-run after a dropped write is how the store review gets back to the bots (#724).
-            if LABEL not in labels_of(repo_slug(repo), issue["number"]):
-                set_labels(repo_slug(repo), issue["number"], [LABEL])
-            return f"updated #{issue['number']}"
+    resolved = repo_slug(repo)
+    query = f'repo:"{resolved}" "{MARKER_SEARCH.format(utc=utc)}" in:body state:open'
+    listing = json.loads(_gh_api(["search/issues", "-f", f"q={query}"]))
+    for issue in listing.get("items") or []:
+        # The search term is the marker's inner text; a body it matched always carries the
+        # full marker, but the guard keeps the update on the issue this filer actually filed.
+        if marker not in (issue.get("body") or ""):
+            continue
+        if dry:
+            return f"would update #{issue['number']}"
+        # Issue #2673: the body write goes over REST, not `gh issue edit` (GraphQL
+        # `updateIssue` is refused by this leg's fine-grained owner PAT — run
+        # 43577357338) — and its read-back decides whether the update happened.
+        if not _edit_body(resolved, issue["number"], body):
+            return f"update refused for #{issue['number']}"
+        # An issue that carries the marker but lost its label is re-queued, not skipped: a
+        # re-run after a dropped write is how the store review gets back to the bots (#724).
+        if LABEL not in labels_of(resolved, issue["number"]):
+            set_labels(resolved, issue["number"], [LABEL])
+        return f"updated #{issue['number']}"
     if dry:
         return "would create one issue"
     # No `--label`: it is dropped on the runner path, so the issue would be filed invisible.
-    url = run_gh(["issue", "create", *base, "--title", title, "--body", body]).strip()
+    url = run_gh(["issue", "create", "--repo", resolved, "--title", title,
+                  "--body", body]).strip()
     number = url.rstrip("/").rsplit("/", 1)[-1]
     if not number.isdigit():
         raise SystemExit(f"[registry-change] the created issue returned no number ({url!r}); "
                          "it cannot be labelled or linked")
-    set_labels(repo_slug(repo), int(number), [LABEL])
+    set_labels(resolved, int(number), [LABEL])
     return url
 
 
