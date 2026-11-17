@@ -1,7 +1,7 @@
 ---
 name: llgenie-pr-rebase
 description: Use when a conflicting llgenie PR needs a rebase.
-version: 1.0.0
+version: 1.1.0
 author: llgenie-pr-merge-conflict
 license: MIT
 metadata:
@@ -357,3 +357,12 @@ Every measured pitfall this lane has hit, with what each one cost, is in
 ## Fleet orchestration (issue #1010) — this skill's lane side
 
 This skill's lane side of the fleet contract lives in `references/fleet-lane-side.md` — load it before any fleet-orchestration work (lane ownership, handoff, and the board-side rules).
+
+## Live-folded rules (issue #2881)
+
+Rules that overflowed the skill writer's 100,000-char cap live verbatim in the references they were
+folded into — load them with the skill. 17 rebase-lane pitfall rules (shadow `origin/main` refs,
+scoped gates vs the full suite, network-seam selection, cron-slot ownership, shared-base author reds,
+co-author trailers, mid-rebase head moves, re-delivered cron deltas): `references/pitfalls.md`,
+section "Live-fold 2026-11-17". The Check 11 / verdict-script history and the both-audits
+reconciliation: `references/rebase-verification-and-verdict.md`, section "Live-fold 2026-11-17".

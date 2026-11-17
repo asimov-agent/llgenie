@@ -1,0 +1,1 @@
+| 2026-11-17 | agents: fold the `llgenie-pr-merge-conflict` lane's 32 live-only `llgenie-pr-rebase` rules verbatim into `references/pitfalls.md` + `references/rebase-verification-and-verdict.md` (zero-loss, under the 100k cap; live side untouched) | [note](agent-wiki/2026-11-17-agent-fold-prrebase-2090.md) | [#2881](https://github.com/asimov-agent/llgenie/issues/2881) |
