@@ -36,8 +36,9 @@ BUILD_SIGNALS = (
     r"\bcargo build\b", r"\bgo build\b", r"\bgo install\b", r"\bgradle\b", r"\bjavac\b",
     r"\bzig build\b",
     r"-m build\b", r"setup\.py", r"setup_[a-z_]+\.py", r"\bmake\b",
-    # A python entrypoint that drives a native build (Strata compiles llama.cpp this way).
-    r"get_llama_cpp\(", r"CMAKE_ARGS\s*=",
+    # A python entrypoint that drives a native build (Strata compiles its vendored ggml
+    # through setup.py's cmake_build driver; at v0.2.15 its old get_llama_cpp() is a None shim).
+    r"setup\.cmake_build\(", r"CMAKE_ARGS\s*=",
     # pip/uv installing the cloned tree (not a wheel by name): a lone `.` / `-e .`
     r"(?:pip|uv pip) install\b[^\n]*?(?:--no-build-isolation|--no-binary)[^\n]*",
     r"(?:pip|uv pip) install\b[^\n]*?\s(?:-e\s+)?\.(?:\s|\[|$)",

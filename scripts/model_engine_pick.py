@@ -1619,8 +1619,12 @@ def strata_files(family: str, size: str) -> list[str]:
     if not fam.get("repo"):
         raise ValueError(f"[strata] family {family!r} is not Hub-downloadable (no repo)")
     pattern, shards = d.get("file", fam["file"]), d.get("shards", fam["shards"])
-    sub = fam["subdir"].format(q=size)
-    return [sub + pattern.format(q=size, i=i) for i in range(1, shards + 1)]
+    # setup.py model_quant: the Hub carries the model's `quant` name, not the catalog name
+    # ({q} in the family subdir and file patterns is the Hub name), so a size whose files
+    # live under another name (UD-IQ4_XS-v31 -> UD-IQ4_XS/) builds the path Hub-side.
+    q = d.get("quant", size)
+    sub = fam["subdir"].format(q=q)
+    return [sub + pattern.format(q=q, i=i) for i in range(1, shards + 1)]
 
 
 def strata_first_shards() -> dict[str, tuple[str, str]]:
@@ -1643,10 +1647,13 @@ def strata_plan(ram_gb: float | None = None) -> dict | None:
     family, size = strata_choice(ram)
     fam = strata_map()["families"][family]
     files = strata_files(family, size)
-    sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(fam["repo"], fam["revision"])}
+    # setup.py model_url: a size whose shards live at their own commit (the v31 set at
+    # UNSLOTH_V31_REVISION, not the family revision) is fetched from THAT commit.
+    rev = strata_map()["models"][size].get("revision") or fam["revision"]
+    sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(fam["repo"], rev)}
     if not all(sizes.get(f) for f in files):
         return None
-    return {"repo": fam["repo"], "revision": fam["revision"], "path": files[0], "files": files,
+    return {"repo": fam["repo"], "revision": rev, "path": files[0], "files": files,
             "size": sum(sizes[f] for f in files), "strata": {"family": family, "model": size}}
 
 

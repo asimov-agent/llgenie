@@ -4,11 +4,11 @@ description: "Use when installing Strata (Qwen3.8-Flash-Next 125B MoE across GPU
 engine: "Strata"
 id: strata
 repo: https://github.com/Niko1221/Strata
-ref: v0.2.11
+ref: v0.2.15
 ref_kind: tag
-version: v0.2.11
-pinned: 4a4160162e4a402e082f41aa0a88e6eed629d913
-verified: "2026-11-11"
+version: v0.2.15
+pinned: 0a80d5e5ed2f3c7602efb9d697be71a6321abf62
+verified: "2026-11-17"
 license: MIT
 servable: true
 backends: [cuda, rocm]
@@ -39,14 +39,14 @@ install:
     - "git -C {src} fetch --depth 1 origin tag v{version} && git -C {src} checkout -q v{version}"
     - "python3 -m venv {src}/py && {src}/py/bin/pip install --no-cache-dir -r {src}/requirements.txt"
   cuda:
-    - "cd {src} && CUDA_ARCHITECTURES='{cuda_arch}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", version=setup.source_version(), archs=sorted(int(x) for x in arch.split(\";\")), vision=\"none\", cuda_dirs=[d for d in (\"/usr/local/cuda/bin\",\"/usr/local/cuda/lib64\") if os.path.isdir(d)], src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
+    - "cd {src} && CUDA_ARCHITECTURES='{cuda_arch}' py/bin/python -c 'import os,shutil,setup; nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", version=setup.source_version(), archs=sorted(int(x) for x in arch.split(\";\")), vision=\"none\", cuda_dirs=[d for d in (\"/usr/local/cuda/bin\",\"/usr/local/cuda/lib64\") if os.path.isdir(d)], src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
   rocm:
-    - "cd {src} && GPU_TARGETS='{gpu_targets}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", backend=\"hip\", version=setup.source_version(), archs=sorted(arch.split(\";\") if \";\" in arch else arch.split()), vision=\"none\", src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
+    - "cd {src} && GPU_TARGETS='{gpu_targets}' py/bin/python -c 'import os,shutil,setup; arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DGPU_TARGETS=\"+arch],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", backend=\"hip\", version=setup.source_version(), archs=sorted(arch.split(\";\") if \";\" in arch else arch.split()), vision=\"none\", src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
 binary: "{src}/engine/strata"
 binary_flags: ["--version", "--help"]   # v0.2.4's CLI answers BOTH (measured in the built image: `strata --version` -> `strata 0.1.49`, rc=0), so the probe needs no policy exemption
 detect: "{binary} --version"   # the engine names itself; the pin is what `make engine-bump` moved. No pipe at all, so `set -o pipefail` cannot turn the read into a 141 (issue #616). At v0.2.4 the banner still says 0.1.49 — that is the binary's truth, the tag carries the pin.
 pre_launch: "cd {src} && choice=$(py/bin/python -c 'import os,sys,setup; c=setup.gguf_choice(os.path.basename(sys.argv[1])); print(\"--family %s --model %s\" % c if c else \"\")' {model}) && (test -n \"$choice\" || (echo \"[strata] $(basename {model}) is not a Strata model file (setup.py gguf_choice)\" >&2; exit 1)) && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) $choice --data-dir /models/strata --port {port} --host {host}"
-launch: "cd {src} && cfg=$(ls -t {src}/strata-*.json | head -1) && py/bin/python -c 'import json,sys; p,a=sys.argv[1:3]; c=json.load(open(p)); al=c.get(\"aliases\") or []; c[\"aliases\"]=al if a in al else al+[a]; json.dump(c,open(p,\"w\"),indent=1)' \"$cfg\" {alias} && py/bin/python serve/server.py --engine strata --config \"$cfg\" --port {port} --host {host}"
+launch: "cd {src} && cfg=$(ls -t {src}/strata-*.json | head -1) && py/bin/python -c 'import json,sys; p,a=sys.argv[1:3]; c=json.load(open(p)); al=c.get(\"aliases\") or []; c[\"aliases\"]=al if a in al else al+[a]; json.dump(c,open(p,\"w\"),indent=1)' \"$cfg\" {alias} && py/bin/python serve/server.py --engine strata --config \"$cfg\" --api-key none --port {port} --host {host}"
 health: "GET /health"
 alias_mode: config
 container:
@@ -65,6 +65,14 @@ A llama.cpp-derived C++ engine plus a Python server. It serves **only Qwen3.8-Fl
 Strata's own Dockerfile builds it: the engine is compiled into the image, and the model
 is downloaded on the first start.
 
+At `v0.2.15` Strata vendors its ggml tree in `third_party/strata-ggml` and `setup.py`'s
+`get_llama_cpp()` is a vestigial shim that returns `None` ("Nothing is downloaded any more"), so
+the cuda/rocm install commands must NOT pass `-DSTRATA_GGML_DIR`: the literal `None` lands on
+cmake as `src/None/ggml` and `cmake/strata_ggml.cmake`'s `add_subdirectory` fails (the
+v0.2.15 bump's cuda/rocm red, issue #2868). The engine build otherwise keeps the same defines
+(`STRATA_ENABLE_CUDA/HIP`, `STRATA_BUILD_TESTS=OFF`, `STRATA_PORTABLE=ON`, arch lists,
+`engine/BUILD.json` stamp), all verified present in the v0.2.15 `setup.py` build path.
+
 ## Hardware parameters
 
 - **cuda:** NVIDIA RTX 20-50 with >= 12 GB, driver r580+ / CUDA 13. The image compiles
@@ -82,6 +90,10 @@ is downloaded on the first start.
 flag: the launch adds `llm-local` to the config's `aliases` (Strata #297), so `/v1/models` lists it
 and replies carry it. The server answers any model name either way.
 Routes: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/models`, `/health`.
+At v0.2.15 the server requires an API key on `/v1/*` by default (`--api-key` / `$STRATA_API_KEY`);
+`launch` passes `--api-key none` (the server's explicit
+key-free choice: it also overrides a stray `$STRATA_API_KEY`) because llgenie serves inside the host's local network boundary,
+like an unauthenticated `llama-server` — the server warns once and never refuses.
 
 ## Model files (llgenie)
 
