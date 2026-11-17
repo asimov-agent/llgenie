@@ -36,7 +36,15 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # (issue #2221): the verdict's OWN `judge`/`guard` job rows (excluded by workflow FILE, so the verdict
 # never reds a head on its own footprint on `main`), and any unjudged row whose conclusion is
 # `cancelled`/`neutral` — that is a superseded / owed-nothing transient, never a block; only a
-# genuinely-red unjudged conclusion (`failure`/`timed_out`/`startup_failure`) reds the head. The roster that decides which workflows are judged
+# genuinely-red unjudged conclusion (`failure`/`timed_out`/`startup_failure`) reds the head.
+# SUPERSEDED ROWS (#2885): GitHub keeps a check-run row for EVERY run attached to a head, and
+# `filter=latest` collapses only re-run attempts of the same run id (measured at PR #2882 head
+# `585b03dd74`: three `scope` rows from three RUNS, all returned). So a red row that a NEWER
+# CONCLUDED row of the same job name and workflow file replaced is superseded and never a block;
+# the newest concluded red of a group still blocks, and an unfinished row neither clears nor is
+# cleared. `scripts/head_check_rows.py` is the ONE collapse, shared by this scan and
+# `scripts/auto_merge.py::failing_checks`, so the verdict and the merger clear exactly the same rows.
+# The roster that decides which workflows are judged
 # is `data/verdict-roster.json` + `scripts/verdict_roster.py` (`make verdict-roster`), gated by
 # `make check-workflows` — a new `pull_request` workflow without a dated judgement decision reds CI.
 # Trigger surface: `workflow_run` (every finished CI run, auto-judged) plus `workflow_dispatch`

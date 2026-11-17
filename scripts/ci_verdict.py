@@ -61,6 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_scope  # noqa: E402
+import head_check_rows  # noqa: E402
 
 TAG = "[ci-verdict]"
 
@@ -241,10 +242,20 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
     genuinely-red conclusion from a workflow the verdict did not judge is likewise returned so the
     caller can NAME it and refuse to call the head clean (`UNJUDGED_RED_CONCLUSIONS` is exactly the
     merger's block set).
+
+    A red row that a NEWER concluded row of the same job name AND workflow file has replaced is a
+    superseded row, not a blocker (issue #2885, measured at PR #2882 head `585b03dd74`: three
+    `scope` rows — two `success`, one `failure` from a since-cleared run — all coexisted at one
+    head because GitHub's `check-runs?filter=latest` collapses only re-run ATTEMPTS of the same
+    run id, never a newer run of the same workflow; the verdict then posted `conclusion=failure`
+    naming only the dead row). The collapse is `head_check_rows.superseded_ids` — the SAME
+    implementation `auto_merge.failing_checks` uses; a red named there is a red named here.
+    Superseded rows are printed as a `superseded red (not a block)` note so the CI log still tells
+    the operator what was cleared and why.
     """
     rows = check_runs if check_runs is not None else check_runs_of(repo, head_sha)
     cache: dict[str, dict] = {}
-    out: list[dict] = []
+    candidates: list[tuple[dict, dict]] = []
     for row in rows:
         conclusion = str(row.get("conclusion") or "").strip().lower()
         if conclusion not in BLOCKING_CONCLUSIONS:
@@ -260,13 +271,29 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
             continue
         if Path(found["path"]).name in judged_files:
             continue
+        candidates.append((row, found))
+
+    def file_of(row: dict) -> str:
+        return Path(workflow_of(repo, row, cache)["path"]).name
+
+    superseded = head_check_rows.superseded_ids(rows, BLOCKING_CONCLUSIONS, file_of)
+    out: list[dict] = []
+    for row, found in candidates:
         match = RUN_IN_DETAILS.search(str(row.get("details_url") or ""))
+        run_id = match.group(1) if match is not None else ""
+        rid = head_check_rows.row_sort_id(row)
+        if rid >= 0 and rid in superseded:
+            print(f"{TAG} superseded red (not a block): name={row.get('name')} "
+                  f"conclusion={row.get('conclusion')} workflow={found['name'] or found['path']} "
+                  f"run={run_id}: a newer concluded row of the same job name and workflow file "
+                  "owns this head")
+            continue
         out.append({
-            "name": name,
-            "conclusion": conclusion,
+            "name": str(row.get("name") or ""),
+            "conclusion": str(row.get("conclusion") or "").strip().lower(),
             "workflow": found["name"],
             "path": found["path"],
-            "run_id": match.group(1) if match is not None else "",
+            "run_id": run_id,
             "details_url": str(row.get("details_url") or ""),
         })
     return out

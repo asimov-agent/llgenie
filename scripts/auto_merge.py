@@ -74,6 +74,8 @@ import verify_closure
 #: A bot's review verdict is a comment marker owned by `scripts/bot_verdict.py` — never an approval
 #: (issue #852). `decide()` reads it, and accepts it only at the PR's CURRENT head.
 import bot_verdict
+import head_check_rows  # noqa: E402  (#2885: the head's superseded check-run rows, one collapse
+#                                          implementation shared with `ci_verdict.unjudged_reds`)
 
 REQUIRED_STATE = "OPEN"
 REQUIRED_MERGEABLE = "MERGEABLE"
@@ -278,9 +280,14 @@ _RUN_ONLY = re.compile(r"/runs/(\d+)")
 
 
 def _check_runs(gh: str, repo: str, sha: str) -> "list | None":
-    """The head's check-runs, or None when the payload is not a list. Raises SystemExit when `gh` fails."""
+    """The head's check-runs, or None when the payload is not a list. Raises SystemExit when `gh` fails.
+
+    `id` and `started_at` ride along (issue #2885): `head_check_rows.superseded_ids` orders a
+    (job name, workflow file) group by them to tell a superseded red row from the row that replaced it.
+    """
     out = _gh(gh, ["api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100",
-                   "--jq", "[.check_runs[] | {name: .name, conclusion: .conclusion, details_url: .details_url}]"])
+                   "--jq", "[.check_runs[] | {name: .name, conclusion: .conclusion, "
+                           "details_url: .details_url, id: .id, started_at: .started_at}]"])
     try:
         runs = json.loads(out or "[]")
     except json.JSONDecodeError:
@@ -296,6 +303,31 @@ def _failed_step(gh: str, repo: str, job_id: str) -> str:
     except SystemExit:
         return ""
     return (out or "").strip().strip('"')
+
+
+def _workflow_file(gh: str, repo: str, row: dict, cache: dict) -> str:
+    """The workflow FILE (basename) that posted a check-run row, "" when the row resolves to none.
+
+    A check-run's `details_url` names the Actions run it belongs to; the run read names the workflow
+    FILE. That file is the group identity `head_check_rows` needs for the supersede collapse (issue
+    #2885), mirroring `ci_verdict.workflow_of`. An unreadable run resolves to "": a row whose group
+    identity is unknown is never superseded, so a red is never cleared on a failed read.
+    """
+    m = _RUN_ONLY.search(str(row.get("details_url") or ""))
+    if m is None:
+        return ""
+    run_id = m.group(1)
+    if run_id not in cache:
+        try:
+            out = _gh(gh, ["api", f"repos/{repo}/actions/runs/{run_id}",
+                           "--jq", "{name: .name, path: .path}"])
+            info = json.loads(out or "{}")
+        except SystemExit:
+            info = {}
+        if not isinstance(info, dict):
+            info = {}
+        cache[run_id] = str(info.get("path") or "").rsplit("/", 1)[-1]
+    return cache[run_id]
 
 
 def no_concluded_green(gh: str, repo: str, sha: str) -> "str | None":
@@ -384,6 +416,14 @@ def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
     stays mergeable (a docs-only head has no `linux` job), but `cancelled` and `neutral` are red
     (#1250 Finding B) — a killed run or a superseded-head neutral is not a green verdict, and a check
     that has not concluded yet is not a failure.
+
+    A red row that a NEWER concluded row of the same job name AND workflow file has replaced is not
+    a deferral reason (issue #2885): GitHub keeps every run's rows at the head (its `filter=latest`
+    collapses only re-run attempts of the same run id, measured at PR #2882 head `585b03dd74`), so a
+    head that was red once used to stay refused until the head sha moved. The collapse is
+    `head_check_rows.superseded_ids` — the same module `ci_verdict.unjudged_reds` uses, so the merger
+    and the verdict clear exactly the same rows and name exactly the same ones. A red whose group's
+    newest row has NOT concluded stays red: the absence of red is not a pass.
     """
     if not sha:
         return None
@@ -396,7 +436,24 @@ def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
     red = [r for r in runs if str((r or {}).get("conclusion") or "").lower() in RED_CONCLUSIONS]
     if not red:
         return None
-    first = red[0] or {}
+    file_cache: dict = {}
+    superseded = head_check_rows.superseded_ids(
+        [r for r in runs if isinstance(r, dict)], RED_CONCLUSIONS,
+        lambda row: _workflow_file(gh, repo, row, file_cache))
+    live: list = []
+    for r in red:
+        rid = head_check_rows.row_sort_id(r if isinstance(r, dict) else {})
+        if rid >= 0 and rid in superseded:
+            m = _RUN_ONLY.search(str((r or {}).get("details_url") or ""))
+            print(f"[auto-merge] superseded red (not a block): head {sha[:8]} "
+                  f"name={(r or {}).get('name')} conclusion={(r or {}).get('conclusion')} "
+                  f"run={m.group(1) if m else '?'} row={rid} — a newer "
+                  "concluded row of the same job name and workflow file owns this head (issue #2885)")
+            continue
+        live.append(r)
+    if not live:
+        return None
+    first = live[0] or {}
     url = str(first.get("details_url") or "")
     where = ""
     job = _RUN_JOB.search(url)

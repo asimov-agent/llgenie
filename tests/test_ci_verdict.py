@@ -1477,3 +1477,77 @@ def test_a_run_with_no_head_sha_is_refused_not_assumed_clean(tmp_path, monkeypat
     assert rc == 2, err
     assert "no head sha" in err, err
     assert not out.exists(), "a verdict with no head must not be posted"
+
+
+# --- issue #2885: a head carries every run's rows; the newest CONCLUDED row per
+#     (job name, workflow file) owns the head, and an older red it replaced is not a blocker. ---
+
+SUPERSEDE_RED_URL = "https://github.com/asimov-agent/llgenie/actions/runs/5001/job/6001"
+SUPERSEDE_GREEN_URL = "https://github.com/asimov-agent/llgenie/actions/runs/5002/job/6002"
+
+
+def _scope_repeat_rows(newer_conclusion: str | None) -> list:
+    """A `scope` red from a since-cleared run and a NEWER `scope` row from a later run of the same
+    workflow file — the exact shape measured at PR #2882 head `585b03dd74` (three `scope` rows, two
+    success and a dead failure, all at one head, all visible to `check-runs?filter=latest`)."""
+    newer: dict = {"name": "scope", "status": "completed",
+                   "details_url": SUPERSEDE_GREEN_URL, "id": 7002,
+                   "started_at": "2026-11-17T09:00:00Z"}
+    if newer_conclusion is not None:
+        newer["conclusion"] = newer_conclusion
+    else:
+        newer["status"] = "in_progress"
+    return [
+        {"name": "scope", "conclusion": "failure", "status": "completed",
+         "details_url": SUPERSEDE_RED_URL, "id": 7001, "started_at": "2026-11-17T08:00:00Z"},
+        newer,
+        {"name": "linux / unit", "conclusion": "success", "status": "completed",
+         "details_url": SPECIMEN_CI_URL},
+    ]
+
+
+def _scope_repeat_api(path: str):
+    if "/actions/runs/5001" in path or "/actions/runs/5002" in path:
+        return {"name": "PR scope verdict", "path": ".github/workflows/scope.yml"}
+    raise AssertionError(f"unexpected API path: {path}")
+
+
+def test_a_superseded_scope_red_is_not_an_unjudged_red(monkeypatch, capsys):
+    """#2885 AC: the dead 08:00 `scope` failure is cleared by the 09:00 `scope` success of the same
+    workflow file; the verdict no longer names it, and the log says why it was cleared."""
+
+    monkeypatch.setattr(cv, "_api", _scope_repeat_api)
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "585b03dd74", {"ci.yml"},
+                            _scope_repeat_rows("success"))
+    printed = capsys.readouterr().out
+
+    assert reds == [], reds
+    assert "superseded red (not a block)" in printed, printed
+    assert "scope" in printed and "5001" in printed, printed
+
+
+def test_the_newest_scope_red_still_blocks_when_scope_repeats(monkeypatch, capsys):
+    """#2885 AC: collapse NEVER erases red — two `scope` failures of the same file: only the OLDER
+    one is superseded, and the verdict names the NEWEST red."""
+
+    monkeypatch.setattr(cv, "_api", _scope_repeat_api)
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "585b03dd74", {"ci.yml"},
+                            _scope_repeat_rows("failure"))
+    printed = capsys.readouterr().out
+
+    assert len(reds) == 1, reds
+    assert reds[0]["run_id"] == "5002", reds
+    assert reds[0]["conclusion"] == "failure", reds
+    assert "5001" in printed and "superseded red" in printed, printed
+
+
+def test_an_unfinished_newer_row_does_not_clear_an_older_red(monkeypatch):
+    """#2885 AC: the absence of red is not a pass — a newer `scope` row that has not concluded
+    neither supersedes the older failure nor is superseded."""
+
+    monkeypatch.setattr(cv, "_api", _scope_repeat_api)
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "585b03dd74", {"ci.yml"},
+                            _scope_repeat_rows(None))
+
+    assert len(reds) == 1, reds
+    assert reds[0]["run_id"] == "5001", reds

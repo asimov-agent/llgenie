@@ -61,7 +61,7 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
              checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0,
              runs_after=None, runs_then: int = 1,
              merge_err: str | None = None, merged_after_merge_refusal: bool = False,
-             commit_messages: list | None = None):
+             commit_messages: list | None = None, wfs: dict | None = None):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -98,6 +98,11 @@ PRS = json.loads({json.dumps(prs or [])!r})
 VIEWS = json.loads({json.dumps(views or {})!r})
 CHECKS = json.loads({json.dumps([] if checks is None else checks)!r})
 JOBS = json.loads({json.dumps(jobs or {})!r})
+# Issue #2885: a SINGLE run read (`repos/<r>/<o>/actions/runs/<id>`) answers the workflow FILE that
+# posted a check-run row — the group identity `head_check_rows` collapses by. An unknown run id
+# answers with an empty path: the red it belongs to is then unresolvable, which the merger reads as
+# "cannot be superseded" — so existing fixtures keep their exact old deferral behaviour.
+WFS = json.loads({json.dumps(wfs or {})!r})
 MERGED = json.loads({json.dumps(merged or [])!r})
 RUNS = json.loads({json.dumps(runs_default if runs is None else runs)!r})
 RUNS_RC = {runs_rc!r}
@@ -120,6 +125,10 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
 if len(args) >= 2 and args[0] == "api" and "check-runs" in args[1]:
     sha = args[1].split("/commits/")[1].split("/")[0].split("?")[0] if "/commits/" in args[1] else ""
     print(json.dumps(CHECKS.get(sha, []) if isinstance(CHECKS, dict) else CHECKS)); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and args[1].startswith("repos/") and "/actions/runs/" in args[1] \\
+        and args[1].split("/actions/runs/")[-1].isdigit():
+    # #2885: the single-run read answers the workflow FILE for a check-run row (see WFS above).
+    print(json.dumps(WFS.get(args[1].split("/actions/runs/")[-1], {{"name": "unknown", "path": ""}}))); sys.exit(0)
 if len(args) >= 2 and args[0] == "api" and "actions/runs" in args[1]:
     if RUNS_RC:
         print("gh: not found", file=sys.stderr); sys.exit(RUNS_RC)
@@ -2487,3 +2496,94 @@ def test_the_auto_merge_approval_refuses_to_post_without_a_head_sha(tmp_path, mo
     assert ["pr", "merge"] not in kinds, calls
     assert ["pr", "comment"] in kinds, calls  # the deferral says the PR is not auto-merged
 
+
+# --- issue #2885: a head carries every run's rows; the merger defers on the NEWEST concluded row
+#     per (job name, workflow file), never on a red a later run of that file already replaced. ---
+
+SUPERSEDE_WFS = {
+    "5001": {"name": "PR scope verdict", "path": ".github/workflows/scope.yml"},
+    "5002": {"name": "PR scope verdict", "path": ".github/workflows/scope.yml"},
+}
+SUPERSEDE_JOBS = {"6001": "make ci-lint", "6002": "make ci-lint"}
+
+
+def _scope_repeat_checks(newer_conclusion: str | None) -> list:
+    """An old `scope` failure (run 5001) and a newer `scope` row (run 5002) of the SAME workflow
+    file at one head — the measured shape of PR #2882 head `585b03dd74` (three `scope` rows, two
+    `success` and a dead `failure` from run 44046649110, all visible at once)."""
+    newer: dict = {"name": "scope", "status": "completed", "id": 9002,
+                   "started_at": "2026-11-17T09:00:00Z",
+                   "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/5002/job/6002"}
+    if newer_conclusion is not None:
+        newer["conclusion"] = newer_conclusion
+    else:
+        newer["status"] = "in_progress"
+    return [
+        {"name": "scope", "conclusion": "failure", "status": "completed", "id": 9001,
+         "started_at": "2026-11-17T08:00:00Z",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/5001/job/6001"},
+        newer,
+    ]
+
+
+def test_a_superseded_red_check_does_not_defer_the_merge(tmp_path, capsys):
+    """#2885 AC: an old `scope` failure replaced by a newer `scope` SUCCESS is not a deferral
+    reason — the PR merges, and the log names the cleared row."""
+
+    # Given a clean PR whose head carries the dead 08:00 failure and the 09:00 success of scope.yml
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_scope_repeat_checks("success"), wfs=SUPERSEDE_WFS, jobs=SUPERSEDE_JOBS)
+
+    # When  the merge job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    # Then  it merges, and it says out loud which red it cleared and why
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, out
+    assert len(merges) == 1, merges
+    assert "superseded red" in out and "5001" in out, out
+
+
+def test_the_newest_red_still_defers_when_the_same_job_fails_twice(tmp_path, capsys):
+    """#2885 AC: collapse never erases red — two `scope` failures of the same file still defer, and
+    the deferral names the NEWEST one (run 5002), not the superseded ancestor."""
+
+    # Given the same head where even the newest scope run failed
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_scope_repeat_checks("failure"), wfs=SUPERSEDE_WFS, jobs=SUPERSEDE_JOBS)
+
+    # When  the merge job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    # Then  it does not merge, the comment names the live red, and the log names the cleared one
+    assert rc == 0, out
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "5002" in body and "scope" in body, body
+    assert "5001" in out and "superseded red" in out, out
+
+
+def test_an_unfinished_newer_row_does_not_clear_an_older_red(tmp_path):
+    """#2885 AC: the absence of red is not a pass — a newer `scope` row that has NOT concluded
+    does not clear the older concluded failure; the deferral names the old red."""
+
+    # Given the old scope failure and a newer scope row still running
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_scope_repeat_checks(None), wfs=SUPERSEDE_WFS, jobs=SUPERSEDE_JOBS)
+
+    # When  the merge job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+    calls = _calls(tmp_path / "gh.log")
+
+    # Then  it defers, naming the only concluded red of the group
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "5001" in body and "scope" in body, body
