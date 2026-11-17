@@ -37,6 +37,11 @@ def _stub_repin(monkeypatch, engine=None, variant="cpu") -> None:
         monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [])
     else:
         monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [(engine, variant)])
+    # The published-skip probe (issue #2892) reaches the registry through `engine_image._digest_http`;
+    # every dispatch-path test models an UNPUBLISHED cell (the fake-gh chef owns dispatch/await), so the
+    # probe stays hermetic. Published cells are covered by their own tests below, which restub it.
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="": (False, f"fake/{engine}:{variant}"))
 
 
 def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
@@ -51,7 +56,8 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
     while the run LIST still carries the run's true verdict — so `_run_verdict`'s list fallback is what
     resolves it.
     """
-    state = {"new_id": "77", "guard_conclusion": guard_conclusion, "dispatched": False}
+    state = {"new_id": "77", "guard_conclusion": guard_conclusion, "dispatched": False,
+             "dispatch_ids": []}
 
     def fake_gh_api(repo, *args, gh="gh"):
         # args: ("?per_page=100", "--jq", "<expr>")  OR  ("<runid>/jobs", "--jq", "<expr>")  OR  ("<runid>", "--jq", ...)
@@ -66,7 +72,7 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             if "select((.id|tostring)" in target_jq:
                 if list_missing:
                     return ""  # the id is invisible on BOTH endpoints (a genuine unresolved 404)
-                if state["dispatched"] and new_run is not None:
+                if state["dispatch_ids"] and new_run is not None:
                     return json.dumps(new_run if isinstance(new_run, dict) else {})
                 return ""
             # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
@@ -96,10 +102,13 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
                 runs.insert(0, {"id": str(stall_holder), "event": "workflow_dispatch",
                                 "path": ".github/workflows/engine-build.yml",
                                 "status": "in_progress"})
-            # The dispatched run exists ONLY after the (neutralized) dispatch subprocess ran, so the
-            # before/after diff the code computes behaves like the real API: the new id is absent before.
-            if state["dispatched"] and new_run is not None:
-                runs.append({"id": state["new_id"], "event": "workflow_dispatch",
+            # The dispatched runs exist ONLY after the (neutralized) dispatch subprocess ran, so the
+            # before/after diff the code computes behaves like the real API: the new ids are absent
+            # before. EVERY dispatch (issue #2892's one permitted replacement included) starts its OWN
+            # run — 77, then 78, … — or the replacement's discovery loop would model a dispatch that
+            # GitHub actually did start as "no run appeared".
+            for _did in state["dispatch_ids"]:
+                runs.append({"id": _did, "event": "workflow_dispatch",
                              "path": ".github/workflows/engine-build.yml"})
             # `_push_group_holder` filters `.status == "in_progress"`; the plain run-list reads do not.
             if "in_progress" in target_jq:
@@ -130,6 +139,8 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         arg0 = args[0] if args else []
         if len(arg0) >= 2 and arg0[:2] == ["gh", "workflow"]:
             state["dispatched"] = True
+            state["dispatch_ids"].append(state["new_id"])
+            state["new_id"] = str(int(state["new_id"]) + 1)
             return type("R", (), {"stdout": "", "stderr": dispatch_err,
                                   "returncode": dispatch_rc})()
         if len(arg0) >= 3 and arg0[:3] == ["git", "rev-parse", "--abbrev-ref"]:
@@ -506,3 +517,183 @@ def test_a_rejected_dispatch_reports_the_cli_reason_not_a_bare_failure(monkeypat
     err = capsys.readouterr().err
     assert "HTTP 422" in err
     assert "the workflow input 'arch' is not valid" in err
+
+
+# ---------------------------------------------------------------------------
+# published-skip, per-arch wait budget, replacement cap (issue #2892)
+# ---------------------------------------------------------------------------
+
+
+def test_a_published_cell_is_skipped_and_never_dispatched(monkeypatch, capsys):
+    """A repinned cell whose exact tag already resolves a manifest dispatches NOTHING and is green.
+
+    #2892's core: reopen/re-trigger cycles re-dispatched cells that were ALREADY in GHCR (28 producer
+    dispatches for ~15 distinct cells on 2026-11-17), re-queuing them at the back of the
+    engine-build-push FIFO to re-publish identical layers. The probe runs first; a published cell never
+    reaches the dispatch path.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="":
+                        (True, "llgenie-llama.cpp-cpu:deadbeef-cafe"))
+    state = _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 0
+    assert _dispatch_argvs(state) == [], "a published cell must never be dispatched"
+    out = capsys.readouterr().out
+    assert "published-skip" in out
+    assert "llgenie-llama.cpp-cpu:deadbeef-cafe" in out
+    assert "already published at its exact tag; nothing dispatched" in out
+
+
+def test_the_published_probe_resolves_the_exact_tag_via_the_may_arm_authority(monkeypatch):
+    """`_published` composes the may-arm's own authority: exact tag -> registry manifest digest (#2892).
+
+    Direct probe test (no dispatch chef): a fake `_digest_http` (the pattern of
+    tests/test_check_engine_pins_published.py, #169) proves the ref probed is `REGISTRY/<exact tag>`
+    and that a digest means published while an empty digest means not.
+    """
+    monkeypatch.setattr(ebt.cpp, "exact_tags", lambda engine, variant: f"fake-{engine}-{variant}-tag")
+    seen = {}
+
+    def fake_digest(ref):
+        seen["ref"] = ref
+        return ("sha256:abcd", "")
+
+    monkeypatch.setattr(ebt.ei, "_digest_http", fake_digest)
+    published, tag = ebt._published("llama.cpp", "cpu", registry="ghcr.io/asimov-agent")
+    assert published is True
+    assert tag == "fake-llama.cpp-cpu-tag"
+    assert seen["ref"] == "ghcr.io/asimov-agent/fake-llama.cpp-cpu-tag"
+    monkeypatch.setattr(ebt.ei, "_digest_http", lambda ref: ("", "manifest 404"))
+    published, _ = ebt._published("llama.cpp", "cpu", registry="ghcr.io/asimov-agent")
+    assert published is False
+
+
+def test_an_unpublished_cell_still_dispatches_and_awaits(monkeypatch, capsys):
+    """No manifest at the exact tag => the old behaviour: one dispatch, awaited verdict, green on success."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "completed", "conclusion": "success",
+                              "completed_at": "2026-11-17T00:00:00Z"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 0
+    assert len(_dispatch_argvs(state)) == 1
+    out = capsys.readouterr().out
+    assert "published-skip" not in out
+    assert "producer run 77 success" in out
+
+
+def test_rocm_cell_gets_the_extended_budget_and_cpu_keeps_the_default(monkeypatch):
+    """Per-arch bounds (#2892): the measured cold rocm build (61+ min unqueued, run 44143247189) does
+    not fit 60; cpu still gets 60. The bound handed to the await step is recorded per cell."""
+    _stub_base(monkeypatch)
+    monkeypatch.setattr(ebt.cpp, "repinned_cells",
+                        lambda base, root=None: [("llama.cpp", "rocm"), ("llama.cpp", "cpu")])
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="": (False, "fake"))
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    seen = []
+
+    def fake_await(repo, branch, engine, arch, wait_min, gh):
+        seen.append((arch, wait_min))
+        return {"run_id": "77", "status": "completed", "conclusion": "success"}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 0
+    assert ("cpu", ebt.DEFAULT_MAX_WAIT) in seen
+    assert ("rocm", ebt.WAIT_MIN_BY_ARCH["rocm"]) in seen
+    assert ebt.WAIT_MIN_BY_ARCH["rocm"] > ebt.DEFAULT_MAX_WAIT
+
+
+def test_wait_min_override_applies_to_every_arch(monkeypatch):
+    """An explicit `--wait-min` still overrides every class bound exactly as before (#2892)."""
+    _stub_base(monkeypatch)
+    monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [("llama.cpp", "rocm")])
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="": (False, "fake"))
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    seen = []
+
+    def fake_await(repo, branch, engine, arch, wait_min, gh):
+        seen.append(wait_min)
+        return {"run_id": "77", "status": "completed", "conclusion": "success"}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "90", "--gh", "gh"])
+    assert rc == 0
+    assert seen == [90]
+
+
+def test_a_cancelled_producer_gets_exactly_one_replacement_then_stops(monkeypatch, capsys):
+    """A cancelled producer costs ONE replacement dispatch per cell per run, never a storm (#2892).
+
+    The reopen-driven re-dispatch loop was the other half of the 28-dispatch episode: every reopen
+    re-fired the full matrix. Here BOTH attempts end cancelled: exactly 2 awaits for the cell, a FAIL
+    naming the replacement, and the trigger stops rather than queueing a third producer.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    seen = []
+
+    def fake_await(repo, branch, engine, arch, wait_min, gh):
+        seen.append(wait_min)
+        return {"run_id": "77", "status": "in_progress", "conclusion": "cancelled",
+                "cause": "producer cancelled — nothing to wait for"}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 1
+    assert len(seen) == 2, "exactly one replacement dispatch per cell per trigger run"
+    out = capsys.readouterr()
+    assert "ONE replacement dispatch permitted per cell" in out.out
+    assert "producer cancelled — nothing to wait for" in out.err
+    assert "the replacement dispatch (issue #2892) also ended cancelled" in out.err
+
+
+def test_a_guard_refused_producer_is_never_replaced(monkeypatch, capsys):
+    """A guard refusal is a policy refusal, not a queue casualty: no replacement dispatch (#2892)."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    seen = []
+
+    def fake_await(repo, branch, engine, arch, wait_min, gh):
+        seen.append(wait_min)
+        return {"run_id": "77", "status": "completed", "conclusion": "failure", "guard_refused": True}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 1
+    assert len(seen) == 1, "a guard-refused producer must not be re-dispatched"
+    assert "replacement dispatch" not in capsys.readouterr().out
+
+
+def test_the_replacement_carries_the_consumed_budget(monkeypatch):
+    """The replacement is awaited on the cell's TOTAL bound minus what the cancelled attempt consumed
+    (`budget * REPLACEMENT_FACTOR - consumed`), not on a fresh full bound (#2892)."""
+    _stub_base(monkeypatch)
+    monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [("llama.cpp", "rocm")])
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="": (False, "fake"))
+    _fake_gh(monkeypatch, before_ids=[1], new_run=None)
+    seen = []
+    clock = iter([0.0, 30 * 60.0] + [30 * 60.0] * 10)  # t0, then 30 min consumed by attempt one
+
+    def fake_await(repo, branch, engine, arch, wait_min, gh):
+        seen.append(wait_min)
+        return {"run_id": "77", "status": "in_progress", "conclusion": "cancelled",
+                "cause": "producer cancelled — nothing to wait for"}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    monkeypatch.setattr(ebt.time, "time", lambda: next(clock))
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 1
+    budget = ebt.WAIT_MIN_BY_ARCH["rocm"]
+    assert seen == [budget, budget * ebt.REPLACEMENT_FACTOR - 30], \
+        "the replacement must carry the remaining total bound, not a fresh one"

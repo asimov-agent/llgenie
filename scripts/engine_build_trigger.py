@@ -29,6 +29,19 @@ conclusion — found by diffing the run list before vs after, the exact discipli
 uses. A run that fails at the producer's guard is reported as refused, not as a bare failure, so a green
 board cannot disguise an unverifiable dispatch.
 
+WAIT BUDGET / REPLACEMENT (issue #2892, measured 2026-11-17 against the four open engine-bump PRs:
+6 trigger runs -> 5 completed/failure + 1 grinding 3h, 28 producer dispatches for ~15 distinct cells;
+run 44143247189's ROCm cell built 61+ min with NOTHING queued ahead, past the old flat 60-min bound).
+Three parts, all in this script: (1) PUBLISHED-SKIP — a repinned cell whose exact tag already resolves a
+registry manifest (the may-arm's OWN authority: `check_engine_pins_published.exact_tags` +
+`engine_image._digest_http`) is never re-dispatched, so a reopen cycle costs a manifest probe instead of
+a full matrix re-shuffle at the back of the `engine-build-push` FIFO. (2) PER-ARCH BUDGET —
+`WAIT_MIN_BY_ARCH = {"rocm": 150}` over `DEFAULT_MAX_WAIT = 60`: a cell class whose measured build time
+does not fit the flat bound gets a bound that fits; `--wait-min` still overrides every class.
+(3) REPLACEMENT CAP — a cancelled/skipped producer gets AT MOST ONE replacement dispatch per cell per
+trigger run, awaited on the CARRIED budget (`budget * REPLACEMENT_FACTOR` minus what the cancelled
+attempt consumed), so a cancellation storm cannot re-queue the same cell unboundedly.
+
 HERMETIC: when the change repins nothing, nothing is dispatched and no API is touched — the same rule as
 the may-arm ("no engine this change repins => green and no network"). The repin set comes from
 `check_engine_pins_published.repinned_cells` (tag-identity diff at CELL granularity, issue #2590 —
@@ -62,12 +75,24 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import base_ref  # noqa: E402
 import check_engine_pins_published as cpp  # noqa: E402
+import engine_image as ei  # noqa: E402 - the published-skip probe reuses the may-arm's manifest authority (#2892)
 
 #: The producer workflow AI a bump triggers. Matched by FILE NAME (the dispatch target), not by name:.
 ENGINE_BUILD_WORKFLOW = "engine-build.yml"
 DISPATCH_TIMEOUT = 90  # seconds a workflow_dispatch run has to appear
 POLL_SECONDS = 20      # between verdict polls
-DEFAULT_MAX_WAIT = 60  # minutes a push=true build may take before the trigger gives up
+DEFAULT_MAX_WAIT = 60  # minutes a non-rocm push=true build may take before the trigger gives up
+#: Per-arch wait bounds measured from real producer build times (issue #2892): a cold ROCm cell was
+#: still building past 61 min with NOTHING queued ahead (run 44143247189: job start 18:24:26Z, still
+#: in_progress at 19:25Z), so the flat 60-min bound guaranteed a red trigger + reopen re-dispatch on
+#: every PR repinning a rocm cell. 150 covers the measured cold build plus queue headroom.
+WAIT_MIN_BY_ARCH = {"rocm": 150}
+#: A cancelled/skipped producer is one queue casualty, not a re-queue loop (issue #2892): each cell
+#: gets AT MOST ONE replacement dispatch per trigger run, awaited on the CARRIED budget —
+#: `budget * REPLACEMENT_FACTOR` minus the minutes the cancelled attempt consumed, never under
+#: REPLACEMENT_MIN_WAIT, and no replacement at all once the carried budget is gone.
+REPLACEMENT_FACTOR = 2
+REPLACEMENT_MIN_WAIT = 10
 #: A single `gh api` call must never hold a poll loop open past its own deadline
 #: (issue: a stalled registry/API call blocks `subprocess.run` with no timeout, so
 #: the `time.time() > deadline` bound below is never reached and the trigger hung
@@ -300,14 +325,42 @@ def _push_group_holder(repo: str, gh: str) -> str:
 
 
 
+def _published(engine: str, variant: str, digest=None, registry: str = "") -> tuple[bool, str]:
+    """Published-skip probe (issue #2892): does this cell's EXACT tag already resolve a registry manifest?
+
+    Same authority as the merged may-arm — `check_engine_pins_published.exact_tags` for the tag,
+    `engine_image._digest_http` for the manifest — instead of a second registry read path: a cell that
+    is already published needs NO producer, and re-dispatching it re-queues at the back of the
+    `engine-build-push` FIFO to re-publish identical layers (measured 2026-11-17: 28 dispatches for
+    ~15 distinct cells across reopen cycles). `digest` injects a fake probe in tests (the pattern the
+    may-arm's own tests use); `registry` overrides the probe target.
+    """
+    probe = digest if digest is not None else ei._digest_http
+    tag = cpp.exact_tags(engine, variant)
+    found, _err = probe(f"{registry or ei.REGISTRY}/{tag}")
+    return bool(found), tag
+
+
+def _wait_budget(arch: str, override: int | None) -> int:
+    """Per-arch wait bound (issue #2892): the measured class bound over the general default; an
+    explicit `--wait-min` overrides every class exactly as before."""
+    if override is not None:
+        return override
+    return WAIT_MIN_BY_ARCH.get(arch, DEFAULT_MAX_WAIT)
+
+
 def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False, repo: str = "",
-          branch: str = "", wait_min: int = DEFAULT_MAX_WAIT, gh: str = "gh") -> int:
+          branch: str = "", wait_min: int | None = None, *, digest=None, gh: str = "gh") -> int:
     """Dispatch + await a push=true engine-build for every repinned CELL; 0 when all succeeded.
 
     One dispatch per cell with `engine=<id> arch=<variant>` (#2590): the explicit arch means
     the producer builds the cell this change repinned, never a cpu-only substitute chosen by
     the matrix default. No repin => print and return 0 with no dispatch (hermetic). `dry`
-    prints the plan and never dispatches.
+    prints the plan and never dispatches — and never probes the registry either. Published-skip
+    (#2892): a cell whose exact tag already resolves a manifest is announced and NOT dispatched;
+    when every cell skipped, the pass is green with zero dispatches. The wait bound is per-arch
+    (`WAIT_MIN_BY_ARCH` over `DEFAULT_MAX_WAIT`; `wait_min` overrides every class), and a
+    cancelled/skipped producer gets at most ONE replacement dispatch on the carried budget.
     """
     cells = repinned(base, engine_filter, arch)
     if not cells:
@@ -330,19 +383,48 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         print("[will] dry-run: nothing dispatched")
         return 0
     failures = 0
+    published_skipped = 0
     for e, v in sorted(cells):
+        published, tag = _published(e, v, digest=digest)
+        if published:
+            # Already in the registry at this exact content tag — dispatching would re-queue this
+            # cell at the back of the engine-build-push FIFO to re-publish identical layers (#2892).
+            print(f"[will] published-skip engine={e} arch={v}: tag {tag} already resolves a "
+                  f"registry manifest — no producer dispatch (issue #2892)")
+            published_skipped += 1
+            continue
+        budget = _wait_budget(v, wait_min)
+        cell_t0 = time.time()
         print(f"[will] dispatching engine-build push=true engine={e} arch={v} @ {branch}")
-        outcome = _dispatch_and_wait(repo, branch, e, v, wait_min, gh)
+        outcome = _dispatch_and_wait(repo, branch, e, v, budget, gh)
+        replaced = False
+        if outcome.get("cause") and outcome.get("conclusion") in ("cancelled", "skipped"):
+            # One queue casualty is allowed to cost ONE replacement, never a reopen-driven storm:
+            # the cell's total bound is `budget * REPLACEMENT_FACTOR`, and the replacement is
+            # awaited on what remains of it (issue #2892). A `guard_refused` outcome has no cause
+            # and is never replaced: a policy refusal is not a queue casualty.
+            consumed_min = int((time.time() - cell_t0) // 60)
+            remaining = budget * REPLACEMENT_FACTOR - consumed_min
+            if remaining >= REPLACEMENT_MIN_WAIT:
+                replaced = True
+                print(f"[will] engine={e} arch={v}: producer {outcome['conclusion']}; dispatching the "
+                      f"ONE replacement dispatch permitted per cell (issue #2892) with the carried "
+                      f"budget {remaining} min ({budget} x {REPLACEMENT_FACTOR} - {consumed_min} consumed)")
+                outcome = _dispatch_and_wait(repo, branch, e, v, remaining, gh)
+        note = ""
+        if replaced and outcome.get("conclusion") != "success":
+            note = (f" — the replacement dispatch (issue #2892) also ended {outcome.get('conclusion')}; "
+                    f"no further dispatch from this run")
         if outcome.get("guard_refused"):
             print(f"[will] FAIL engine={e} arch={v}: producer refused at its own trigger guard "
                   f"(run {outcome.get('run_id')}) — NOT VERIFIED, not a bare failure", file=sys.stderr)
             failures += 1
         elif outcome.get("cause"):
-            print(f"[will] FAIL engine={e} arch={v}: {outcome['cause']} (run {outcome.get('run_id')})",
+            print(f"[will] FAIL engine={e} arch={v}: {outcome['cause']} (run {outcome.get('run_id')}){note}",
                   file=sys.stderr)
             failures += 1
         elif outcome.get("expired"):
-            msg = (f"[will] FAIL engine={e} arch={v}: wait bound ({wait_min} min) expired — producer run "
+            msg = (f"[will] FAIL engine={e} arch={v}: wait bound ({budget} min) expired — producer run "
                    f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
             if outcome.get("unresolved_404"):
                 msg += (" — the producer id never resolved on the run endpoint (404 for the whole bound): "
@@ -352,7 +434,7 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
                 msg += (f" — STALLED behind engine-build-push group holder run "
                         f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
                         f"re-dispatch queues behind the same gate, issue #1860)")
-            print(msg, file=sys.stderr)
+            print(msg + note, file=sys.stderr)
             failures += 1
         elif outcome.get("conclusion") != "success":
             # A rejected dispatch carries its own reason (`HTTP 422: No ref found for: HEAD`, an
@@ -360,15 +442,20 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             # was instead of a bare `run  concluded queued/None` (issue #2089).
             extra = f" — {outcome['error']}" if outcome.get("error") else ""
             print(f"[will] FAIL engine={e} arch={v}: run {outcome.get('run_id')} concluded "
-                  f"{outcome.get('status')}/{outcome.get('conclusion')}{extra}", file=sys.stderr)
+                  f"{outcome.get('status')}/{outcome.get('conclusion')}{extra}{note}", file=sys.stderr)
             failures += 1
         else:
             print(f"[will] OK engine={e} arch={v}: producer run {outcome.get('run_id')} success")
+    if published_skipped == len(cells):
+        print(f"[will] every repinned cell ({published_skipped}) already published at its exact tag; "
+              f"nothing dispatched (issue #2892)")
+        return 0
     if failures:
         print(f"[will] {failures} engine-build run(s) did not succeed — the producer must build+push these "
               f"cells before the bump may merge (issue #1633)", file=sys.stderr)
         return 1
-    print("[will] every repinned cell's push=true build succeeded")
+    print("[will] every repinned cell's push=true build succeeded"
+          + (f" ({published_skipped} published-skip, issue #2892)" if published_skipped else ""))
     return 0
 
 
@@ -388,13 +475,16 @@ def main(argv=None) -> int:
     ap.add_argument("--dry", action="store_true", help="print the dispatch plan without dispatching")
     ap.add_argument("--repo", default="", help="owner/repo to dispatch in (default: base_ref.BASE_REPO)")
     ap.add_argument("--branch", default="", help="ref to dispatch at (default: current HEAD branch)")
-    ap.add_argument("--wait-min", type=int, default=DEFAULT_MAX_WAIT, help="max minutes to await the producer")
+    ap.add_argument("--wait-min", type=int, default=None,
+                    help="override the wait bound for EVERY cell (default: per-arch — 60 min, "
+                         "rocm %d min, issue #2892)" % WAIT_MIN_BY_ARCH["rocm"])
     ap.add_argument("--gh", default="gh", help="gh binary (tests inject a fake)")
     args = ap.parse_args(argv)
     base = base_ref.resolve_base(explicit=args.base, quiet=True)
     if args.cmd == "report":
         return report(base, args.engine, args.arch)
-    return check(base, args.engine, args.arch, args.dry, args.repo, args.branch, args.wait_min, args.gh)
+    return check(base, args.engine, args.arch, args.dry, args.repo, args.branch, args.wait_min,
+                 gh=args.gh)
 
 
 if __name__ == "__main__":
