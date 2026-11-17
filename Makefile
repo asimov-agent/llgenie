@@ -76,7 +76,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-frozen-reaper issue-bot-pr-body-check agent-repo-ownership \
 	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
-	memory-install memory-bootstrap memory-verify memory-check \
+	memory-install memory-bootstrap memory-verify memory-check memory-render memory-status \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \

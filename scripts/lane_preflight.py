@@ -41,10 +41,19 @@ Two properties this adds over `make issue-bot-gates`:
 
 Stdlib only: the gates it runs are static reads and a container-free `make` call, so it needs no
 network and no image — it is safe to run on a bare host, exactly like `make issue-bot-gates`.
+
+After the gates, `lane-preflight` runs the fleet-memory gate (`scripts/memory_bootstrap.py check`,
+exposed to humans as `make memory-check`; issue #2058):
+rc=0 passes; rc=1 (a profile's built daemon env, its `.env` key, or the live daemon disagrees with
+the template) FAILS the preflight — a dispatch must not start while an endpoint is flipped; rc=2
+(no daemon / no plugin / no shared env on this host) prints a WARN and does NOT red the board,
+because an unprovisioned host is a gap to close, not a regression the lane introduced.
+`--no-memory-check` skips the step.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -90,7 +99,40 @@ def dirty_tracked_files(root: Path) -> list[str]:
     return changed
 
 
-def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES) -> int:
+def memory_step(root: Path) -> str:
+    """Run the fleet-memory `check` gate (issue #2058) as the host-lane fleet-memory step.
+
+    The step lives OUTSIDE `FAST_GATES` on purpose: it reads the live host fleet (daemon pid +
+    `/proc/<pid>/environ`, the shared `hermes.env`, profile keys), so no CI job can run it — but a
+    host lane must, before it dispatches. rc=0 -> "ok". rc=1 -> "fail": a profile's built env, key,
+    or the daemon itself disagrees with the template, and the lane must not dispatch on it. rc=2 ->
+    "warn": the host has no daemon/plugin/shared env — a gap to report, not a red to block on.
+
+    The gate is invoked DIRECTLY (`scripts/memory_bootstrap.py check`), not via `make
+    memory-check`: GNU make collapses EVERY recipe failure to exit 2, so a real FAIL (script rc=1)
+    would arrive as the same code as the WARN (rc=2) — the exact distinction this mapping exists
+    to make. The wiring matches the target's: the agents dir relative to the run root, HERMES_HOME
+    from the environment; `LLGENIE_MEMORY_DAEMON_PORT` overrides the probed daemon port (default
+    19443) so a fixture daemon can be measured instead of the live one.
+    """
+    cmd = [sys.executable, str(Path(__file__).resolve().parent / "memory_bootstrap.py"),
+           "check", "--agents", str(root / "agents"),
+           "--port", os.environ.get("LLGENIE_MEMORY_DAEMON_PORT", "19443")]
+    proc = subprocess.run(cmd)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    rc = proc.returncode
+    if rc == 0:
+        print("memory-check: rc=0", flush=True)
+        return "ok"
+    if rc == 1:
+        print("memory-check: rc=1", flush=True)
+        return "fail"
+    print("memory-check: WARN (rc=2 — fleet memory preconditions are not present on this host; "
+          "the gate cannot run: make memory-install / memory-bootstrap wire it)", flush=True)
+    return "warn"
+
+
+def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES,
+        memory_check: bool = True) -> int:
     """Run every gate, print `<gate>: rc=<n>` for each, and print the final verdict.
 
     Unlike `issue-bot-gates` (which stops at the first red because it gates a push), this runs the
@@ -115,6 +157,9 @@ def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES) -> int:
         if rc != 0:
             failed.append(gate)
 
+    if memory_check and memory_step(root) == "fail":
+        failed.append("memory-check")
+
     if failed:
         print(f"preflight: FAILED ({len(failed)}) - {', '.join(failed)}", file=sys.stderr)
         return 1
@@ -130,8 +175,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="the checkout to run in (default: this repo)")
     ap.add_argument("--gates", nargs="+", default=list(FAST_GATES),
                     help="the gates `run` executes, in order (default: FAST_GATES)")
+    ap.add_argument("--no-memory-check", dest="memory_check", action="store_false",
+                    help="skip the host fleet-memory `check` step (issue #2058)")
     a = ap.parse_args(argv)
-    return run(Path(a.root), tuple(a.gates))
+    return run(Path(a.root), tuple(a.gates), memory_check=a.memory_check)
 
 
 if __name__ == "__main__":

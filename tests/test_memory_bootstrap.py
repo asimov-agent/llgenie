@@ -337,13 +337,20 @@ def test_make_targets_wire_install_bootstrap_verify_and_memory_check():
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
 
     # Each public target is a WORKING recipe that runs the script, and is phony-declared
-    for target in ("memory-install:", "memory-bootstrap:", "memory-verify:", "memory-check:"):
+    for target in ("memory-install:", "memory-bootstrap:", "memory-verify:", "memory-check:",
+                   "memory-render:", "memory-status:"):
         assert target.replace(":", "") in phony, f"{target} not in .PHONY"
         assert target in mk, f"{target} not defined"
 
-    # And the gate target is a real recipe (not @true / not a broken dependency marker)
+    # And the gate target is a real recipe (not @true / not a broken dependency marker).
+    # #2058 repurposed it: `memory-check` now runs the `check` gate, not `verify`.
     block = mk.split("memory-check:", 1)[1].split("\n\n", 1)[0]
-    assert "memory_bootstrap.py verify" in block, block
+    assert "memory_bootstrap.py check" in block, block
+
+    # render + status name something that runs (#2058 AC7)
+    for target in ("memory-render:", "memory-status:"):
+        recipe = mk.split(target, 1)[1].split("\n\n", 1)[0]
+        assert "memory_bootstrap.py" in recipe, recipe
 
 
 def _free_port() -> int:
