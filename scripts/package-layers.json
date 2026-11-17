@@ -305,6 +305,11 @@
       "reason": "the monitor files its alarm through the ONE issue-body renderer (issue #745)."
     },
     {
+      "from": "queued_run_alarm",
+      "to": "check_zero_job_pending",
+      "reason": "the run-level squat scan reads the zero-job retirement ledger (zombie_retired_run_ids, #2600) so ledger-retired rows are named and never counted as squat (issue #2888)."
+    },
+    {
       "from": "ci_images",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."

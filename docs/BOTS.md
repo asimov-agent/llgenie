@@ -2332,7 +2332,14 @@ make queued-alarm      # report CI jobs stuck in `queued` too long (a runner tha
                        # It also prints and (with COMMENT=1) files a RUN-LEVEL ghost-queue squat report (issue #2656):
                        # orphan-queued runs (no OPEN PR, head branch deleted / 404) and runs stuck `in_progress`
                        # whose job records have all concluded (read as JOB EXPIRY, #1889 — never a live matrix),
-                       # reported ONCE PER EPISODE and NEVER cancelled by this alarm
+                       # reported ONCE PER EPISODE and NEVER cancelled by this alarm.
+                       # #2888 adds two NAMED, NEVER COUNTED buckets to that scan: rows retired in the
+                       # zero-job ledger (#2600) are named RETIRED without the squat scan re-asking GitHub
+                       # jobs/branch/PR about them, and CONFIRMED-CONCLUDED GHOSTS (past GitHub's own 24h
+                       # queued window, every instantiated job concluded, no OPEN PR, head branch gone —
+                       # GitHub's own cancel refuses them) are named in their own bucket. Only LIVE squat
+                       # reddens the lane and files an episode. DRY=1 runs the full scan, prints the full
+                       # report, files nothing — the host-side proof replay.
 make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
                        # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
                        # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
@@ -2355,6 +2362,13 @@ make check-zero-job-pending  # fail when a dispatched run has been pending/queue
 #     the confirmed-concluded phantoms that 404 even a cancel, marks them retired per issue #2600).
 #   * A deleted phantom row is admin-only; the zero-job zombie retirement (issue #2600) is the pattern for
 #     keeping a confirmed-concluded run out of every later scan without a delete arm.
+#   * #2888: a squat GitHub itself confirms concluded is EVIDENCE, not news. Ledger-retired rows are
+#     named RETIRED — the ledger, not GitHub, is the authority, and the squat scan pays no jobs/branch/PR
+#     round-trip on them. Confirmed-concluded ghosts (past GitHub's own 24h queued window, every
+#     instantiated job concluded, no OPEN PR tracking them, head branch gone — cancel refused with
+#     "Cannot cancel a workflow run that is completed") are named GHOST. Neither bucket counts toward
+#     the episode, files an issue, or reddens the lane; only LIVE squat (orphan-queued runs whose jobs
+#     never instantiated, and job-expiry residue still inside 24h) does.
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
