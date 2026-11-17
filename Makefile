@@ -196,6 +196,7 @@ REGISTRY_REVIEW_OUT ?= registry-review.md
 # no key, and it names the file and the value it read when they disagree.
 .PHONY: bot-preflight
 .PHONY: bot-stamp-body
+.PHONY: bot-close-reasons-report
 .PHONY: bot-body-write
 .PHONY: check-import-roots
 .PHONY: check-package-layers

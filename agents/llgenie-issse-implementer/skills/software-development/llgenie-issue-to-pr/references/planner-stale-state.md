@@ -54,6 +54,22 @@ head `X` proves nothing at head `Y` once the branch advances (a rebase or new co
    gate's verbatim line. When the sole residual is the post-merge criterion, name the **owner merge**
    as the next actor; the lane stays read-only (#1088) — no push, merge, or arm.
 
+## Close verdicts must read the OPEN PR board: implemented + OPEN PR ⇒ the issue stays open (issue #2869)
+
+A lane close is filed `state_reason: not planned`. The other close reason, `completed`, is GitHub
+closing an issue through a pull request's closing reference — and that happens only when the PR
+merges. So an issue that is already implemented by work whose PR is still OPEN must NOT be closed by
+the lane: closing it buries the implemented work as "not planned" while the implementing PR is still
+landing. Measured on #2048: closed `not planned` at 2026-11-16T19:1x while PR #2863 — the PR whose
+body closes #2048 — was OPEN and mid-flight (issue #2869).
+
+Before any close verdict: `gh pr list --state open --limit 300 --json number,title,body` and look for
+an OPEN PR naming the issue (closing keyword adjacent to `#<n>`, an `Issue: #<n>` line, or `(#<n>)`
+in the title). One exists → the verdict is a **hold**: one comment naming the PR, the issue stays
+open, the lane's claim is released (`bot-done`) and the queue labels come off. `scripts/issue_implementer.py`
+enforces this host-side: `open_implementing_pr()` resolves every number a close verdict cites, and a
+cited OPEN claiming PR converts the close into `apply_hold`.
+
 ## Why it recurs
 
 The lane relays fleet state between agents; its board is written minutes behind the API. A claim

@@ -16,10 +16,17 @@ comment that says "only for CPU builds" is a different issue. It then decides ON
   refine      real ambiguity left         -> ONE comment with an implementable restatement,
                                              the `agent:refined` label, no PR that run
   close       no longer makes sense       -> comment the reason WITH cited evidence, close it
+  hold        an OPEN PR implements it    -> the issue STAYS open: one comment naming the PR, the
+                                             run's claim released, queue labels off; the PR's own
+                                             closing reference closes the issue `completed` at merge
 
 Closing requires evidence: a close whose verdict carries no `EVIDENCE:` block is refused
-loudly, because "hard" or "vague" is `refine`, and "already done / superseded / duplicate /
-not a code change" is what closing is for. An issue labelled `agent:closed` or
+loudly, because "hard" or "vague" is `refine`, and superseded / duplicate / merged-and-done /
+not-a-code-change is what closing is for — a lane close ends `state_reason: not planned`, while
+an issue closed by its merged PR's closing reference ends `completed`. A close whose evidence
+cites an OPEN pull request that claims the issue is converted to `hold`: the #2048 defect was a
+close verdict filing implemented work `not planned` while PR #2863 was mid-flight. An issue
+labelled `agent:closed` or
 `agent:closed` is never picked again, so neither verdict can loop.
 
 A close QUEUES what it cites (issue #521). The picker only lists `agent:implement` /
@@ -33,7 +40,7 @@ closing the next copy.
 Commands (stdlib only, no LLM):
   count                  PRs the bot already opened today (the cap numerator)
   dispatch [--dry]       cap -> pick one issue -> claim -> write issue.md (body + thread) + branch
-  apply-verdict FILE     act on the agent's TRIAGE verdict (implement|refine|close)
+  apply-verdict FILE     act on the agent's TRIAGE verdict (implement|refine|close|hold)
   changed                did the implement step change the tree? (run inputs excluded; tree, not rc)
   open-pr                open a draft-free PR linking the issue (never merges)
 
@@ -55,6 +62,7 @@ from pathlib import Path
 
 import bot_claims  # the shared claim protocol (scripts/bot_claims.py)
 import bot_preflight  # the ONE AGENTS:/BASE: stamp authority (issues #792/#845/#2050)
+import check_pr_closing  # the ONE closing-reference grammar (issue #2869: the hold guard reads an OPEN PR's claims through the same seam the closing gate reds)
 import git_identity  # the ONE source of the commit identity + the PR body's Author line (issue #840)
 
 # How the cap recognises the bot's OWN PRs (issue #409). The author alone is not it:
@@ -161,7 +169,11 @@ def _slug(title: str) -> str:
     return s[:SLUG_LEN].rstrip("-") or "issue"
 
 
-VERDICTS = ("implement", "refine", "close")
+#: The verdicts. `hold` (issue #2869) is for an issue an OPEN pull request already implements:
+#: the PR's own closing reference closes the issue `completed` at merge, so the lane must not
+#: close it — a close verdict filing implemented work `not planned` over an open implementing PR
+#: is the #2048 defect.
+VERDICTS = ("implement", "refine", "close", "hold")
 #: An issue carrying either label has already been decided this way and is never picked again.
 #: Only a CLOSE is a decision (issue #522). `agent:refined` is a marker that a restatement exists: a
 #: refined issue is *more* implementable than before, so it must stay in the picker's queue. While it was
@@ -191,8 +203,14 @@ choose exactly ONE verdict and put it in `triage.md` at the repo root, in this s
     REASON: <one line: what is still undecided>
 
     TRIAGE: close
-    EVIDENCE: <what you checked — a merged PR/commit that already does it, the issue that
+    EVIDENCE: <what you checked — a MERGED PR/commit that already does it, the issue that
               supersedes or duplicates it, or why this is not a change this repo can make>
+    REASON: <one line>
+
+    TRIAGE: hold
+    EVIDENCE: <the OPEN pull request that already implements this issue: its number and where its
+              title/body names this issue (its closing reference, `Issue: #<n>`, or `(#<n>)` in
+              the title)>
     REASON: <one line>
 
 Rules for the verdict:
@@ -202,10 +220,15 @@ Rules for the verdict:
 - `refine` — a real decision is still open or the acceptance criteria are missing, so any
   implementation would be a guess. Post nothing yourself: write the `REFINED:` block and stop.
   Do NOT open a PR on a refine.
-- `close` — the issue no longer makes sense: already implemented, superseded, a duplicate, or
-  not a code change this repo can make. `EVIDENCE:` is REQUIRED and must name what you checked;
-  a close without it is refused. Never close because an issue is hard, large or vague — that is
-  `refine`, or a human's call.
+- `close` — the issue no longer makes sense: superseded, a duplicate, implemented by MERGED work
+  whose PR already closed it, or not a code change this repo can make. `EVIDENCE:` is REQUIRED and
+  must name what you checked; a close without it is refused. Never close because an issue is hard,
+  large or vague — that is `refine`, or a human's call.
+- `hold` — an OPEN pull request already implements this issue and names it (its closing reference,
+  `Issue: #<n>`, or `(#<n>)` in its title). That PR — not this verdict — closes the issue
+  `completed` when it merges; closing the issue before then buries implemented work under
+  `not planned` (issue #2869). Name the open PR in `EVIDENCE:` and stop: the host leaves the issue
+  open and abandons this run's claim.
 """
 
 
@@ -559,7 +582,7 @@ def parse_verdict(text: str) -> dict:
     m = re.search(r"(?m)^\s*TRIAGE:\s*(\w+)\s*$", text or "")
     if not m:
         raise SystemExit("[issue-implementer] no `TRIAGE:` verdict in the agent's output; "
-                         "expected `TRIAGE: implement|refine|close`")
+                         "expected `TRIAGE: implement|refine|close|hold`")
     verdict = m.group(1).lower()
     if verdict not in VERDICTS:
         raise SystemExit(f"[issue-implementer] unknown verdict {verdict!r}; expected one of "
@@ -597,6 +620,47 @@ def _issue_meta(gh: str, repo: str, ref: int) -> dict | None:
     return json.loads(r.stdout or "{}")
 
 
+def _pull_meta(gh: str, repo: str, ref: int) -> dict | None:
+    """`state`, `title` and `body` for one cited reference when it IS a pull request, else None.
+
+    `gh api repos/<repo>/pulls/<ref>` answers a number only when it is a PR — an issue, a typo or a
+    deleted number answers non-zero, which is "not an implementing PR", never a crash.
+    """
+    r = subprocess.run([gh, "api", f"repos/{repo}/pulls/{ref}"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+
+
+def open_implementing_pr(gh: str, repo: str, num: int, refs: list[int]) -> int | None:
+    """The first cited number that is an OPEN pull request claiming THIS issue (issue #2869).
+
+    The claim is `scripts/check_pr_closing.py`'s OWN readings — `closing_references` (keyword
+    adjacent to `#<num>`, negated closes excluded), `issue_line_claims` (`Issue: #<num>`) and
+    `subject_claims` (a title ending `(#<num>)`) — so the lane and the closing gate cannot
+    disagree about what an OPEN PR claims. A verdict that cites such a PR describes work that is
+    landing, so `apply_verdict` turns that close into a hold instead of closing the issue. A cited
+    number that is not a pull request (an issue, a typo) fails its lookup and is skipped; a closed
+    PR does not qualify either — the PR path already covers merged work.
+    """
+    for ref in refs:
+        pull = _pull_meta(gh, repo, ref)
+        if pull is None or not isinstance(pull, dict) \
+                or (pull.get("state") or "").strip().lower() != "open":
+            continue
+        title = pull.get("title") or ""
+        text = f"{title}\n{pull.get('body') or ''}"
+        claimed = {int(n) for n in check_pr_closing.closing_references(text)}
+        claimed |= {int(n) for n in check_pr_closing.issue_line_claims(text)}
+        claimed |= {int(n) for n in check_pr_closing.subject_claims(title)}
+        if num in claimed:
+            return ref
+    return None
+
+
 def queue_canonical(gh: str, repo: str, refs: list[int], dry: bool = False) -> list[int]:
     """Put the canonical issue(s) a close verdict cites in front of the picker (issue #521).
 
@@ -632,9 +696,38 @@ def queue_canonical(gh: str, repo: str, refs: list[int], dry: bool = False) -> l
     return queued
 
 
+def apply_hold(gh: str, repo: str, num: int, v: dict, pr_ref: int, dry: bool) -> dict:
+    """Leave the issue OPEN and abandon the run's claim (issue #2869).
+
+    An OPEN pull request already claims this issue with its own closing reference; that PR — not
+    this verdict — is what closes the issue, with `completed`, when it merges. The lane closes
+    nothing and labels nothing decided: it comments once naming the PR, posts its `bot-done`
+    release marker so the claim does not sit until TTL, and takes the queue labels off so the
+    picker cannot re-pick work a PR is already landing.
+    """
+    body = (f"Held open. Pull request #{pr_ref} already implements this issue and is OPEN; its own "
+            f"closing reference closes #{num} with `completed` when it merges. Closing it here "
+            "would file implemented work under `state_reason: not planned` (issue #2869).\n\n"
+            f"**Evidence**\n\n{v['evidence']}\n\n"
+            + bot_claims.done_comment(bot_claims.IMPLEMENTER, datetime.now(timezone.utc),
+                                      f"held-open-#{pr_ref}")
+            + "\n")
+    if dry:
+        print(f"[issue-implementer] would hold #{num} open naming PR #{pr_ref} (comment + claim "
+              "released + queue labels removed); no close, no agent:closed")
+        return v
+    _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body", body])
+    _gh(gh, ["issue", "edit", str(num), "--repo", repo,
+             "--remove-label", "agent:implement", "--remove-label", "agent:ready"])
+    print(f"[issue-implementer] held #{num} open: PR #{pr_ref} implements it; claim released, "
+          "queue labels removed — the PR's own closing reference closes the issue at merge")
+    return v
+
+
 def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) -> dict:
-    """Act on the verdict: nothing (implement), one comment + label (refine), or comment +
-    close + label (close). A close without EVIDENCE is refused: that rule is the whole point."""
+    """Act on the verdict: nothing (implement), one comment + label (refine), comment + close +
+    label (close), or leave-open + claim release (hold). A close/hold without EVIDENCE is refused:
+    that rule is the whole point. A close citing an OPEN implementing PR becomes a hold (#2869)."""
     v = parse_verdict(text)
     if v["verdict"] == "implement":
         print(f"[issue-implementer] verdict: implement #{num} — the existing path runs")
@@ -670,14 +763,26 @@ def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) ->
             print(f"[issue-implementer] refined #{num}: comment + {REFINED_LABEL}, already queued, no PR")
         return v
 
-    # close: evidence or nothing
+    # close / hold: evidence or nothing
     if not v["evidence"]:
-        raise SystemExit("[issue-implementer] refusing to close without an `EVIDENCE:` block — "
-                         "'hard', 'large' or 'vague' is a refine, and already-done / superseded / "
-                         "duplicate / not-a-code-change is what closing is for")
+        raise SystemExit("[issue-implementer] refusing a close/hold without an `EVIDENCE:` block — "
+                         "'hard', 'large' or 'vague' is a refine; superseded / duplicate / "
+                         "merged-and-done / not-a-code-change is what closing is for, and an OPEN "
+                         "implementing PR is what holding is for (issue #2869)")
+    refs = cited_issues(f"{v['reason']}\n{v['evidence']}", own=num)
+    open_pr = open_implementing_pr(gh, repo, num, refs)
+    if open_pr:
+        if v["verdict"] == "close":
+            print(f"[issue-implementer] the close verdict for #{num} cites OPEN PR #{open_pr}, "
+                  "which claims this issue with its own closing reference — closing here would "
+                  "file implemented work as `not planned`; the verdict holds instead (issue #2869)")
+        return apply_hold(gh, repo, num, v, open_pr, dry)
+    if v["verdict"] == "hold":
+        raise SystemExit("[issue-implementer] verdict hold cites no OPEN pull request that claims "
+                         "this issue: `EVIDENCE:` must name the open PR (its closing reference, "
+                         "`Issue: #<n>`, or `(#<n>)` title)")
     body = f"Closing this issue. {v['reason'] or ''}".rstrip() + f"\n\n**Evidence**\n\n{v['evidence']}\n"
     # What the verdict cites is the canonical work item; queue it so closing the copy cannot orphan it.
-    refs = cited_issues(f"{v['reason']}\n{v['evidence']}", own=num)
     if dry:
         print(f"[issue-implementer] would close #{num} (comment + close + agent:closed)")
         queue_canonical(gh, repo, refs, dry=True)

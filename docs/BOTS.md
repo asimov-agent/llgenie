@@ -610,11 +610,13 @@ make issue-bot-image      # build/pull the agent image the bot runs in (same ima
 make hermes-smoke          # prove the alias can CALL A TOOL (a terminal call that prints a per-run nonce), die in seconds
 make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
-make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
+make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close | hold
+                                  # (a close citing an OPEN PR that claims the issue converts to a hold, issue #2869)
 make issue-bot-changed    # did the implement step change the tree? changed=true|false (run inputs excluded)
 make issue-bot-gates      # re-check the FAST gates in order, stopping at the first failure and naming it
 make issue-bot-gates-check  # CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push
 make lane-preflight       # a HOST lane's pre-push check: run the FAST gates, one line per gate + a final OK|FAILED verdict, refusing a dirty tree (issue #1058)
+make bot-close-reasons-report   # backfill read (issue #2869): every merged PR's closing references via the closing gate's own grammar, every lane-closed issue among them; names each one whose state_reason is `not planned` while a merged PR claims it
 ```
 
 #### The fast gates are re-checked before the push (issue #475)
