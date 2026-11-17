@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -405,3 +406,95 @@ def test_the_episode_marker_is_sorted_by_run_id():
     marker = alarm.episode_marker((507, 501))
     assert "501,507" in marker, marker
     assert "queued-run-squat" in marker, marker
+
+
+# ---- named, never counted: the ledger and confirmed-concluded ghosts (#2888) ----
+
+#: The squat scan consults the zero-job retirement ledger (#2600); the tests plant its OWN marker so
+#: the reader's regex is exercised end to end, never a hand-copied string.
+from scripts import check_zero_job_pending as _zj  # noqa: E402  via tests/conftest.py, the one import root (#796)
+
+
+def _retirement_marker(run_id: int) -> str:
+    return _zj._zombie_marker(run_id)
+
+
+def test_ledger_retired_runs_are_named_and_never_counted(tmp_path):
+    """A squat candidate the zero-job ledger already retired (#2600) is named, not counted: the
+    lane stays clean and the squat scan pays no jobs/branch/PR round-trip on it (#2888)."""
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(501, "queued", branch)], {"501": []},
+                  pr_list={branch: []}, branches={branch: False},
+                  open_issues=[{"number": 2601, "body": "x\n" + _retirement_marker(501)}])
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "RETIRED in the zero-job ledger" in r.stdout, r.stdout
+    assert "run 501" in r.stdout and "never counted" in r.stdout, r.stdout
+    raw = log.read_text().splitlines()
+    assert raw.count("run view 501") <= 1, (
+        "the squat scan pays no jobs round-trip on a ledger row (only the job-level stuck scan may)"
+    )
+    assert not [c for c in raw if "/git/ref/heads/" in c], (
+        "a ledger-retired row costs no branch round-trip either"
+    )
+
+
+def test_a_ghost_with_all_jobs_concluded_is_named_never_counted(tmp_path):
+    """The measured 43096752585 shape: past GitHub's 24h queued window, its ONE job completed, the
+    row still non-terminal, no OPEN PR, head branch gone — GitHub's own cancel refuses it. The alarm
+    names it as a confirmed-concluded ghost and stays clean (#2888)."""
+    branch = "feat/2472-semgrep-ghost-runs"
+    gh_stub(tmp_path, [ghost_run(511, "in_progress", branch)],
+            {"511": [{"name": "unit", "status": "completed", "conclusion": "success"}]},
+            pr_list={branch: [{"number": 2500, "state": "MERGED"}]}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "CONFIRMED-CONCLUDED GHOST" in r.stdout, r.stdout
+    assert "run 511" in r.stdout and "Cannot cancel a workflow run that is completed" in r.stdout, r.stdout
+    assert "clean: 1 confirmed-concluded ghost(s)" in r.stdout, r.stdout
+
+
+def test_a_live_orphan_queued_run_still_reddens_the_lane(tmp_path):
+    """The live-squat semantics are unchanged (#2656): an orphan-queued run whose jobs NEVER
+    instantiated is news, not evidence — still RED, still filed as one episode."""
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(512, "queued", branch)], {"512": []},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "GHOST-RUN SQUAT" in r.stdout and "orphan-queued" in r.stdout and "run 512" in r.stdout
+    creates = [c for c in log.read_text().splitlines() if c.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert alarm.episode_marker((512,)) in log.read_text(), log.read_text()
+
+
+def test_a_mix_names_ghosts_and_counts_only_live_squat(tmp_path):
+    """One ledger-retired id, one concluded ghost, one live orphan: all three are named, only the
+    live orphan counts, and the filed episode is keyed on the live id alone (#2888)."""
+    branch = "feat/deleted"
+    gone = "feat/2472-semgrep-ghost-runs"
+    log = gh_stub(
+        tmp_path,
+        [ghost_run(501, "queued", branch),
+         ghost_run(511, "in_progress", gone),
+         ghost_run(512, "queued", branch)],
+        {"501": [], "511": [{"name": "unit", "status": "completed", "conclusion": "success"}],
+         "512": []},
+        pr_list={branch: [], gone: [{"number": 2500, "state": "MERGED"}]},
+        branches={branch: False, gone: False},
+        open_issues=[{"number": 2601, "body": "x\n" + _retirement_marker(501)}])
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "run 501" in r.stdout and "RETIRED in the zero-job ledger" in r.stdout, r.stdout
+    assert "run 511" in r.stdout and "CONFIRMED-CONCLUDED GHOST" in r.stdout, r.stdout
+    assert "run 512" in r.stdout and "orphan-queued" in r.stdout, r.stdout
+    assert "1 orphan-queued run(s)" in r.stdout, "only the LIVE orphan counts toward the episode"
+    raw = log.read_text()
+    creates = [c for c in raw.splitlines() if c.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert alarm.episode_marker((512,)) in raw, raw
+    episode_ids = {int(x) for m in re.finditer(r"queued-run-squat episode ([\d,]+)", raw)
+                   for x in m.group(1).split(",")}
+    assert episode_ids == {512}, (
+        "the ghost/retired ids must not join the filed episode marker: " + raw
+    )
