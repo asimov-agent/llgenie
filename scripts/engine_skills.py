@@ -1018,6 +1018,21 @@ def base_tag(backend: str) -> str:
     return f"{base_image_name(backend)}:{hashlib.sha256(render_base_dockerfile(backend).encode()).hexdigest()[:10]}"
 
 
+def base_cache_ref(backend: str) -> str:
+    """The buildx registry layer-cache ref for ONE base content, keyed by that content's hash.
+
+    The base TAG is content-addressed (`base_tag`: sha256 of the rendered Dockerfile) so a
+    base bump is a NEW image; the CACHE must follow the same key and never span contents, or a
+    changed Dockerfile would pull a stale toolchain layer set out of the previous content's
+    namespace. This mirrors how engine cells already key their cache by variant
+    (`buildcache-<variant>` in `scripts/engine_image.py::build`). The ref reuses the exact hash
+    `base_tag` carries, so the two are one namespace decision: same content, same cache.
+    """
+    tag = base_tag(backend)
+    return f"{base_image_name(backend)}:buildcache-{tag.rsplit(':', 1)[-1]}"
+
+
+
 def render_dockerfile(params: dict, variant: str) -> str:
     """One self-contained Dockerfile per engine x arch. No ARGs to fill in:
     every value is fixed, from the frozen params."""

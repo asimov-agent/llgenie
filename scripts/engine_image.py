@@ -361,7 +361,7 @@ def build_base(backend: str, force: bool = False, push: bool = False) -> int:
         return 0
     with tempfile.TemporaryDirectory(prefix="llgenie-base-") as ctx:
         shutil.copy2(es.BASE_DIR / f"Dockerfile.{backend}", Path(ctx) / "Dockerfile")
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_image_name(backend)}:buildcache", force=force)
+        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_cache_ref(backend)}", force=force)
     print(f"[engine-image] {'built' if rc == 0 else 'FAIL'} base {tag}")
     return rc
 

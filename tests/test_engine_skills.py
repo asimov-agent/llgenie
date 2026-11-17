@@ -853,6 +853,52 @@ def test_builds_use_a_registry_cache_and_reuse_published_images():
     assert "def _available" in driver and '"pull"' in driver
 
 
+def test_build_base_uses_a_content_keyed_cache_ref(monkeypatch):
+    """A base's buildx layer-cache ref tracks the base Dockerfile content hash (issue's criterion 3)."""
+
+    import hashlib
+    import scripts.engine_image as ei
+    import scripts.engine_skills as es
+
+    # Given the four base backends
+    for backend in ("cpu", "cuda", "rocm", "vulkan"):
+        # When the cache ref and the base tag it must track are derived from the same content
+        tag = es.base_tag(backend)
+        dockerfile_hash = hashlib.sha256(es.render_base_dockerfile(backend).encode()).hexdigest()[:10]
+        ref = es.base_cache_ref(backend)
+        # Then the cache ref carries the base tag's content hash in its own buildcache namespace
+        assert ref == f"llgenie/base-{backend}:buildcache-{dockerfile_hash}", (backend, ref)
+        assert ref.endswith(tag.rsplit(":", 1)[-1])
+
+    # And a changed base Dockerfile starts a NEW cache namespace
+    original = es.render_base_dockerfile
+    try:
+        es.render_base_dockerfile = lambda b: original(b) + "\nRUN echo perturbed\n"
+        # Then a content change re-keys the cache ref (and the base tag)
+        assert es.base_cache_ref("rocm") != ref
+        assert es.base_tag("rocm") != tag
+    finally:
+        es.render_base_dockerfile = original
+
+    # And the build seam passes THAT ref (never a fixed `:buildcache`) to buildx
+    import hashlib as _hashlib
+    cpu_hash = _hashlib.sha256(es.render_base_dockerfile("cpu").encode()).hexdigest()[:10]
+    seen: dict[str, str] = {}
+    monkeypatch.setattr(ei, "_available", lambda tag: False)
+
+    def _capture(tag, ctx, push, cache_ref, force=False, no_cache_export=False):  # noqa: A002
+        seen.update(tag=tag, cache_ref=cache_ref)
+        return 0
+
+    monkeypatch.setattr(ei, "_buildx", _capture)
+    monkeypatch.setattr(es, "BASE_DIR", REPO / "containers" / "engines" / "base")
+    rc = ei.build_base("cpu")
+    # Then the buildx cache ref carries the SAME content hash as the base tag (never `:buildcache`)
+    assert rc == 0
+    assert seen["tag"] == f"llgenie/base-cpu:{cpu_hash}"
+    assert seen["cache_ref"] == f"ghcr.io/asimov-agent/llgenie/base-cpu:buildcache-{cpu_hash}"
+
+
 def test_push_targets_only_the_registry_tag(monkeypatch):
     """With PUSH, buildx gets ONLY <registry>/<tag> (never a bare tag Docker Hub would receive)."""
 

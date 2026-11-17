@@ -337,6 +337,10 @@ build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cud
 	@test -n "$(BACKEND)" || { echo "Usage: make build-engine-base BACKEND=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
 	python3 scripts/engine_image.py build-base "$(BACKEND)" $(if $(FORCE),--force,) $(if $(PUSH),--push,)
 
+check-engine-base-cache: ## Prove each base image's buildx layer-cache ref is keyed by the base Dockerfile content hash (a base bump starts a fresh cache namespace, never the fixed `:buildcache`) — hermetic, no container; the same proof runs in the unit suite (`make test-unit`)
+	$(TEST_RUN) python -m pytest tests/test_engine_skills.py::test_build_base_uses_a_content_keyed_cache_ref -p no:cacheprovider -q
+
+
 build-engine: ## Build ENGINE's image for one backend from its generated Dockerfile (ARCH=cpu|cuda|rocm|vulkan; FORCE=1 = rebuild with --no-cache, ignoring the layer cache and a stale base; PUSH=1 = publish the hash tag, :<arch> and :latest)
 	@test -n "$(ENGINE)" || { echo "Usage: make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan]"; exit 1; }
 	python3 scripts/engine_image.py build "$(ENGINE)" $(ARCH_ARGS) $(if $(FORCE),--force,) $(if $(PUSH),--push,)

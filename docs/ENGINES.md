@@ -441,7 +441,12 @@ from the committed params (`make list-engine-images CI=1 JSON=1`, 29 engine x ba
 `engine-base` publishes the 4 shared toolchain bases. Then `engine-image` runs one **parallel** job
 per entry: `make build-engine ENGINE=… ARCH=…` builds with `docker buildx` using a GHCR
 registry layer cache (`--cache-from`/`--cache-to`). A tag that is already published
-(Dockerfile and params unchanged) is pulled, not rebuilt. The post-build test runs next in
+(Dockerfile and params unchanged) is pulled, not rebuilt. The four shared toolchain bases are
+equally cached, and each base's buildx layer-cache ref is **keyed by its own content hash** (the
+same sha256 a base tag carries): a base Dockerfile change starts a fresh cache namespace instead
+of reusing a stale toolchain layer set. `make check-engine-base-cache` proves that keying
+hermetically (no container) — it fails if a base cache ref ever stops tracking the base content
+hash. The post-build test runs next in
 `llgenie/test`: the engine binary smoke runs first (`make test-engine`: the binary in the built image
 answers the version/help flags it documents — the DEFAULT gate, never a serving-readiness wait,
 issue #1717); the OpenAI-serving conformance tier is the explicit `--serve` opt-in
