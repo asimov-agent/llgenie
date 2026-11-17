@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.23
+version: 1.0.24
 author: Hermes Agent
 license: MIT
 metadata:
@@ -26,15 +26,16 @@ metadata:
 > reads a scope-decision artifact the guard never published) — trace the chain before re-judging.
 > Editing an `agents/<profile>/` SOUL or skill is a behavioural-surface change with its own gates
 > (change→note, verbatim fleet block, protected-write prompt) — `references/agents-soul-doc-changes.md`.
+> Own-domain audit records post as comments on #1645, the pinned durable recording home; findings
+> route as separate six-section issues naming it, umbrella drift is cited, never refiled —
+> `references/own-domain-audit.md`.
 > A change landed via `cp`+git can leave a completion gate reporting "no task-relevant changed path",
 > and local git is not proof: write through the editing tool and compare sha256 on the wire —
 > `references/landed-change-verification.md`.
 >
-> **A lane that re-serves a stale snapshot is not argued down by repeat DMs.** Stop re-messaging it;
-> break the loop through the channels the acting lane reads: (1) post the current truth durably on the
-> issue (main sha, CI run id, green job id, issue state), and (2) message the lane *about to act* to
-> reconcile against those ids before branching. Then stand by — the stale cache is the other lane's
-> defect. "Green on merged main" needs the CI run: `references/merged-ci-verification.md`.
+> **A lane that re-serves a stale snapshot is not argued down by repeat DMs:** post the truth durably
+> on the issue, message the lane *about to act*, then stand by — the stale cache is the other lane's
+> defect; full rule and channels: `references/merged-ci-verification.md`.
 >
 > **A red `scope` step may be an exemption-format bug, not a by-design hold.** Read the gate's own
 > source and test it against the on-wire PR body before labelling it verdict-gated — the

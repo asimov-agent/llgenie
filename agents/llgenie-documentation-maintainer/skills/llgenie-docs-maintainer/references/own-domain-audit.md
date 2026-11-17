@@ -84,12 +84,18 @@ Verify before filing with the repo's own parser, on the body you are about to se
     python3 -c "import sys; sys.path.insert(0,'scripts'); import issue_body; \
       print(issue_body.missing(open('<bodyfile>').read()) or 'none')"
 
-The clean-audit record needs a durable home. **If an open docs-lane tracking issue exists, post the
-record there as a comment** — measured-at sha, each check's gate rc, and the four-AC-box read. If no
-**open** docs-lane tracking issue exists (past audit issues are often already CLOSED), say so in the
-report and send the `re-audited at <sha> no findings` to `@llgenie-planner` rather than fabricating a
-tracker. If the planner DM is refused (`queue_full`, `do not resend`), do **not** resend — the
-durable on-issue comment is the fleet's source of truth; a transport refusal is not a missing report.
+The clean-audit record has a NAMED durable home: **#1645 stays open as the docs lane's recording
+home** (its lifecycle is the planner's, not the lane's). Post every audit outcome there as a comment —
+measured-at sha (bare, greppable), each check's gate rc, and the routing of any finding. Never open a
+new tracker for a record, and never substitute a planner DM while #1645 is open. **Findings route:**
+each untracked gap becomes its own six-section `agent:implement` issue naming #1645 and the measured
+sha, queued normally, never implemented by the auditing pass; a finding already named under a standing
+umbrella (the live-vs-tree drift family, #791/#2090) is cited in the record with the fresh measurement
+instead of filed as a duplicate one-off. The DM fallback applies **only when #1645 itself is CLOSED**
+(superseded by a replacement tracker the planner names): then say so in the report and send
+`re-audited at <sha> no findings` to `@llgenie-planner` rather than fabricating a tracker. If the
+planner DM is refused (`queue_full`, `do not resend`), do **not** resend — the durable on-issue
+comment is the fleet's source of truth; a transport refusal is not a missing report.
 
 **A clean audit owes no PR — even when the dispatch body carries PR-template boilerplate.** A
 dispatch may spell out branch names, `AGENTS:`/`BASE:` lines and "ready-for-review PR, never draft";
