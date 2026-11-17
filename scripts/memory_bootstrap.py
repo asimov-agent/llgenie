@@ -25,6 +25,18 @@ memory:
     `/proc/<pid>/environ` model and base-url, and the newest `Connection verified:`
     line. A profile whose provider is empty or whose env key is absent FAILS with its
     name — never a silent skip.
+  * `render` writes every profile's `hindsight/config.json` from the one template and
+    pins the profile `.env` to 0600 (creating an empty one where a profile has none) —
+    it NEVER invents a key value. Idempotent: a second run reports `0 updated`
+    (issue #2058).
+  * `check` is the fleet gate: every profile's plugin-BUILT daemon env must equal the
+    shared `~/.hindsight/profiles/hermes.env`, every profile `.env` must carry a
+    non-empty `HINDSIGHT_LLM_API_KEY`, and the live daemon's pid + `/proc/<pid>/environ`
+    + last `Connection verified:` line must match the documented template. Exit 1 names
+    the offending profile or the daemon; exit 2 when a precondition is absent. `/health`
+    alone never passes (issue #2058).
+  * `status` prints the wiring this host currently has (daemon, shared env, per-profile
+    files) and exits 0 whether or not anything is provisioned (issue #2058).
 
 `--dry-run` prints the full plan (paths, modes, provider delta, command it would run)
 and writes nothing — proven by a byte-identical-tree test.
@@ -191,7 +203,10 @@ def profiles_from_manifest(agents: Path) -> list[str]:
         return []
     names = data.get("profiles") if isinstance(data, dict) else None
     if isinstance(names, list):
-        return [str(n) for n in names]
+        # The real manifest lists PROFILES AS OBJECTS ({"name": "llgenie-planner", "rules": [...]});
+        # accept both shapes, take the NAME, never stringify a dict.
+        out = [str(n.get("name", "")) if isinstance(n, dict) else str(n) for n in names]
+        return [n for n in out if n]
     return [p.name for p in agents.iterdir()
             if p.is_dir() and p.name.startswith("llgenie-")]
 
@@ -483,33 +498,96 @@ def _write_provider_stub(home: Path, profile: str, ph: Path, current: str) -> in
 # verify
 # ---------------------------------------------------------------------------
 def _daemon_evidence(port: int) -> dict:
-    """pid + port + /proc/<pid>/environ evidence for a serving daemon (or {})."""
+    """pid + port + /proc/<pid>/environ evidence for a serving daemon (or {}).
+
+    Candidates are RANKED, never taken in raw numeric pid order: a pid whose cmdline names
+    `hindsight` wins over one that does not; then a pid with a readable environ wins over an
+    unreadable one. (`check` FAILs a non-hindsight pid explicitly — ranking keeps the gate
+    from accidentally grabbing an unrelated same-user listener on some other port.)
+    """
     if not daemon_serving(port):
         return {}
     pids = _listen_pids(port)
-    for pid in pids:
-        environ = _proc_environ(pid)
-        if environ:
-            return {"pid": pid, "port": port, "environ": environ}
-    for pid in pids:
-        return {"pid": pid, "port": port, "environ": {}}
+    scored = sorted(
+        ((0 if "hindsight" in _proc_cmdline(p).lower() else 1,
+          0 if _proc_environ(p) else 1, p) for p in pids),
+        key=lambda t: t[:3])
+    if scored:
+        pid = scored[0][2]
+        return {"pid": pid, "port": port, "environ": _proc_environ(pid)}
     return {"pid": None, "port": port, "environ": {}}
 
 
 def _listen_pids(port: int) -> list[int]:
-    """PIDs listening on *port*, via ss/lsof (best-effort, non-fatal)."""
+    """The PIDs listening on *port* specifically, via ss/lsof (best-effort, non-fatal).
+
+    The ss scan is per-LINE, filtered to the target port (`:PORT` at a word boundary, so
+    `:80` never matches `:8080` and `:5834` never matches `:58343`), and only the process
+    column's `pid=` is taken. A regex over the WHOLE `ss -ltnp` output instead admits every
+    other listening socket's pid, every address octet and every queue number — sorted
+    numerically, a low-pid same-user process on another port wins. `lsof -tiTCP PORT
+    -sTCP:LISTEN` already prints only pids for that port.
+
+    When NEITHER tool exists (the hermetic test container has no iproute2/lsof), fall back
+    to pure `/proc`: take the LISTEN (`st=0A`) socket inodes for that port from
+    `/proc/net/tcp{,6}`, then find which `/proc/<pid>/fd` symlinks point at those inodes.
+    The gate must measure the daemon identically on a full host and inside the CI seam.
+    """
     for cmd in (["ss", "-ltnp"], ["lsof", "-tiTCP", str(port), "-sTCP:LISTEN"]):
         try:
             out = run_ok(cmd, timeout=5).stdout
         except (OSError, subprocess.SubprocessError):
             continue
-        found: list[int] = []
-        for pid in re.findall(r"(?:pid=)?(\d+)", out):
-            if pid.isdigit():
-                found.append(int(pid))
+        if cmd[0] == "ss":
+            found: list[int] = []
+            for line in out.splitlines():
+                if re.search(rf":{port}\b", line):
+                    found.extend(int(m) for m in re.findall(r"pid=(\d+)", line))
+        else:
+            found = [int(line) for line in out.split() if line.isdigit()]
         if found:
             return sorted(set(found))
-    return []
+    return _proc_listen_pids(port)
+
+
+def _proc_listen_pids(port: int) -> list[int]:
+    """Pure-/proc fallback for _listen_pids: LISTEN inode on *port* -> owning pids."""
+    inodes: set[str] = set()
+    for net_file in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            lines = Path(net_file).read_text().splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or fields[3] != "0A":  # 0A = TCP_LISTEN
+                continue
+            try:
+                local_port = int(fields[1].rsplit(":", 1)[1], 16)
+            except ValueError:
+                continue
+            if local_port == port:
+                inodes.add(fields[9])
+    if not inodes:
+        return []
+    targets = {f"socket:[{inode}]" for inode in inodes}
+    found: list[int] = []
+    try:
+        proc_entries = [p.name for p in Path("/proc").iterdir() if p.name.isdigit()]
+    except OSError:
+        return []
+    for name in proc_entries:
+        try:
+            for fd in (Path("/proc") / name / "fd").iterdir():
+                try:
+                    if os.readlink(fd) in targets:
+                        found.append(int(name))
+                        break
+                except OSError:
+                    pass
+        except OSError:
+            continue  # process exited mid-scan, or its fds belong to another user
+    return sorted(set(found))
 
 
 def _proc_environ(pid: int) -> dict:
@@ -539,6 +617,266 @@ def _connection_verified_log(log: Path) -> str | None:
     except OSError:
         return None
     return newest
+
+
+#: The daemon env keys `check` compares between a profile's plugin-built env and the
+#: shared `hermes.env` (issue #2058). The API key is deliberately NOT in this set: its
+#: PRESENCE is asserted per profile (AC3), and its value must never enter a comparison
+#: whose diff could end up printed.
+FLEET_ENV_KEYS = (
+    DAEMON_ENV_BASE_URL,
+    DAEMON_ENV_MODEL,
+    DAEMON_ENV_PROVIDER,
+    "HINDSIGHT_API_PORT",
+    "HINDSIGHT_API_LOG_LEVEL",
+    "HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT",
+)
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parse a KEY=value env file into a dict (blank/comment lines skipped)."""
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    try:
+        for line in path.read_text(errors="replace").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            key, _, value = stripped.partition("=")
+            out[key.strip()] = value.strip().strip('"\'')
+    except OSError:
+        return {}
+    return out
+
+
+def _proc_cmdline(pid: int) -> str:
+    """The command line of *pid*, NUL-joined ('' when unreadable)."""
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except (OSError, PermissionError):
+        return ""
+    return "\0".join(part.decode(errors="replace") for part in raw.split(b"\0") if part)
+
+
+def cmd_check(argv: list[str]) -> int:
+    """The fleet-memory gate (issue #2058).
+
+    0 = every profile's built env equals the shared env, every profile carries its own
+    key, and the daemon evidence matches the template. 1 = a FAIL naming the profile(s)
+    or the daemon. 2 = a precondition is absent (no profiles, no shared `hermes.env`, no
+    plugin builder, nothing listening on the daemon port). A daemon that merely answers
+    `/health` never passes: the evidence is pid + port + real environ + connection line.
+    Key VALUES are never printed — only key NAMES and the non-secret endpoint values.
+    """
+    p = _base_cmd(argv, "memory_bootstrap check")
+    p.add_argument("--plugin", default=None, help="path to the plugin's embedded.py (tests)")
+    p.add_argument("--port", type=int, default=HINDSIGHT_PORT)
+    p.add_argument("--hindsight-dir", default=None,
+                   help="the shared ~/.hindsight dir (env file + daemon log)")
+    a = p.parse_args(argv)
+    home = Path(a.hermes_home or hermes_home()).expanduser()
+    profiles = a.profiles or profiles_from_manifest(Path(a.agents))
+    hs = Path(a.hindsight_dir or hermes_home() / ".hindsight").expanduser()
+    shared_env_path = hs / "profiles" / "hermes.env"
+    shared_log = hs / "profiles" / "hermes.log"
+
+    def precondition(what: str) -> int:
+        print(f"[memory] check precondition missing: {what}", file=sys.stderr)
+        return 2
+
+    if not profiles:
+        return precondition("no profiles — none in the manifest and none passed with --profiles")
+    if not shared_env_path.is_file():
+        return precondition(f"no shared env file at {shared_env_path}")
+
+    if a.plugin:
+        module = {}
+        exec(compile(Path(a.plugin).read_bytes(), str(a.plugin), "exec"), module)  # noqa: S102
+    else:
+        try:
+            module = load_builder(home)
+        except MissingPlugin as exc:
+            return precondition(str(exc))
+
+    shared_env = _parse_env_file(shared_env_path)
+    evidence = _daemon_evidence(a.port)
+    if not evidence or evidence.get("pid") is None:
+        return precondition(f"no daemon listening on port {a.port} — provision it with make memory-install")
+
+    pid = evidence["pid"]
+    print(f"[memory] check: measuring daemon pid {pid} on port {a.port}")
+
+    failures: list[str] = []
+    for profile in profiles:
+        ph = profile_home(home, profile)
+        key = read_env_key(ph)
+        if key is None or not key.strip() or key.strip() == "not-needed":
+            print(f"[memory] check FAIL {profile}: no HINDSIGHT_LLM_API_KEY in the profile .env")
+            failures.append(profile)
+            continue
+        cfg_file = config_path(ph)
+        if not cfg_file.is_file():
+            print(f"[memory] check FAIL {profile}: no hindsight/config.json — run make memory-render")
+            failures.append(profile)
+            continue
+        try:
+            cfg = json.loads(cfg_file.read_text(errors="replace"))
+        except ValueError:
+            print(f"[memory] check FAIL {profile}: hindsight/config.json is not readable JSON")
+            failures.append(profile)
+            continue
+        built = builder_env(module, cfg, profile, key)
+        diffs = {k: (str(built.get(k, "")), str(shared_env.get(k, "")))
+                 for k in FLEET_ENV_KEYS
+                 if str(built.get(k, "")) != str(shared_env.get(k, ""))}
+        if diffs:
+            print(f"[memory] check FAIL {profile}: built env differs from hermes.env: {diffs}")
+            failures.append(profile)
+
+    environ = evidence.get("environ") or {}
+    cmdline = _proc_cmdline(pid)
+    daemon_problems: list[str] = []
+    if "hindsight" not in cmdline.lower():
+        head_arg = cmdline.split("\0", 1)[0] if cmdline else "<unreadable>"
+        daemon_problems.append(f"pid {pid} is not a hindsight process ({head_arg})")
+    if not environ:
+        daemon_problems.append(f"/proc/{pid}/environ unreadable or empty — /health alone never passes")
+    for env_key, want in ((DAEMON_ENV_MODEL, HINDSIGHT_MODEL),
+                          (DAEMON_ENV_BASE_URL, HINDSIGHT_BASE_URL),
+                          (DAEMON_ENV_PROVIDER, HINDSIGHT_PROVIDER)):
+        got = environ.get(env_key, "")
+        if got != want:
+            daemon_problems.append(f"daemon environ {env_key}: {got or '<missing>'} != {want}")
+    connection = _connection_verified_log(shared_log)
+    if connection is None:
+        daemon_problems.append(f"no 'Connection verified:' line in {shared_log}")
+    else:
+        if HINDSIGHT_MODEL not in connection:
+            daemon_problems.append(f"connection line disagrees with the template model: {connection}")
+        for url in re.findall(r"https?://\S+", connection):
+            if url.rstrip(".,;)") != HINDSIGHT_BASE_URL:
+                daemon_problems.append(f"connection url {url} != {HINDSIGHT_BASE_URL}")
+
+    if daemon_problems:
+        for problem in daemon_problems:
+            print(f"[memory] check FAIL daemon (pid={pid} port={a.port}): {problem}")
+    if failures or daemon_problems:
+        named = sorted(set(failures)) + (["daemon"] if daemon_problems else [])
+        print("[memory] check: FAIL — " + ", ".join(named), file=sys.stderr)
+        return 1
+
+    print(f"[memory] check: profiles ok: {len(profiles)} build the shared env and carry a key; "
+          f"daemon ok: pid {pid} {a.port} "
+          f"{environ.get(DAEMON_ENV_MODEL)} @ {environ.get(DAEMON_ENV_BASE_URL)} "
+          f"(connection: {connection})")
+    return 0
+
+
+def cmd_render(argv: list[str]) -> int:
+    """Materialise every profile's Hindsight config from the ONE template, idempotently.
+
+    `render` writes `hindsight/config.json` from `template_config` and pins the profile
+    `.env` to 0600, creating an empty `.env` where a profile has none. It NEVER invents
+    or copies a key value: the key is the profile's own secret, placed by the operator
+    or by `bootstrap`. A second render with nothing changed reports `0 updated` and
+    rewrites no bytes (issue #2058).
+    """
+    p = _base_cmd(argv, "memory_bootstrap render")
+    a = p.parse_args(argv)
+    home = Path(a.hermes_home or hermes_home()).expanduser()
+    profiles = a.profiles or profiles_from_manifest(Path(a.agents))
+    if not profiles:
+        print(f"[memory] render: nothing to do — no profiles under {home}/profiles and "
+              "no --profiles given", file=sys.stderr)
+        return 2
+
+    updated = 0
+    unchanged = 0
+    for profile in profiles:
+        ph = profile_home(home, profile)
+        wanted = json.dumps(template_config(profile), indent=2, sort_keys=True) + "\n"
+        cfg_path = config_path(ph)
+        existing: str | None = None
+        if cfg_path.is_file():
+            try:
+                existing = cfg_path.read_text(errors="replace")
+            except OSError:
+                existing = None
+        cfg_changed = existing != wanted
+        dotenv = env_path(ph)
+        env_missing = not dotenv.is_file()
+
+        if a.dry_run:
+            print(f"[memory] render --dry-run: {profile}")
+            print(f"  - config: {cfg_path} (mode 0600, {'write' if cfg_changed else 'unchanged'})")
+            print(f"  - .env: {dotenv} (mode 0600, "
+                  f"{'create empty' if env_missing else 'unchanged'})")
+            if cfg_changed:
+                updated += 1
+            else:
+                unchanged += 1
+            continue
+
+        if cfg_changed:
+            ph.mkdir(parents=True, exist_ok=True)
+            _write_0600(cfg_path, wanted)
+            updated += 1
+        else:
+            unchanged += 1
+        if env_missing:
+            ph.mkdir(parents=True, exist_ok=True)
+            _write_0600(dotenv, "")
+        elif dotenv.exists():
+            os.chmod(dotenv, 0o600)
+
+    print(f"[memory] render: {updated} updated, {unchanged} unchanged "
+          f"(across {len(profiles)} profile(s))")
+    return 0
+
+
+def cmd_status(argv: list[str]) -> int:
+    """Print the fleet-memory wiring this host currently has — a report, never a verdict.
+
+    `check` decides; `status` only shows: the daemon's pid/port/environ + connection line,
+    the shared env's endpoint values (its key is reported as PRESENT/absent only), and each
+    profile's config/key/provider presence. Exits 0 whether or not anything is provisioned.
+    """
+    p = _base_cmd(argv, "memory_bootstrap status")
+    p.add_argument("--port", type=int, default=HINDSIGHT_PORT)
+    p.add_argument("--hindsight-dir", default=None,
+                   help="the shared ~/.hindsight dir (env file + daemon log)")
+    a = p.parse_args(argv)
+    home = Path(a.hermes_home or hermes_home()).expanduser()
+    profiles = a.profiles or profiles_from_manifest(Path(a.agents))
+    hs = Path(a.hindsight_dir or hermes_home() / ".hindsight").expanduser()
+    shared_env_path = hs / "profiles" / "hermes.env"
+    shared_log = hs / "profiles" / "hermes.log"
+
+    shared_env = _parse_env_file(shared_env_path)
+    evidence = _daemon_evidence(a.port)
+    connection = _connection_verified_log(shared_log)
+    environ = evidence.get("environ") or {}
+    print(f"[memory] status: shared env {shared_env_path} "
+          f"({'present' if shared_env_path.is_file() else 'ABSENT'}) "
+          f"model={shared_env.get(DAEMON_ENV_MODEL, '-n/a-')} "
+          f"provider={shared_env.get(DAEMON_ENV_PROVIDER, '-n/a-')} "
+          f"base_url={shared_env.get(DAEMON_ENV_BASE_URL, '-n/a-')} "
+          f"key={'present' if shared_env.get('HINDSIGHT_API_LLM_API_KEY') else 'absent'}")
+    pid = evidence.get("pid")
+    print(f"[memory] status: daemon pid={pid} port={a.port} serving={'yes' if pid else 'NO'} "
+          f"model={environ.get(DAEMON_ENV_MODEL, '-n/a-')} "
+          f"base_url={environ.get(DAEMON_ENV_BASE_URL, '-n/a-')} "
+          f"connection={connection or '-n/a-'}")
+    for profile in profiles:
+        ph = profile_home(home, profile)
+        print(f"[memory] status {profile}: "
+              f"config={'yes' if config_path(ph).is_file() else 'NO'} "
+              f"key={'yes' if read_env_key(ph) else 'NO'} "
+              f"provider={memory_provider(home, profile) or '-unset-'}")
+    if not profiles:
+        print("[memory] status: no profiles under the manifest")
+    return 0
 
 
 def cmd_verify(argv: list[str]) -> int:
@@ -598,6 +936,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("install")
     sub.add_parser("bootstrap")
     sub.add_parser("verify")
+    sub.add_parser("render")
+    sub.add_parser("check")
+    sub.add_parser("status")
     a, rest = ap.parse_known_args(argv)
     if a.command == "install":
         return cmd_install(rest)
@@ -605,6 +946,12 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_bootstrap(rest)
     if a.command == "verify":
         return cmd_verify(rest)
+    if a.command == "render":
+        return cmd_render(rest)
+    if a.command == "check":
+        return cmd_check(rest)
+    if a.command == "status":
+        return cmd_status(rest)
     return 2
 
 

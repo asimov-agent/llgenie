@@ -155,7 +155,13 @@ memory-verify:
 	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
 
 memory-check:
-	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
+	python3 scripts/memory_bootstrap.py check $${PROFILE:+--profiles $$PROFILE} $${PORT:+--port $$PORT}
+
+memory-render:
+	python3 scripts/memory_bootstrap.py render $${PROFILE:+--profiles $$PROFILE} $${DRY_RUN:+--dry-run}
+
+memory-status:
+	python3 scripts/memory_bootstrap.py status $${PROFILE:+--profiles $$PROFILE} $${PORT:+--port $$PORT}
 
 bind-proof: ## Bind a proof run's head_sha to the PR head it is cited for — fail unless the run proved the CURRENT head (PR= RUN=, issue #1293)
 	@test -n "$(PR)" && test -n "$(RUN)" || { echo "Usage: make bind-proof PR=<n> RUN=<run-id>"; exit 1; }

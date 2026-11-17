@@ -49,9 +49,11 @@ MOVED = [
     "memory-bootstrap",
     "memory-verify",
     "memory-check",
+    "memory-render",
+    "memory-status",
 ]
 
-#: Internal `_`-prefixed legs and the memory-* quartet carry no `##` help line at the base file;
+#: Internal `_`-prefixed legs and the memory-* sextet carry no `##` help line at the base file;
 #: the byte-identical move must not invent one (they stay out of `make help`, as before).
 NO_HELP_ON_PURPOSE = {
     "_agent-shell-keys-check",
@@ -62,6 +64,8 @@ NO_HELP_ON_PURPOSE = {
     "memory-bootstrap",
     "memory-verify",
     "memory-check",
+    "memory-render",
+    "memory-status",
 }
 
 #: `name:` at line start — a target declaration, never a `name:=` assignment.
