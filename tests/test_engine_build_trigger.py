@@ -16,7 +16,6 @@ subprocess would run the real 13-engine repin set and touch nothing the patches 
 from __future__ import annotations
 
 import json
-import re
 import sys
 import time
 from pathlib import Path
@@ -40,24 +39,35 @@ def _stub_repin(monkeypatch, engine=None, variant="cpu") -> None:
 
 
 def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
-             single_run_404=False, list_missing=False, dispatch_rc=0, dispatch_err="", checkout_ref="HEAD"):
+             single_run_404=False, list_missing=False, dispatch_rc=0, dispatch_err="", checkout_ref="HEAD",
+             published=False):
     """A fake `gh`-API recorder. `_gh` is a module-level function (not the `gh` binary), so we stub the API
     read path; the `gh workflow run` dispatch call is a subprocess we neutralize via `_dispatch_and_wait`'s
     `--gh gh` default by replacing NOTHING there — instead we only stub `_gh` and give no branch/ref that
     would need a real git read for the CODE path under test.
 
+    Each `gh workflow run` spawns a NEW run id (`77`, `78`, ...), so a replacement dispatch (issue #2890)
+    is found by the same before/after run-list diff the real API drives.
+
     `single_run_404=True` models the #2059 poll race: the SINGLE-run endpoint
     (`/actions/runs/<id>`) answers the API's real 404 body (`{"message":"Not Found","status":"404"}`)
     while the run LIST still carries the run's true verdict — so `_run_verdict`'s list fallback is what
-    resolves it.
+    resolves it. `published=True` makes the registry published-skip probe resolve a manifest; by default
+    it returns "not published" so a repinned cell dispatches (the hermetic stand-in for `ebt._digest`).
     """
-    state = {"new_id": "77", "guard_conclusion": guard_conclusion, "dispatched": False}
+    base = [str(x) for x in (before_ids or [])]
+    state = {"guard_conclusion": guard_conclusion, "dispatched": [], "next_id": 77}
+
+    def _ids():
+        ids = base + list(state["dispatched"])
+        if stall_holder and str(stall_holder) not in ids:
+            ids = [str(stall_holder)] + ids
+        return ids
 
     def fake_gh_api(repo, *args, gh="gh"):
         # args: ("?per_page=100", "--jq", "<expr>")  OR  ("<runid>/jobs", "--jq", "<expr>")  OR  ("<runid>", "--jq", ...)
         target = args[0] if args else ""
         target_jq = args[2] if len(args) > 2 else ""
-        in_progress_ids = {str(stall_holder)} if stall_holder else set()
         if "per_page=100" in target:
             # #2059 list fallback: `_run_verdict` re-reads a 404'd run from the LIST with the jq
             # `select((.id|tostring) == "<id>") | {status, conclusion, completed_at}`. Model THAT:
@@ -66,45 +76,14 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             if "select((.id|tostring)" in target_jq:
                 if list_missing:
                     return ""  # the id is invisible on BOTH endpoints (a genuine unresolved 404)
-                if state["dispatched"] and new_run is not None:
-                    return json.dumps(new_run if isinstance(new_run, dict) else {})
-                return ""
-            # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
-            # leading-slash spelling in a source filter matches 0 runs and makes discovery
-            # always "new run not found"; see openspec/changes/fix-engine-build-trigger-path-filter).
-            runs = [{"id": str(_id), "event": "workflow_dispatch",
-                     "path": ".github/workflows/engine-build.yml"} for _id in (before_ids or [])]
-            # Apply the `.path == "…"` literal the SOURCE filter passes, exactly as the API would:
-            # the mock runs carry the real no-leading-slash path, so a source filter that asks for
-            # `/.github/…` matches nothing and the discovery loop correctly reports "no new run".
-            m = re.search(r'\.path == "([^"]+)"', target_jq)
-            if m:
-                runs = [r for r in runs if r.get("path") == m.group(1)]
-            # A run that is still `pending`/queued (our dispatched run, or a genuinely queued one) is
-            # NOT a push-group holder: `_push_group_holder` filters `.status == "in_progress"` (the
-            # global engine-build-push gate is held only by a RUN THAT IS RUNNING). The fake must
-            # model that filter or it would surface a pending run as the gate holder.
-            def _mark(r):
-                r = dict(r)
-                if r["id"] not in in_progress_ids:
-                    r.setdefault("status", "queued")
-                return r
-            runs = [_mark(r) for r in runs]
-            # A stall holder is an in_progress push run that `_push_group_holder` picks up; it is
-            # present in the list both before and after our dispatch (so it never counts as "new").
-            if stall_holder:
-                runs.insert(0, {"id": str(stall_holder), "event": "workflow_dispatch",
-                                "path": ".github/workflows/engine-build.yml",
-                                "status": "in_progress"})
-            # The dispatched run exists ONLY after the (neutralized) dispatch subprocess ran, so the
-            # before/after diff the code computes behaves like the real API: the new id is absent before.
-            if state["dispatched"] and new_run is not None:
-                runs.append({"id": state["new_id"], "event": "workflow_dispatch",
-                             "path": ".github/workflows/engine-build.yml"})
-            # `_push_group_holder` filters `.status == "in_progress"`; the plain run-list reads do not.
+                return json.dumps(new_run if isinstance(new_run, dict) else {})
+            # Discovery (`_existing_run_ids`) and the push-group-holder probe (`_push_group_holder`) read
+            # the run LIST and filter it; return the base + every dispatched run id. A holder (an
+            # in_progress push=true run) is present as such, and the `_push_group_holder` jq picks it.
+            runs = [{"id": i, "status": "in_progress" if i == str(stall_holder) else "queued"} for i in _ids()]
             if "in_progress" in target_jq:
                 runs = [r for r in runs if r.get("status") == "in_progress"]
-            return "\n".join(str(r["id"]) for r in runs)
+            return "\n".join(r["id"] for r in runs)
         if "/jobs" in target:
             return json.dumps({"jobs": [{"name": "guard", "conclusion": state["guard_conclusion"]}]})
         # single-run verdict
@@ -116,20 +95,22 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
                                "documentation_url":
                                    "https://docs.github.com/rest/actions/workflow-runs#get-a-workflow-run",
                                "status": "404"})
-        return json.dumps(new_run if new_run is not None else {"status": "queued", "conclusion": None})
+        return json.dumps(new_run if isinstance(new_run, dict) else {"status": "queued", "conclusion": None})
 
     monkeypatch.setattr(ebt, "_gh", fake_gh_api)
 
     # Neutralize the actual `gh workflow run` dispatch and any `git` read: the code path under test is the
-    # await/verdict logic, driven by fake_gh_api above — the real binary must never be reached. The dispatch
-    # call also flips `state["dispatched"]`, making the new run's id visible to subsequent run-list reads.
+    # await/verdict logic, driven by fake_gh_api above — the real binary must never be reached. Each
+    # dispatch flips a FRESH run id into `state["dispatched"]`, so the values recorded here drive the
+    # discovery + verdict of that dispatch (and of a single replacement, issue #2890).
     recorded = {"calls": []}
 
     def fake_run(*args, **kwargs):
         recorded["calls"].append(args[0] if args else None)
         arg0 = args[0] if args else []
         if len(arg0) >= 2 and arg0[:2] == ["gh", "workflow"]:
-            state["dispatched"] = True
+            state["dispatched"].append(str(state["next_id"]))
+            state["next_id"] += 1
             return type("R", (), {"stdout": "", "stderr": dispatch_err,
                                   "returncode": dispatch_rc})()
         if len(arg0) >= 3 and arg0[:3] == ["git", "rev-parse", "--abbrev-ref"]:
@@ -138,6 +119,11 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
 
     monkeypatch.setattr(ebt.subprocess, "run", fake_run)
+
+    # Registry published-skip probe, hermetic: not published by default (a repinned cell dispatches);
+    # `published=True` makes every probed ref resolve a manifest (a digest of the pinned content).
+    monkeypatch.setattr(ebt, "_digest",
+                        lambda ref: ("sha256:" + ("a" * 64), "") if published else ("", "manifest unknown"))
     state["dispatch_argv"] = recorded
     return state
 
@@ -506,3 +492,94 @@ def test_a_rejected_dispatch_reports_the_cli_reason_not_a_bare_failure(monkeypat
     err = capsys.readouterr().err
     assert "HTTP 422" in err
     assert "the workflow input 'arch' is not valid" in err
+
+
+# ---------------------------------------------------------------------------
+# published-skip (issue #2890): a cell whose exact tag already resolves a manifest
+# ---------------------------------------------------------------------------
+def test_every_cell_published_dispatches_zero_and_exits_zero(monkeypatch, capsys):
+    """A trigger pass whose every repinned cell resolves its exact tag dispatches 0 producers, rc 0."""
+    # Given a PR that repins one cell whose exact committed tag already resolves a registry manifest
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "completed", "conclusion": "success", "completed_at": "2026-11-17T00:00:00Z"},
+             published=True)
+
+    # When  the trigger runs check against that published cell
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+
+    # Then  it dispatches ZERO producers and exits 0 (the reopen costs seconds, not a matrix re-shuffle)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "PUBLISHED-SKIP" in out, out
+    assert "no build dispatched" in out, out
+    assert "every repinned cell's push=true build succeeded" in out, out
+
+
+# ---------------------------------------------------------------------------
+# per-arch-class wait budgets (issue #2890) — rocm 150, others 60, --wait-min overrides
+# ---------------------------------------------------------------------------
+def test_per_arch_wait_budgets_rocm_gets_150_cpu_cuda_vulkan_keep_60():
+    """A cold ROCm cell gets a 150-min budget vs the 60-min flat default; --wait-min overrides every class."""
+    # Given the measured cold-build history (a ROCm cell can still be building past 61 min)
+    # When  the per-cell budget is resolved without an explicit --wait-min
+    # Then  rocm is awaited with its cold-build bound and cpu/cuda/vulkan keep the flat 60
+    assert ebt._cell_wait_min("rocm", None) == 150
+    for variant in ("cpu", "cuda", "vulkan"):
+        assert ebt._cell_wait_min(variant, None) == 60
+    # An unknown/other arch falls back to the flat bound, never below it
+    assert ebt._cell_wait_min("some-other-variant", None) == 60
+    # And an explicit --wait-min overrides EVERY class
+    assert ebt._cell_wait_min("rocm", 60) == 60
+    assert ebt._cell_wait_min("cpu", 120) == 120
+
+
+# ---------------------------------------------------------------------------
+# replacement cap (issue #2890): at most ONE replacement dispatch per (cell, trigger run)
+# ---------------------------------------------------------------------------
+def test_a_cancelled_producer_yields_at_most_one_replacement_dispatch_per_cell(monkeypatch, capsys):
+    """A queued producer cancelled gets exactly ONE replacement dispatch; a second cancellation fails the cell.
+
+    The replacement inherits the cell's remaining budget, so a cancellation storm cannot re-queue the
+    same cell unboundedly — the trigger exits 1 naming the per-cell cap it reached.
+    """
+    # Given a queued producer that is CANCELLED (a concurrency cancellation storm)
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "in_progress", "conclusion": "cancelled"})
+
+    # When  the trigger awaits the cell and its (also-cancelled) one replacement
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "120", "--gh", "gh"])
+
+    # Then  it dispatched at most ONE replacement (2 total) and failed naming the per-cell cap
+    assert len(_dispatch_argvs(state)) == 2, "exactly one original + once replacement, never more"
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "producer cancelled — nothing to wait for" in err
+    assert "after ONE replacement dispatch" in err
+
+
+def test_await_cell_withholds_replacement_when_the_budget_is_already_spent(monkeypatch):
+    """When the cell spent its whole budget waiting on the cancelled producer, no replacement fires.
+
+    The budget-carry is the point of the cap: a cancellation cannot buy a fresh full window — a cell
+    with no remaining budget is NOT re-queued, locking the replace-at-most-once rule even against a
+    mid-budget cancellation.
+    """
+    # Given a cell whose whole wait budget is already consumed by the (cancelled) first producer
+    def fake_dispatch(repo, branch, engine, arch, wait_min, gh):
+        return {"run_id": "77", "conclusion": "cancelled",
+                "cause": "producer cancelled — nothing to wait for"}
+
+    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_dispatch)
+
+    # When  _await_cell runs with a zero/minimal budget
+    outcome = ebt._await_cell("r", "b", "llama.cpp", "cpu", 0, "gh")
+
+    # Then  no replacement is dispatched and the cap is recorded
+    assert outcome["replace_cap"] is True
+    assert outcome["replaced"] is True
+
