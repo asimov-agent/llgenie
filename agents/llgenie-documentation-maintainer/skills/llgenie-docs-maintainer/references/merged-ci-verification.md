@@ -60,3 +60,11 @@ carried the identical #1123 trio, `state=MERGED`, `mergedAt` set).
 To tell shipped from pending, read the PR itself — never the branch ref:
 `gh pr view <n> --repo <o>/<r> --json state,mergedAt,mergeCommit` and quote `state`, `mergedAt`,
 `mergeCommit.oid`. Then confirm the merge commit is on main: `git merge-base --is-ancestor <mergeCommit.oid> origin/main`.
+
+## A lane that re-serves a stale snapshot is not argued down by repeat DMs
+
+**A lane that re-serves a stale snapshot is not argued down by repeat DMs.** Stop re-messaging it;
+break the loop through the channels the acting lane reads: (1) post the current truth durably on the
+issue (main sha, CI run id, green job id, issue state), and (2) message the lane *about to act* to
+reconcile against those ids before branching. Then stand by — the stale cache is the other lane's
+defect. "Green on merged main" needs the CI run (this file's opening rule).
