@@ -418,9 +418,9 @@ def test_ollama_builds_from_the_pinned_go_source(skills):
     # When each backend's install plan is rendered
     # Then every cell clones the pinned tag and builds the engine with Go
     for backend, text in steps.items():
-        assert "git clone -b v0.40.15 https://github.com/ollama/ollama.git" in text, backend
+        assert "git clone -b v0.40.16 https://github.com/ollama/ollama.git" in text, backend
         assert "CGO_ENABLED=1 go build -trimpath -buildmode=pie" in text, backend
-        assert "-X=github.com/ollama/ollama/version.Version=0.40.15" in text, backend
+        assert "-X=github.com/ollama/ollama/version.Version=0.40.16" in text, backend
         # nothing is downloaded ready-made: the tarball release path is gone
         assert "releases/download" not in text, backend
         assert "tar -xf" not in text and ".tar.zst" not in text, backend

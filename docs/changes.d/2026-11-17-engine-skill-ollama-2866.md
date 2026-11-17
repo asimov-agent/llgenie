@@ -1,0 +1,1 @@
+| 2026-11-17 | ollama engine skill re-derived at v0.40.16 (tag `d63b7026`): Dockerfiles, params, binaries manifest regenerated from the skill in one companion set, ending the #2855 split-pin binary-stage failures | [note](agent-wiki/2026-11-17-engine-skill-ollama-2866.md) | [#2866](https://github.com/asimov-agent/llgenie/issues/2866) |
