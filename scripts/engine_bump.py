@@ -466,9 +466,11 @@ def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
     The unit suite asserts the skill's current pin in three shapes (issue #144):
     the full sha, its 8-char prefix (image tags), and the tag/version string
     (`v0.35.1`, `0.35.1-rocm`). A bump that moves the pin without moving those
-    asserts makes `make test-unit` red on the bump PR. Only `tests/` and
-    `docs/` are rewritten; `README.md` is never touched (the user guide carries no pinned
-    version — issue #678), and historical OpenSpec/agent-wiki records are not.
+    asserts makes `make test-unit` red on the bump PR. `tests/` are rewritten and
+    the bumped engine's own `skills/engines/<id>/SKILL.md` pin lines are moved
+    (issue #2865); `README.md` is never touched (the user guide carries no pinned
+    version — issue #678), and history stays frozen: OpenSpec/agent-wiki records
+    and every `docs/changes.d/` row name the pin pair they recorded at their date.
     A ref that did not move (branch skills, old_ref == new_ref) is still
     substituted: the unit suite hardcodes the tag string next to the sha, and a
     sha-only move must rewrite both. The substitution is a no-op when the two
@@ -490,6 +492,12 @@ def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
             files.append(root)
         elif root.is_dir():
             files.extend(p for p in root.rglob("*") if p.is_file() and p.suffix in {".py", ".md"})
+    # A docs/changes.d/ row records the pin pair the bump moved AT ITS DATE.
+    # Rewriting a previous bump's row turns a documented record into an
+    # undocumented one — issue #2865 measured #2857 rewriting
+    # 2026-11-15-llama.cpp-bump.md's old pin into the new pin. History under
+    # docs/ stays byte-frozen; only live tests move.
+    files = [p for p in files if "changes.d" not in p.relative_to(REPO_ROOT).parts]
     for path in files:
         text = path.read_text()
         new = text
@@ -499,7 +507,150 @@ def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
         if new != text:
             path.write_text(new)
             changed.append(str(path.relative_to(REPO_ROOT)))
+
+    # The bumped engine's own skill is not history: its `base:` values and
+    # image-tag tokens name the CURRENT pin, and `make generate-engine-params`
+    # regenerates the params from them. Issue #2865 measured #2858 leaving
+    # `base: docker.io/vllm/vllm-openai:v0.33.0` in the skill while the
+    # Dockerfiles moved to v0.34.0 — the regenerated params back-filled the
+    # old tag and the frozen test literal never moved. Line-gated so prose
+    # that merely recalls an old ref stays; only lines that pin a registry
+    # image, declare `base:`, or name the engine's own `<engine>:` tag move.
+    skill_md = es.SKILLS_DIR / skill_id / "SKILL.md"
+    if skill_md.is_file():
+        pin_line = re.compile(
+            r"docker\.io/|ghcr\.io/|quay\.io/|registry\.|llgenie/|(^|\s)base:|"
+            + re.escape(f"{skill_id}:"))
+        text = skill_md.read_text()
+        out: list[str] = []
+        for line in text.splitlines(keepends=True):
+            if pin_line.search(line):
+                for old, repl in pairs:
+                    if old and old in line:
+                        line = line.replace(old, repl)
+            out.append(line)
+        new = "".join(out)
+        if new != text:
+            skill_md.write_text(new)
+            changed.append(str(skill_md.relative_to(REPO_ROOT)))
     return changed
+
+
+def _variant_hashes(skill_id: str) -> dict[str, str]:
+    """Each variant's image-hash half of the published tag, from the params
+    file as it currently stands on disk (`engine_skills._image_hash`)."""
+    params_path = REPO_ROOT / "containers" / "engines" / "params" / f"{skill_id}.json"
+    if not params_path.is_file():
+        return {}
+    try:
+        params = json.loads(params_path.read_text(encoding="utf-8"))
+        return {arch: es._image_hash(params, arch)
+                for arch in params.get("variants", {})}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def _rewrite_frozen_hashes(pairs: list[tuple[str, str]], skill_id: str) -> list[str]:
+    """Move the image hashes a regen changed (#2865).
+
+    `make generate-engine-params` rewrites the params, so each variant's
+    image-hash half of the published tag `llgenie/<id>:<pin8>-<hash>-<arch>`
+    moves. Tests freeze those hashes — `test_engine_skills.py` asserts
+    `es._image_hash(params, arch) == "<hash8>"` and names the tags in
+    comments (the #2553 precedent hand-moved exactly these literals). The lane
+    moves them for the bumped engine only, and only on lines naming
+    `_image_hash(` or the engine's tag token, so a line that merely contains
+    the same eight hex bytes inside, say, a git sha is not touched.
+    """
+    if not pairs:
+        return []
+    touched: list[str] = []
+    files: list[Path] = list(REPO_ROOT.glob("tests/**/*.py"))
+    skill_md = es.SKILLS_DIR / skill_id / "SKILL.md"
+    if skill_md.is_file():
+        files.append(skill_md)
+    for path in files:
+        try:
+            text = path.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        out: list[str] = []
+        hit = False
+        for line in text.splitlines(keepends=True):
+            if "_image_hash" in line or f"llgenie/{skill_id}" in line \
+                    or f"llgenie/{skill_id.replace('.', '-')}" in line \
+                    or f"{skill_id}:" in line:
+                for old, repl in pairs:
+                    if old and old in line:
+                        line = line.replace(old, repl)
+                        hit = True
+            out.append(line)
+        if hit:
+            path.write_text("".join(out))
+            touched.append(str(path.relative_to(REPO_ROOT)))
+    if touched:
+        print(f"[engine-bump] moved frozen image-hash literals for {skill_id} in "
+              + ", ".join(touched))
+    return touched
+
+
+#: The references a generated bump note names: the weekly bump cadence is
+#: tracked by #107; the companion contract itself is #2865.
+BUMP_CADENCE_ISSUE = 107
+BUMP_COMPANION_ISSUE = 2865
+
+
+def _companion_paths(skill_id: str) -> tuple[Path, Path]:
+    stem = f"{datetime.now(timezone.utc).date().isoformat()}-{skill_id}-bump"
+    return (REPO_ROOT / "agent-wiki" / f"{stem}.md",
+            REPO_ROOT / "docs" / "changes.d" / f"{stem}.md")
+
+
+def _write_companion_notes(skill_id: str, row: dict) -> list[Path]:
+    """Write the note pair a bump owes its readers (#2865).
+
+    A bump touches `containers/` — a behavioural change — and `make
+    check-docs`'s change->note contract wants an `agent-wiki/<stem>.md` note
+    with the matching `docs/changes.d/<stem>.md` row. The lane generated
+    neither, so every bump PR of the 2026-11-16 wave went red on the docs
+    report. The row follows the shape every hand-written changes.d row uses
+    (date | description | wiki link | reference).
+    """
+    wiki, fragment = _companion_paths(skill_id)
+    date = wiki.name[: len("YYYY-MM-DD")]
+    wiki.parent.mkdir(parents=True, exist_ok=True)
+    fragment.parent.mkdir(parents=True, exist_ok=True)
+    old8 = (row.get("old_sha") or "")[:8]
+    new8 = (row.get("new_sha") or "")[:8]
+    ref = row.get("new_ref") or "?"
+    wiki.write_text(
+        f"# {date} {skill_id} engine bump (re-pin `{ref}@{new8}`)\n\n"
+        f"Pull request generated by the engine-bump lane (issue "
+        f"#{BUMP_CADENCE_ISSUE}); the companion pair this note is part of is "
+        f"issue #{BUMP_COMPANION_ISSUE}.\n\n"
+        "## What changed\n\n"
+        f"The weekly engine-bump run re-derived {skill_id}'s install recipe at "
+        f"a newer upstream pin (`{old8}` -> `{new8}`, `{ref}`) and applied it to "
+        "the frozen cells:\n\n"
+        f"- `containers/engines/dockerfiles/{skill_id}/` — re-pinned and "
+        "re-bootstrapped,\n"
+        f"- `containers/engines/params/{skill_id}.json`,\n"
+        f"- `skills/engines/{skill_id}/SKILL.md`,\n"
+        "- the affected `tests/` cases, including the frozen image-hash "
+        "asserts.\n\n"
+        f"This PR changes no gate — CI builds and tests only {skill_id}'s own "
+        "images.\n",
+        encoding="utf-8",
+    )
+    fragment.write_text(
+        f"| {date} | engine bump: {skill_id} re-pinned `{old8}` -> `{new8}` "
+        f"(`{ref}`) — frozen per-arch Dockerfiles, params, SKILL.md and affected "
+        f"tests re-derived at the new pin (CI builds/tests only {skill_id}'s "
+        f"images) | [{wiki.name}](agent-wiki/{wiki.name}) "
+        f"| #{BUMP_CADENCE_ISSUE} |\n",
+        encoding="utf-8",
+    )
+    return [wiki, fragment]
 
 
 def _sync_generated(skill_id: str) -> list[str]:
@@ -628,12 +779,27 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
     rewritten = _rewrite_pin_asserts(skill_id, row["old_sha"], row["new_sha"],
                                      row["old_ref"], row["new_ref"])
     synced = _sync_generated(skill_id)
+    # The image-hash half of each published tag is derived from the params:
+    # snapshot it before regen, compare after, and move the frozen test
+    # literals that name a moved hash (issue #2865 — the alternative is a red
+    # unit gate on every bump PR that changes an engine's params).
+    hashes_before = _variant_hashes(skill_id)
     changed = _regen_guard(skill_id)
+    hashes_after = _variant_hashes(skill_id)
+    hash_pairs = [(hashes_before[arch], hashes_after[arch])
+                  for arch in hashes_after
+                  if hashes_before.get(arch) and hashes_before[arch] != hashes_after[arch]]
+    frozen = _rewrite_frozen_hashes(hash_pairs, skill_id)
+    # The companion pair a bump owes its readers (issue #2865): the
+    # agent-wiki/ note and its docs/changes.d/ row.
+    notes = _write_companion_notes(skill_id, row)
     print(f"[engine-bump] {skill_id}: {row['old_sha'][:8]} -> {row['new_sha'][:8]} "
           f"({row['new_ref']}); applied: {', '.join(applied) or 'none'}; "
           f"asserts: {', '.join(rewritten) or 'none'}; "
           f"synced: {', '.join(synced) or 'none'}; "
-          f"regen: {', '.join(changed)}")
+          f"regen: {', '.join(changed)}; "
+          f"frozen-hashes: {', '.join(frozen) or 'none'}; "
+          f"notes: {', '.join(str(p.relative_to(REPO_ROOT)) for p in notes)}")
     print(f"[engine-bump] {skill_id}: findings {json.dumps(findings, sort_keys=True)}")
     return [row]
 

@@ -316,12 +316,17 @@ def test_bump_still_pins_on_hard_fail(tmp_path):
     es.load_skills = lambda: {"testengine": skill}
     es.SKILLS_DIR = tmp_path / "skills" / "engines"
     orig_regen = eb._regen_guard
+    # the companion pair (agent-wiki note + changes.d row, issue #2865) writes
+    # under eb.REPO_ROOT: point it at the fixture tree so the run stays hermetic
+    orig_root = eb.REPO_ROOT
+    eb.REPO_ROOT = tmp_path
     eb._regen_guard = lambda sid: []
     try:
         rows = eb.bump("testengine")
     finally:
         es.load_skills = orig_load
         es.SKILLS_DIR = orig_skills_dir
+        eb.REPO_ROOT = orig_root
         eb._regen_guard = orig_regen
     assert len(rows) == 1
     assert rows[0]["hard_fail"]  # recorded, not fatal
@@ -781,11 +786,16 @@ def test_full_bump_lands_new_flag_in_params(tmp_path):
         captured["params"] = params
         return []
     eb._regen_guard = fake_regen
+    # the companion pair (issue #2865) writes under eb.REPO_ROOT: keep it in the
+    # fixture tree
+    orig_root = eb.REPO_ROOT
+    eb.REPO_ROOT = tmp_path
     try:
         rows = eb.bump("testengine")
     finally:
         es.load_skills = orig_load
         es.SKILLS_DIR = orig_skills_dir
+        eb.REPO_ROOT = orig_root
         eb._regen_guard = orig_regen
     assert len(rows) == 1
     assert rows[0]["hard_fail"] is None
