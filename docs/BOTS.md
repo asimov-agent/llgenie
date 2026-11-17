@@ -2343,13 +2343,18 @@ make check-zero-job-pending  # fail when a dispatched run has been pending/queue
                        # never completes, so the monitor never fired (#1442); it rode ci-requeue until
                        # issue #2702 retired that lane, and now rides ci-frozen-reaper (:19/:27,
                        # allow-listed) so the run-level sweep follows the frozen-run sweep
-# ---- Orphan-queued runs: the handling rule (issue #2656) ------------------------------------
+# ---- Orphan-queued runs: the handling rule (issue #2656) + ghost immunity (issue #2600) -------
 # A run that sits non-terminal far past the `--minutes` threshold with NO open pull request AND a head
 # branch GitHub answers 404 for (deleted) is an ORPHAN-queued run: the stale leftover of finished/past
 # work squatting the queue. A run still `in_progress` whose job records have ALL concluded is JOB EXPIRY
 # (#1889 wording): its verdict is expired, and it is never counted as a live matrix.
 #   * Reporting — the queued-alarm reports the squat ONCE PER EPISODE (a deduped issue keyed on the sorted
 #     run-id set), naming the run ids and the orphan/live/expired split; a newly-added run is a fresh episode.
+#   * Ghost immunity (issue #2600) — a run whose id is already retired in the zero-job zombie ledger, and
+#     a non-ledger run past the 24h queue-expiry window that is orphaned AND whose instantiated jobs have
+#     ALL concluded (a confirmed-concluded ghost; it cannot progress further), are NAMED in the report but
+#     never counted, never cancelled, never filed. The alarm reads the retirement ledger and job rows; it
+#     never cancels, deletes, or files a retirement.
 #   * Cancellation is the OWNER'S word, always — this alarm never cancels nor deletes any run (the fleet
 #     standing rule; see #817). To clear an orphan/expired run a human runs `gh run cancel <id>` (and, for
 #     the confirmed-concluded phantoms that 404 even a cancel, marks them retired per issue #2600).

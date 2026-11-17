@@ -405,3 +405,84 @@ def test_the_episode_marker_is_sorted_by_run_id():
     marker = alarm.episode_marker((507, 501))
     assert "501,507" in marker, marker
     assert "queued-run-squat" in marker, marker
+
+
+# ---- ghost squat vs the zero-job retirement ledger (issue #2600) and the
+#      confirmed-concluded probe (issue #2600) ---------------------------------
+
+ZOMBIE_MARK = "zero-job-zombie-retired"
+
+
+def test_a_ledger_retired_run_is_named_but_never_counted(tmp_path):
+    """A run already retired in the zero-job ledger is named in the report, but counts no squat.
+
+    Five of the 2026-11-11 ghost runs are retired in #2601-#2605; the retirement marker makes every
+    later scan report them as `retired (confirmed concluded earlier, #2600 mechanism; admin-only row,
+    see #2606)` — named, never counted, no `run view` round-trip spent on them.
+    """
+    branch = "feat/semgrep-ghost-runs"
+    log = gh_stub(tmp_path, [ghost_run(601, "queued", branch)], {"601": []},
+                  pr_list={branch: []}, branches={branch: False},
+                  open_issues=[{"number": 2601, "body": f"x\n<!-- {ZOMBIE_MARK}: run 601 -->"}])
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "RETIRED" in r.stdout and "run 601" in r.stdout and "#2600" in r.stdout
+    assert "#2606" in r.stdout, r.stdout
+    calls = log.read_text().splitlines()
+    run_views = [c for c in calls if c.startswith("run view")]
+    assert len(run_views) == 1, (
+        f"stuck_jobs pays its job-row scan, but squat_runs must NOT pay a second run view on a "
+        f"ledger-retired run (issue #2600): {run_views}"
+    )
+    assert "run view 601 --repo" in run_views[0], run_views
+
+
+def test_a_confirmed_concluded_ghost_is_named_but_never_counted(tmp_path):
+    """An orphaned run past 24h with all jobs concluded is a confirmed-concluded ghost, never counted.
+
+    This is run `43096752585`'s shape: orphaned (deleted branch, no open PR), ONE job `completed`,
+    stuck row — the zero-job gate can NEVER retire it (it has jobs), so the squat detector must learn
+    its conclusion itself, read-only, and never count it.
+    """
+    branch = "feat/engine-bump-regen-guard"
+    log = gh_stub(tmp_path, [ghost_run(602, "queued", branch)],
+                  {"602": [{"name": "ci unit", "status": "completed", "conclusion": "success"}]},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "CONFIRMED-CONCLUDED GHOST" in r.stdout and "run 602" in r.stdout
+    assert not [c for c in log.read_text().splitlines() if c.startswith("run cancel")], (
+        "a confirmed-concluded ghost is never cancelled"
+    )
+
+
+def test_a_ledger_retired_or_confirmed_ghost_is_never_filed(tmp_path):
+    """Retired and confirmed-concluded ghosts are named, but no squat issue is filed for them."""
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(603, "queued", branch)],
+                  {"603": [{"name": "ci unit", "status": "completed", "conclusion": "success"}]},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not [c for c in log.read_text().splitlines() if c.startswith("issue create")], (
+        "a confirmed-concluded ghost is named, never filed as a squat"
+    )
+
+
+def test_a_live_orphan_with_pending_jobs_is_still_red(tmp_path):
+    """Live squat semantics are unchanged: an orphaned run whose jobs are NOT all concluded is red.
+
+    A queued run with a still-queued job cannot be read as confirmed-concluded, whatever its age: it
+    may genuinely be waiting on a runner, so it stays a live orphan finding exactly as before.
+    """
+    branch = "feat/deleted"
+    log = gh_stub(tmp_path, [ghost_run(604, "queued", branch)],
+                  {"604": [{"name": "ci unit", "status": "queued"}]},
+                  pr_list={branch: []}, branches={branch: False})
+    r = run_alarm(tmp_path, ["--repo", REPO_SLUG, "--minutes", "30", "--comment"])
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "orphan-queued" in r.stdout and "run 604" in r.stdout, r.stdout
+    raw = log.read_text()
+    assert any(c.startswith("issue create") for c in raw.splitlines()), (
+        "a live orphan squat is still filed, exactly as today"
+    )

@@ -23,6 +23,12 @@ branch deleted) and runs stuck `in_progress` whose job records have all conclude
 read as expiry, never a live matrix). The squat is reported ONCE PER EPISODE (a deduped issue keyed on
 the run-id set) and is never cancelled by this alarm — cancellation is the owner's explicit word.
 
+Two classes of non-terminal-looking row are NAMED but never counted and never filed (issue #2600 &
+its confirmation probe): a run already retired in the zero-job zombie ledger (confirmed concluded
+earlier, admin-only row) and a non-ledger run past its 24h queue-expiry window that is orphaned and
+whose instantiated jobs have ALL concluded — a confirmed-concluded ghost. Neither makes the gate red;
+a live orphan/expired squat still does.
+
 Exit codes: 0 = nothing stuck and no squat, 1 = at least one job is stuck or a ghost-run squat (so a
 scheduled job goes red), 2 = the GitHub read failed, 3 = stuck/squat found AND the report could not be
 delivered.
@@ -38,8 +44,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import issue_body  # noqa: E402  (the one issue shape, #745)
+from check_zero_job_pending import zombie_retired_run_ids  # noqa: E402  (issue #2600) — the ONE
+#                                                           # zero-job retirement ledger the fleet shares
 
 MARKER = "queued-run-alarm"
+
+#: The 24h queue-expiry window: GitHub's own cleanup removes a run pending >24h with no jobs, so a
+#: non-ledger run still listed non-terminal past that window that is ORPHANED and whose instantiated
+#: jobs have ALL concluded is a confirmed-concluded ghost (issue #2600's read-only confirmation probe).
+QUEUE_EXPIRY_MINUTES = 24 * 60
 
 
 def _gh(args: list[str]) -> str:
@@ -134,14 +147,23 @@ def render(rows: list[dict], minutes: float) -> str:
     return "\n".join(lines)
 
 
-def render_squat(orphans: list[dict], expired: list[dict], minutes: float) -> str:
+def render_squat(orphans: list[dict], expired: list[dict], minutes: float,
+                 retired: list[dict] | None = None,
+                 confirmed: list[dict] | None = None) -> str:
     """The run-level ghost-queue squat report: run ids and the orphan / live / expired split.
 
     A permanently `in_progress` run whose jobs have all concluded is READ AS JOB EXPIRY (#1889
     wording): its verdict is expired, not a live matrix, and it never counts toward the live
     queued/in_progress supply.
+
+    `retired` (issue #2600 ledger rows) and `confirmed` (confirmed-concluded ghosts past the 24h
+    queue-expiry window, orphaned, all jobs concluded) are NAMED but never counted: both are
+    reported here so the evidence stays on the record, while neither makes the gate red nor a
+    squat issue.
     """
-    if not orphans and not expired:
+    retired = retired or []
+    confirmed = confirmed or []
+    if not orphans and not expired and not retired and not confirmed:
         return (f"no ghost-run squat: no orphan-queued run and no expired in_progress run "
                 f"past {minutes:.0f} minutes")
     lines = ["", "GHOST-RUN SQUAT (run-level, issue #2656):"]
@@ -157,12 +179,27 @@ def render_squat(orphans: list[dict], expired: list[dict], minutes: float) -> st
         for r in expired:
             lines.append(f"    run {r['run']}  {r['workflow']}  branch={r['branch']}  head {r['head']}  "
                          f"created {r['created']}  ({r['minutes']:.1f} min)")
+    if retired:
+        lines.append(f"  {len(retired)} run(s) RETIRED (confirmed concluded earlier, #2600 "
+                     f"mechanism; admin-only row, see #2606):")
+        for r in retired:
+            lines.append(f"    run {r['run']}  {r['workflow']}  branch={r['branch']}  head {r['head']}  "
+                         f"created {r['created']}  ({r['minutes']:.1f} min)")
+    if confirmed:
+        lines.append(f"  {len(confirmed)} run(s) CONFIRMED-CONCLUDED GHOST past the 24h queue-expiry "
+                     f"window, orphaned, all instantiated jobs concluded (cannot progress further):")
+        for r in confirmed:
+            lines.append(f"    run {r['run']}  {r['workflow']}  branch={r['branch']}  head {r['head']}  "
+                         f"created {r['created']}  ({r['minutes']:.1f} min)")
     lines.append("")
     lines.append("Handling rule: an orphan-queued run is reported ONCE PER EPISODE, naming the run ids "
-                 "and the orphan/live split above. It is NEVER cancelled by this alarm — the fleet "
+                 "and the orphan/live/expired split above. It is NEVER cancelled by this alarm — the fleet "
                  "standing rule reserves cancellation for the owner's explicit word (docs/BOTS.md). "
                  "A permanently `in_progress` run whose jobs all concluded is job expiry (#1889): its "
-                 "verdict is expired, not a live matrix, so it is not counted in the live queue.")
+                 "verdict is expired, not a live matrix, so it is not counted in the live queue. A run "
+                 "retired in the zero-job ledger (#2600), and a confirmed-concluded ghost past the 24h "
+                 "queue-expiry window, are NAMED but never counted, never cancelled, never filed — the "
+                 "row is admin-only (see #2606).")
     return "\n".join(lines)
 
 
@@ -225,8 +262,9 @@ def branch_resolved(repo: str, branch: str) -> bool:
         return "404" not in str(err)
 
 
-def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30) -> tuple[list[dict], list[dict]]:
-    """Classify the runs still non-terminal past `minutes` into (orphans, expired).
+def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30
+               ) -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+    """Classify the runs still non-terminal past `minutes` into (orphans, expired, retired, confirmed).
 
     ORPHAN: a run whose head branch has been deleted (404) and that no OPEN pull request tracks —
     the stale run of finished/past work squatting the queue (the 2026-11-11 ghost runs).
@@ -236,8 +274,17 @@ def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30) -> tuple[list[
     must be read as JOB EXPIRY (#1889 wording), not as a live matrix — it does not count toward the
     live queued/in_progress supply.
 
-    Neither is ever cancelled here: the fleet standing rule reserves cancellation for the owner's
-    explicit word (see docs/BOTS.md).
+    RETIRED: a run whose id is already in the zero-job zombie-retirement ledger (issue #2600 — the
+    cancel endpoint confirmed it concluded, the row is admin-only). NAMED but never counted, no
+    `run view` round-trip spent on it.
+
+    CONFIRMED: a non-ledger run past the 24h queue-expiry window (`QUEUE_EXPIRY_MINUTES`) that is
+    ORPHANED and whose instantiated jobs have ALL concluded — it cannot progress any further, so it
+    is a confirmed-concluded ghost. NAMED but never counted, never cancelled.
+
+    Orphan/expired are LIVE squats: they make the gate red and are filed as an episode issue.
+    Retired/confirmed are not counted and not filed. Nothing here is ever cancelled or deleted: the
+    fleet standing rule reserves cancellation for the owner's explicit word (see docs/BOTS.md).
     """
     now = dt.datetime.now(dt.timezone.utc)
     seen: set[int] = set()
@@ -249,16 +296,17 @@ def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30) -> tuple[list[
                 continue
             seen.add(rid)
             runs.append(run)
+    retired_ids = zombie_retired_run_ids(repo)
     orphans: list[dict] = []
     expired: list[dict] = []
+    retired: list[dict] = []
+    confirmed: list[dict] = []
     for run in runs:
         rid = run.get("databaseId")
         age = _age_minutes(run.get("createdAt"), now)
         if age is None or age < minutes:
             continue
         branch = run.get("headBranch", "")
-        jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"])
-                          or "{}").get("jobs") or []
         row = {"run": rid,
                "workflow": run.get("workflowName", ""),
                "branch": branch,
@@ -266,18 +314,38 @@ def squat_runs(repo: str, minutes: float = 30.0, limit: int = 30) -> tuple[list[
                "created": run.get("createdAt", ""),
                "url": run.get("url", ""),
                "minutes": age}
+        if rid in retired_ids:
+            # A retirement record confirmed this run concluded earlier (issue #2600): it reappears
+            # forever as a stale list row but is no longer a finding. Named, never counted, never a
+            # `run view` round-trip.
+            retired.append(row)
+            continue
+        jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"])
+                          or "{}").get("jobs") or []
+        all_concluded = bool(jobs) and not any(
+            (j.get("status") or "") in ("queued", "in_progress") for j in jobs)
+        has_pr = bool(open_prs_for_branch(repo, branch))
+        orphaned = (not has_pr) and bool(branch) and not branch_resolved(repo, branch)
+        if orphaned and age >= QUEUE_EXPIRY_MINUTES and all_concluded:
+            # A non-ledger run past the 24h queue-expiry window, orphaned, ALL its instantiated jobs
+            # concluded: it cannot progress any further — a confirmed-concluded ghost. Named, never
+            # counted, never cancelled (the row is admin-only, #2606).
+            confirmed.append(row)
+            continue
         if run.get("status") == "in_progress" and not any(
                 (j.get("status") or "") in ("queued", "in_progress") for j in jobs):
             # Every job record concluded but the run stays in_progress: the job-expiry trap (#1889).
             expired.append(row)
             continue
-        if open_prs_for_branch(repo, branch):
+        if has_pr:
             continue
         if branch and not branch_resolved(repo, branch):
             # 404 on the head ref + no open PR: an orphan from finished work squatting queued.
             orphans.append(row)
     return (sorted(orphans, key=lambda r: -r["minutes"]) or [],
-            sorted(expired, key=lambda r: -r["minutes"]) or [])
+            sorted(expired, key=lambda r: -r["minutes"]) or [],
+            sorted(retired, key=lambda r: -r["minutes"]) or [],
+            sorted(confirmed, key=lambda r: -r["minutes"]) or [])
 
 def run_prs(repo: str, run_id: int) -> list[int]:
     """The PR(s) this run reports on — empty when it is not a pull_request run.
@@ -531,12 +599,15 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[queued-alarm] {render(rows, a.minutes)}", flush=True)
 
     try:
-        orphans, expired = squat_runs(a.repo, a.minutes, limit=a.limit)
+        orphans, expired, retired, confirmed = squat_runs(a.repo, a.minutes, limit=a.limit)
     except RuntimeError as err:
         print(f"[queued-alarm] squat read failed: {err}", file=sys.stderr, flush=True)
         return 2
-    print(render_squat(orphans, expired, a.minutes), flush=True)
+    print(render_squat(orphans, expired, a.minutes, retired=retired, confirmed=confirmed),
+          flush=True)
 
+    # Retired/confirmed-concluded ghosts are NAMED but never counted: only a LIVE orphan/expired
+    # squat makes the gate red (issue #2600).
     has_squat = bool(orphans or expired)
     if not rows and not has_squat:
         return 0

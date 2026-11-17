@@ -414,6 +414,11 @@
       "reason": "tree_skill_names mirrors the Hermes skill loader's gates, and check_agent_skills.frontmatter is the repo's ONE SKILL.md frontmatter reader (issue #2836); re-stating the parser here is how the resolver drifted from the loader in the first place."
     },
     {
+      "from": "queued_run_alarm",
+      "to": "check_zero_job_pending",
+      "reason": "issue #2600: the zombie retirement ledger (zombie_retired_run_ids) is the ONE record of confirmed-concluded phantom rows the fleet shares; the squat detector must read the same ledger the zero-job gate writes or it re-counts retired ghosts on every scan."
+    },
+    {
       "from": "rebase_bot_sweep",
       "to": "check_pr_base",
       "reason": "check_pr_base holds the ONE definition of staleness \u2014 the merge-base-is-not-the-base-tip rule of issue #845 \u2014 and the sweep measures a PR's staleness through it (staleness_from_compare) instead of restating the rule, so the gate that reds a stale branch and the sweep that rebases it cannot drift (issue #2071)."
