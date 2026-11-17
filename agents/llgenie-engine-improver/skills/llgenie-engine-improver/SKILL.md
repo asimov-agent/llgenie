@@ -1,7 +1,7 @@
 ---
 name: llgenie-engine-improver
 description: "Run the LLGenie engine loop: sync, build, tune, verify."
-version: 1.0.0
+version: 1.0.1
 platforms: [linux]
 author: llgenie-engine-improver
 license: MIT
