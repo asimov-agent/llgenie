@@ -4,11 +4,11 @@ description: "Use when installing TensorFold (MLX on Apple Silicon, or CUDA sm_8
 engine: "TensorFold"
 id: tensorfold
 repo: https://github.com/ashhart/TensorFold
-ref: v1.2.5
+ref: v1.2.9
 ref_kind: tag
-version: v1.2.5
-pinned: b392ffceec672aa0e204fef992dbba4c78c64641
-verified: "2026-11-09"
+version: v1.2.9
+pinned: 539dc9d6044cad545cae3abeb019bb8fe202d35a
+verified: "2026-11-17"
 license: Apache-2.0
 servable: true
 backends: [metal, cuda]
@@ -37,6 +37,10 @@ install:
     # toolchain, like gcc), and the arch list is upstream's own `release_sms`
     # (`zig/build/cuda.zig`): sm_80, 86, 120, 121 — passed as `-Dsm`, the project's
     # equivalent of CMAKE_CUDA_ARCHITECTURES. No release archive is downloaded.
+    # Re-checked at the v1.2.9 pin (issue #2867): upstream `.zig-version` is still
+    # 0.17.0, `release_sms` is still "80,86,120,121", and the installed artifact is
+    # still named `tensorfold` (`installArtifact` in `zig/build/cuda.zig`), so the
+    # recipe carries unchanged from v1.2.5.
     - "uv pip install --system --break-system-packages ziglang==0.17.0"
     - "ln -sfn /usr/local/bin/python-zig /usr/local/bin/zig"
     - "test -d {src}/.git || git clone {repo}.git {src}"

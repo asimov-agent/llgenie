@@ -483,7 +483,7 @@ comes from `entrypoint.sh detect` (CI #106). A CLI whose parser has **no version
 (`binary_probe: help`: mlx cpu — argparse `--help`/`-h` only) must answer the help family,
 and its version likewise comes from `detect`; without that policy the probe would fail an
 engine for a flag it never had (found by the dispatch sweep, issue #614). A CLI whose parser
-has **no help flag at all** (`binary_probe: version`: tensorfold cuda at the 1.2.5 pin —
+has **no help flag at all** (`binary_probe: version`: tensorfold cuda at the 1.2.9 pin —
 `-h`/`--help` are a separate subcommand, cf. #1685) must answer its version family — the
 binary self-proves, and the image's own `detect` re-answers it — while the help family is
 exempt because the binary truthfully has none (issue #1888). When a `detect` has to fall
