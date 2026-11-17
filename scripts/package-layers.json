@@ -335,6 +335,11 @@
       "reason": "the trigger asks the pin gate which cells a change repins instead of re-implementing the repin diff."
     },
     {
+      "from": "engine_build_trigger",
+      "to": "engine_image",
+      "reason": "the published-skip probe reuses the may-arm's manifest authority (exact tag -> engine_image._digest_http) instead of opening a second registry read path (issue #2892)."
+    },
+    {
       "from": "engine_bump",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
