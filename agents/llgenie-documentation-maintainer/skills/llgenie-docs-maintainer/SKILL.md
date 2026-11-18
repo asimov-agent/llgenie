@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.24
+version: 1.0.25
 author: Hermes Agent
 license: MIT
 metadata:

@@ -1,7 +1,7 @@
 ---
 name: llgenie-pr-review
 description: "Use when reviewing llgenie PRs: evidence, gates, verdicts."
-version: 1.28.0
+version: 1.28.1
 author: LLGenie PR Reviewer
 license: MIT
 platforms: [linux, macos]
