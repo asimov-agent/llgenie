@@ -1889,9 +1889,10 @@ def test_vllm_rocm_opens_its_root_only_base_venv_for_uid_1000():
         assert b"base_access" not in hashed, f"{untouched} must not move its tag"
     # The published cuda digest (vllm:3a4d82f5-4c1f3eee-cuda) stays reachable; rocm moves
     # (db98981b -> a new digest) because its image content actually changed. Update these
-    # only with a real vllm version bump that re-publishes the fleet.
+    # only with a real vllm version bump or a base re-pin that re-publishes the fleet
+    # (#2839 moved the cpu cell 524f7326 -> 169d2720: its Dockerfile FROM line re-pinned).
     assert es._image_hash(params, "cuda") == "4c1f3eee"
-    assert es._image_hash(params, "cpu") == "524f7326"
+    assert es._image_hash(params, "cpu") == "169d2720"
     assert es._image_hash(params, "rocm") != "db98981b"
     cuda_df = (REPO / "containers/engines/dockerfiles/vllm/Dockerfile.cuda").read_text()
     assert 'find "$d"' not in cuda_df
@@ -2151,3 +2152,45 @@ def test_missing_binary_whose_path_contains_the_version_is_missing(tmp_path):
     assert status["state"] == "missing"
     assert status["installed"] is None
 
+
+
+# Issue #2839: the engine base images upgrade the distro debs they inherit.
+
+def test_engine_base_upgrades_inherited_debs():
+    """Given the generated engine base Dockerfiles for every container backend.
+
+    When their base apt layer is read,
+
+    Then `apt-get upgrade -y` sits between `apt-get update` and the toolchain
+    `apt-get install`, so inherited upstream-base debs are refreshed before our
+    own packages install (the agent-image shape from #2836).
+    """
+    for backend in es.CONTAINER_BACKENDS:
+        text = (es.BASE_DIR / f"Dockerfile.{backend}").read_text()
+        run = next(line for line in text.splitlines() if line.startswith("RUN apt-get"))
+        assert "apt-get update && apt-get upgrade -y && apt-get install" in run, backend
+        assert text.strip() == es.render_base_dockerfile(backend).strip(), backend
+
+
+def test_engine_dockerfiles_pin_the_upgraded_base_tag():
+    """Given the regenerated engine Dockerfiles.
+
+    When their build stages are read,
+
+    Then every build stage that builds on the rendered llgenie base pins the tag
+    that renderer currently emits, so the upgrade reaches every engine image that
+    builds on it. Cells whose stage FROMs an upstream image (vllm/sglang CUDA etc.)
+    do not consume the base and are not asserted.
+    """
+    for backend in es.CONTAINER_BACKENDS:
+        tag = es.base_tag(backend)  # full ref: llgenie/base-<backend>:<hash>
+        prefix = f"FROM {es.base_image_name(backend)}"
+        pinned = 0
+        for dockerfile in sorted((es.DOCKERFILES_DIR).glob(f"*/Dockerfile.{backend}")):
+            for line in dockerfile.read_text().splitlines():
+                if not line.startswith(prefix):
+                    continue
+                pinned += 1
+                rest = line[len(f"FROM {tag}"):]
+                assert rest == "" or rest.startswith(" AS "), (dockerfile, line)
+        assert pinned > 0, f"no {backend} build stage consumes {prefix}"

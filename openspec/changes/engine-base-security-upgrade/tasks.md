@@ -1,0 +1,10 @@
+# Tasks: engine-base-security-upgrade
+
+Umbrella issue: [#2839](https://github.com/asimov-agent/llgenie/issues/2839)
+
+- [x] 1. OpenSpec change (`make openspec-new NAME=engine-base-security-upgrade`) + issue #2839 filed with the six-section body; the 15 finding issues (#2738-#2747, #2752, #2796, #2825, #2797, #2826) named in ## Technical with the scan as their closure owner.
+- [x] 2. `scripts/engine_skills.py::render_base_dockerfile`: `apt-get upgrade -y` between `apt-get update` and the toolchain install, for every backend.
+- [x] 3. `make generate-engine-params`: regenerate the four base Dockerfiles and every engine Dockerfile that builds on the llgenie base (24 `FROM llgenie/base-<backend>:<hash>` pins move; cells FROMing upstream images, e.g. vllm/sglang CUDA, are untouched); `make check-engine-params` green.
+- [x] 4. `tests/test_engine_skills.py`: hermetic tests `test_engine_base_upgrades_inherited_debs` (upgrade layer pinned in all four generated base files) and `test_engine_dockerfiles_pin_the_upgraded_base_tag`; the re-pin's fleet re-tag moves the vllm cpu cell digest (`524f7326` → `169d2720`) — the pinned digest in `test_vllm_rocm_opens_its_root_only_base_venv_for_uid_1000` and the re-tag proxy in `tests/test_ci_publish_order.py::test_a_params_file_identical_to_the_base_is_not_deferred` are updated to the tag-input reality; full `make test-unit` green (no skips).
+- [x] 5. `agent-wiki/2026-11-16-engine-base-security-upgrade-2839.md` + `docs/changes.d/` fragment naming the 15 findings and their scan-closure owner; `make changes-index` regenerated; `make check-docs` green.
+- [x] 6. Verification you can tick at the done-claim: `make openspec-validate NAME=engine-base-security-upgrade` rc=0, `make check-engine-params` rc=0, `make check-docs` rc=0, `make openspec-tasks-check` green with every task above ticked, and the full unit suite green at the PR head; the PR (`closes #2839`) carries this checklist mirrored in its body and commit text and is driven green, then stopped for the CI auto-merge lane.

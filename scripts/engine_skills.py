@@ -1002,7 +1002,9 @@ def render_base_dockerfile(backend: str) -> str:
         f"# BACKEND={backend}` (CI: engine-base job), cached and published, never per engine.",
         f"FROM {DEFAULT_BASE[backend]}",
         "ENV DEBIAN_FRONTEND=noninteractive PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}",
-        "RUN apt-get update && apt-get install -y --no-install-recommends \\",
+        # Upgrade the debs the upstream base image inherited before installing our
+        # own toolchain, so engine images don't re-ship superseded distro packages.
+        "RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \\",
         f"        {' '.join(tools)} \\",
         "    && rm -rf /var/lib/apt/lists/*",
         "COPY --from=ghcr.io/astral-sh/uv:0.9.5 /uv /uvx /opt/llgenie/bin/",

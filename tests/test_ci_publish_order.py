@@ -587,14 +587,26 @@ def test_an_identical_params_file_defers_only_when_a_tag_retags(tmp_path):
     assert _deferred_engines(params_dir=root, base=head) == set()
 
     # Case 2: params identical to origin/main. Whether the engine is deferred depends on whether
-    # this branch's tag computation (scripts/engine_image.py) actually differs from base — a
-    # tag-computation change re-tags the whole fleet, so an unchanged params file IS deferred then
-    # (#823), and is not when the computation is unchanged. Computing it here keeps the assertion
-    # deterministic across the CI and local base states.
-    changed = subprocess.run(["git", "show", "origin/main:scripts/engine_image.py"], cwd=REPO,
-                             capture_output=True, text=True)
-    tag_src_changed = (changed.returncode != 0
-                       or changed.stdout != (REPO / "scripts" / "engine_image.py").read_text())
+    # this branch actually re-tags this engine — a tag-computation change (issue #823) OR any
+    # change to the files the tag digest hashes (the committed Dockerfile, entrypoint, runner;
+    # e.g. the #2839 base re-pin moves every FROM-pinned cell) re-tags it to a not-yet-published
+    # tag, so an unchanged params file IS deferred then, and is not when the tag inputs are
+    # unchanged. Computing it here keeps the assertion deterministic across the CI and local base states.
+    tag_inputs = ["scripts/engine_image.py", "scripts/engine_runner.py",
+                  "containers/engines/entrypoint.sh"] + [
+        f"containers/engines/dockerfiles/{engine}/Dockerfile.{v}"
+        for v in ("cpu", "cuda", "rocm", "vulkan")]
+    tag_src_changed = False
+    for rel in tag_inputs:
+        shown = subprocess.run(["git", "show", f"origin/main:{rel}"], cwd=REPO,
+                               capture_output=True, text=True)
+        exists = (REPO / rel).exists()
+        if (shown.returncode != 0) != (not exists):
+            tag_src_changed = True
+            break
+        if exists and shown.stdout != (REPO / rel).read_text():
+            tag_src_changed = True
+            break
     base_main = subprocess.run(["git", "show", f"origin/main:containers/engines/params/{engine}.json"],
                                cwd=REPO, capture_output=True, text=True)
     assert base_main.returncode == 0, base_main.stderr

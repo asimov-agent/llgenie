@@ -3,7 +3,7 @@
 # Build: make build-engine ENGINE=ollama ARCH=vulkan
 # Run:   make run-engine ENGINE=ollama ARCH=vulkan MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM llgenie/base-vulkan:03116dd9fd AS build
+FROM llgenie/base-vulkan:c3c8145ccf AS build
 USER root
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
