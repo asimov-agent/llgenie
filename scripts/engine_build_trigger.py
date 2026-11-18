@@ -218,7 +218,8 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     Returns {run_id, status, conclusion, guard_refused}. `gh workflow run` exit 0 is never a verdict.
     """
     before = _existing_run_ids(repo, gh)
-    fields = [f"engine={engine}", "push=true"]
+    fields = [f"engine={engine}", "push=true", "moving_tags=false"]  # issue #178: a PR-scoped
+    # producer publishes the unique pin only; the run on main is the one that moves :<arch>/:latest.
     if arch:
         fields.append(f"arch={arch}")
     # Exit 0 is not a verdict (#964), and a NON-zero exit is a dispatch that never started a run.
@@ -379,7 +380,7 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
           f"{', '.join(f'{e}/{v}' for e, v in sorted(cells))}")
     if dry:
         for e, v in sorted(cells):
-            print(f"  would dispatch engine-build push=true engine={e} arch={v} @ {branch}")
+            print(f"  would dispatch engine-build push=true moving_tags=false engine={e} arch={v} @ {branch}")
         print("[will] dry-run: nothing dispatched")
         return 0
     failures = 0

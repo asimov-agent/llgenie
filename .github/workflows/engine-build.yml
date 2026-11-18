@@ -67,6 +67,10 @@ on:
         description: "Rebuild from scratch, ignoring the layer cache (true) or reuse a cached/available image (false)"
         required: false
         default: "false"
+      moving_tags:
+        description: "Move the :<arch>/:latest tags to what this run publishes (true = main-scope behaviour). A PR-repin trigger dispatches false: the run publishes the unique pinned tag ONLY and the aliases stay wherever main left them (issue #178)."
+        required: false
+        default: "true"
       producer_run:
         description: "Run id of the workflow instance that fired this dispatch (issue #2578); registry-liveness passes its own github.run_id. A human/PR-lane dispatch leaves it empty and the provenance step records the actor instead."
         required: false
@@ -267,11 +271,15 @@ jobs:
         run: |
           echo "head_sha=${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "head_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-      - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
+      - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing; moving_tags=false publishes the unique pin only — PR-scoped producer run, issue #178)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        env:
+          MOVING: ${{ inputs.moving_tags == 'false' && '0' || '1' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "published-binary-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH) and verify the engine BINARY answers -h/--version only (issue #2319). No server is started in CI; the serve conformance test is host-only (make test-engine-host / make test-engine-serve, run manually by the llgenie-engine-improver with the smallest model that fits)."
+      - name: "published-binary-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH; MOVING=0 measures the pinned tag alone, issue #178) and verify the engine BINARY answers -h/--version only (issue #2319). No server is started in CI; the serve conformance test is host-only (make test-engine-host / make test-engine-serve, run manually by the llgenie-engine-improver with the smallest model that fits)."
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        env:
+          MOVING: ${{ inputs.moving_tags == 'false' && '0' || '1' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "published-image-scan: make security-scan-published ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — scan the image this cell just pushed BY DIGEST with the pinned trivy/Syft/Grype (issue #2706): the wheels and base-OS packages the runtime ships are invisible to the tree scans, so the artifact is measured at publish time. Report-only here — findings land in this log and the scheduled security lane judges/files them under data/security-policy.json; a scanner hiccup must not red a cell whose image is already published and binary-verified, so this step continues on error."
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}

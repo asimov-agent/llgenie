@@ -970,12 +970,17 @@ def publish_refs(spec: dict) -> list[str]:
     return refs
 
 
-def push(spec: dict) -> int:
+def push(spec: dict, moving: bool = True) -> int:
     """Push a built image to GHCR only after its binary reports a version.
 
     The CI matrix tests the image first (`make test-engine-stage`). This runs
     that same version check again and does not tag or push when it fails, so a
     matrix row whose binary is missing is not published.
+
+    issue #178: a PR-scoped producer run passes `moving=False`. It then publishes
+    ONLY the unique pinned tag and never touches the moving refs (`:<arch>`,
+    `:latest`): the run on `main` is the one that moves them, so a PR whose pin is
+    not merged yet cannot repoint an alias out from under the published main pin.
     """
     if not REGISTRY:
         print("[engine-image] LLGENIE_REGISTRY not set; nothing to push")
@@ -987,7 +992,13 @@ def push(spec: dict) -> int:
     if test_image(spec) != 0:
         print(f"[engine-image] FAIL {tag}: engine binary file missing or did not accept --version or -h; not pushing")
         return 1
-    for r in publish_refs(spec):
+    refs = publish_refs(spec)
+    if not moving:
+        skipped = ", ".join(refs[1:])
+        refs = refs[:1]
+        print(f"[engine-image] note: PR-scoped publish (issue #178): {skipped} are NOT moved by a "
+              "PR build; only the run on main moves them once this pin is merged", flush=True)
+    for r in refs:
         if _sh([RUNTIME, "tag", tag, r]).returncode:
             print(f"[engine-image] FAIL tag {r}")
             return 1
@@ -1095,10 +1106,16 @@ def _digest_http(ref: str) -> tuple:
         return "", str(e)[-200:]
 
 
-def pull_published(spec: dict) -> str:
+def pull_published(spec: dict, moving_check: bool = True) -> str:
     """Pull the image AS PUBLISHED (issue #102): drop any local copy first, pull the
     pinned tag from the registry, and check it has the same digest as the moving
-    :<arch> tag. Returns the local tag, or "" on failure. Never builds."""
+    :<arch> tag. Returns the local tag, or "" on failure. Never builds.
+
+    issue #178: a PR-scoped producer run passes `moving_check=False`. The pull then
+    verifies the pinned tag ALONE — the moving alias it would compare against is not
+    owned by main until the main-scope run moves it, so requiring the equality mid-wave
+    measures another PR's pin instead of this one.
+    """
     if not REGISTRY:
         print("[engine-image] LLGENIE_REGISTRY not set; nothing published to test")
         return ""
@@ -1123,7 +1140,7 @@ def pull_published(spec: dict) -> str:
     if not d_ref:
         print(f"[engine-image] FAIL {ref} has no digest")
         return ""
-    for m in moving:
+    for m in moving if moving_check else []:
         d = _digest(m)
         if not d and m.endswith(":latest"):
             # Rollout (issue #638): `:latest` only exists once a run has published that engine.
@@ -1133,8 +1150,13 @@ def pull_published(spec: dict) -> str:
         if d != d_ref:
             print(f"[engine-image] FAIL digest mismatch: {ref}={d_ref} {m}={d or '?'}")
             return ""
+    if not moving_check:
+        print(f"[engine-image] note: PR-scoped published pull (issue #178): {ref} is measured alone; "
+              "the moving refs are verified by the main-scope run that moves them", flush=True)
     _sh([RUNTIME, "tag", ref, tag], check=True)
-    print(f"[engine-image] pulled published {ref} ({d_ref}), same digest as {', '.join(moving)}")
+    print(f"[engine-image] pulled published {ref} ({d_ref})"
+          + (f", same digest as {', '.join(moving)}" if moving_check
+             else ", moving refs skipped (PR scope, issue #178)"))
     return tag
 
 
@@ -1364,6 +1386,11 @@ def main(argv=None) -> int:
             p.add_argument("--name", default="")
             p.add_argument("--models-dir", default=str(Path.home() / "models"))
             p.add_argument("--wait", type=float, default=900)
+        if n in ("push", "pull-published"):
+            # issue #178: PR-scoped producer runs publish/measure the unique pin only;
+            # the moving refs (:<arch>, :latest) belong to the run on main.
+            p.add_argument("--no-moving", action="store_true",
+                           help="do not move (push) or require (pull) the :<arch>/:latest tags")
     cs = sub.add_parser("ci-status")
     cs.add_argument("--run", default="")
     cs.add_argument("--watch", action="store_true")
@@ -1407,9 +1434,9 @@ def main(argv=None) -> int:
     if a.cmd == "build":
         return build(spec, a.force, a.push)
     if a.cmd == "pull-published":
-        return 0 if pull_published(spec) else 1
+        return 0 if pull_published(spec, moving_check=not a.no_moving) else 1
     if a.cmd == "push":
-        return push(spec)
+        return push(spec, moving=not a.no_moving)
     if a.cmd == "test-image":
         return test_image(spec)
     if a.cmd == "stop":

@@ -354,7 +354,7 @@ run-engine: ## Run ENGINE's image: OpenAI API on 127.0.0.1:$(PORT)/v1 as llm-loc
 	@test -n "$(ENGINE)" -a -n "$(MODEL)" || { echo "Usage: make run-engine ENGINE=<id> MODEL=<path|hf-id> [ARCH=] [PORT=11434]"; exit 1; }
 	python3 scripts/engine_image.py run "$(ENGINE)" $(ARCH_ARGS) --model "$(MODEL)" --port "$(PORT)"
 
-test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH) and verify the engine BINARY answers -h/--version (issue #2319). The engine-build CI gate is binary-only — it never starts a server. The serving conformance test is HOST-only: `make test-engine-host ENGINE=<id> ARCH=<arch> [MODEL=...]` (or the explicit `--serve` tier `make test-engine-serve`), run manually by the llgenie-engine-improver with the smallest model that fits. `python3 scripts/engine_capability.py serve ENGINE ARCH` reports whether an arch may serve at all; the checkout's chat-testable decision is no longer part of the CI gate.
+test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH; with MOVING=0 the pinned tag is measured alone — PR-scoped leg, issue #178) and verify the engine BINARY answers -h/--version (issue #2319). The engine-build CI gate is binary-only — it never starts a server. The serving conformance test is HOST-only: `make test-engine-host ENGINE=<id> ARCH=<arch> [MODEL=...]` (or the explicit `--serve` tier `make test-engine-serve`), run manually by the llgenie-engine-improver with the smallest model that fits. `python3 scripts/engine_capability.py serve ENGINE ARCH` reports whether an arch may serve at all; the checkout's chat-testable decision is no longer part of the CI gate.
 	@python3 scripts/published_engine.py --engine "$(ENGINE)" --arch "$(ARCH)"
 
 # internal seams for scripts/published_engine.py (issue #2675): the entry point runs these
@@ -362,7 +362,7 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 # targets so the ARCH_ARGS / CI_HOME / engine_test seams remain make macros with their exact
 # expansions. No `##` help line on purpose (test-unit-network precedent, issue #1000).
 published-engine-pull:
-	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
+	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS) $(MOVING_FLAG)
 
 check-engine-cache-namespace: ## Issue #2891: prove hermetically that the build seam's buildx registry cache refs track the content hashes the image tags carry — base refs `<basehash>-buildcache`, cell refs `<pin8>-<content-hash>-<variant>-buildcache`; a base/cell content change must start a NEW namespace, unchanged content must replay the same one.
 	$(TEST_RUN) python -m pytest tests/test_engine_cache_namespace.py -p no:cacheprovider -q
@@ -374,9 +374,9 @@ published-engine-binary:
 	@$(CI_HOME_CLEAN)
 	@echo "[published] $(ENGINE)/$(ARCH) binary verified (-h/--version); the serve conformance test is host-only (make test-engine-host, issue #2319)"
 
-push-engine: ## Push ENGINE's image to GHCR only after its binary FILE answers the version/help flags it documents: <registry>/<name>:<pinned-hash-arch> and :<arch>
+push-engine: ## Push ENGINE's image to GHCR only after its binary FILE answers the version/help flags it documents: <registry>/<name>:<pinned-hash-arch> and :<arch> (MOVING=0 publishes the pinned tag only — PR-scoped producer run, issue #178)
 	@test -n "$(ENGINE)" || { echo "Usage: make push-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
-	python3 scripts/engine_image.py push "$(ENGINE)" $(ARCH_ARGS)
+	python3 scripts/engine_image.py push "$(ENGINE)" $(ARCH_ARGS) $(MOVING_FLAG)
 
 stop-engine: ## Stop ENGINE's running container
 	@test -n "$(ENGINE)" || { echo "Usage: make stop-engine ENGINE=<id>"; exit 1; }

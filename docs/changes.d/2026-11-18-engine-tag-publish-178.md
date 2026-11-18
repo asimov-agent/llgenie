@@ -1,0 +1,1 @@
+| 2026-11-18 | PR-scoped engine-build producer runs publish and measure the unique pinned tag only (`moving_tags=false` / `--no-moving` / `MOVING=0`); only the run on `main` moves the `:<arch>`/`:latest` aliases (issue #178) | [2026-11-18-engine-tag-publish-178.md](agent-wiki/2026-11-18-engine-tag-publish-178.md) | #178 |

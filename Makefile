@@ -469,6 +469,11 @@ UNSUPPORTED ?=
 # PR red until the engine ships or gets a dated decision. Never pass it from ci-unit.
 PORT ?= 11434
 ARCH_ARGS = $(if $(ARCH),--variant $(ARCH),$(ENGINE_ARGS))
+# issue #178: a PR-scoped producer run sets MOVING=0 (from the engine-build workflow's
+# moving_tags=false dispatch); the push/pull seams then pass --no-moving, so a PR build
+# publishes and measures the unique pinned tag only and the moving :<arch>/:latest tags
+# are moved solely by the run on main.
+MOVING_FLAG = $(if $(filter 0 false,$(MOVING)),--no-moving,)
 build-engine-%: ## Build one engine x arch image from its generated Dockerfile (build-engine-<engine>-<arch>)
 	$(MAKE) build-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
 run-engine-%: ## Run one engine x arch image (run-engine-<engine>-<arch> MODEL=…)
