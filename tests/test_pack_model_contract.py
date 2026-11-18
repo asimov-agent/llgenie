@@ -24,7 +24,6 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
 
 from scripts import engine_skills as es
 from scripts import hf_download as hd
