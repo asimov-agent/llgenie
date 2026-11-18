@@ -781,6 +781,13 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
         # Only the DECLARING variant's dict gains the key, so only that cell's
         # tag digest moves — there the image content genuinely changes.
         variant["base_access"] = [str(d) for d in spec["base_access"]]
+    if skill.get("model_contract") == "pack":
+        # Pack launch contract pass-through (issue #2909): a skill that serves a
+        # multi-file pack declares `model_contract: "pack"` + `pack` (parts,
+        # config_env) in its manifest; only the declaring variant's dict gains the
+        # keys, so no current engine's tag digest moves.
+        variant["model_contract"] = "pack"
+        variant["pack"] = skill.get("pack") or {}
     return variant
 
 
@@ -1178,7 +1185,10 @@ def image_spec(params: dict, variant: str) -> dict:
             "dockerfile": str(dockerfile_path(params["id"], variant).relative_to(REPO_ROOT)),
             "build_args": {"BASE_IMAGE": v["base"], "ENGINE": params["id"], "BACKEND": v["backend"],
                            "VARIANT": variant, "APT_EXTRA": " ".join(v["apt"]), **v["build_args"]},
-            "run_args": v["run_args"], "port": v["port"]}
+            "run_args": v["run_args"], "port": v["port"],
+            # Pack launch contract (issue #2909): carried only for declaring variants.
+            **({"model_contract": "pack", "pack": v.get("pack") or {}}
+               if v.get("model_contract") == "pack" else {})}
 
 
 # ---------------------------------------------------------------------------

@@ -34,6 +34,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pack_contract  # noqa: E402  # pack-manifest validation at the registry door (issue #2909)
+
 try:
     from .hf_auth import authorize, hub_open
 except ImportError:
@@ -320,6 +323,7 @@ def normalise_formats(row: dict) -> tuple[list[dict], str]:
     another format. Returns (formats, note) — note is "" when nothing was dropped."""
     kept: list[dict] = []
     dropped: list[str] = []
+    bad_packs: list[str] = []
     for z in row.get("formats") or []:
         canon = _canon_format(z.get("name"))
         if canon is None:
@@ -327,6 +331,13 @@ def normalise_formats(row: dict) -> tuple[list[dict], str]:
             continue
         entry = dict(z)
         entry["name"] = canon
+        if isinstance(entry.get("pack"), dict):
+            # A pack record's manifest is validated AT THE DOOR: a malformed pack never
+            # becomes a half-fetched model — the record keeps its non-pack shape and the
+            # refusal is surfaced in the sync note (issue #2909).
+            if not pack_contract.valid_files(entry["pack"].get("files")):
+                entry.pop("pack")
+                bad_packs.append(str(entry.get("hf") or canon))
         if canon not in [k["name"] for k in kept]:
             kept.append(entry)
     note = ""
@@ -337,6 +348,9 @@ def normalise_formats(row: dict) -> tuple[list[dict], str]:
         note = f"{row.get('id')}: formats {dropped} are not formats; stated {stated} for {repo}"
     elif dropped:
         note = f"{row.get('id')}: dropped non-format formats {dropped}"
+    if bad_packs:
+        note = (note + "; " if note else "") + \
+               f"{row.get('id')}: dropped malformed pack manifest(s) {bad_packs} (issue #2909)"
     return kept, note
 
 

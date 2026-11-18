@@ -27,6 +27,7 @@
       "loopback_server",
       "model_engine_pick",
       "native_build_env",
+      "pack_contract",
       "registry_keys",
       "serve_variant",
       "strata_models",

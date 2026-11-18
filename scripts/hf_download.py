@@ -3,6 +3,8 @@
 
 Usage: hf_download.py <repo_id> <filename> <dest_dir> <label> [refresh] [expected_bytes]
        hf_download.py <repo_id> -          <dest_dir> <label>   ...  whole-repo snapshot
+       hf_download.py <repo_id> @<manifest.json> <dest_dir> <label> ...  a PACK: exactly the
+           manifest's named file set fetched as one resumable download (issue #2909)
 refresh: "1" -> ALWAYS consult the Hub (etag/hash) so a same-name file that was
 updated upstream (or a corrupt local copy) is re-fetched, not skipped. Leave a
 fully-fresh local file untouched (hf no-ops on matching etag).
@@ -31,16 +33,50 @@ MAX_RETRY = 20
 DEFAULT_STALL_SECONDS = 90
 DEFAULT_RETRY_PAUSE = 5
 SNAPSHOT = "-"  # the filename that means "the whole repo", never a file named "-"
+MANIFEST_PREFIX = "@"  # the filename that means "this JSON names the pack's file set"
 
 
-def _present(final_path, snapshot: bool) -> bool:
+def _load_manifest(path):
+    """Read a pack manifest (`scripts/pack_contract.py`'s shape) into (files, revision).
+
+    Malformed manifests are a hard stop: a pack fetched from half a manifest is a corrupt
+    model, so every part must be named before any byte is requested (issue #2909).
+    """
+    import json
+    try:
+        man = json.load(open(path))
+        files = man["files"]
+        assert isinstance(files, list) and files
+        for f in files:
+            assert isinstance(f.get("path"), str) and f["path"] and not f["path"].startswith("/")
+    except Exception as exc:
+        print(f"ERROR: unreadable pack manifest {path}: {exc}", file=sys.stderr)
+        return None
+    return files, str(man.get("revision") or "")
+
+
+def _present(final_path, snapshot: bool, manifest_files=None) -> bool:
     """Is the download already on disk?
 
     A directory is only "present" when it holds a real file: the destination directory is
     created before the first attempt, and the downloader's own progress log (and any
     `.`-prefixed sidecar) lives inside it, so neither may be mistaken for a completed
     download (issue #385).
+
+    A PACK is present only when EVERY manifest file exists with its declared size (a pack
+    missing one shard is not resumable-safe to serve; per-file resume keeps the partial)
+    (issue #2909).
     """
+    if manifest_files is not None:
+        if not os.path.isdir(final_path):
+            return False
+        for f in manifest_files:
+            p = os.path.join(final_path, f["path"])
+            if not os.path.isfile(p):
+                return False
+            if f.get("bytes") and os.path.getsize(p) != int(f["bytes"]):
+                return False
+        return True
     if not snapshot:
         return os.path.exists(final_path)
     if not os.path.isdir(final_path):
@@ -117,6 +153,13 @@ def main(argv=None):
     argv = list(argv if argv is not None else sys.argv[1:])
     repo, filename, dest = argv[0], argv[1], argv[2]
     snapshot = filename in (SNAPSHOT, "", None)  # the whole repo, not one file
+    manifest_files = None  # a pack: exactly the manifest's named file set (issue #2909)
+    manifest_revision = ""
+    if not snapshot and filename.startswith(MANIFEST_PREFIX):
+        loaded = _load_manifest(filename[1:])
+        if loaded is None:
+            return 2
+        manifest_files, manifest_revision = loaded
     label = argv[3]
     refresh = (argv[4] if len(argv) > 4 else "0") == "1"
     expected_bytes = int(argv[5]) if len(argv) > 5 and str(argv[5]).isdigit() else None
@@ -144,20 +187,30 @@ def main(argv=None):
     if not HF_BIN or not os.path.isfile(HF_BIN):
         print(f"[{label}] ERROR: 'hf' CLI not found on PATH (no fallback).", file=sys.stderr)
         return 2
-    cmd = [HF_BIN, "download", repo] + ([] if snapshot else [filename]) + \
+    cmd = [HF_BIN, "download", repo] + \
+          ([] if snapshot else ([f["path"] for f in manifest_files] if manifest_files else [filename])) + \
           ["--local-dir", dest, "--max-workers", "4"]
-    if os.environ.get("HF_REVISION"):  # a pinned commit (Strata's files): never the moving main
-        cmd += ["--revision", os.environ["HF_REVISION"]]
-    final_path = dest if snapshot else os.path.join(dest, filename)
+    revision = manifest_revision or os.environ.get("HF_REVISION")  # a pinned commit: never the moving main
+    if revision and revision != "main":
+        cmd += ["--revision", revision]
+    final_path = dest if (snapshot or manifest_files) else os.path.join(dest, filename)
 
-    TOTAL_BYTES = None if snapshot else _resolve_expected_bytes(repo, filename, label, expected_bytes)
+    TOTAL_BYTES = None
+    if not snapshot:
+        if manifest_files:  # the pack's declared total: the whole file set, not one quant
+            total = sum(int(f.get("bytes") or 0) for f in manifest_files)
+            TOTAL_BYTES = total or None
+        else:
+            TOTAL_BYTES = _resolve_expected_bytes(repo, filename, label, expected_bytes)
     stall_threshold = float(os.environ.get("HF_STALL_SECONDS", str(DEFAULT_STALL_SECONDS)))
     poll_interval = float(os.environ.get("HF_POLL_SECONDS", "3"))
     retry_pause = float(os.environ.get("HF_RETRY_PAUSE", str(DEFAULT_RETRY_PAUSE)))
     max_retry = int(os.environ.get("HF_MAX_RETRY", str(MAX_RETRY)))
 
-    write_log(f"MODE download {repo} :: {filename if not snapshot else '* (whole repo)'} "
-              f"@ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\n"
+    shown = ("* (whole repo)" if snapshot else
+             (f"@manifest ({len(manifest_files)} files)" if manifest_files else filename))
+    write_log(f"MODE download {repo} :: {shown} "
+              f"@ {revision or 'main'} -> {dest}\n"
               f"START {time.ctime()} | max_retry={MAX_RETRY}\n")
 
     t_total = time.time()
@@ -169,7 +222,7 @@ def main(argv=None):
         # fast if the local file's content hash still matches; if the file was
         # UPDATED upstream (even same filename + same size), the etag differs and hf
         # re-fetches just that file. A mere existence check would mask that update.
-        if (not refresh) and _present(final_path, snapshot):
+        if (not refresh) and _present(final_path, snapshot, manifest_files):
             break  # already done
         write_log(f"\n=== attempt {attempt} ({time.ctime()}) {('refresh' if refresh else 'plain')} ===")
         t0 = time.time()
@@ -235,7 +288,7 @@ def main(argv=None):
         rc = proc.wait()
         write_log(f"--- attempt {attempt} ended rc={rc} {time.ctime()}, "
                   f"disk={tree_bytes(dest, final_path)/1e9:.2f} GB ---")
-        if rc == 0 and _present(final_path, snapshot):
+        if rc == 0 and _present(final_path, snapshot, manifest_files):
             write_log(f"\nDONE {time.ctime()} (attempt {attempt}, total {attempt} runs) final_file={final_path}")
             print(f"[{label}] COMPLETE rc=0 attempt={attempt} final_file={final_path}", flush=True)
             break

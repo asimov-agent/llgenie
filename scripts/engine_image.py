@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
+import pack_contract  # noqa: E402  # the pack model contract (issue #2909)
 import hf_auth  # noqa: E402
 from proc import run_ok, run_live  # noqa: E402  the subprocess policy seam (issue #797)
 
@@ -548,6 +549,10 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
     if tok:
         os.environ["HF_TOKEN"] = tok  # docker -e HF_TOKEN reads it; the value stays off argv
     env = ["-e", f"LLGENIE_MODEL={container_model(model, models_dir)}"]
+    if spec.get("model_contract") == "pack":
+        # A pack model is a DIRECTORY mounted whole; the launch env binds every declared
+        # part (issue #2909). Missing parts refuse here, naming each one, before any rm/run.
+        env += pack_contract.launch_env(spec, model, models_dir)
     for k in ("HF_TOKEN", "LLGENIE_DRAFTER"):
         if os.environ.get(k):
             env += ["-e", k]  # value passed from the environment, never on the command line
