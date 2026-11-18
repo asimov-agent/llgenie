@@ -124,6 +124,7 @@
       "lane_preflight",
       "loop_harness",
       "make_help",
+      "post_merge_live_check",
       "published_engine",
       "test_clean"
     ],

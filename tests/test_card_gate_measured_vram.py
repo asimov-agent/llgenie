@@ -205,11 +205,15 @@ def test_the_card_list_follows_the_published_tier_ranking(reg):
     rows = mp.trend_list(reg, gb, RAM)
     ranked = [r["name"] for r in rows if r["name"] in set(tiers[gb])]
 
-    # Then the ranked rows are in the table's order, and that order is NOT the store's order
+    # Then the ranked rows are in the table's order, and the order is proven independent of
+    # the store's own line order: a store with its rows REVERSED must give the same card list.
+    # (The old guard compared against today's store order; the 2026-11-17 trending re-pin made
+    # the global order coincide with the tier ranking at 8 GB, which tested the data, not the
+    # code. Reversal invariance is the data-independent form of the same guard.)
     assert ranked == [n for n in tiers[gb] if n in set(ranked)]
-    assert ranked != [m["name"] for m in reg["models"] if m["name"] in set(ranked)]
-    global_order = [m["name"] for m in reg["models"] if mp.fits(m, gb, RAM)]
-    assert [r["name"] for r in rows] != global_order
+    reversed_reg = copy.deepcopy(reg)
+    reversed_reg["models"] = list(reversed(reversed_reg["models"]))
+    assert [r["name"] for r in mp.trend_list(reversed_reg, gb, RAM)] == [r["name"] for r in rows]
 
 
 def test_the_card_list_does_not_depend_on_the_store_file_order(reg):

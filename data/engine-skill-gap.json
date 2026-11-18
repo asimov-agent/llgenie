@@ -1,6 +1,6 @@
 {
-  "generated_utc": "2026-11-15T08:29:53Z",
-  "registry_engines": 46,
+  "generated_utc": "2026-11-17T08:25:02Z",
+  "registry_engines": 50,
   "skills": 17,
   "shipped": [
     "DFlash2",
@@ -155,6 +155,20 @@
       "issue": 229
     },
     {
+      "engine": "basalt",
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Blackwell-tuned NVIDIA engine auto-registered from the 2026-11-17 trending sync; the host fleet is Ada (RTX 4090) with no Blackwell card, so the engine skill/parameter work is parked and tracked per-issue.",
+      "issue": 2902
+    },
+    {
+      "engine": "edge0",
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5; the engine-skill/adapter decision is tracked per-issue.",
+      "issue": 2903
+    },
+    {
       "engine": "glm-flash-lite",
       "decision": "deferred",
       "decided": "2026-10-14",
@@ -211,6 +225,20 @@
       "issue": 229
     },
     {
+      "engine": "qwen-warp",
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Custom CUDA decode engine with an OpenAI-compatible API (Qwen3.8-27B on one RTX 3090) auto-registered from the 2026-11-17 trending sync; the engine skill work is tracked per-issue.",
+      "issue": 2904
+    },
+    {
+      "engine": "smolmaxxing",
+      "decision": "not-shipped",
+      "decided": "2026-11-18",
+      "reason": "Not a serving engine: a llama.cpp fork shipping Metal-only repacked quant lookup kernels (1-bit/2-bit/ternary), measured on Apple M5; Metal cannot run inside llgenie's Linux images and llama.cpp already carries the engine, so the tracking issue keeps the kernels visible.",
+      "issue": 2905
+    },
+    {
       "engine": "strixite",
       "decision": "deferred",
       "decided": "2026-10-27",
@@ -235,6 +263,20 @@
   "unresolved": [],
   "stale_decisions": [],
   "models_never_offered": [
+    {
+      "id": "ling-mini-2.0",
+      "name": "Ling-mini-2.0",
+      "engines": [
+        "smolmaxxing"
+      ]
+    },
+    {
+      "id": "edge0-145b",
+      "name": "Edge0-145B",
+      "engines": [
+        "edge0"
+      ]
+    },
     {
       "id": "bonsai-2-27b-mlx-fast",
       "name": "Bonsai 2 27B (mlx.fast)",
@@ -272,13 +314,6 @@
       ]
     },
     {
-      "id": "mellum-2-1-12b-a2-5b",
-      "name": "Mellum 2.1 12B-A2.5B",
-      "engines": [
-        "LM Studio"
-      ]
-    },
-    {
       "id": "qwen3.8-flash-next-125b-mlx-serve",
       "name": "Qwen3.8-Flash-Next 125B (MLX-Serve 26.10.1)",
       "engines": [
@@ -297,6 +332,13 @@
       "name": "Qwen3.8-27B (Apple Silicon long-context)",
       "engines": [
         "mlx-serve"
+      ]
+    },
+    {
+      "id": "mellum-2-1-12b-a2-5b",
+      "name": "Mellum 2.1 12B-A2.5B",
+      "engines": [
+        "LM Studio"
       ]
     },
     {
@@ -343,6 +385,7 @@
         "TandemLLM",
         "TensorFold",
         "TokenSpeed",
+        "basalt",
         "llama.cpp",
         "llama.cpp (LaurentZuijdwijk fork)",
         "llama.cpp (LlamAmpere fork)",
@@ -352,6 +395,7 @@
         "mlx-serve",
         "oMLX",
         "omlx-exl3",
+        "qwen-warp",
         "vLLM"
       ],
       "unsupported": [
@@ -366,12 +410,62 @@
         "Rapid-MLX",
         "TandemLLM",
         "TokenSpeed",
+        "basalt",
         "llama.cpp (LlamAmpere fork)",
         "llama.cpp (hikicoder fork)",
         "llama.cpp (strix-llama.cpp fork)",
         "mlx-serve",
         "oMLX",
-        "omlx-exl3"
+        "omlx-exl3",
+        "qwen-warp"
+      ]
+    },
+    {
+      "id": "qwen3.8-35b-a3b",
+      "name": "Qwen3.8-35B-A3B",
+      "engines": [
+        "ExLlamaV3",
+        "llama.cpp"
+      ],
+      "unsupported": [
+        "ExLlamaV3"
+      ]
+    },
+    {
+      "id": "gemma-4-e4b",
+      "name": "Gemma 4 E4B",
+      "engines": [
+        "MLX",
+        "SonicBoom",
+        "llama.cpp"
+      ],
+      "unsupported": [
+        "SonicBoom"
+      ]
+    },
+    {
+      "id": "gemma-4-26b",
+      "name": "Gemma 4 26B",
+      "engines": [
+        "MLX",
+        "Ollama",
+        "llama.cpp",
+        "turbo-fieldfare"
+      ],
+      "unsupported": [
+        "turbo-fieldfare"
+      ]
+    },
+    {
+      "id": "qwen3.8-27b-twin-turbo",
+      "name": "Qwen3.8-27B Twin Turbo",
+      "engines": [
+        "DFlash2",
+        "TokenSpeed",
+        "llama.cpp"
+      ],
+      "unsupported": [
+        "TokenSpeed"
       ]
     },
     {
@@ -405,16 +499,28 @@
       ]
     },
     {
-      "id": "gemma-4-26b",
-      "name": "Gemma 4 26B",
+      "id": "bonsai-2-27b",
+      "name": "Bonsai 2 27B",
       "engines": [
+        "LM Studio",
         "MLX",
-        "Ollama",
-        "llama.cpp",
-        "turbo-fieldfare"
+        "MLX-fast (Bonsai 2)",
+        "Strata",
+        "llama.cpp (PrismML fork)"
       ],
       "unsupported": [
-        "turbo-fieldfare"
+        "LM Studio"
+      ]
+    },
+    {
+      "id": "qwen2.5-0.5b",
+      "name": "Qwen2.5-0.5B",
+      "engines": [
+        "SonicBoom",
+        "llama.cpp"
+      ],
+      "unsupported": [
+        "SonicBoom"
       ]
     },
     {
@@ -446,79 +552,6 @@
         "PyTorch",
         "mlx-serve",
         "oMLX"
-      ]
-    },
-    {
-      "id": "qwen3.8-35b-a3b",
-      "name": "Qwen3.8-35B-A3B",
-      "engines": [
-        "ExLlamaV3",
-        "llama.cpp"
-      ],
-      "unsupported": [
-        "ExLlamaV3"
-      ]
-    },
-    {
-      "id": "deepseek-v4.1-flash",
-      "name": "DeepSeek-V4.1-Flash",
-      "engines": [
-        "MLX",
-        "Strata",
-        "llama.cpp",
-        "llama.cpp (hikicoder fork)",
-        "vLLM"
-      ],
-      "unsupported": [
-        "llama.cpp (hikicoder fork)"
-      ]
-    },
-    {
-      "id": "qwen3.8-flash-next-125b-strix-halo-strata",
-      "name": "Qwen3.8-Flash-Next 125B on Strix Halo (Strata)",
-      "engines": [
-        "Slotstream",
-        "Strata"
-      ],
-      "unsupported": [
-        "Slotstream"
-      ]
-    },
-    {
-      "id": "qwen3.8-27b-twin-turbo",
-      "name": "Qwen3.8-27B Twin Turbo",
-      "engines": [
-        "DFlash2",
-        "TokenSpeed",
-        "llama.cpp"
-      ],
-      "unsupported": [
-        "TokenSpeed"
-      ]
-    },
-    {
-      "id": "bonsai-2-27b",
-      "name": "Bonsai 2 27B",
-      "engines": [
-        "LM Studio",
-        "MLX",
-        "MLX-fast (Bonsai 2)",
-        "Strata",
-        "llama.cpp (PrismML fork)"
-      ],
-      "unsupported": [
-        "LM Studio"
-      ]
-    },
-    {
-      "id": "qwen2.5-0.5b",
-      "name": "Qwen2.5-0.5B",
-      "engines": [
-        "SonicBoom",
-        "llama.cpp"
-      ],
-      "unsupported": [
-        "SonicBoom"
       ]
     },
     {
@@ -614,25 +647,6 @@
       ]
     },
     {
-      "id": "glm-5.3-flash",
-      "name": "GLM-5.3-Flash",
-      "engines": [
-        "ExLlamaV3",
-        "FreeToken",
-        "MLX",
-        "Project Maya",
-        "TensorFold",
-        "glm-flash-lite",
-        "llama.cpp",
-        "vLLM"
-      ],
-      "unsupported": [
-        "ExLlamaV3",
-        "Project Maya",
-        "glm-flash-lite"
-      ]
-    },
-    {
       "id": "gemma-4-12b",
       "name": "Gemma 4 12B",
       "engines": [
@@ -656,6 +670,31 @@
       ]
     },
     {
+      "id": "deepseek-v4.1-flash",
+      "name": "DeepSeek-V4.1-Flash",
+      "engines": [
+        "MLX",
+        "Strata",
+        "llama.cpp",
+        "llama.cpp (hikicoder fork)",
+        "vLLM"
+      ],
+      "unsupported": [
+        "llama.cpp (hikicoder fork)"
+      ]
+    },
+    {
+      "id": "qwen3.8-flash-next-125b-strix-halo-strata",
+      "name": "Qwen3.8-Flash-Next 125B on Strix Halo (Strata)",
+      "engines": [
+        "Slotstream",
+        "Strata"
+      ],
+      "unsupported": [
+        "Slotstream"
+      ]
+    },
+    {
       "id": "thinkingcap-27b",
       "name": "ThinkingCap 27B",
       "engines": [
@@ -667,17 +706,6 @@
       ]
     },
     {
-      "id": "gemma-4-e4b",
-      "name": "Gemma 4 E4B",
-      "engines": [
-        "SonicBoom",
-        "llama.cpp"
-      ],
-      "unsupported": [
-        "SonicBoom"
-      ]
-    },
-    {
       "id": "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
       "name": "Qwen3.8-27B (RX 9060 XT KV-streaming llama.cpp fork)",
       "engines": [
@@ -686,28 +714,6 @@
       ],
       "unsupported": [
         "llama.cpp (custom KV-streaming fork)"
-      ]
-    },
-    {
-      "id": "qwen3.5-0.8b",
-      "name": "Qwen3.5 0.8B",
-      "engines": [
-        "llama.cpp",
-        "llama.cpp (strix-llama.cpp fork)"
-      ],
-      "unsupported": [
-        "llama.cpp (strix-llama.cpp fork)"
-      ]
-    },
-    {
-      "id": "qwen3.8-27b-ps5-llamacpp",
-      "name": "Qwen3.8-27B on a jailbroken PS5",
-      "engines": [
-        "llama.cpp",
-        "llama.cpp (strix-llama.cpp fork)"
-      ],
-      "unsupported": [
-        "llama.cpp (strix-llama.cpp fork)"
       ]
     },
     {
@@ -760,6 +766,25 @@
       ]
     },
     {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "engines": [
+        "ExLlamaV3",
+        "FreeToken",
+        "MLX",
+        "Project Maya",
+        "TensorFold",
+        "glm-flash-lite",
+        "llama.cpp",
+        "vLLM"
+      ],
+      "unsupported": [
+        "ExLlamaV3",
+        "Project Maya",
+        "glm-flash-lite"
+      ]
+    },
+    {
       "id": "minicpm-v-4.7",
       "name": "MiniCPM-V 4.7",
       "engines": [
@@ -782,6 +807,28 @@
       ],
       "unsupported": [
         "Janas"
+      ]
+    },
+    {
+      "id": "qwen3.5-0.8b",
+      "name": "Qwen3.5 0.8B",
+      "engines": [
+        "llama.cpp",
+        "llama.cpp (strix-llama.cpp fork)"
+      ],
+      "unsupported": [
+        "llama.cpp (strix-llama.cpp fork)"
+      ]
+    },
+    {
+      "id": "qwen3.8-27b-ps5-llamacpp",
+      "name": "Qwen3.8-27B on a jailbroken PS5",
+      "engines": [
+        "llama.cpp",
+        "llama.cpp (strix-llama.cpp fork)"
+      ],
+      "unsupported": [
+        "llama.cpp (strix-llama.cpp fork)"
       ]
     },
     {
@@ -837,8 +884,8 @@
       "variants": [],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
         "qwen3.8-35b-a3b",
+        "qwen3.8-flash-next-125b",
         "glm-5.3-flash",
         "minicpm-v-4.7"
       ],
@@ -888,9 +935,9 @@
         "rocm"
       ],
       "models": [
+        "deepseek-v4-flash",
         "qwen3.6-35b-a3b",
         "glm-5.3-flash",
-        "deepseek-v4-flash",
         "glm-5.2"
       ],
       "top_engine": {
@@ -993,14 +1040,14 @@
       "variants": [],
       "models": [
         "qwen3.8-27b",
-        "qwen3.6-35b-a3b",
         "bonsai-2-27b",
+        "qwen3.6-35b-a3b",
         "qwen3-8-27b",
         "qwen3.6-35b-a3b-kapitsa-m4-pro-mtp",
         "qwen3-6-35b-a3b",
         "qwen3.6-35b-a3b-mac-mini-m4-pro-flint",
-        "mellum-2-1-12b-a2-5b",
-        "qwen3-8-27b-aegis-rd1-2-lm-studio"
+        "qwen3-8-27b-aegis-rd1-2-lm-studio",
+        "mellum-2-1-12b-a2-5b"
       ],
       "top_engine": {
         "cuda": [],
@@ -1085,44 +1132,44 @@
       ],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
+        "gemma-4-e4b",
         "gemma-4-26b",
-        "qwen3.6-35b-a3b",
-        "deepseek-v4.1-flash",
         "gemma-4-31b",
-        "gemma-4-e2b",
         "alpie-seed-9b",
+        "gemma-4-e2b",
         "lfm2.5-24b-a2b",
         "bonsai-2-9b",
+        "qwen3.8-flash-next-125b",
         "bonsai-2-9b-apple-silicon-yukon",
         "bonsai-2-4b",
         "bonsai-2-27b",
         "muse-spark-open",
         "bonsai-2-2b",
+        "qwen3.6-35b-a3b",
         "qwen3-1.7b-mlx-woodcock",
         "lfm2-5-24b-a2b",
         "qwen3-8-flash-next-125b",
-        "bonsai-2-2b-phone",
         "qwen3.5-9b",
-        "glm-5.3-flash",
         "qwen3-30b-a3b",
-        "laya-mlx-decision-models",
+        "deepseek-v4.1-flash",
         "qwen3.5-4b",
-        "qwen3.6-27b",
         "nemotron-dory-4b",
         "qwen3.5-35b-a3b",
         "gpt-oss-20b",
         "muse-spark-open-mlx-2-studio-tp",
-        "bonsai-2-9b-phone",
         "qwen3.5-122b-a10b",
         "nanbeige4.3-33b",
         "deepseek-v4.1-flash-1017",
         "qwen3-4b",
+        "bonsai-2-2b-phone",
+        "glm-5.3-flash",
         "qwen3-30b",
         "qwen3-8b",
         "minicpm-v-4.7",
         "orbin-1.5-35b-moe",
+        "laya-mlx-decision-models",
         "qwen3-14b",
+        "qwen3.6-27b",
         "laguna-xs-2-1",
         "ornith-1.5",
         "qwen3.8-27b-bonsai-2",
@@ -1130,6 +1177,7 @@
         "ravenx-conjecture-qwen3-8b-mlx",
         "youtu-parsing-omni",
         "bonsai-2-27b-mac-m4-max",
+        "bonsai-2-9b-phone",
         "meta-llama-3-1-70b-q4-mlx",
         "bonsai-2-27b-mlx",
         "qwen2-vl-72b-instruct",
@@ -1146,7 +1194,6 @@
           "qwen3-8-flash-next-125b",
           "qwen3.5-9b",
           "qwen3-30b-a3b",
-          "laya-mlx-decision-models",
           "nemotron-dory-4b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
@@ -1158,6 +1205,7 @@
           "qwen3-30b",
           "minicpm-v-4.7",
           "orbin-1.5-35b-moe",
+          "laya-mlx-decision-models",
           "laguna-xs-2-1",
           "ornith-1.5",
           "ravenx-conjecture-qwen3-8b-mlx",
@@ -1168,6 +1216,7 @@
           "qwen3-6-27b"
         ],
         "rocm": [
+          "gemma-4-e4b",
           "gemma-4-26b",
           "gemma-4-31b",
           "alpie-seed-9b",
@@ -1176,7 +1225,6 @@
           "lfm2-5-24b-a2b",
           "qwen3-8-flash-next-125b",
           "qwen3-30b-a3b",
-          "laya-mlx-decision-models",
           "nemotron-dory-4b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
@@ -1188,6 +1236,7 @@
           "qwen3-30b",
           "minicpm-v-4.7",
           "orbin-1.5-35b-moe",
+          "laya-mlx-decision-models",
           "laguna-xs-2-1",
           "ravenx-conjecture-qwen3-8b-mlx",
           "youtu-parsing-omni",
@@ -1197,6 +1246,7 @@
           "qwen3-6-27b"
         ],
         "vulkan": [
+          "gemma-4-e4b",
           "gemma-4-26b",
           "gemma-4-31b",
           "alpie-seed-9b",
@@ -1205,7 +1255,6 @@
           "lfm2-5-24b-a2b",
           "qwen3-8-flash-next-125b",
           "qwen3-30b-a3b",
-          "laya-mlx-decision-models",
           "nemotron-dory-4b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
@@ -1217,6 +1266,7 @@
           "qwen3-30b",
           "minicpm-v-4.7",
           "orbin-1.5-35b-moe",
+          "laya-mlx-decision-models",
           "laguna-xs-2-1",
           "ravenx-conjecture-qwen3-8b-mlx",
           "youtu-parsing-omni",
@@ -1226,18 +1276,18 @@
           "qwen3-6-27b"
         ],
         "metal": [
+          "gemma-4-e4b",
           "gemma-4-26b",
-          "qwen3.6-35b-a3b",
-          "deepseek-v4.1-flash",
           "gemma-4-31b",
           "alpie-seed-9b",
           "muse-spark-open",
+          "qwen3.6-35b-a3b",
           "qwen3-1.7b-mlx-woodcock",
           "lfm2-5-24b-a2b",
           "qwen3-8-flash-next-125b",
           "qwen3.5-9b",
           "qwen3-30b-a3b",
-          "laya-mlx-decision-models",
+          "deepseek-v4.1-flash",
           "qwen3.5-4b",
           "nemotron-dory-4b",
           "qwen3.5-35b-a3b",
@@ -1251,6 +1301,7 @@
           "qwen3-8b",
           "minicpm-v-4.7",
           "orbin-1.5-35b-moe",
+          "laya-mlx-decision-models",
           "qwen3-14b",
           "laguna-xs-2-1",
           "ornith-1.5",
@@ -1263,13 +1314,13 @@
           "qwen3-6-27b"
         ],
         "cpu": [
+          "gemma-4-e4b",
           "gemma-4-31b",
           "alpie-seed-9b",
           "lfm2.5-24b-a2b",
           "qwen3-1.7b-mlx-woodcock",
           "lfm2-5-24b-a2b",
           "qwen3-8-flash-next-125b",
-          "laya-mlx-decision-models",
           "nemotron-dory-4b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
@@ -1281,6 +1332,7 @@
           "qwen3-30b",
           "minicpm-v-4.7",
           "orbin-1.5-35b-moe",
+          "laya-mlx-decision-models",
           "laguna-xs-2-1",
           "ornith-1.5",
           "ravenx-conjecture-qwen3-8b-mlx",
@@ -1586,8 +1638,8 @@
       ],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
         "lfm2.5-24b-a2b",
+        "qwen3.8-flash-next-125b",
         "muse-spark-open",
         "qwen3-0.6b",
         "qwen3.8-27b-dgx-spark-sglang",
@@ -1646,8 +1698,8 @@
       "image": false,
       "variants": [],
       "models": [
-        "qwen2.5-0.5b",
-        "gemma-4-e4b"
+        "gemma-4-e4b",
+        "qwen2.5-0.5b"
       ],
       "top_engine": {
         "cuda": [],
@@ -1675,9 +1727,9 @@
       "models": [
         "qwen3.8-27b",
         "qwen3.8-flash-next-125b",
+        "bonsai-2-27b",
         "deepseek-v4.1-flash",
-        "qwen3.8-flash-next-125b-strix-halo-strata",
-        "bonsai-2-27b"
+        "qwen3.8-flash-next-125b-strix-halo-strata"
       ],
       "top_engine": {
         "cuda": [
@@ -1755,13 +1807,13 @@
         "qwen3.8-flash-next-125b",
         "qwen3-8-27b",
         "qwen3.8-27b-thinkingcap-tensorfold-1spark",
-        "glm-5.3-flash",
         "thinkingcap-27b",
         "gemma-4-26b-a4b",
         "qwen3.8-27b-tensorfold-m3-ultra",
         "nemotron-3.5-lightning-30b-a3b",
         "qwen3.8-27b-mlx-serve-26.10.1",
         "cyber-frost-3.8-mlx",
+        "glm-5.3-flash",
         "qwen3.8-27b-tensorfold-dflash2-macmini"
       ],
       "top_engine": {
@@ -1769,12 +1821,12 @@
           "qwen3.8-27b",
           "qwen3-8-27b",
           "qwen3.8-27b-thinkingcap-tensorfold-1spark",
-          "glm-5.3-flash",
           "thinkingcap-27b",
           "qwen3.8-27b-tensorfold-m3-ultra",
           "nemotron-3.5-lightning-30b-a3b",
           "qwen3.8-27b-mlx-serve-26.10.1",
           "cyber-frost-3.8-mlx",
+          "glm-5.3-flash",
           "qwen3.8-27b-tensorfold-dflash2-macmini"
         ],
         "rocm": [],
@@ -1784,12 +1836,12 @@
           "qwen3.8-flash-next-125b",
           "qwen3-8-27b",
           "qwen3.8-27b-thinkingcap-tensorfold-1spark",
-          "glm-5.3-flash",
           "thinkingcap-27b",
           "qwen3.8-27b-tensorfold-m3-ultra",
           "nemotron-3.5-lightning-30b-a3b",
           "qwen3.8-27b-mlx-serve-26.10.1",
           "cyber-frost-3.8-mlx",
+          "glm-5.3-flash",
           "qwen3.8-27b-tensorfold-dflash2-macmini"
         ],
         "cpu": []
@@ -1826,8 +1878,8 @@
       "variants": [],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
-        "qwen3.8-27b-twin-turbo"
+        "qwen3.8-27b-twin-turbo",
+        "qwen3.8-flash-next-125b"
       ],
       "top_engine": {
         "cuda": [],
@@ -1859,6 +1911,52 @@
         "metal": [],
         "cpu": []
       }
+    },
+    "basalt": {
+      "status": "known-unsupported",
+      "backends": [
+        "CUDA"
+      ],
+      "url": "https://github.com/jesdga95/basalt",
+      "image": false,
+      "variants": [],
+      "models": [
+        "qwen3.8-27b"
+      ],
+      "top_engine": {
+        "cuda": [],
+        "rocm": [],
+        "vulkan": [],
+        "metal": [],
+        "cpu": []
+      },
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Blackwell-tuned NVIDIA engine auto-registered from the 2026-11-17 trending sync; the host fleet is Ada (RTX 4090) with no Blackwell card, so the engine skill/parameter work is parked and tracked per-issue.",
+      "issue": 2902
+    },
+    "edge0": {
+      "status": "known-unsupported",
+      "backends": [
+        "CUDA / METAL"
+      ],
+      "url": "https://github.com/Edge0-AI/Edge0",
+      "image": false,
+      "variants": [],
+      "models": [
+        "edge0-145b"
+      ],
+      "top_engine": {
+        "cuda": [],
+        "rocm": [],
+        "vulkan": [],
+        "metal": [],
+        "cpu": []
+      },
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5; the engine-skill/adapter decision is tracked per-issue.",
+      "issue": 2903
     },
     "glm-flash-lite": {
       "status": "known-unsupported",
@@ -1899,20 +1997,20 @@
       ],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
-        "gemma-4-26b",
-        "qwen3.6-35b-a3b",
         "qwen3.8-35b-a3b",
-        "deepseek-v4.1-flash",
+        "gemma-4-e4b",
+        "gemma-4-26b",
         "gemma-4-31b",
         "gemma-4-e2b",
         "lfm2.5-24b-a2b",
         "qwen3.8-27b-twin-turbo",
         "bonsai-2-9b",
+        "qwen3.8-flash-next-125b",
         "bonsai-2-4b",
         "bonsai-2-2b",
         "qwen3.8-27b-dflash2-teksedge3090",
         "qwen2.5-0.5b",
+        "qwen3.6-35b-a3b",
         "qwen3-235b-a22b",
         "qwen3.8-27b-coder390",
         "qwen3.6-35b-a3b-kapitsa-m4-pro-mtp",
@@ -1920,13 +2018,11 @@
         "qwen3.5-9b",
         "qwen3.8-27b-radeon-pro-r9700",
         "ornith-1.5-9b",
-        "glm-5.3-flash",
         "gemma-4-12b",
         "qwen3-30b-a3b",
         "qwen3.8-27b-defiance-uncensored",
         "nemotron-3.5-bolt-e4b",
-        "qwen3.6-27b",
-        "gemma-4-e4b",
+        "deepseek-v4.1-flash",
         "nemotron-dory-4b",
         "raon-1-mini-preview",
         "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
@@ -1934,19 +2030,21 @@
         "nemotron-3.5-super-vl-120b",
         "nemotron-3.5-bolt-74b-a9b",
         "lfm3-1.7b",
-        "qwen3.5-0.8b",
-        "qwen3.8-27b-ps5-llamacpp",
         "qwen3.8-flash-next-125b-4090-hybrid",
         "qwen3.8-27b-ps5lm-native",
         "gemma-4-26b-a4b",
         "muse-glimmer-30b",
         "qwopus3.6-35b-a3b-coder-mtp",
         "qwen-3.6-27b",
+        "glm-5.3-flash",
         "minicpm-v-4.7",
         "qwen3-14b",
+        "qwen3.6-27b",
         "qwen2.5-1.5b-instruct",
         "qwen3.8-27b-swift",
         "qwen3-next-80b-a3b",
+        "qwen3.5-0.8b",
+        "qwen3.8-27b-ps5-llamacpp",
         "qwen3-235b-a22b-strix-halo",
         "kolibri-1",
         "gemma-3-4b",
@@ -1956,6 +2054,7 @@
       "top_engine": {
         "cuda": [
           "qwen3.8-35b-a3b",
+          "gemma-4-e4b",
           "gemma-4-31b",
           "lfm2.5-24b-a2b",
           "qwen3.8-27b-twin-turbo",
@@ -1965,24 +2064,23 @@
           "gemma-4-12b",
           "qwen3.8-27b-defiance-uncensored",
           "nemotron-3.5-bolt-e4b",
-          "qwen3.6-27b",
-          "gemma-4-e4b",
           "raon-1-mini-preview",
           "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
           "nemotron-3.5-super-vl-120b",
           "nemotron-3.5-bolt-74b-a9b",
           "lfm3-1.7b",
-          "qwen3.5-0.8b",
-          "qwen3.8-27b-ps5-llamacpp",
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-ps5lm-native",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
           "qwen-3.6-27b",
+          "qwen3.6-27b",
           "qwen2.5-1.5b-instruct",
           "qwen3.8-27b-swift",
           "qwen3-next-80b-a3b",
+          "qwen3.5-0.8b",
+          "qwen3.8-27b-ps5-llamacpp",
           "qwen3-235b-a22b-strix-halo",
           "kolibri-1",
           "gemma-3-4b",
@@ -1990,36 +2088,35 @@
           "gpt-oss-120b"
         ],
         "rocm": [
-          "qwen3.6-35b-a3b",
           "qwen3.8-35b-a3b",
           "qwen3.8-27b-twin-turbo",
           "qwen2.5-0.5b",
+          "qwen3.6-35b-a3b",
           "qwen3-235b-a22b",
           "qwen3.8-27b-coder390",
           "ornith-1.5-9b",
-          "glm-5.3-flash",
           "gemma-4-12b",
           "qwen3.8-27b-defiance-uncensored",
           "nemotron-3.5-bolt-e4b",
-          "qwen3.6-27b",
-          "gemma-4-e4b",
           "raon-1-mini-preview",
           "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
           "nemotron-3.5-super-vl-120b",
           "nemotron-3.5-bolt-74b-a9b",
           "lfm3-1.7b",
-          "qwen3.5-0.8b",
-          "qwen3.8-27b-ps5-llamacpp",
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-ps5lm-native",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
           "qwen-3.6-27b",
+          "glm-5.3-flash",
           "qwen3-14b",
+          "qwen3.6-27b",
           "qwen2.5-1.5b-instruct",
           "qwen3.8-27b-swift",
           "qwen3-next-80b-a3b",
+          "qwen3.5-0.8b",
+          "qwen3.8-27b-ps5-llamacpp",
           "qwen3-235b-a22b-strix-halo",
           "kolibri-1",
           "gemma-3-4b",
@@ -2027,36 +2124,35 @@
           "gpt-oss-120b"
         ],
         "vulkan": [
-          "qwen3.6-35b-a3b",
           "qwen3.8-35b-a3b",
           "qwen3.8-27b-twin-turbo",
           "qwen2.5-0.5b",
+          "qwen3.6-35b-a3b",
           "qwen3-235b-a22b",
           "qwen3.8-27b-coder390",
           "ornith-1.5-9b",
-          "glm-5.3-flash",
           "gemma-4-12b",
           "qwen3.8-27b-defiance-uncensored",
           "nemotron-3.5-bolt-e4b",
-          "qwen3.6-27b",
-          "gemma-4-e4b",
           "raon-1-mini-preview",
           "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
           "nemotron-3.5-super-vl-120b",
           "nemotron-3.5-bolt-74b-a9b",
           "lfm3-1.7b",
-          "qwen3.5-0.8b",
-          "qwen3.8-27b-ps5-llamacpp",
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-ps5lm-native",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
           "qwen-3.6-27b",
+          "glm-5.3-flash",
           "qwen3-14b",
+          "qwen3.6-27b",
           "qwen2.5-1.5b-instruct",
           "qwen3.8-27b-swift",
           "qwen3-next-80b-a3b",
+          "qwen3.5-0.8b",
+          "qwen3.8-27b-ps5-llamacpp",
           "qwen3-235b-a22b-strix-halo",
           "kolibri-1",
           "gemma-3-4b",
@@ -2075,23 +2171,22 @@
           "ornith-1.5-9b",
           "gemma-4-12b",
           "qwen3.8-27b-defiance-uncensored",
-          "qwen3.6-27b",
-          "gemma-4-e4b",
           "raon-1-mini-preview",
           "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
           "nemotron-3.5-super-vl-120b",
           "nemotron-3.5-bolt-74b-a9b",
           "lfm3-1.7b",
-          "qwen3.5-0.8b",
-          "qwen3.8-27b-ps5-llamacpp",
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-ps5lm-native",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
           "qwen-3.6-27b",
+          "qwen3.6-27b",
           "qwen2.5-1.5b-instruct",
           "qwen3-next-80b-a3b",
+          "qwen3.5-0.8b",
+          "qwen3.8-27b-ps5-llamacpp",
           "qwen3-235b-a22b-strix-halo",
           "kolibri-1",
           "gemma-3-4b",
@@ -2100,8 +2195,8 @@
         ],
         "cpu": [
           "qwen3.8-27b",
-          "gemma-4-26b",
           "qwen3.8-35b-a3b",
+          "gemma-4-26b",
           "qwen3.8-27b-twin-turbo",
           "qwen2.5-0.5b",
           "qwen3.8-27b-coder390",
@@ -2111,24 +2206,23 @@
           "qwen3-30b-a3b",
           "qwen3.8-27b-defiance-uncensored",
           "nemotron-3.5-bolt-e4b",
-          "qwen3.6-27b",
-          "gemma-4-e4b",
           "raon-1-mini-preview",
           "qwen3.8-27b-qwen38-27b-9060xt-kvstream",
           "nemotron-3.5-super-vl-120b",
           "nemotron-3.5-bolt-74b-a9b",
           "lfm3-1.7b",
-          "qwen3.5-0.8b",
-          "qwen3.8-27b-ps5-llamacpp",
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-ps5lm-native",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
           "qwen-3.6-27b",
+          "qwen3.6-27b",
           "qwen2.5-1.5b-instruct",
           "qwen3.8-27b-swift",
           "qwen3-next-80b-a3b",
+          "qwen3.5-0.8b",
+          "qwen3.8-27b-ps5-llamacpp",
           "qwen3-235b-a22b-strix-halo",
           "kolibri-1",
           "gemma-3-4b",
@@ -2309,9 +2403,9 @@
       "variants": [],
       "models": [
         "qwen3.8-27b",
+        "qwen3.8-27b-strix-halo-dflash2",
         "qwen3.5-0.8b",
-        "qwen3.8-27b-ps5-llamacpp",
-        "qwen3.8-27b-strix-halo-dflash2"
+        "qwen3.8-27b-ps5-llamacpp"
       ],
       "top_engine": {
         "cuda": [],
@@ -2408,6 +2502,52 @@
       "reason": "Not a server at all: a patch set that adds ExLlamaV3's EXL3 format to oMLX (pinned to one commit, single author) and rides oMLX's own server on Apple Silicon.",
       "issue": 229
     },
+    "qwen-warp": {
+      "status": "known-unsupported",
+      "backends": [
+        "CUDA"
+      ],
+      "url": "https://github.com/tuan3w/qwen-warp",
+      "image": false,
+      "variants": [],
+      "models": [
+        "qwen3.8-27b"
+      ],
+      "top_engine": {
+        "cuda": [],
+        "rocm": [],
+        "vulkan": [],
+        "metal": [],
+        "cpu": []
+      },
+      "decision": "deferred",
+      "decided": "2026-11-18",
+      "reason": "Custom CUDA decode engine with an OpenAI-compatible API (Qwen3.8-27B on one RTX 3090) auto-registered from the 2026-11-17 trending sync; the engine skill work is tracked per-issue.",
+      "issue": 2904
+    },
+    "smolmaxxing": {
+      "status": "known-unsupported",
+      "backends": [
+        "METAL"
+      ],
+      "url": "https://github.com/hyperionaidev/smolmaxxing",
+      "image": false,
+      "variants": [],
+      "models": [
+        "ling-mini-2.0"
+      ],
+      "top_engine": {
+        "cuda": [],
+        "rocm": [],
+        "vulkan": [],
+        "metal": [],
+        "cpu": []
+      },
+      "decision": "not-shipped",
+      "decided": "2026-11-18",
+      "reason": "Not a serving engine: a llama.cpp fork shipping Metal-only repacked quant lookup kernels (1-bit/2-bit/ternary), measured on Apple M5; Metal cannot run inside llgenie's Linux images and llama.cpp already carries the engine, so the tracking issue keeps the kernels visible.",
+      "issue": 2905
+    },
     "strixite": {
       "status": "known-unsupported",
       "backends": [
@@ -2493,31 +2633,31 @@
       ],
       "models": [
         "qwen3.8-27b",
-        "qwen3.8-flash-next-125b",
-        "qwen3.6-35b-a3b",
-        "deepseek-v4.1-flash",
         "lfm2.5-24b-a2b",
+        "qwen3.8-flash-next-125b",
         "muse-spark-open",
         "qwen3.8-27b-dflash2-teksedge3090",
+        "qwen3.6-35b-a3b",
         "qwen3-235b-a22b",
         "qwen3.5-9b",
         "qwen3.8-27b-radeon-pro-r9700",
-        "glm-5.3-flash",
+        "deepseek-v4.1-flash",
         "qwen3.5-4b",
         "gemma-4-26b-a4b",
         "qwen3-4b",
+        "glm-5.3-flash",
         "llama-3.1-8b",
         "qwen3.8-27b-r9700-vllm-dflash2-w4a16",
         "ornith-1.5"
       ],
       "top_engine": {
         "cuda": [
-          "qwen3.6-35b-a3b",
-          "deepseek-v4.1-flash",
           "muse-spark-open",
           "qwen3.8-27b-dflash2-teksedge3090",
+          "qwen3.6-35b-a3b",
           "qwen3-235b-a22b",
           "qwen3.8-27b-radeon-pro-r9700",
+          "deepseek-v4.1-flash",
           "qwen3.5-4b",
           "llama-3.1-8b",
           "qwen3.8-27b-r9700-vllm-dflash2-w4a16"
@@ -2525,11 +2665,11 @@
         "rocm": [
           "qwen3.8-27b",
           "qwen3.8-flash-next-125b",
-          "deepseek-v4.1-flash",
           "muse-spark-open",
           "qwen3.8-27b-dflash2-teksedge3090",
           "qwen3.5-9b",
           "qwen3.8-27b-radeon-pro-r9700",
+          "deepseek-v4.1-flash",
           "qwen3.5-4b",
           "llama-3.1-8b",
           "qwen3.8-27b-r9700-vllm-dflash2-w4a16",
@@ -2538,11 +2678,11 @@
         "vulkan": [
           "qwen3.8-27b",
           "qwen3.8-flash-next-125b",
-          "deepseek-v4.1-flash",
           "muse-spark-open",
           "qwen3.8-27b-dflash2-teksedge3090",
           "qwen3.5-9b",
           "qwen3.8-27b-radeon-pro-r9700",
+          "deepseek-v4.1-flash",
           "qwen3.5-4b",
           "llama-3.1-8b",
           "qwen3.8-27b-r9700-vllm-dflash2-w4a16",
@@ -2551,14 +2691,14 @@
         "metal": [],
         "cpu": [
           "qwen3.8-flash-next-125b",
-          "qwen3.6-35b-a3b",
-          "deepseek-v4.1-flash",
           "muse-spark-open",
           "qwen3.8-27b-dflash2-teksedge3090",
+          "qwen3.6-35b-a3b",
           "qwen3-235b-a22b",
           "qwen3.8-27b-radeon-pro-r9700",
-          "glm-5.3-flash",
+          "deepseek-v4.1-flash",
           "qwen3.5-4b",
+          "glm-5.3-flash",
           "llama-3.1-8b",
           "qwen3.8-27b-r9700-vllm-dflash2-w4a16"
         ]

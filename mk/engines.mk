@@ -165,6 +165,9 @@ sync-change-issue: ## Open ONE issue stating what a changed vendored registry ch
 spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry engine (the sync job runs this; DRY=1 previews, REPO= picks the repo)
 	python3 scripts/engine_skill_gap.py spawn $(if $(REPO),--repo "$(GH_REPO)",) $(if $(DRY),--dry,)
 
+post-merge-live-check: ## Landing read (issue #2900): newest main run of each live battery (registry-liveness, ci-hf-live) + the trend-matrix fingerprint; 1 when a battery is red or the fingerprint drifted, 2 when the stream can't be read
+	python3 scripts/post_merge_live_check.py $(if $(WORKFLOW),--workflow "$(WORKFLOW)",) $(if $(JSON),--json,)
+
 engine-skill-scaffold: ## Write skills/engines/<id>/SKILL.md for a registry engine from its registry entry, with every unprovable key left EMPTY (ENGINE=<registry name>, ID=<kebab>, BACKENDS=, OUT=, REGISTRY=, DRY=1 previews, FORCE=1 overwrites)
 	python3 scripts/engine_skill_scaffold.py scaffold --engine "$(ENGINE)" \
 		$(if $(ID),--id "$(ID)",) $(if $(BACKENDS),--backends "$(BACKENDS)",) \

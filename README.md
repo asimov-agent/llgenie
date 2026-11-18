@@ -386,6 +386,12 @@ make engine-coverage-report     # every shipped engine -> built | not-an-image |
 make spawn-engine-skill-issues # open one tracking issue per NEW unskilled engine (the sync does this),
                                # labelled `agent:implement` and read back — an unlabelled issue routes to
                                # no bot, so the label is applied explicitly and verified (issue #724)
+make post-merge-live-check     # the landing read after EVERY merge onto main (issue #2900): one verdict
+                               # line per live battery — newest completed main run id/event/conclusion of
+                               # `registry-liveness.yml` and `ci-hf-live.yml` — plus the `check-trend-list-matrix`
+                               # fingerprint line; non-zero when a battery is not `success` on main or the
+                               # fingerprint drifted (2 when the stream cannot be read, never a silent zero).
+                               # A fixture-vs-live trend drift is fixed by a trend-refresh issue, not a re-run
 make engine-skill-scaffold ENGINE="<registry name>"  # write skills/engines/<id>/SKILL.md from the
                                # registry's own entry (engine, repo, backends) plus the `os:` those
                                # backends can run on — a Metal-only engine is `darwin`, because Metal
