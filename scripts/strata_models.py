@@ -99,7 +99,17 @@ def extract(src: Path) -> dict:
                         "families": list(d.get("families", ("qwen", "swift"))),
                         "experimental": bool(d.get("experimental")),
                         **({"file": d["file"]} if d.get("file") else {}),
-                        **({"shards": d["shards"]} if d.get("shards") else {})}
+                        **({"shards": d["shards"]} if d.get("shards") else {}),
+                        # v0.2.15 added per-model Hub overrides: `quant` is the name the files
+                        # and folder carry on the Hub when it differs from the catalog name
+                        # (setup.py model_quant; UNSLOTH_V31_IQ4_XS's catalog name is
+                        # UD-IQ4_XS-v31 but its shards live in UD-IQ4_XS/), and `revision` is
+                        # the commit they live at when it is not the family's pinned one
+                        # (setup.py model_url; the v31 set sits at UNSLOTH_V31_REVISION).
+                        # Dropping them made llgenie build names for a directory the Hub does
+                        # not have, for a set that does not exist at the family revision.
+                        **({"quant": d["quant"]} if d.get("quant") else {}),
+                        **({"revision": d["revision"]} if d.get("revision") else {})}
     url, ref, sha = pinned()
     return {"_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
             "source": f"{url}/blob/{sha}/setup.py", "ref": ref, "pinned": sha,

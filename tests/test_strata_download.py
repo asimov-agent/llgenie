@@ -193,9 +193,12 @@ def test_downloaded_folder_is_accepted_by_setup_py_gguf_dir(setup_py, tmp_path):
         assert setup_py.gguf_dir_problem(folder, got[0], fam, size) is None
 
 
-def test_the_old_unsloth_ud_iq1_m_is_refused_by_strata_and_never_planned(setup_py):
+def test_the_old_unsloth_ud_iq1_m_is_a_strata_model_at_this_pin_and_never_planned(setup_py):
+    # The #643 refusal died with the pin: at v0.2.15 setup.py's MODELS carries UD-IQ1_M,
+    # so the shard maps like any other model file. It is still never PLANNED — it is not
+    # the size this host's choice picks at any RAM in the table.
     old = "Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
-    assert setup_py.gguf_unsupported(old) == "UD-IQ1_M" and setup_py.gguf_choice(old) is None
+    assert setup_py.gguf_unsupported(old) is None and setup_py.gguf_choice(old) == ("unsloth", "UD-IQ1_M")
     for ram in EXPECTED:
         plan = mp.plan_download(_model(), 16, ram, "gguf", "cuda", engine="strata")
         assert "UD-IQ1_M" not in json.dumps(plan)
@@ -246,12 +249,13 @@ def test_offer_gives_strata_its_own_plan_and_llama_cpp_its_own(tmp_path):
 
 
 def test_complete_local_set_is_reused_partial_and_unsupported_are_not(tmp_path):
-    # a partial set (shard 1 only) and Unsloth's UD-IQ1_M set: neither is a Strata model here
+    # a partial set (shard 1 only) and a quant the pinned setup.py's MODELS does not carry
+    # (IQ1_S): neither is a Strata model file at this pin
     _shard_set(tmp_path, "qwen", "IQ3_XXS", only=1)
-    u = tmp_path / "unsloth__Qwen3.8-Flash-Next-GGUF" / "UD-IQ1_M"
+    u = tmp_path / "unsloth__Qwen3.8-Flash-Next-GGUF" / "IQ1_S"
     u.mkdir(parents=True)
     for i in (1, 2, 3):
-        (u / f"Qwen3.8-Flash-Next-UD-IQ1_M-0000{i}-of-00003.gguf").write_bytes(b"GGUF")
+        (u / f"Qwen3.8-Flash-Next-IQ1_S-0000{i}-of-00003.gguf").write_bytes(b"GGUF")
     assert mp.strata_local(tmp_path, 64) is None
     # a complete Q2_0 set is reused even on a 64 GB host (no 71 GB download for IQ3_XXS) ...
     q2 = _shard_set(tmp_path, "qwen", "Q2_0")
@@ -263,6 +267,13 @@ def test_complete_local_set_is_reused_partial_and_unsupported_are_not(tmp_path):
     row = next(r for r in mp.offer(mp.load_registry(), "cuda", 16, root=tmp_path, ram_gb=64)
                if r["model"]["id"] == "qwen3.8-flash-next-125b")
     assert mp.engine_local(row, row["engines"][0]) == full[0] and mp.engine_plan(row, row["engines"][0]) is None
+
+
+def test_a_complete_unsloth_ud_iq1_m_set_is_reused_at_this_pin(tmp_path):
+    # v0.2.15 lifted the #643 refusal: setup.py's MODELS carries the UD-IQ1_M shards now,
+    # so a complete set under the model root is reused like any other choice's set.
+    u = _shard_set(tmp_path, "unsloth", "UD-IQ1_M")
+    assert mp.strata_local(tmp_path, 64) == u[0]
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +342,7 @@ def test_pre_launch_names_the_downloaded_choice(strata_src, tmp_path, ram):
 
 
 def test_pre_launch_refuses_a_file_strata_cannot_run(strata_src, tmp_path):
-    bad = tmp_path / "Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
+    bad = tmp_path / "Qwen3.8-Flash-Next-IQ1_S-00001-of-00003.gguf"
     bad.write_bytes(b"GGUF")
     r = _pre_launch_args(strata_src, bad)
     assert r.returncode != 0 and "ARGS" not in r.stdout
