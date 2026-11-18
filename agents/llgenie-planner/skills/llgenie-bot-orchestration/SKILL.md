@@ -1,7 +1,7 @@
 ---
 name: llgenie-bot-orchestration
 description: Use when routing llgenie work to lanes or a bot looks idle.
-version: 1.0.0
+version: 1.0.1
 author: Hermes Agent
 license: CC-BY-4.0
 platforms: [linux, macos]

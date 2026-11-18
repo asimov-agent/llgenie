@@ -5,7 +5,7 @@ For every lane flagged by `make -s check-agent-profiles`, the reconciliation SHA
 line-set comparison between the live file and the tree's whole lane store (SKILL.md plus its
 `references/`), and the chosen direction SHALL lose no rule text. When the tree already carries the
 live-only text (inlined into a SKILL.md or held in a `references/` file), the tree is authoritative and
-the reconciliation is a deliberate `make sync-agent-profile PROFILE=<lane> --force` whose refusal reason
+the reconciliation is a deliberate `make sync-agent-profile PROFILE=<lane> FORCE=1` (the knob `mk/agents.mk` implements) whose refusal reason
 (shrink or newer-live) is answered by that recorded comparison. When the live side holds a duplicate
 identity of a versioned skill (a flat shadow of a category copy), the reconciliation SHALL remove the
 shadow on the live side and SHALL NOT add a second tree copy.
