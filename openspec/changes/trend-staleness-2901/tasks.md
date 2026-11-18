@@ -1,0 +1,10 @@
+# Tasks
+
+- [x] 1. `scripts/trend_list_matrix.py` gains the staleness read: `staleness_cells()` builds the live matrix (no writes), diffs it cell by cell against the committed fixture (added/dropped/changed rows per `arch/vram/ram` case plus the engine-variant fingerprint), prints each disagreeing cell, exits 1 on any disagreement and 2 on an unreadable fixture or live-build failure
+- [x] 2. `scripts/trend_staleness_issue.py` files the refresh issue: body ONLY through `issue_body.render`, marker `<!-- trend-staleness: <cells-fingerprint> -->` as the body's first line, one open issue per drift (marker read dedupes), `report`/`open --repo --dry` CLI; registered in `issue_body.PRODUCERS` and in `scripts/package-layers.json`
+- [x] 3. `make check-trend-list-fresh` runs the read; `make trend-staleness-issue [GH_REPO=…] [DRY=1]` files/prints the refresh issue (`GH_REPO` — `REPO` is the Makefile's path variable); both wired to existing gates and `.PHONY`
+- [x] 4. The `ci-hf-live` lane surfaces the read: a step after the liveness gate runs `make check-trend-list-fresh`; a disagreement runs `make trend-staleness-issue` (drift → filed issue, battery stays green; an unreadable stream → the step reddens); no new schedule lane is added (#2701 allow-list holds)
+- [x] 5. `tests/test_trend_list_matrix.py` staleness tests (fetch seam faked, comparison logic real): disagreeing cells named + non-zero, agreement zero, unreadable stream exits 2; `tests/test_trend_staleness_issue.py`: one issue per drift + marker dedupe + render-only body + dry files nothing
+- [x] 6. README target lines, the `agent-wiki/` entry, the `changes.d/` fragment, and issue #2901 acceptance mirrors all name the new targets; `make check-docs` and `make check-issue-bodies` see them
+- [x] 7. Falsified: the new tests fail on the pre-change scripts and pass after, run through `make test-unit`
+- [x] 8. `make openspec-validate NAME=trend-staleness-2901`, `make lint`, `make check-wiring`, `make check-package-layers`, `make check-workflows` and `make check-ci-discipline` exit 0 on the branch

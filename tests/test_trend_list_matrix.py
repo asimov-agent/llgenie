@@ -172,3 +172,85 @@ def test_committed_matrix_records_the_engine_variant_fingerprint():
             m.PARAMS = old
 
 
+
+
+def test_staleness_cells_are_empty_when_the_two_matrices_agree():
+    """The read's fresh case: diffing the fixture against ITSELF names no cell."""
+    assert tlm.staleness_cells(GOLDEN, GOLDEN) == []
+
+
+def test_staleness_names_the_disagreeing_cells_and_exits_nonzero():
+    """#2901 AC1: a drifted cell is NAMED — added, dropped, and changed rows each
+    appear with their case key, and the fingerprint delta is its own named cell.
+
+    The fixture/live pair here is synthetic (hermetic: `staleness_cells` is a pure
+    dict diff, no Hub is touched); the exit-code contract around it is the read."""
+    fixture = {
+        tlm.FINGERPRINT_KEY: "fp-old",
+        "cases": [
+            {"arch": "cpu", "vram": 16.0, "ram": 32.0, "rows": [
+                {"model": "kept-model", "size_gb": 9.0, "tps": 40.0},
+                {"model": "gone-model", "size_gb": 12.0, "tps": 30.0},
+            ]},
+        ],
+    }
+    live = {
+        tlm.FINGERPRINT_KEY: "fp-new",
+        "cases": [
+            {"arch": "cpu", "vram": 16.0, "ram": 32.0, "rows": [
+                {"model": "kept-model", "size_gb": 13.0, "tps": 40.0},
+                {"model": "new-model", "size_gb": 8.0, "tps": 55.0},
+            ]},
+        ],
+    }
+    cells = tlm.staleness_cells(fixture, live)
+    key = tlm.case_key("cpu", 16.0, 32.0)
+    by_case = {c["case"]: c for c in cells}
+    assert key in by_case, f"the drifted cell {key} was not named: {cells}"
+    cell = by_case[key]
+    assert cell["added"] == ["new-model"]
+    assert cell["dropped"] == ["gone-model"]
+    assert cell["changed"] == [{"model": "kept-model", "fields": {"size_gb": "9.0 -> 13.0"}}]
+    assert tlm.FINGERPRINT_KEY in by_case, "a changed fingerprint must be its own named cell"
+
+    # exit-code contract, bounded (no live Hub): both unreadable paths exit 2, never 0.
+    orig_fixture, orig_build = tlm.FIXTURE, tlm.build
+    try:
+        tlm.FIXTURE = REPO / "tests" / "fixtures" / "definitely-not-a-fixture.json"
+        rc, cells2 = tlm.staleness_read()
+        assert (rc, cells2) == (2, []), "an unreadable fixture must exit 2, never look fresh"
+    finally:
+        tlm.FIXTURE = orig_fixture
+    try:
+        def _boom() -> dict:
+            raise RuntimeError("live trending unreachable")
+        tlm.build = _boom
+        rc, cells3 = tlm.staleness_read()
+        assert (rc, cells3) == (2, []), "a live build that fails must exit 2, never look fresh"
+    finally:
+        tlm.build = orig_build
+
+
+def test_staleness_refresh_issue_is_rendered_through_the_one_renderer():
+    """#2901: the producer's issue carries the six-section shape and the dedupe marker
+    on its first line — the body a reviewer reads and the producer remembers."""
+    from scripts import issue_body, trend_staleness_issue as tsi
+
+    cells = [{
+        "case": tlm.case_key("cuda", 16.0, 32.0),
+        "added": ["new-model"], "dropped": ["gone-model"],
+        "changed": [{"model": "kept-model", "fields": {"size_gb": "9.0 -> 13.0"}}],
+    }]
+    fingerprint = tsi.drift_fingerprint(cells)
+    assert fingerprint == tsi.drift_fingerprint(list(reversed(cells))), \
+        "the fingerprint must be stable across cell ordering, or the producer re-files every tick"
+    body = tsi.render_issue(cells, fingerprint)
+    assert body.splitlines()[0] == f"{tsi.MARKER_PREFIX} {fingerprint} -->", \
+        "the dedupe marker must be the body's first line"
+    missing = issue_body.missing(body) if hasattr(issue_body, "missing") else None
+    if missing is not None:
+        assert missing == [], f"the refresh body is missing sections: {missing}"
+    for needle in ("## Problem", "## Why it matters", "## How we fix it", "## Benefit",
+                   "## Acceptance criteria", "## Technical", "render-trend-list-matrix",
+                   "cuda/16.0/32.0", "new-model", "gone-model", "#2901"):
+        assert needle in body, f"refresh body lacks {needle!r}"

@@ -125,10 +125,96 @@ def build() -> dict:
     }
 
 
+def _case_rows(doc: dict) -> dict[str, list[dict]]:
+    return {case_key(c["arch"], c["vram"], c["ram"]): c.get("rows", []) for c in doc.get("cases", [])}
+
+
+def staleness_cells(fixture: dict, live: dict) -> list[dict]:
+    """Cell-by-cell diff of the committed fixture against a freshly built matrix (#2901).
+
+    The hermetic `--check` replays the recorded Hub answers, so it stays green while the
+    LIVE trending moves under the fixture between re-renders — the gap that burned six
+    ci-hf-live runs before the re-pin (#2900). A cell is stale when a row was added or
+    dropped, when a row present on both sides changed any field, or when the engine-variant
+    fingerprint no longer matches.
+    """
+    out: list[dict] = []
+    fx, lv = _case_rows(fixture), _case_rows(live)
+    if fixture.get(FINGERPRINT_KEY) != live.get(FINGERPRINT_KEY):
+        out.append({
+            "case": FINGERPRINT_KEY, "added": [], "dropped": [],
+            "changed": [{
+                "model": FINGERPRINT_KEY,
+                "fields": {FINGERPRINT_KEY: f"{fixture.get(FINGERPRINT_KEY)} -> {live.get(FINGERPRINT_KEY)}"},
+            }],
+        })
+    for key in sorted(set(fx) | set(lv)):
+        f_by = {row.get("model"): row for row in fx.get(key, [])}
+        l_by = {row.get("model"): row for row in lv.get(key, [])}
+        added = sorted(set(l_by) - set(f_by))
+        dropped = sorted(set(f_by) - set(l_by))
+        changed = []
+        for name in sorted(set(f_by) & set(l_by)):
+            fields = {k: f"{f_by[name].get(k)} -> {l_by[name].get(k)}"
+                      for k in set(f_by[name]) | set(l_by[name])
+                      if f_by[name].get(k) != l_by[name].get(k)}
+            if fields:
+                changed.append({"model": name, "fields": fields})
+        if added or dropped or changed:
+            out.append({"case": key, "added": added, "dropped": dropped, "changed": changed})
+    return out
+
+
+def staleness_read() -> tuple[int, list[dict]]:
+    """Live-vs-fixture staleness read: (exit code, disagreeing cells). 0 fresh, 1 drift, 2 unreadable.
+
+    Builds the matrix against the LIVE Hub without writing any fixture. An unreadable
+    fixture or a live build that raises prints its failure and exits 2 — a read that
+    could not run never reports fresh (AGENTS.md: a missing input is never a clean run).
+    """
+    try:
+        fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[trend-staleness] FAIL committed fixture {FIXTURE.relative_to(REPO)} unreadable: {exc}",
+              file=sys.stderr)
+        return 2, []
+    try:
+        live = build()
+    except Exception as exc:
+        print(f"[trend-staleness] FAIL live matrix build failed: {type(exc).__name__}: {exc}",
+              file=sys.stderr)
+        return 2, []
+    cells = staleness_cells(fixture, live)
+    if not cells:
+        print(f"[trend-staleness] fresh: the fixture agrees with the live trending in all "
+              f"{len(_case_rows(live))} cells (fingerprint {fixture.get(FINGERPRINT_KEY)}, "
+              f"registry {fixture.get('generated_utc')}).")
+        return 0, cells
+    print(f"[trend-staleness] FAIL {len(cells)} cell(s) disagree with the live trending:", file=sys.stderr)
+    for c in cells:
+        bits = []
+        if c["added"]:
+            bits.append("added " + ", ".join(c["added"]))
+        if c["dropped"]:
+            bits.append("dropped " + ", ".join(c["dropped"]))
+        for ch in c["changed"]:
+            bits.append("changed " + ch["model"] + " ("
+                        + "; ".join(f"{k}: {v}" for k, v in sorted(ch["fields"].items())) + ")")
+        print(f"[trend-staleness]   {c['case']}: " + "; ".join(bits), file=sys.stderr)
+    print(f"[trend-staleness] re-render with: make render-trend-list-matrix", file=sys.stderr)
+    return 1, cells
+
+
 def main() -> int:
     args = sys.argv[1:]
     check = "--check" in args
     live = "--live" in args
+    if "--staleness" in args:
+        # #2901: the live-vs-fixture CELL read. `--check --live` compares whole documents
+        # byte-for-byte; this mode names every disagreeing cell so a drift between
+        # re-renders becomes a ticketed work item instead of a recurring red battery.
+        rc, _cells = staleness_read()
+        return rc
     if check:
         if live:
             fresh = json.dumps(build(), indent=2) + "\n"

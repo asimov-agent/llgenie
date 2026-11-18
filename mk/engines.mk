@@ -137,6 +137,12 @@ render-trend-list-matrix: ## Rewrite tests/fixtures/trend-list-matrix.json from 
 check-trend-list-matrix: ## CI: fail when the committed trend-list matrix differs from matrix() on the vendored registry — hermetic: it replays tests/fixtures/hub-snapshot.json (issue #1080; LIVE=1 for the live comparison)
 	python3 scripts/trend_list_matrix.py --check $(if $(LIVE),--live,)
 
+check-trend-list-fresh: ## CI(#2901): fail when the committed trend matrix disagrees with the LIVE trending, cell by cell — exit 1 = named drift, exit 2 = unreadable read (the hermetic contract stays check-trend-list-matrix)
+	python3 scripts/trend_list_matrix.py --staleness
+
+trend-staleness-issue: ## CI(#2901): when the staleness read disagrees, file ONE open refresh issue naming the cells and ordering make render-trend-list-matrix (REPO=…, DRY=1 prints instead of filing)
+	python3 scripts/trend_staleness_issue.py open --repo "$(GH_REPO)" $(if $(DRY),--dry,)
+
 render-vram-scope-view: ## Rewrite tests/fixtures/vram-scope-view.json from scope_models(registry, DEFAULT_VRAM_RANGE) on the vendored registry — the committed default-band view (issue #227)
 	python3 scripts/vram_scope_view.py
 
