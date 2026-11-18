@@ -89,6 +89,11 @@
       "url": "https://github.com/invergent-ai/surogate",
       "note": "Auto-registered from https://lightbrd.com/OwnYourCompute/status/2116885470403801334 — Train and serve LLMs at extreme speed and massive throughput.",
       "auto": true
+    },
+    "edge0": {
+      "backend": "CUDA / Metal",
+      "url": "https://github.com/Edge0-AI/Edge0",
+      "note": "Registered by human decision 2026-11-17 (issue #988 live run): device-native model runtime (Latent MoE, SSD-streamed weights; C++/CUDA/Metal) that served the measured 18 t/s edge0-145b decode on an Apple M5 128GB (https://lightbrd.com/niklaslenz_ai/status/2122374862481482041). Classifier answered unknown (description lacks an engine token); the desktop chat app is a bundled layer."
     }
   },
   "models": [

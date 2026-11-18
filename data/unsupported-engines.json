@@ -154,14 +154,6 @@
       "backend": "CUDA",
       "upstream": "https://github.com/jesdga95/basalt"
     },
-    "edge0": {
-      "decision": "deferred",
-      "decided": "2026-11-18",
-      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5. edge0-145b (the only registry model listing edge0) is served by edge0-strata, a Strata fork whose launch contract (edge0-strata/EDGE0.md v5; template edge0/models/edge0-145b.json) points the server at a model PACK DIRECTORY - ${MODEL_DIR}/model-skeleton.gguf, ple-fp8.gguf, profile.bin, experts.bin, labels.bin, mtp/, tokenizer/ - and the HF checkpoint Edge0/Edge0-145B-q3k is exactly such a multi-file pack (measured 24-entry tree 2026-11-18). Pack serving for exactly this shape now exists (issue #2909): the store fetches the whole Edge0/Edge0-145B-q3k checkpoint as one resumable manifest download (formats[].pack), gates it by the manifest byte sum, and a pack directory is launched through engine params model_contract=pack with pack.parts/config_env (scripts/pack_contract.py). What remains is shipping edge0 itself: a device-native runtime (Linux CUDA builds need CUDA 13) and its own measurement on hardware we can measure here. Upstream's second backend (Metal) is macOS-only per the README platform table, and the Linux CUDA build needs CUDA 13 (release notes).",
-      "issue": 2903,
-      "backend": "CUDA / Metal",
-      "upstream": "https://github.com/Edge0-AI/Edge0"
-    },
     "glm-flash-lite": {
       "decision": "deferred",
       "decided": "2026-10-14",
