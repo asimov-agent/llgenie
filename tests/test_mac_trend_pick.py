@@ -259,7 +259,12 @@ def test_select_flash_next_with_tensorfold_on_a_128gb_mac(tmp_path):
     # Given a 128 GB Mac
 
     # When `llgenie --select N --engine tensorfold --dry` runs for the Flash Next row
-    rows = _offer(tmp_path, BIG_MAC_GB)
+    # (--select indexes the pickable list AFTER llgenie's --engine narrowing: rows carrying
+    # a `why` are listed without a number, and `--engine X` keeps only models X can run —
+    # so N is Flash Next's rank among servable TensorFold rows, not the full offer)
+    rows = [r for r in _offer(tmp_path, BIG_MAC_GB)
+            if not r["why"] and any("tensorfold" in (e["id"] + " " + e["engine"]).lower()
+                                    for e in r["engines"])]
     n = next(i for i, r in enumerate(rows, 1) if r["model"]["name"] == FLASH_NEXT)
     r = _llgenie(tmp_path, BIG_MAC_GB, "--select", str(n), "--engine", "tensorfold", "--dry")
 

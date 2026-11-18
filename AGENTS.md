@@ -1459,6 +1459,33 @@ The owner set this on 2026-11-15 (issue #2701). It is a MEASURE, not a style not
   behaviours needing a home, which is the host agent or a dispatch-only
   trigger, not a new schedule (#2703).
 
+## Post-merge live verification (MANDATORY, durable)
+
+Every landing onto `main` ends with a live read, not with the merged PR: run
+`make post-merge-live-check` (scripts/post_merge_live_check.py) right after the merge and
+before recording the landing. It prints one verdict line per live battery — the newest `main`
+run id, event and conclusion of `registry-liveness.yml` and `ci-hf-live.yml` — plus the
+`check-trend-list-matrix` fingerprint line, and exits non-zero when a battery is not `success`
+on `main` or the committed trend matrix no longer matches the vendored trending data. A
+battery with no completed `main` run is itself red: a battery that never ran verifies nothing.
+
+- A red `ci-hf-live` whose failure is fixture-vs-live trend drift (the committed matrix pins a
+  number the live trending build no longer reports) opens or links a trend-refresh issue in the
+  same breath as the landing record, naming the disagreeing cells, and lands the re-pin through
+  the fixed render order: `make -s sync-registry` → `make -s sync-quant-catalog` →
+  `make -s render-trend-list-matrix` → `make -s render-engine-skill-gap` →
+  `make -s skills-validate` → gates → unit battery. This is exactly how a failure sat unread
+  across five runs (44212692903, 44206920194, 44195647662, 44176093280, 44142734842): fixtures
+  pinned `LFM2.5-24B-A2B` at 13 GB while the live build reported 9 GB (issue #2900). A sync
+  that carries an unskilled engine files its tracking issues (`make -s spawn-engine-skill-issues`,
+  #2902–#2905 the first run) and records dated decisions in `data/unsupported-engines.json` —
+  the same breath, never a later follow-up.
+- A red battery is never re-run away, never closed as noise, and never overridden by landing
+  more changes onto `main` while it stays red. The fix is a data refresh (or the mid-window
+  staleness alarm home #2901), and its proof is the battery's next green `main` run.
+- The read is a landing record, not a queue tool: it reads conclusions and never reruns a
+  pipeline (see the CI pipeline discipline section).
+
 ## Record of work
 
 Track progress in `agent-wiki/` as dated `YYYY-MM-DD-<name>.md` entries (what was

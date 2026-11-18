@@ -1,12 +1,12 @@
 {
-  "generated_utc": "2026-11-15T08:29:53Z",
+  "generated_utc": "2026-11-17T08:25:02Z",
   "vram_range": [
     8.0,
     48.0
   ],
   "note": "The default consumer/workstation VRAM band llgenie works with (8-48 GB, issue #227): a model whose README vram_tier falls in [8, 48] is in scope; a CPU/Apple-only row (no numeric tier) is always in scope; a wider/smaller box widens the band via LLGENIE_VRAM_RANGE or a scope_models(registry, vram_range) call. The vendored data/models.json is unchanged \u2014 this is a read-time filtered view, never a sync-time drop.",
-  "model_count_total": 118,
-  "model_count_in_scope": 97,
+  "model_count_total": 120,
+  "model_count_in_scope": 99,
   "in_scope_model_ids": [
     "alpie-seed-9b",
     "bonsai-2-27b",
@@ -21,6 +21,7 @@
     "bonsai-2-9b-phone",
     "deepseek-v4-flash",
     "deepseek-v4.1-flash",
+    "edge0-145b",
     "gemma-3-1b",
     "gemma-3-27b",
     "gemma-3-4b",
@@ -39,6 +40,7 @@
     "lfm2-5-24b-a2b",
     "lfm2.5-24b-a2b",
     "lfm3-1.7b",
+    "ling-mini-2.0",
     "llama-3.1-8b",
     "llama-3.1-8b-webllm",
     "mellum-2-1-12b-a2-5b",
