@@ -42,5 +42,5 @@ packs — was filed as its own issue #2909, linked in both directions.
 ## Current status
 
 Rebased onto `df6a18baa` (#2906's re-vendor); decision refinement + gap-view re-render + linked issue
-#2909 landed on the branch; `check-engine-skill-gap` green with 0 unresolved. `#2903` closes when this
-PR merges.
+#2909 landed on the branch; `check-engine-skill-gap` green with 0 unresolved. `#2903` closes when
+PR #2910 merges.
