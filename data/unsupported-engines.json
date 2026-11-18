@@ -157,7 +157,7 @@
     "edge0": {
       "decision": "deferred",
       "decided": "2026-11-18",
-      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5; the engine-skill/adapter decision is tracked per-issue.",
+      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5. edge0-145b (the only registry model listing edge0) is served by edge0-strata, a Strata fork whose launch contract (edge0-strata/EDGE0.md v5; template edge0/models/edge0-145b.json) points the server at a model PACK DIRECTORY - ${MODEL_DIR}/model-skeleton.gguf, ple-fp8.gguf, profile.bin, experts.bin, labels.bin, mtp/, tokenizer/ - and the HF checkpoint Edge0/Edge0-145B-q3k is exactly such a multi-file pack (measured 24-entry tree 2026-11-18). llgenie's model store fetches a quant as one file and the engine launch contract passes a single GGUF path, so there is no store or launch path that can fetch and serve a pack folder yet; that gap is filed as its own linked issue #2909. Upstream's second backend (Metal) is macOS-only per the README platform table, and the Linux CUDA build needs CUDA 13 (release notes).",
       "issue": 2903,
       "backend": "CUDA / Metal",
       "upstream": "https://github.com/Edge0-AI/Edge0"
