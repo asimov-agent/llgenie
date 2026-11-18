@@ -53,6 +53,11 @@ try:
 except ImportError:  # run as a script
     from hf_auth import TRANSIENT_HTTP, authorize, hub_open, rate_limit_wait  # type: ignore
 
+try:
+    from .pack_contract import manifest as pack_manifest, pack_gb, write_manifest
+except ImportError:  # run as a script
+    from pack_contract import manifest as pack_manifest, pack_gb, write_manifest  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "containers" / "engines" / "params"
 REGISTRY_FILE = REPO / "data" / "models.json"  # vendored; make sync-registry refreshes it
@@ -874,7 +879,17 @@ def footprint(model: dict, measurement: dict | None = None) -> dict:
 
 
 def stated_budget_gb(model: dict, measurement: dict | None = None) -> float | None:
-    """The stated weight footprint of a run, as GB (None when the store states none)."""
+    """The stated weight footprint of a run, as GB (None when the store states none).
+
+    Order: a measurement that states its own footprint (as always), then a PACK record's
+    manifest byte sum — the whole file set, never its one pseudo-quant formats entry
+    (issue #2909) — then the model's stated `weight_gb`."""
+    m_weight = stated_gb((measurement or {}).get("weight_gb"))
+    if m_weight is not None:
+        return m_weight
+    pack = pack_gb(model)
+    if pack is not None:
+        return pack
     return stated_gb(footprint(model, measurement).get("weight_gb"))
 
 
@@ -1190,7 +1205,8 @@ def resolve_local(model: dict, root: Path | None = None) -> Path | None:
             continue
         name = p.name.lower()
         if all(t in name for t in want) and (p.suffix in (".gguf", ".litertlm")
-                                             or (p.is_dir() and (p / "config.json").exists())):
+                                             or (p.is_dir() and ((p / "config.json").exists()
+                                                                 or (p / "model.json").exists()))):
             hits.append(p)
     return max(hits, key=lambda p: p.stat().st_size if p.is_file() else 0) if hits else None
 
@@ -1724,6 +1740,14 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
     if engine == "tensorfold":  # only the checkpoints TensorFold publishes for its families
         return tensorfold_plan(model, budget) if fmt == "mlx-safetensors" else None
     if fmt == "gguf":
+        man = pack_manifest(model)  # a pack record downloads its whole manifest, never a quant (issue #2909)
+        if man:
+            total = sum(int(f.get("bytes") or 0) for f in man["files"])
+            if total and total > budget:
+                return None  # the whole pack must fit on this host: no partial-pack download
+            return {"repo": man["repo"], "path": "", "dir": True, "pack": True,
+                    "size": total, "files": [f["path"] for f in man["files"]],
+                    "revision": man["revision"], "manifest": man}
         repo = gguf_repo(model)
         if not repo:
             return None
@@ -2152,6 +2176,10 @@ def download(model: dict, gb: float | None = None, root: Path | None = None, fmt
     max_bytes = int(os.environ.get("LLGENIE_DOWNLOAD_MAX_BYTES") or 0)
     if max_bytes:  # CI seam: the first bytes of every planned file, never the whole download
         rev = plan.get("revision", "main")
+        if plan.get("pack"):  # a partial of EACH pack part: the seam never fetches a whole pack
+            for f in plan["files"]:
+                download_chunk(repo, f, dest / Path(f).parent, max_bytes, rev)
+            return dest
         if plan["path"]:
             for f in plan["files"]:
                 download_chunk(repo, f, dest / Path(f).parent, max_bytes, rev)
@@ -2164,6 +2192,20 @@ def download(model: dict, gb: float | None = None, root: Path | None = None, fmt
     rev = plan.get("revision", "main")
     if rev != "main":
         env["HF_REVISION"] = rev  # hf_download.py: `hf download --revision` (Strata's pinned files)
+    if plan.get("pack"):  # the whole manifest in ONE resumable hf call (issue #2909)
+        man = plan["manifest"]
+        man_path = write_manifest(man, root / f"{model['id']}.pack.json")
+        cmd = [sys.executable, str(REPO / "scripts" / "hf_download.py"), man["repo"],
+               f"@{man_path}", str(dest), f"{model['id']} (pack)"]
+        try:
+            rc = subprocess.run(cmd, env=env, timeout=DOWNLOAD_TIMEOUT).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+        except subprocess.TimeoutExpired:
+            raise SystemExit(
+                f"[pick] pack download of {man['repo']} exceeded {DOWNLOAD_TIMEOUT:.0f}s "
+                f"(LLGENIE_DOWNLOAD_TIMEOUT) and was killed: {' '.join(cmd)}") from None
+        if rc:
+            raise SystemExit(f"[pick] pack download of {man['repo']} failed (exit {rc})")
+        return dest
     sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(repo, rev)}
     for i, filename in enumerate(plan["files"], 1):
         label = model["id"] + (f"-{i}of{len(plan['files'])}" if len(plan["files"]) > 1 else "")
