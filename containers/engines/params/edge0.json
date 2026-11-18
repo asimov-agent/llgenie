@@ -1,0 +1,75 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "edge0",
+  "id": "edge0",
+  "repo": "https://github.com/Edge0-AI/Edge0",
+  "ref": "main",
+  "pinned": "4a7964de4b337532aad74b03714125deb7506e70",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "edge0",
+      "engine": "edge0",
+      "backend": "cuda",
+      "arch": "75;80;86;89;90;120",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "libatomic1",
+        "libgomp1",
+        "python3-venv",
+        "libnuma1",
+        "tini",
+        "zlib1g"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "75;80;86;89;90;120",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/edge0/src/.git || git clone -b main https://github.com/Edge0-AI/Edge0.git /opt/llgenie/engines/edge0/src",
+        "git -C /opt/llgenie/engines/edge0/src fetch origin main",
+        "git -C /opt/llgenie/engines/edge0/src checkout -B main 4a7964de4b337532aad74b03714125deb7506e70",
+        "test -d /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp/.git || git clone https://github.com/ggml-org/llama.cpp /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp",
+        "git -C /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp checkout 3cf03257f219afbe7334045ff7c6a06ac68c627d",
+        "python3 -m venv /opt/llgenie/engines/edge0/src/edge0-strata/.venv && /opt/llgenie/engines/edge0/src/edge0-strata/.venv/bin/pip install --no-cache-dir -r /opt/llgenie/engines/edge0/src/edge0-strata/requirements.txt",
+        "cd /opt/llgenie/engines/edge0/src/edge0-strata && PATH=/usr/local/cuda/bin:$PATH cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_COMPILER=\"$(command -v nvcc)\" -DCMAKE_CUDA_ARCHITECTURES='75;80;86;89;90;120' -DSTRATA_ENABLE_CUDA=ON -DSTRATA_GGML_DIR=\"$PWD/third_party/llama.cpp\" && cmake --build build --target strata"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/engines/edge0/src/edge0-strata/build/strata --version",
+      "pre_launch": "cd /opt/llgenie/engines/edge0/src/edge0-strata && python3 -c 'import json,os,sys; p=os.path.abspath(sys.argv[1]); assert os.path.isdir(p), (\"[edge0] \" + p + \" is not a pack directory (model_contract=pack, launch contract v5)\"); t=json.load(open(\"edge0/models/edge0-145b.json\")); r=lambda v: v.replace(\"${MODEL_DIR}\", p).replace(\"${STRATA_DIR}\", os.getcwd()).replace(\"${EXE_SUFFIX}\", \"\").replace(\"${CUDA_LIB_DIR}\", \"\").replace(\"${DU_FILE}\", os.path.join(p, \"dense.bin\")).replace(\"${DU_FMT}\", \"Q8\").replace(\"${LAT_FUSED_Q3K}\", \"1\" if os.path.basename(p).lower().endswith(\"-q3k\") else \"0\").replace(\"${PLE_IO}\", \"direct\"); t[\"exe\"]=r(t[\"exe\"]); t[\"args\"]=[r(a) for a in t[\"args\"]]; t[\"tokenizer\"]=r(t[\"tokenizer\"]); t[\"env\"]=dict((k, r(v)) for k, v in t[\"env\"].items()); t[\"lib_dirs\"]=[r(x) for x in t[\"lib_dirs\"]]; t[\"model_name\"]=\"llm-local\"; json.dump(t, open(\"edge0-ready.json\", \"w\"), indent=1)' {model}",
+      "launch": "cd /opt/llgenie/engines/edge0/src/edge0-strata && .venv/bin/python serve/server.py --engine strata --config /opt/llgenie/engines/edge0/src/edge0-strata/edge0-ready.json --api-key none --port {port} --host {host}",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "config",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434,
+      "model_contract": "pack",
+      "pack": {
+        "parts": [
+          "model-skeleton.gguf",
+          "ple-fp8.gguf",
+          "profile.bin",
+          "experts.bin",
+          "labels.bin",
+          "dense.bin",
+          "mtp",
+          "tokenizer"
+        ],
+        "config_env": {
+          "STRATA_LATENT_A": "experts.bin",
+          "STRATA_LATENT_LABELS": "labels.bin",
+          "STRATA_LATENT_DENSE": "dense.bin"
+        }
+      }
+    }
+  }
+}

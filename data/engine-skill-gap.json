@@ -1,7 +1,7 @@
 {
   "generated_utc": "2026-11-17T08:25:02Z",
   "registry_engines": 50,
-  "skills": 17,
+  "skills": 18,
   "shipped": [
     "DFlash2",
     "ExLlamaV3 (ROCm fork)",
@@ -16,6 +16,7 @@
     "TensorFold",
     "TensorRT-LLM",
     "WebLLM",
+    "edge0",
     "llama.cpp",
     "llama.cpp (LaurentZuijdwijk fork)",
     "llama.cpp (PrismML fork)",
@@ -162,13 +163,6 @@
       "issue": 2902
     },
     {
-      "engine": "edge0",
-      "decision": "deferred",
-      "decided": "2026-11-18",
-      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5. edge0-145b (the only registry model listing edge0) is served by edge0-strata, a Strata fork whose launch contract (edge0-strata/EDGE0.md v5; template edge0/models/edge0-145b.json) points the server at a model PACK DIRECTORY - ${MODEL_DIR}/model-skeleton.gguf, ple-fp8.gguf, profile.bin, experts.bin, labels.bin, mtp/, tokenizer/ - and the HF checkpoint Edge0/Edge0-145B-q3k is exactly such a multi-file pack (measured 24-entry tree 2026-11-18). Pack serving for exactly this shape now exists (issue #2909): the store fetches the whole Edge0/Edge0-145B-q3k checkpoint as one resumable manifest download (formats[].pack), gates it by the manifest byte sum, and a pack directory is launched through engine params model_contract=pack with pack.parts/config_env (scripts/pack_contract.py). What remains is shipping edge0 itself: a device-native runtime (Linux CUDA builds need CUDA 13) and its own measurement on hardware we can measure here. Upstream's second backend (Metal) is macOS-only per the README platform table, and the Linux CUDA build needs CUDA 13 (release notes).",
-      "issue": 2903
-    },
-    {
       "engine": "glm-flash-lite",
       "decision": "deferred",
       "decided": "2026-10-14",
@@ -268,13 +262,6 @@
       "name": "Ling-mini-2.0",
       "engines": [
         "smolmaxxing"
-      ]
-    },
-    {
-      "id": "edge0-145b",
-      "name": "Edge0-145B",
-      "engines": [
-        "edge0"
       ]
     },
     {
@@ -1936,27 +1923,28 @@
       "issue": 2902
     },
     "edge0": {
-      "status": "known-unsupported",
+      "status": "shipped",
       "backends": [
         "CUDA / METAL"
       ],
       "url": "https://github.com/Edge0-AI/Edge0",
-      "image": false,
-      "variants": [],
+      "image": true,
+      "variants": [
+        "cuda"
+      ],
       "models": [
         "edge0-145b"
       ],
       "top_engine": {
-        "cuda": [],
+        "cuda": [
+          "edge0-145b"
+        ],
         "rocm": [],
         "vulkan": [],
         "metal": [],
         "cpu": []
       },
-      "decision": "deferred",
-      "decided": "2026-11-18",
-      "reason": "Device-native runtime registered by human decision 2026-11-17 (#988 live run): Latent MoE weights streamed from SSD in its own layout, not GGUF, with the only measurement on Apple M5. edge0-145b (the only registry model listing edge0) is served by edge0-strata, a Strata fork whose launch contract (edge0-strata/EDGE0.md v5; template edge0/models/edge0-145b.json) points the server at a model PACK DIRECTORY - ${MODEL_DIR}/model-skeleton.gguf, ple-fp8.gguf, profile.bin, experts.bin, labels.bin, mtp/, tokenizer/ - and the HF checkpoint Edge0/Edge0-145B-q3k is exactly such a multi-file pack (measured 24-entry tree 2026-11-18). Pack serving for exactly this shape now exists (issue #2909): the store fetches the whole Edge0/Edge0-145B-q3k checkpoint as one resumable manifest download (formats[].pack), gates it by the manifest byte sum, and a pack directory is launched through engine params model_contract=pack with pack.parts/config_env (scripts/pack_contract.py). What remains is shipping edge0 itself: a device-native runtime (Linux CUDA builds need CUDA 13) and its own measurement on hardware we can measure here. Upstream's second backend (Metal) is macOS-only per the README platform table, and the Linux CUDA build needs CUDA 13 (release notes).",
-      "issue": 2903
+      "id": "edge0"
     },
     "glm-flash-lite": {
       "status": "known-unsupported",

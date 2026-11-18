@@ -136,6 +136,14 @@
       "formats": ["gguf", "safetensors"],
       "ternary": false,
       "cite": "SKILL.md backends+formats (cu130 manylinux wheel serving GGUF + safetensors per docs/inference/api.md)"
+    },
+    "edge0": {
+      "reg_name": "edge0",
+      "repo": "https://github.com/Edge0-AI/Edge0",
+      "archs": ["cuda"],
+      "formats": ["pack"],
+      "ternary": false,
+      "cite": "skills/engines/edge0/SKILL.md: CUDA-13 build (EDGE0.md v5), pack-directory model contract; cuda is the only shipped variant"
     }
   }
 }

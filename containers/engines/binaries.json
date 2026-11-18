@@ -1,6 +1,16 @@
 {
   "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
   "engines": {
+    "edge0": {
+      "cuda": {
+        "binary": "/opt/llgenie/engines/edge0/src/edge0-strata/build/strata",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
     "exllamav3-rocm": {
       "rocm": {
         "binary": "/opt/llgenie/engines/exllamav3-rocm/src/rocm_tools/exl3_server/server.py",
