@@ -114,6 +114,30 @@ def test_tag_follows_the_image_inputs(tmp_path):
     assert ci_images.tag("openspec", root) == openspec_tag
 
 
+def test_cache_ref_follows_the_image_content(tmp_path, monkeypatch):
+    """The registry layer-cache ref names the exact content it caches (issue #2911)."""
+    import ci_images
+
+    # Given a repo copy with the test image's inputs
+    monkeypatch.setenv("LLGENIE_REGISTRY", "ghcr.io/asimov-agent")
+    root = _copy_inputs(tmp_path)
+
+    # When the cache ref is computed for that content
+    ref = ci_images.cache_ref("test", root)
+
+    # Then it carries the content hash plus the -buildcache suffix, never a fixed name
+    assert re.fullmatch(r"ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}-buildcache", ref), ref
+    same = ci_images.cache_ref("test", root)
+
+    # When a lockfile line is changed and the cache ref is computed again
+    with (root / "tools/requirements-dev.txt").open("a") as f:
+        f.write("pytest-timeout==2.3.1\n")
+    changed = ci_images.cache_ref("test", root)
+
+    # Then the ref moved with the content instead of replaying one fixed namespace
+    assert changed != same and changed.endswith("-buildcache")
+
+
 def test_ref_names_the_registry_and_the_hash(monkeypatch):
     """OCI refs are lowercase: a fork owner with capitals still gives a valid ref."""
 
@@ -164,8 +188,8 @@ def test_publish_builds_both_arches_and_pushes_a_new_hash(tmp_path):
     assert len(builds) == 1, _calls(log)
     b = builds[0]
     assert "--platform linux/amd64,linux/arm64" in b and "--push" in b
-    assert "--cache-from type=registry,ref=ghcr.io/asimov-agent/llgenie/test:buildcache" in b
-    assert "--cache-to type=registry,ref=ghcr.io/asimov-agent/llgenie/test:buildcache,mode=max" in b
+    assert re.search(r"--cache-from type=registry,ref=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}-buildcache", b), b
+    assert re.search(r"--cache-to type=registry,ref=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}-buildcache,mode=max", b), b
     assert "org.opencontainers.image.source=https://github.com/" in b
 
     # And its context holds the Dockerfile and both lockfiles
@@ -192,7 +216,7 @@ def test_a_first_publish_omits_cache_from_but_keeps_cache_to(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     b = next(c for c in _calls(log) if c.startswith("buildx build"))
     assert "--cache-from" not in b, "a missing cache ref must not be probed as a source"
-    assert "--cache-to type=registry,ref=ghcr.io/asimov-agent/llgenie/test:buildcache,mode=max" in b
+    assert re.search(r"--cache-to type=registry,ref=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}-buildcache,mode=max", b), b
     assert "--push" in b
 
 
