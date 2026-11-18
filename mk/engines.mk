@@ -498,3 +498,10 @@ test-engine-stage: ## CI engine-image post-build test, ONE step for every image:
 	  *) echo "[test-engine-stage] TEST must be serve or detect, got '$(TEST)'"; exit 1 ;; \
 	esac
 
+
+registry-cache-orphans: ## Report GHCR cache tags whose fixed-name namespace was superseded by the content-keyed cache refs (#2891/#2911) — candidates derived from ci_images.IMAGES + engine_skills.BACKENDS + engine_image.matrix() (issue #2914)
+	@python3 scripts/registry_cache_orphans.py report
+
+registry-cache-gc: ## Delete the superseded fixed-name cache tags the report lists, then verify zero remain (issue #2914). EXPLICIT human-side action only — never wired into a workflow (the main pipeline stays tests-only, #2701; registry deletion is a human-side action, #746)
+	@python3 scripts/registry_cache_orphans.py gc --yes
+

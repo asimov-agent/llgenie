@@ -65,6 +65,8 @@ make check-engine-cache-namespace         # CI: the build seam's buildx registry
 make engine-pins-published-report         # print the engines this change repins vs the base + their published-tag set (issue #1622)
 make engine-build-pr-trigger              # CI "will" arm: dispatch engine-build push=true for every engine THIS change repins and await each verdict (issue #1633; hermetic no-op when nothing repins)
 make engine-build-pr-trigger-report       # print the repinned engines and the dispatch plan, without dispatching (issue #1633)
+make registry-cache-orphans               # report GHCR cache tags whose fixed-name namespace was superseded by the content-keyed refs (`:buildcache` / `:buildcache-<variant>`); candidates derived from ci_images.IMAGES + engine_skills.BACKENDS + engine_image.matrix() (issue #2914)
+make registry-cache-gc                    # human-side sweep ONLY after merge: delete exactly the reported fixed-name orphans (guarded so keyed/ordinary tags can never match) and verify zero remain — wired into NO workflow (issue #2914)
 make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169);
                                           # a producer cell still QUEUED is waited on up to 75 min and reported as BLOCKED,
                                           # a producer that concluded is reported as NOT FOUND (issue #893)
