@@ -61,6 +61,7 @@ make test-built-engine                    # every ~/bin/llgenie-engine-* prints 
 make check-engine-launchers               # CI: a launcher whose tag is not what the committed params compute FAILS
 make engine-launchers-report              # the same comparison, printed per engine (launcher tag vs expected)
 make check-engine-pins-published          # CI: an engine THIS change repins must have its exact image tag published — red on a 404, green only on resolve (issue #1622)
+make check-engine-cache-namespace         # CI: the build seam's buildx registry cache refs track the content hashes the image tags carry — base `<basehash>-buildcache`, cell full-tag-suffix refs; content change ⇒ new namespace (issue #2891)
 make engine-pins-published-report         # print the engines this change repins vs the base + their published-tag set (issue #1622)
 make engine-build-pr-trigger              # CI "will" arm: dispatch engine-build push=true for every engine THIS change repins and await each verdict (issue #1633; hermetic no-op when nothing repins)
 make engine-build-pr-trigger-report       # print the repinned engines and the dispatch plan, without dispatching (issue #1633)
