@@ -394,7 +394,7 @@ def test_dry_run_prints_the_plan_without_dispatching(monkeypatch, capsys):
                "--branch", "main", "--gh", "gh"])
     assert rc == 0
     captured = capsys.readouterr()
-    assert "would dispatch engine-build push=true engine=llama.cpp arch=cpu" in captured.out
+    assert "would dispatch engine-build push=true moving_tags=false engine=llama.cpp arch=cpu" in captured.out
 
 
 def test_a_repinned_gpu_cell_is_dispatched_with_its_explicit_arch(monkeypatch, capsys):
@@ -417,7 +417,7 @@ def test_a_repinned_gpu_cell_is_dispatched_with_its_explicit_arch(monkeypatch, c
     assert rc == 0
     argv = _dispatch_argvs(state)[0]
     fields = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--field"]
-    assert fields == ["engine=vllm", "push=true", "arch=rocm"]
+    assert fields == ["engine=vllm", "push=true", "moving_tags=false", "arch=rocm"]
     out = capsys.readouterr().out
     assert "1 repinned cell(s) vs" in out
     assert "OK engine=vllm arch=rocm" in out
@@ -432,7 +432,7 @@ def test_the_dry_plan_names_the_cell_arch_and_never_an_archless_dispatch(monkeyp
                "--branch", "main", "--gh", "gh"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "would dispatch engine-build push=true engine=vllm arch=rocm @ main" in out
+    assert "would dispatch engine-build push=true moving_tags=false engine=vllm arch=rocm @ main" in out
     assert "engine=vllm @ main" not in out
 
 
@@ -499,8 +499,8 @@ def test_every_dispatch_input_gets_its_own_field_argument(monkeypatch):
     # every input pair is `--field <k=v>`; nothing dangles as a positional after the workflow name
     assert [argv[i] for i in range(len(argv) - 1) if argv[i] == "--field"] != []
     fields = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--field"]
-    assert fields == ["engine=llama.cpp", "push=true", "arch=rocm"]
-    assert sum(1 for tok in argv if tok.startswith(("engine=", "push=", "arch="))) == 3
+    assert fields == ["engine=llama.cpp", "push=true", "moving_tags=false", "arch=rocm"]
+    assert sum(1 for tok in argv if tok.startswith(("engine=", "push=", "arch=", "moving_tags="))) == 4
 
 
 def test_a_rejected_dispatch_reports_the_cli_reason_not_a_bare_failure(monkeypatch, capsys):
