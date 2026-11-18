@@ -342,6 +342,12 @@ model-links-report: ## Print every committed model/GGUF link the tests depend on
 engine-gate-report: ## Print what each engine cell will actually prove (flag-proven / device-exempt / disabled) from the committed params, before any image is built (issue #625)
 	python3 scripts/engine_gate_report.py
 
+engine-cache-orphan-report: ## List the superseded fixed-name buildx cache tags still in LLGENIE_REGISTRY that no producer seam writes anymore (zero while the cache-keying #2891/#2911 has not landed; issue #2914) — needs a token that can read the org's container packages
+	python3 scripts/cache_orphan_report.py list
+
+engine-cache-orphan-sweep: ## Delete those orphaned fixed-name cache tags (gated: never deletes a ref a live producer seam still writes; run ONLY after #2891/#2911 land on main, issue #2914) — needs a token that can delete org packages
+	python3 scripts/cache_orphan_report.py sweep
+
 build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cuda|rocm|vulkan; PUSH=1 publishes + caches in LLGENIE_REGISTRY)
 	@test -n "$(BACKEND)" || { echo "Usage: make build-engine-base BACKEND=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
 	python3 scripts/engine_image.py build-base "$(BACKEND)" $(if $(FORCE),--force,) $(if $(PUSH),--push,)

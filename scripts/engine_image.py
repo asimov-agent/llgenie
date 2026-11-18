@@ -353,6 +353,26 @@ def _available(tag: str) -> bool:
     return False
 
 
+def cache_ref(image_name: str, variant: str | None = None) -> str:
+    """The registry buildx layer-cache ref `build_base`/`build` write (the ONE seam, issue #2914).
+
+    Today this is the FIXED namespace the pre-keying producers seeded
+    (`llgenie/<image>:buildcache`, `llgenie/<image>:buildcache-<variant>`). The content-hash keying
+    (#2891/#2911) supersedes these names: once that change lands it edits this SAME function to
+    name the content-keyed namespace, and the GC report (`cache_orphan_report.py`) follows for free,
+    because it derives the live producer set from here. Both build paths call it, so there is no
+    second derivation to drift.
+    """
+    if variant:
+        return f"{REGISTRY}/{image_name}:buildcache-{variant}"
+    return f"{REGISTRY}/{image_name}:buildcache"
+
+
+def base_image_ref(backend: str) -> str:
+    """The base image name (with registry) `make build-engine-base BACKEND=` builds and publishes."""
+    return f"{REGISTRY}/{es.base_image_name(backend)}"
+
+
 def build_base(backend: str, force: bool = False, push: bool = False) -> int:
     """Shared toolchain base for one backend (containers/engines/base/Dockerfile.<backend>)."""
     tag = es.base_tag(backend)
@@ -361,7 +381,7 @@ def build_base(backend: str, force: bool = False, push: bool = False) -> int:
         return 0
     with tempfile.TemporaryDirectory(prefix="llgenie-base-") as ctx:
         shutil.copy2(es.BASE_DIR / f"Dockerfile.{backend}", Path(ctx) / "Dockerfile")
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_image_name(backend)}:buildcache", force=force)
+        rc = _buildx(tag, ctx, push, cache_ref(es.base_image_name(backend)), force=force)
     print(f"[engine-image] {'built' if rc == 0 else 'FAIL'} base {tag}")
     return rc
 
@@ -430,7 +450,7 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
         # publish build streams straight to the registry and never pays that cost, so it stays
         # on the cache-capable driver.
         no_cache_export = (not push) and (spec["id"], spec["variant"]) in NO_CACHE_EXPORT
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag.split(':')[0]}:buildcache-{spec['variant']}",
+        rc = _buildx(tag, ctx, push, cache_ref(tag.split(":")[0], spec["variant"]),
                      force=force, no_cache_export=no_cache_export)
     if rc:
         print(f"[engine-image] FAIL build {tag} (exit {rc})")

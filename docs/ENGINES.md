@@ -510,3 +510,16 @@ Every servable launch exposes the model as `llm-local` on the image's port 11434
 engine has no alias option). Engines are installed **only inside their container image**,
 never on the host and never in a venv. Skills never use sudo or `curl | sh`. Format and
 how to add an engine: [`skills/engines/README.md`](skills/engines/README.md).
+
+**GC of superseded fixed-name buildx cache tags (issue #2914).** Before the cache-keying changes
+(#2891 / #2911) every engine build wrote its registry layer cache to a FIXED name
+(`llgenie/<image>:buildcache`, `llgenie/<engine>:buildcache-<variant>`, `llgenie/<name>:buildcache`)
+with no link to the content being built, so the tag could not tell which content it cached. The
+keying changes make every build write a content-hash-keyed namespace instead; the old fixed tags
+remain in GHCR as orphaned layers. `make engine-cache-orphan-report` lists the fixed-name cache tags
+still in the registry that **no producer seam writes anymore**, and `make engine-cache-orphan-sweep`
+deletes them. Both are gated on the live producer set being derived from the one seams the builds
+call (`engine_image.cache_ref` / `ci_images.cache_ref`): while the keying changes are not on main
+those seams still return the fixed names, so the report prints zero orphans and the sweep refuses —
+run the sweep only after both #2891 and #2911 land on `main` (the issue's own gate). Needs a token
+that can read (report) and delete (sweep) the org's container packages.
