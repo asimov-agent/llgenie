@@ -357,6 +357,11 @@ make render-trend-list-matrix  # rewrite tests/fixtures/trend-list-matrix.json (
                               # answers that build read into tests/fixtures/hub-snapshot.json
 make check-trend-list-matrix   # CI: fail if that file differs from matrix() — hermetic: it replays
                               # the recorded Hub answers, so no route is needed (LIVE=1 = live read)
+make check-trend-list-fresh    # CI: LIVE staleness read of that file against the live trending, cell
+                              # by cell (issue #2901): a disagreement names every stale cell and exits 1;
+                              # an unreadable read exits 2. ci-hf-live runs it and files the refresh issue
+make trend-staleness-issue     # CI: file ONE open, marker-deduped refresh issue for a disagreement
+                              # (issue #2901), ordering make render-trend-list-matrix; DRY=1 prints it
 make render-vram-scope-view    # rewrite tests/fixtures/vram-scope-view.json: the committed default-band
                               # (8-48 GB) view of the vendored registry, from scope_models(registry)
 make check-vram-scope-view     # CI: fail if that committed default-range view differs from scope_models()

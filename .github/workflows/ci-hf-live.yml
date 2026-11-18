@@ -103,6 +103,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      issues: write   # the trend-staleness step files ONE refresh issue when the live trending moves under the fixture (issue #2901)
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -150,6 +151,21 @@ jobs:
       - name: Live check-quant-catalog — the HF class table matches a fresh live regeneration (issue #1178 & #1714)
         if: steps.debounce.outputs.skip != 'true'
         run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/quant-catalog.log" -- make check-quant-catalog LIVE=1
+      - name: Trend matrix staleness vs the LIVE trending — drift FILES a deduped refresh issue, never silent (issue #2901)
+        if: steps.debounce.outputs.skip != 'true'
+        run: |
+          rc=0
+          make check-trend-list-fresh || rc=$?
+          if [ "$rc" -eq 1 ]; then
+            # A named drift is ticketed, not reddened: the hermetic contract check and the
+            # battery may still legitimately hold against the recorded snapshot, while the
+            # drift itself becomes a tracked refresh issue (the battery keeps failing loudly
+            # on its own if the stale fixture really breaks a live assertion).
+            make trend-staleness-issue
+          elif [ "$rc" -ne 0 ]; then
+            # exit 2: the read could not run (fixture or live build unreadable) — loud, never green.
+            exit "$rc"
+          fi
       - name: make test-unit-network (the @pytest.mark.network ownership set, via the seam, issue #1000)
         if: steps.debounce.outputs.skip != 'true'
         run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/unit-network.log" -- make test-unit-network

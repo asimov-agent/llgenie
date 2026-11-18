@@ -54,5 +54,5 @@ def test_help_lines_and_fixture_stay_the_same_length():
     # Given the committed capture and the entry point's data
     base_lines = BASE_FIXTURE.read_text().splitlines()
     # Then they agree (the fixture is the contract; HELP_LINES is its copy inside the script)
-    assert len(make_help.HELP_LINES) == len(base_lines) == 59
+    assert len(make_help.HELP_LINES) == len(base_lines) == 61
     assert list(make_help.HELP_LINES) == base_lines

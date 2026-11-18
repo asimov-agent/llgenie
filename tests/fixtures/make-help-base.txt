@@ -4,6 +4,8 @@ Engine images (issue #98, plain make, no LLM):
   make check-quant-catalog         CI: fail if the committed quant catalog differs from what the generator produces
   make render-trend-list-matrix    rewrite tests/fixtures/trend-list-matrix.json (the trending list per arch, vram, ram)
   make check-trend-list-matrix     CI: fail if that committed list differs from matrix() on the vendored registry
+  make check-trend-list-fresh      CI: LIVE staleness read of that list, cell by cell (#2901); drift names its cells, unreadable read exits 2
+  make trend-staleness-issue       CI: when the staleness read disagrees, file ONE deduped refresh issue ordering make render-trend-list-matrix (#2901)
   make render-engine-skill-gap     rewrite data/engine-skill-gap.json (per-engine list + the models no engine can offer)
   make check-engine-skill-gap      CI gate: a registry engine with no skill and no dated decision in data/unsupported-engines.json, a stale decision, or a stale file
   make engine-skill-gap            show the gap: shipped / known-unsupported / NEW-unresolved engines

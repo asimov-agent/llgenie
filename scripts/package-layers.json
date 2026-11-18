@@ -168,6 +168,7 @@
       "profile_drift_alarm",
       "provision_agent_profiles",
       "queued_run_alarm",
+      "trend_staleness_issue",
       "rebase_bot_sweep",
       "registry_change_issue",
       "registry_review",
@@ -378,6 +379,16 @@
       "from": "engine_skill_gap",
       "to": "issue_body",
       "reason": "a new engine is filed through the ONE issue-body renderer (issue #745)."
+    },
+    {
+      "from": "trend_staleness_issue",
+      "to": "trend_list_matrix",
+      "reason": "the refresh producer files the cells the staleness read computed: one matrix-diff implementation, never a second one (issue #2901)."
+    },
+    {
+      "from": "trend_staleness_issue",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
     {
       "from": "engine_skill_scaffold",
