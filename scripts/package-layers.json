@@ -28,6 +28,7 @@
       "model_engine_pick",
       "native_build_env",
       "pack_contract",
+      "registry_cache_orphans",
       "registry_keys",
       "serve_variant",
       "strata_models",
@@ -199,6 +200,11 @@
     },
     {
       "from": "architecture_bot",
+      "to": "changes_index",
+      "reason": "the architecture refresh owes `check-docs` an agent-wiki note + docs/changes.d row (issue #1123); the bot pays that pair (issue #2598) by rendering the fragment, parsing it, and rebuilding CHANGES.md through the ONE index renderer rather than restating its format."
+    },
+    {
+      "from": "architecture_bot",
       "to": "git_identity",
       "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
     },
@@ -211,11 +217,6 @@
       "from": "architecture_bot",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
-    },
-    {
-      "from": "architecture_bot",
-      "to": "changes_index",
-      "reason": "the architecture refresh owes `check-docs` an agent-wiki note + docs/changes.d row (issue #1123); the bot pays that pair (issue #2598) by rendering the fragment, parsing it, and rebuilding CHANGES.md through the ONE index renderer rather than restating its format."
     },
     {
       "from": "audit_acceptance_ticks",
@@ -308,11 +309,6 @@
       "reason": "the monitor files its alarm through the ONE issue-body renderer (issue #745)."
     },
     {
-      "from": "queued_run_alarm",
-      "to": "check_zero_job_pending",
-      "reason": "the run-level squat scan reads the zero-job retirement ledger (zombie_retired_run_ids, #2600) so ledger-retired rows are named and never counted as squat (issue #2888)."
-    },
-    {
       "from": "ci_images",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
@@ -383,16 +379,6 @@
       "reason": "a new engine is filed through the ONE issue-body renderer (issue #745)."
     },
     {
-      "from": "trend_staleness_issue",
-      "to": "trend_list_matrix",
-      "reason": "the refresh producer files the cells the staleness read computed: one matrix-diff implementation, never a second one (issue #2901)."
-    },
-    {
-      "from": "trend_staleness_issue",
-      "to": "proc",
-      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
-    },
-    {
       "from": "engine_skill_scaffold",
       "to": "engine_skills",
       "reason": "the scaffold writes a skill the loader must read back, so it uses the loader's own module."
@@ -409,13 +395,13 @@
     },
     {
       "from": "issue_implementer",
-      "to": "git_identity",
-      "reason": "git_identity is the ONE source of the commit identity + the PR body's Author line (issue #840)."
+      "to": "check_pr_closing",
+      "reason": "issue #2869: the close->hold guard resolves an OPEN PR's claims through the same closing grammar (closing_references/issue_line_claims/subject_claims) the closing gate reds, so the lane never closes an issue an OPEN PR already claims"
     },
     {
       "from": "issue_implementer",
-      "to": "check_pr_closing",
-      "reason": "issue #2869: the close->hold guard resolves an OPEN PR's claims through the same closing grammar (closing_references/issue_line_claims/subject_claims) the closing gate reds, so the lane never closes an issue an OPEN PR already claims"
+      "to": "git_identity",
+      "reason": "git_identity is the ONE source of the commit identity + the PR body's Author line (issue #840)."
     },
     {
       "from": "lane_preflight",
@@ -443,9 +429,24 @@
       "reason": "tree_skill_names mirrors the Hermes skill loader's gates, and check_agent_skills.frontmatter is the repo's ONE SKILL.md frontmatter reader (issue #2836); re-stating the parser here is how the resolver drifted from the loader in the first place."
     },
     {
+      "from": "queued_run_alarm",
+      "to": "check_zero_job_pending",
+      "reason": "the run-level squat scan reads the zero-job retirement ledger (zombie_retired_run_ids, #2600) so ledger-retired rows are named and never counted as squat (issue #2888)."
+    },
+    {
       "from": "rebase_bot_sweep",
       "to": "check_pr_base",
       "reason": "check_pr_base holds the ONE definition of staleness \u2014 the merge-base-is-not-the-base-tip rule of issue #845 \u2014 and the sweep measures a PR's staleness through it (staleness_from_compare) instead of restating the rule, so the gate that reds a stale branch and the sweep that rebases it cannot drift (issue #2071)."
+    },
+    {
+      "from": "registry_cache_orphans",
+      "to": "ci_images",
+      "reason": "the sweep enumerates the same package/tag namespace ci_images names: helper image and helper cache refs share registry(), the helper name set, and the retired fixed-name cache shape (issue #2914)."
+    },
+    {
+      "from": "registry_cache_orphans",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
     {
       "from": "registry_review",
@@ -469,26 +470,16 @@
     },
     {
       "from": "security_bot",
-      "to": "git_identity",
-      "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
-    },
-    {
-      "from": "security_bot",
-      "to": "proc",
-      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
-    },
-    {
-      "from": "security_bot",
       "to": "bot_preflight",
       "reason": "bot_preflight is the ONE AGENTS:/BASE: stamp authority (issue #2050); the security-bot opens its PR through the same seam every other producer uses."
     },
     {
-      "from": "security_bumps",
+      "from": "security_bot",
       "to": "git_identity",
       "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
     },
     {
-      "from": "security_bumps",
+      "from": "security_bot",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
@@ -496,6 +487,16 @@
       "from": "security_bumps",
       "to": "bot_preflight",
       "reason": "bot_preflight is the ONE AGENTS:/BASE: stamp authority (issue #2050); the security-bumps PR is stamped by the same seam every other producer uses."
+    },
+    {
+      "from": "security_bumps",
+      "to": "git_identity",
+      "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
+    },
+    {
+      "from": "security_bumps",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
     {
       "from": "security_issues",
@@ -521,6 +522,16 @@
       "from": "serve_variant",
       "to": "ci_health",
       "reason": "the serve-variant download reuses ci_health's model + hf discovery, so both legs fetch the same model the health check serves."
+    },
+    {
+      "from": "trend_staleness_issue",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "trend_staleness_issue",
+      "to": "trend_list_matrix",
+      "reason": "the refresh producer files the cells the staleness read computed: one matrix-diff implementation, never a second one (issue #2901)."
     }
   ]
 }
