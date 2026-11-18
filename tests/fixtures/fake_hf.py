@@ -90,6 +90,17 @@ def main():
         with open(full, "wb") as f:
             f.write(b"\x00" * 131072)
         return 0
+    elif mode == "pack":
+        # a single named file of a multi-file checkpoint (the pack manifest-driven fetch):
+        # argv looks like `download <repo> <file> --local-dir DEST --max-workers 4`.
+        args = sys.argv[1:]
+        name = next((a for a in args[2:] if not a.startswith("-")),
+                    "model-skeleton.gguf")
+        p = os.path.join(dest, *name.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as f:
+            f.write(b"\x00" * 65536)
+        return 0
     return 0
 
 if __name__ == "__main__":

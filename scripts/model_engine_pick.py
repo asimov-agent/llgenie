@@ -874,7 +874,15 @@ def footprint(model: dict, measurement: dict | None = None) -> dict:
 
 
 def stated_budget_gb(model: dict, measurement: dict | None = None) -> float | None:
-    """The stated weight footprint of a run, as GB (None when the store states none)."""
+    """The stated weight footprint of a run, as GB (None when the store states none).
+
+    A pack-format checkpoint is sized by its WHOLE file set (`pack_weight_gb`),
+    never by a single file — a pack is admitted or refused as a set (OpenSpec
+    pack-format-store-launch). The per-file gguf path reads the model's weight_gb.
+    """
+    pack = pack_weight_gb(model)
+    if pack is not None:
+        return pack
     return stated_gb(footprint(model, measurement).get("weight_gb"))
 
 
@@ -1695,6 +1703,79 @@ def _model_repos(model: dict) -> list[str]:
     return list(dict.fromkeys(out))
 
 
+# ---------------------------------------------------------------------------
+# Pack-format checkpoints (OpenSpec pack-format-store-launch). A registry
+# `formats[]` entry may declare a multi-file PACK — a checkpoint an engine
+# consumes as one DIRECTORY, not a single quant file. The entry carries the
+# `files` list (repo-relative paths, e.g. "experts.bin", "model-skeleton.gguf",
+# "mtp/next.gguf") and names the repo; the pack's overall size for VRAM gating
+# is the SUM of its files, never one file's size. `_present_pack` / the
+# manifest-driven fetch in scripts/hf_download.py pull exactly those files into
+# one destination directory, resumably.
+# ---------------------------------------------------------------------------
+def pack_manifest(model: dict) -> tuple[str, str, list[str], dict] | None:
+    """(repo, revision, files, entry) of a model's pack format declaration, or None.
+
+    A formats[] entry is a pack when it carries a `files` list (a plain list of
+    repo-relative paths). `hf` names the repo and `revision` the pinned commit
+    (default "main"). The FIRST pack entry wins; a model with no pack entry has
+    no pack plan.
+    """
+    for entry in model.get("formats") or []:
+        files = entry.get("files")
+        if isinstance(files, list) and files:
+            repo = str(entry.get("hf") or "").strip() or str(model.get("hf") or "").strip()
+            if not repo:
+                continue  # a pack must name a repo to fetch from
+            clean = [str(f) for f in files if f]
+            if clean:
+                return repo, str(entry.get("revision") or "main"), clean, entry
+    return None
+
+
+def pack_weight_gb(model: dict) -> float | None:
+    """The whole-file-set weight of a pack model in GB, or None when not a pack.
+
+    A pack's stated footprint is the SUM of its named files' bytes (`weight_gb`
+    per-entry or summed per-file when the entry states them), never a single
+    file's size. When the entry states no sizes, the store's own `weight_gb`
+    stands (a data gap, never a fabricated default).
+    """
+    pm = pack_manifest(model)
+    if pm is None:
+        return None  # not a pack: the card gate reads the model's normal fields
+    _repo, _rev, files, entry = pm
+    stated = entry.get("files_weight_gb")
+    if isinstance(stated, list) and stated and all(_num(x) is not None for x in stated):
+        return round(sum(_num(x) for x in stated), 3)
+    if _num(entry.get("weight_gb")) is not None:
+        return _num(entry["weight_gb"])
+    return None  # no stated pack sizes: gating falls back to the store's weight_gb
+
+
+def pack_plan(model: dict, budget_bytes: float, pm: tuple[str, str, list[str], dict] | None = None) -> dict | None:
+    """The download plan for a pack-format checkpoint, as ONE pack directory.
+
+    Returns {repo, revision, path:"", dir:True, files:[...], size:<whole-set sum>}
+    when EVERY named file exists on the Hub AND the whole file set fits the card
+    budget (sum of bytes — a pack is admitted or refused as a set, never by one
+    file's size). None when a file is missing or the set exceeds the budget.
+    """
+    repo, rev, files, entry = pm if pm is not None else pack_manifest(model) or ("", "main", [], {})
+    if not files:
+        return None
+    tree = _tree(repo, rev)
+    sizes = {f["path"]: int(f.get("size") or 0) for f in tree if f.get("type") == "file"}
+    if not all(sizes.get(f) for f in files):
+        return None  # a pack file missing on the Hub: no servable set to plan
+    total = sum(sizes[f] for f in files)
+    if total > budget_bytes:
+        return None  # the WHOLE set must fit, never a single file
+    layout = entry.get("layout") if isinstance(entry.get("layout"), dict) else {}
+    return {"repo": repo, "revision": rev, "path": "", "dir": True,
+            "files": files, "size": total, "pack_layout": layout}
+
+
 def _snapshot(repo: str) -> dict | None:
     """A whole HF model repo (config.json + *.safetensors) as one download."""
     files = [f for f in _tree(repo) if f.get("type") == "file"]
@@ -1715,10 +1796,19 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
       mlx-safetensors  a registry repo named MLX with config.json + safetensors (whole repo),
                        else the most-downloaded `<name>-MLX*` Hub repo that fits
       safetensors      a non-MLX registry repo with config.json + safetensors (whole repo)
-    engine="tensorfold": only TensorFold's own MLX checkpoints (tensorfold_plan)."""
+      pack             a multi-file checkpoint fetched as ONE pack directory (OpenSpec
+                       pack-format-store-launch): the manifest's named files, sized by the
+                       WHOLE file set (sum of bytes), never one file.
+    engine="tensorfold": only TensorFold's own MLX checkpoints (tensorfold_plan).
+    engine="strata": only the files Strata's setup.py names (strata_plan)."""
     gb = card_gb() if gb is None else gb
     arch = arch or host_arch()
     budget = weight_budget_gb(gb, is_moe(model), ram_gb, arch) * 2**30
+    # A pack is a multi-file checkpoint fetched as one directory: the FIRST format
+    # entry declaring a `files` list wins, regardless of the per-file fmt label.
+    pm = pack_manifest(model) if fmt in ("gguf", "pack") else None
+    if pm is not None:
+        return pack_plan(model, budget, pm)
     if engine == "strata":  # only the files Strata's setup.py names
         return strata_plan(ram_gb) if fmt == "gguf" and strata_serves(model) else None
     if engine == "tensorfold":  # only the checkpoints TensorFold publishes for its families
@@ -2179,7 +2269,42 @@ def download(model: dict, gb: float | None = None, root: Path | None = None, fmt
                 f"(LLGENIE_DOWNLOAD_TIMEOUT) and was killed: {' '.join(cmd)}") from None
         if rc:
             raise SystemExit(f"[pick] download of {repo}/{filename} failed (exit {rc})")
+    if plan.get("dir") and (plan.get("pack_layout") or pack_manifest(model)):
+        # Launch-contract seam (OpenSpec pack-format-store-launch): a pack checkpoint is
+        # fetched as ONE directory; write the engine config wiring the declared named parts
+        # (model, ple, profile, labels, mtp...) to their absolute paths, so the engine's
+        # launch reads ONE file instead of re-inventing the parts.
+        _pm = pack_manifest(model)
+        layout = plan.get("pack_layout") or (_pm[3].get("layout") if _pm else {})
+        try:
+            write_pack_config(dest, layout or {})
+        except OSError as e:  # the model store never fails the download over a config write
+            print(f"[pick] warning: could not write pack config for {dest}: {e}", file=sys.stderr)
     return dest if plan.get("dir") else dest / plan["path"]
+
+
+def write_pack_config(model_dir: Path, layout: dict) -> Path:
+    """Write an engine config file for a pack directory, wiring named parts to paths.
+
+    The launch contract for a pack-format checkpoint (OpenSpec pack-format-store-launch):
+    `MODEL=` resolves to a pack DIRECTORY, and the engine's params declare how the named
+    parts map onto the model dir via the `pack` layout — e.g.
+    `{"model": "model-skeleton.gguf", "ple": "ple-fp8.gguf", "profile": "profile.bin",
+      "labels": "labels.bin", "mtp": "mtp/"}`. Each named part is resolved to its absolute
+    path under the pack dir and written to `<model_dir>/llgenie-pack-config.json` for the
+    engine's launch command to read (a single file, so the launcher/entrypoint never
+    re-invents the parts it must wire). Any part already an absolute path is passed
+    through untouched.
+    """
+    parts = {}
+    for name, rel in (layout or {}).items():
+        p = Path(rel)
+        parts[name] = str(p) if p.is_absolute() else str(model_dir / rel)
+    out = {"model_dir": str(Path(model_dir).resolve()), "parts": parts,
+           "layout": dict(layout or {})}
+    cfg = Path(model_dir) / "llgenie-pack-config.json"
+    cfg.write_text(json.dumps(out, indent=2) + "\n")
+    return cfg
 
 
 def choose(rows: list, label, prompt: str, wanted: str | None, auto: bool):

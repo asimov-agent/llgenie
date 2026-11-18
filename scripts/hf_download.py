@@ -3,12 +3,21 @@
 
 Usage: hf_download.py <repo_id> <filename> <dest_dir> <label> [refresh] [expected_bytes]
        hf_download.py <repo_id> -          <dest_dir> <label>   ...  whole-repo snapshot
+       hf_download.py <repo_id> <manifest.json> <dest_dir> <label> ...  named-file-set pack
 refresh: "1" -> ALWAYS consult the Hub (etag/hash) so a same-name file that was
 updated upstream (or a corrupt local copy) is re-fetched, not skipped. Leave a
 fully-fresh local file untouched (hf no-ops on matching etag).
 `-` in place of the filename fetches the WHOLE repo (config.json + safetensors, an
 MLX/safetensors model) into <dest_dir> — the same CLI, fast path, resume and retry
 rules as the single-file path, so a caller never needs a second downloader (issue #385).
+A <filename> that is an existing `.json` file is a pack MANIFEST: `{"files": [<repo
+paths>, ...]}` (or a bare JSON array of paths) names the exact multi-file checkpoint
+an engine consumes as one directory. Every named file is fetched into <dest_dir>
+through the SAME single-file path (resume, stall-watch, 429-wait, retry), and a pack
+is "present" only when every named file is on disk — partial sets resume, never pass
+as complete. This is the pack-format model-store path (OpenSpec pack-format-store-launch):
+a checkpoint like a multi-file `experts.bin`/`dense.bin`/`*.gguf` tree is fetched as one
+servable pack directory from its own file manifest.
 Sends HF_TOKEN (env, else ~/.zshrc or ~/.bashrc) on the hf CLI and the tree
 lookup. Append progress to <dest_dir>/<label>.progress.log
 Uses HF_XET_HIGH_PERFORMANCE=1 (hf-xet chunked parallel) for speed — never
@@ -50,6 +59,45 @@ def _present(final_path, snapshot: bool) -> bool:
         if any(not f.startswith(".") and not f.endswith(".progress.log") for f in files):
             return True
     return False
+
+
+def _present_pack(dest: str, files: list[str]) -> bool:
+    """Is every named pack file on disk (a complete multi-file checkpoint)?
+
+    A pack is present only when EVERY manifest-named file exists — a partial set
+    (one shard missing, a download cut short) is not a servable checkpoint and must
+    resume, never pass as complete. The destination dir and its `.progress.log` /
+    `.cache` sidecars are never mistaken for a named file (issue #385).
+    """
+    if not os.path.isdir(dest):
+        return False
+    for rel in files:
+        if not os.path.isfile(os.path.join(dest, *rel.split("/"))):
+            return False
+    return bool(files)
+
+
+def _read_manifest(filename: str) -> list[str] | None:
+    """The named file set of a pack manifest: None when `filename` is not a manifest.
+
+    A `.json` file path names a pack manifest (either `{"files": [<repo paths>]}`
+    or a bare JSON array of repo-relative paths). Every other value (`-` whole-repo
+    snapshot, a model filename, empty) returns None.
+    """
+    if not filename.endswith(".json") or not os.path.isfile(filename):
+        return None
+    try:
+        import json
+        data = json.load(open(filename))
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, list):
+        out = [str(x) for x in data]
+    elif isinstance(data, dict) and isinstance(data.get("files"), list):
+        out = [str(x) for x in data["files"]]
+    else:
+        return None
+    return [p for p in out if p] or None
 
 
 def _stall_decision(total, last_bytes, last_advancing, now):
@@ -116,7 +164,8 @@ def _resolve_expected_bytes(repo, filename, label, expected_bytes):
 def main(argv=None):
     argv = list(argv if argv is not None else sys.argv[1:])
     repo, filename, dest = argv[0], argv[1], argv[2]
-    snapshot = filename in (SNAPSHOT, "", None)  # the whole repo, not one file
+    manifest = _read_manifest(filename)  # a pack manifest names the file set (else None)
+    snapshot = not manifest and filename in (SNAPSHOT, "", None)  # the whole repo, not one file
     label = argv[3]
     refresh = (argv[4] if len(argv) > 4 else "0") == "1"
     expected_bytes = int(argv[5]) if len(argv) > 5 and str(argv[5]).isdigit() else None
@@ -130,11 +179,6 @@ def main(argv=None):
         from scripts.hf_auth import apply_env, throttle_wait  # type: ignore
     apply_env(env)
 
-    def write_log(msg):
-        os.makedirs(dest, exist_ok=True)
-        with open(log, "a") as lf:
-            lf.write(msg + "\n")
-
     # Speed: hf-xet (chunked parallel transfer) is ON by default in huggingface_hub.
     env["HF_XET_HIGH_PERFORMANCE"] = "1"
     env.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
@@ -144,118 +188,148 @@ def main(argv=None):
     if not HF_BIN or not os.path.isfile(HF_BIN):
         print(f"[{label}] ERROR: 'hf' CLI not found on PATH (no fallback).", file=sys.stderr)
         return 2
-    cmd = [HF_BIN, "download", repo] + ([] if snapshot else [filename]) + \
-          ["--local-dir", dest, "--max-workers", "4"]
-    if os.environ.get("HF_REVISION"):  # a pinned commit (Strata's files): never the moving main
-        cmd += ["--revision", os.environ["HF_REVISION"]]
-    final_path = dest if snapshot else os.path.join(dest, filename)
 
-    TOTAL_BYTES = None if snapshot else _resolve_expected_bytes(repo, filename, label, expected_bytes)
     stall_threshold = float(os.environ.get("HF_STALL_SECONDS", str(DEFAULT_STALL_SECONDS)))
     poll_interval = float(os.environ.get("HF_POLL_SECONDS", "3"))
     retry_pause = float(os.environ.get("HF_RETRY_PAUSE", str(DEFAULT_RETRY_PAUSE)))
     max_retry = int(os.environ.get("HF_MAX_RETRY", str(MAX_RETRY)))
 
-    write_log(f"MODE download {repo} :: {filename if not snapshot else '* (whole repo)'} "
-              f"@ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\n"
-              f"START {time.ctime()} | max_retry={MAX_RETRY}\n")
+    def write_log(msg):
+        os.makedirs(dest, exist_ok=True)
+        with open(log, "a") as lf:
+            lf.write(msg + "\n")
 
-    t_total = time.time()
-    attempt = 1
-    xet_off = False  # set after a stall: retry over plain HTTP
-    while attempt <= max_retry:
-        # WITHOUT refresh: a fully-present file is treated as done (fast path).
-        # WITH refresh: always run `hf download` — it etag/checks the Hub and no-ops
-        # fast if the local file's content hash still matches; if the file was
-        # UPDATED upstream (even same filename + same size), the etag differs and hf
-        # re-fetches just that file. A mere existence check would mask that update.
-        if (not refresh) and _present(final_path, snapshot):
-            break  # already done
-        write_log(f"\n=== attempt {attempt} ({time.ctime()}) {('refresh' if refresh else 'plain')} ===")
-        t0 = time.time()
-        if xet_off:
-            env["HF_HUB_DISABLE_XET"] = "1"
-            env.pop("HF_XET_HIGH_PERFORMANCE", None)
-        proc = subprocess.Popen(cmd, env=env,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        last_bytes = -1
-        last_log = 0.0
-        last_advancing = time.time()  # last time the tree actually grew (stall-watch)
-        stalled_for = 0.0
-        while proc.poll() is None:
-            total = tree_bytes(dest, final_path)
-            now = time.time()
-            # stall watch (issue #55): if no forward progress for >= threshold while the
-            # subprocess is STILL ALIVE, terminate it so the retry loop advances instead
-            # of hanging forever on a dead 0-MB/s connection.
-            last_advancing, stalled_for = _stall_decision(total, last_bytes, last_advancing, now)
-            if stalled_for >= stall_threshold:
-                line = (f"[{time.strftime('%H:%M:%S')}] STALLED → no progress for "
-                        f"{stalled_for:.0f}s; terminating & retrying attempt {attempt + 1}")
-                write_log(line)
-                print(line, flush=True)
-                if not xet_off:
-                    xet_off = True
-                    msg = f"[{label}] stalled with hf-xet -> retrying over plain HTTP (HF_HUB_DISABLE_XET=1)"
-                    write_log(msg)
-                    print(msg, flush=True)
-                proc.terminate()
-                try:
-                    proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                break  # fall out to the retry logic; attempt increments below
-            if now - last_log >= 5:
-                dt = now - t0
-                mbps = total / dt / 1e6 if dt > 0 else 0
-                if TOTAL_BYTES:
-                    pct = min(100.0, total / TOTAL_BYTES * 100)
-                    line = (f"[{time.strftime('%H:%M:%S')}] {pct:5.1f}% "
-                            f"({total/1e9:6.2f}/{TOTAL_BYTES/1e9:.2f} GB) | "
-                            f"{mbps:.1f} MB/s | attempt {attempt} | running {dt/60:.1f} min")
+    def fetch_one(name: str | None, present_done):
+        """Fetch a single file (`name`) or the whole repo (`name is None`), resuming like today.
+
+        `present_done` is the `_present` predicate (per-file or per-pack), so a pack's
+        completion check only passes when EVERY named file is on disk (OpenSpec
+        pack-format-store-launch).
+        Returns 0 on completion/fast-path, 1 on failure after `max_retry` attempts.
+        """
+        snapshot = name is None
+        cmd = [HF_BIN, "download", repo] + ([] if snapshot else [name]) + \
+              ["--local-dir", dest, "--max-workers", "4"]
+        if os.environ.get("HF_REVISION"):  # a pinned commit (Strata's files): never the moving main
+            cmd += ["--revision", os.environ["HF_REVISION"]]
+        final_path = dest if snapshot else os.path.join(dest, name)
+        TOTAL_BYTES = None if snapshot else _resolve_expected_bytes(repo, name, label, expected_bytes)
+        write_log(f"MODE download {repo} :: {name if name else '* (whole repo)'} "
+                  f"@ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\n"
+                  f"START {time.ctime()} | max_retry={MAX_RETRY}\n")
+
+        attempt = 1
+        xet_off = False  # set after a stall: retry over plain HTTP
+        while attempt <= max_retry:
+            # WITHOUT refresh: a fully-present file is treated as done (fast path).
+            # WITH refresh: always run `hf download` — it etag/checks the Hub and no-ops
+            # fast if the local file's content hash still matches; if the file was
+            # UPDATED upstream (even same filename + same size), the etag differs and hf
+            # re-fetches just that file. A mere existence check would mask that update.
+            if (not refresh) and present_done():
+                break  # already done
+            write_log(f"\n=== attempt {attempt} ({time.ctime()}) {('refresh' if refresh else 'plain')} ===")
+            t0 = time.time()
+            if xet_off:
+                env["HF_HUB_DISABLE_XET"] = "1"
+                env.pop("HF_XET_HIGH_PERFORMANCE", None)
+            proc = subprocess.Popen(cmd, env=env,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            last_bytes = -1
+            last_log = 0.0
+            last_advancing = time.time()  # last time the tree actually grew (stall-watch)
+            stalled_for = 0.0
+            while proc.poll() is None:
+                total = tree_bytes(dest, final_path)
+                now = time.time()
+                # stall watch (issue #55): if no forward progress for >= threshold while the
+                # subprocess is STILL ALIVE, terminate it so the retry loop advances instead
+                # of hanging forever on a dead 0-MB/s connection.
+                last_advancing, stalled_for = _stall_decision(total, last_bytes, last_advancing, now)
+                if stalled_for >= stall_threshold:
+                    line = (f"[{time.strftime('%H:%M:%S')}] STALLED → no progress for "
+                            f"{stalled_for:.0f}s; terminating & retrying attempt {attempt + 1}")
                     write_log(line)
                     print(line, flush=True)
-                else:
-                    line = (f"[{time.strftime('%H:%M:%S')}] {total/1e9:6.2f} GB so far | "
-                            f"{mbps:.1f} MB/s | attempt {attempt} | running {dt/60:.1f} min")
+                    if not xet_off:
+                        xet_off = True
+                        msg = f"[{label}] stalled with hf-xet -> retrying over plain HTTP (HF_HUB_DISABLE_XET=1)"
+                        write_log(msg)
+                        print(msg, flush=True)
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    break  # fall out to the retry logic; attempt increments below
+                if now - last_log >= 5:
+                    dt = now - t0
+                    mbps = total / dt / 1e6 if dt > 0 else 0
+                    if TOTAL_BYTES:
+                        pct = min(100.0, total / TOTAL_BYTES * 100)
+                        line = (f"[{time.strftime('%H:%M:%S')}] {pct:5.1f}% "
+                                f"({total/1e9:6.2f}/{TOTAL_BYTES/1e9:.2f} GB) | "
+                                f"{mbps:.1f} MB/s | attempt {attempt} | running {dt/60:.1f} min")
+                    else:
+                        line = (f"[{time.strftime('%H:%M:%S')}] {total/1e9:6.2f} GB so far | "
+                                f"{mbps:.1f} MB/s | attempt {attempt} | running {dt/60:.1f} min")
                     write_log(line)
                     print(line, flush=True)
-                last_log = now
-            last_bytes = total
-            time.sleep(poll_interval)
-        # process ended
-        out = ""
-        try:
-            out = proc.stdout.read() if proc.stdout else ""
-            if out:
-                write_log("\n--- cli tail ---\n" + out[-800:] + "\n")
-        except Exception:
-            pass
-        rc = proc.wait()
-        write_log(f"--- attempt {attempt} ended rc={rc} {time.ctime()}, "
-                  f"disk={tree_bytes(dest, final_path)/1e9:.2f} GB ---")
-        if rc == 0 and _present(final_path, snapshot):
-            write_log(f"\nDONE {time.ctime()} (attempt {attempt}, total {attempt} runs) final_file={final_path}")
-            print(f"[{label}] COMPLETE rc=0 attempt={attempt} final_file={final_path}", flush=True)
-            break
-        # rc != 0 => connection likely dropped, we stall-terminated, OR the Hub throttled us.
-        # A throttle names its own wait: spend it instead of the short pause, or the next
-        # attempt lands in the same closed window (issue #385).
-        wait = throttle_wait(out) or retry_pause
-        if wait > retry_pause:
-            print(f"[{label}] Hub throttle: waiting {wait:.0f}s (the Hub's own answer) "
-                  f"before attempt {attempt + 1} of {max_retry}", flush=True)
-        write_log(f"--- rc={rc}; retrying in {wait:.0f}s to resume partial ---")
-        attempt += 1
-        time.sleep(wait)
-    else:
-        write_log(f"\nFAILED after {max_retry} attempts {time.ctime()} disk={tree_bytes(dest, final_path)/1e9:.2f} GB")
-        print(f"[{label}] FAILED after {max_retry} attempts; disk={tree_bytes(dest, final_path)/1e9:.2f} GB log={log}", flush=True)
+                    last_log = now
+                last_bytes = total
+                time.sleep(poll_interval)
+            # process ended
+            out = ""
+            try:
+                out = proc.stdout.read() if proc.stdout else ""
+                if out:
+                    write_log("\n--- cli tail ---\n" + out[-800:] + "\n")
+            except Exception:
+                pass
+            rc = proc.wait()
+            write_log(f"--- attempt {attempt} ended rc={rc} {time.ctime()}, "
+                      f"disk={tree_bytes(dest, final_path)/1e9:.2f} GB ---")
+            if rc == 0 and present_done():
+                write_log(f"\nDONE {time.ctime()} (attempt {attempt}, total {attempt} runs) final_file={final_path}")
+                print(f"[{label}] COMPLETE rc=0 attempt={attempt} final_file={final_path}", flush=True)
+                break
+            # rc != 0 => connection likely dropped, we stall-terminated, OR the Hub throttled us.
+            # A throttle names its own wait: spend it instead of the short pause, or the next
+            # attempt lands in the same closed window (issue #385).
+            wait = throttle_wait(out) or retry_pause
+            if wait > retry_pause:
+                print(f"[{label}] Hub throttle: waiting {wait:.0f}s (the Hub's own answer) "
+                      f"before attempt {attempt + 1} of {max_retry}", flush=True)
+            write_log(f"--- rc={rc}; retrying in {wait:.0f}s to resume partial ---")
+            attempt += 1
+            time.sleep(wait)
+        else:
+            write_log(f"\nFAILED after {max_retry} attempts {time.ctime()} disk={tree_bytes(dest, final_path)/1e9:.2f} GB")
+            print(f"[{label}] FAILED after {max_retry} attempts; disk={tree_bytes(dest, final_path)/1e9:.2f} GB log={log}", flush=True)
+            return 1
+        print(f"[{label}] done final={tree_bytes(dest, final_path)/1e9:.2f} GB log={log}", flush=True)
+        return 0
+
+    if manifest:
+        # A pack: fetch every named file through the same path; complete only when ALL are present.
+        write_log(f"PACK manifest {filename} :: {len(manifest)} file(s) -> {dest}\n"
+                  f"START {time.ctime()}\n")
+        for name in manifest:
+            # Each file is complete when THAT file is on disk (today's fast path + resume);
+            # the pack as a whole is complete only when every named file is present.
+            rc = fetch_one(name, lambda n=name: os.path.isfile(os.path.join(dest, *n.split("/"))))
+            if rc:
+                return rc  # a missing pack file fails the whole pack, loudly
+        if _present_pack(dest, manifest):
+            print(f"[{label}] PACK COMPLETE {len(manifest)}/{len(manifest)} files -> {dest}", flush=True)
+            return 0
+        print(f"[{label}] FAILED after {max_retry} attempts: pack not complete; "
+              f"disk={tree_bytes(dest, dest)/1e9:.2f} GB log={log}", flush=True)
         return 1
 
-    print(f"[{label}] done final={tree_bytes(dest, final_path)/1e9:.2f} GB log={log}", flush=True)
-    return 0
+    present = lambda: _present(dest if snapshot else os.path.join(dest, filename), snapshot)
+    return fetch_one(filename if not snapshot else None, present)
 
 
 if __name__ == "__main__":

@@ -151,6 +151,10 @@ make install
    - `mlx-safetensors` / `safetensors`: the whole registry repo (config + weights); for MLX also the
      model's `<name>-MLX*` conversions on the Hub (the registry often names only the base repo).
    - TensorFold: only TensorFold's own checkpoints, the largest `TensorFold/<name>-MLX-*` that fits.
+   - **Pack** (a multi-file checkpoint an engine serves as one directory): every named file of the
+     checkpoint's manifest is fetched into one pack directory, resumably, and the whole file set is
+     counted against the card budget — never a single file. The launch wires the pack's named parts
+     into one engine config (`llgenie-pack-config.json`).
 4. **Serve** through `~/bin/llgenie-engine-<id>` (image pulled on first use) on
    `127.0.0.1:<port>/v1` as `llm-local`.
 
