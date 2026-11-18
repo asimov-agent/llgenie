@@ -198,8 +198,14 @@ def pull_ref(name: str, root: Path = REPO) -> str:
     return ref(name, root)
 
 
-def cache_ref(name: str) -> str:
-    return f"{registry()}/llgenie/{name}:buildcache"
+def cache_ref(name: str, root: Path = REPO) -> str:
+    """The registry layer-cache ref, keyed by the SAME content hash the image tag carries.
+
+    A fixed `:buildcache` name (issue #2911, from #2891) meant any Dockerfile/lockfile change
+    replayed against a content-unrelated namespace. The ref now names the exact content it
+    caches: `llgenie/<name>:<12hex-tag>-buildcache`.
+    """
+    return f"{registry()}/llgenie/{name}:{tag(name, root)}-buildcache"
 
 
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -263,8 +269,8 @@ def publish(name: str, root: Path = REPO, force: bool = False) -> int:
     try:
         # A registry cache ref that does not exist yet makes buildx fail to configure the
         # importer (the first publish of a NEW image), so only read a cache that is published.
-        cache_flags = (["--cache-from", f"type=registry,ref={cache_ref(name)}"]
-                       if published(cache_ref(name)) else [])
+        cache_flags = (["--cache-from", f"type=registry,ref={cache_ref(name, root)}"]
+                       if published(cache_ref(name, root)) else [])
         tags = ["-t", r]
         if name == "agent":
             tags += ["-t", latest_ref(name)]
@@ -300,7 +306,7 @@ def _buildx_push(name: str, r: str, tags: list[str], cache_flags: list[str],
                 # links the GHCR package to the repo, so it gets the repo's visibility
                 "--label", f"org.opencontainers.image.source={SOURCE}",
                 *cache_flags,
-                "--cache-to", f"type=registry,ref={cache_ref(name)},mode=max",
+                "--cache-to", f"type=registry,ref={cache_ref(name, root)},mode=max",
                 "--push", str(ctx)], capture_output=True, text=True)
     out = f"{getattr(done, 'stdout', '') or ''}{getattr(done, 'stderr', '') or ''}".strip()
     if out:
