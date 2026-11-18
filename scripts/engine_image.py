@@ -264,7 +264,8 @@ def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
 def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False,
             no_cache_export: bool = False) -> int:
     """docker buildx with a registry layer cache: unchanged layers are reused
-    across CI runs and machines (cache_ref = <registry>/<name>:buildcache).
+    across CI runs and machines (cache_ref = <registry>/<tag>-buildcache — the ref is
+    keyed by the content hash the image tag already carries, issue #2891).
 
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
@@ -361,7 +362,9 @@ def build_base(backend: str, force: bool = False, push: bool = False) -> int:
         return 0
     with tempfile.TemporaryDirectory(prefix="llgenie-base-") as ctx:
         shutil.copy2(es.BASE_DIR / f"Dockerfile.{backend}", Path(ctx) / "Dockerfile")
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_image_name(backend)}:buildcache", force=force)
+        # Cache namespace keyed by the base tag's content digest (issue #2891): a changed
+        # rendered base Dockerfile gets a FRESH cache namespace instead of a stale one.
+        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag}-buildcache", force=force)
     print(f"[engine-image] {'built' if rc == 0 else 'FAIL'} base {tag}")
     return rc
 
@@ -430,7 +433,10 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
         # publish build streams straight to the registry and never pays that cost, so it stays
         # on the cache-capable driver.
         no_cache_export = (not push) and (spec["id"], spec["variant"]) in NO_CACHE_EXPORT
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag.split(':')[0]}:buildcache-{spec['variant']}",
+        # Same rule as the base (issue #2891): the cell cache namespace carries the full
+        # tag suffix `<pin8>-<content-hash>-<variant>`, so any base or cell content change
+        # (which changes the tag) starts a new namespace; an unchanged replay stays warm.
+        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag}-buildcache",
                      force=force, no_cache_export=no_cache_export)
     if rc:
         print(f"[engine-image] FAIL build {tag} (exit {rc})")

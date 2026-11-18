@@ -364,6 +364,9 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 published-engine-pull:
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
 
+check-engine-cache-namespace: ## Issue #2891: prove hermetically that the build seam's buildx registry cache refs track the content hashes the image tags carry — base refs `<basehash>-buildcache`, cell refs `<pin8>-<content-hash>-<variant>-buildcache`; a base/cell content change must start a NEW namespace, unchanged content must replay the same one.
+	$(TEST_RUN) python -m pytest tests/test_engine_cache_namespace.py -p no:cacheprovider -q
+
 published-engine-binary:
 	@mkdir -p "$(CI_HOME)"
 	$(call engine_test,LLGENIE_PUBLISHED_PULLED=1 LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)") \
