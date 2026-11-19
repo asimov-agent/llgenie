@@ -1,0 +1,1 @@
+| 2026-11-19 | ci(ci-scope): the Makefile split `mk/**` joined WILDCARDS — a recipe-only `mk/*.mk` diff now classifies (every class selected) instead of reddening scope; measured: PR #2941 run 44580098715 failed "mk/agents.mk matches no class"; tests/test_ci_scope.py mirrors the glob (49 green) | [note](agent-wiki/2026-11-19-ci-scope-mk-wildcard-2942.md) | #2942 |
