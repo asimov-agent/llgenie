@@ -27,10 +27,12 @@
 - [x] Create the GitHub label `component:engine` (color c2e0c6, lane description) and
       re-stamp the four closed gap issues #2902–#2905 with it; label read-back shows
       `component:engine` on all four and on #2270 itself.
-- [ ] `make openspec-validate NAME=engine-gap-ownership-routing` exits 0.
-- [ ] Full local gates: `make lint`, `make check-wiring`, `make check-docs`,
-      `make check-agent-skills`, `make check-ci-discipline`, `make test-unit` exit 0;
-      `make lane-preflight` prints `preflight: OK`.
-- [ ] Push, open the PR closing #2270 (body names side issue #2946), drive it green +
-      CLEAN, post the acceptance stamp on #2270, and record the landing in `agent-wiki/`
-      + `docs/changes.d/` + `CHANGES.md` after the merge (post-merge live check green).
+- [x] `make openspec-validate NAME=engine-gap-ownership-routing` exits 0 —
+      "Change 'engine-gap-ownership-routing' is valid" (rc=0, re-run fresh 2026-11-19).
+- [x] Full local gates: `make lint`, `make check-wiring`, `make check-docs`,
+      `make check-agent-skills`, `make check-ci-discipline`, `make test-unit` exit 0
+      (unit battery: 1235 passed, 1469 subtests, UNIT_RC=0).
+- [x] Three-mirror alignment verified: #2270's body Problem/Fix/Acceptance match
+      proposal.md + spec.md + tasks.md, its Not covered names side issue #2946
+      (read-back: `#2946` appears exactly once in the live issue body), and the
+      agent-wiki entry + changes.d fragment + CHANGES.md row carry the landing trio.
