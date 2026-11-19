@@ -1,0 +1,1 @@
+| 2026-11-19 | The agent publish lane now RUNS the image it published: `make agent-image-profiles-check` proves all 13 manifest profiles exist inside `llgenie/agent`, and `make hermes-smoke` must answer one real Hermes prompt through the profile's own model chain before the lane goes green | [note](agent-wiki/2026-11-19-agent-image-ci-verify-2934.md) | #2934 |

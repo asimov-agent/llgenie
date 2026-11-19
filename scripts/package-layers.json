@@ -133,6 +133,7 @@
     ],
     "Bots and automation": [
       "acceptance_writeback",
+      "agent_image_profiles_check",
       "agent_model_pin",
       "agent_profile_sync",
       "agent_shell_keys_check",

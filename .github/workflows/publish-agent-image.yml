@@ -40,7 +40,11 @@ name: publish-agent-image — builds + pushes the Hermes agent image when its ha
 #       issue #335) -> make publish-agent-image (scripts/ci_images.py publish agent --force when the
 #       dispatch `force` input is true — builds the image, and pushes it to GHCR only when its hash
 #       tag is not there yet unless forced; that decision lives inside the script; :latest is moved
-#       onto the hash either way) -> make ci-image-refs (prints the content-hash ref).
+#       onto the hash either way) -> make agent-image-profiles-check + make hermes-smoke (issue
+#       #2934: the lane then RUNS the image it just published — all 13 manifest profiles must be
+#       where Hermes resolves `-p <lane>`, and one real Hermes prompt through the profile's own
+#       model chain must come back; a publish that cannot answer a prompt reddens this lane instead
+#       of surprising the next live bot run) -> make ci-image-refs (prints the content-hash ref).
 # Never: never rebuilds an image whose hash already exists (unless the dispatch `force` input is
 #        true), never overwrites a different content-hash tag (`:latest` is the one tag a re-run
 #        moves), never merges, never runs on a schedule.
@@ -132,5 +136,13 @@ jobs:
       - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet; the dispatch force input rebuilds even a published hash, issue #990)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized actor, quoted, make-routed (issue #1595)
         run: make publish-agent-image ${{ inputs.force == 'true' && 'FORCE=--force' || '' }}
+      - name: make agent-image-profiles-check (issue #2934: the image the lane just published must boot as a standard agent leg and carry every agents/manifest.json profile where Hermes resolves -p <lane>)
+        env:
+          NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+        run: make agent-image-profiles-check
+      - name: make hermes-smoke (issue #2934: the image the lane just published must answer one real Hermes prompt; the model chain comes from the profile's own config, the credential is the one every agent lane already passes)
+        env:
+          NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+        run: make hermes-smoke
       - name: Print the published ref
         run: make ci-image-refs

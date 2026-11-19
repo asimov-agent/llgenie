@@ -2473,7 +2473,7 @@ make test-engine-host                   # parameterized host serve (issue #1322)
 make generate-build-engine-params      # alias of generate-engine-params
 make run-engine-<engine>-<arch> MODEL=…  # run one engine x arch image (e.g. run-engine-vllm-cuda PORT=11434)
 make fix-bot-sweep | fix-loop | fix-loop-image | fix-bot-report  # the PR fix-bot (issues #222, #238): sweep, loop, loop-in-the-agent-image, report
-make agent-image | agent-image-pull | agent-image-ref | publish-agent-image  # the Hermes agent image: pull, CI pull, ref, publish
+make agent-image | agent-image-pull | agent-image-ref | publish-agent-image | agent-image-profiles-check  # the Hermes agent image: pull, CI pull, ref, publish, and the post-publish proof that the published image carries every manifest profile (issue #2934)
 make check-docs        # fail when a user-facing make target is not documented here, or a work record names no issue (issue #257)
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
@@ -2772,6 +2772,10 @@ make agent-image        # pull ghcr.io/<registry>/llgenie/agent:latest, else bui
 make agent-image-pull   # CI: pull that :latest tag as llgenie/agent:latest; fails when missing, never builds
 make agent-image-ref    # print the GHCR :latest ref every agent pull uses
 make publish-agent-image  # build + push the agent image (linux/amd64) when its hash is not there yet, and point :latest at that hash either way
+make agent-image-profiles-check  # boot the just-published image as a standard agent leg (env guard,
+                                 # scrubbed stream, forwarded keys, bot marker) and refuse it when a lane declared in
+                                 # agents/manifest.json has no $HERMES_HOME/profiles/<lane>/config.yaml
+                                 # inside it; the check runs INSIDE the image; prints OK/MISSING per lane (issue #2934)
 ```
 
 `publish-agent-image.yml` is `workflow_dispatch`-only, re-checks that the actor is the
