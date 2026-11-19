@@ -143,11 +143,49 @@ def compare(members: dict[str, dict], catalog_models: list[dict]) -> list[str]:
     return findings
 
 
+def dropin_candidates(member_id: str, budget: int | None,
+                      catalog_models: list[dict]) -> list[str]:
+    """`:free` catalog ids that are budget-preserving drop-ins for one member.
+
+    A drop-in publishes `context_length` >= the member's committed budget, so the
+    replacement never shrinks a profile's session (issue #2939 AC2). The member
+    itself is never its own replacement.
+    """
+    out: list[str] = []
+    for m in catalog_models:
+        if not isinstance(m, dict) or not m.get("id"):
+            continue
+        cid = str(m["id"])
+        if not cid.endswith(":free") or cid == member_id:
+            continue
+        if budget is None:
+            out.append(cid)
+            continue
+        published = m.get("context_length")
+        if published is not None and int(published) >= budget:
+            out.append(cid)
+    return sorted(out)
+
+
 def issue_text(findings: list[str], members: dict[str, dict],
                catalog_models: list[dict], utc: str) -> str:
     catalog = [str(m["id"]) for m in catalog_models if isinstance(m, dict) and m.get("id")]
     free_candidates = sorted(mid for mid in catalog if mid.endswith(":free"))
     names = [line.removeprefix("FINDING: ").split(" (")[0] for line in findings]
+    dropins: list[str] = []
+    for mid in names:
+        info = members.get(mid) or {}
+        budgets = sorted({b for _, b in info.get("budgets", [])})
+        budget = budgets[0] if budgets else None
+        cands = dropin_candidates(mid, budget, catalog_models)
+        if cands:
+            dropins.append(f"drop-in candidates for {mid} (budget {budget}): "
+                           f"{', '.join(cands)}")
+        else:
+            dropins.append(f"drop-in candidates for {mid} (budget {budget}): "
+                           "no drop-in — no :free id publishes a context_length >= "
+                           f"{budget}; the replacement must come from a paid id or a "
+                           "budget re-decision recorded on this issue")
     return issue_body.render(
         problem=("The Hermes model chain installed in every agent image "
                  "(`agents/hermes-base-config.yaml`, issue #2929) pins catalog ids whose "
@@ -158,25 +196,35 @@ def issue_text(findings: list[str], members: dict[str, dict],
              "the weekly lane that already reads this catalog family. A budget drift "
              "(committed context_window != published context_length) mis-sizes sessions "
              "the same way a removed member mis-routes them."),
-        how=["Re-pin the affected member(s) in agents/hermes-base-config.yaml to a live "
-             "catalog model (the current :free ids are listed below as candidates),",
-             "run make apply-hermes-base-config --all so every profile home AND the agent "
-             "image build re-read the chain,",
-             "confirm make check-agent-model-catalog exits 0 against the live catalog."],
+        how=["name ONE drop-in candidate for every named member, taken from that "
+             "member's budgeted drop-in list in the Technical section below, and record "
+             "the choice in a comment on THIS issue (the check never edits the chain "
+             "itself),",
+             "land the re-pin as its own lane — issue -> feature branch -> OpenSpec "
+             "change -> PR — whose body ends with `closes #<this issue>`: the PR edits "
+             "the member's id (and its context_window when the budget moves) in "
+             "agents/hermes-base-config.yaml,",
+             "run make apply-hermes-base-config --all in that PR so every profile home "
+             "AND the agent image build re-read the chain,",
+             "after the replacement PR merges, the weekly make check-agent-model-catalog "
+             "re-verifies the new pin (rc=0 against the live catalog) and "
+             "make agent-image-profiles-check proves the chain installed — the drift "
+             "issue closes with the PR, so no repeat-alarm cycle remains."],
         benefit=("Chain membership stops rotting silently: the weekly registry-sync lane "
                  "files this issue the moment a member or budget drifts, and the agent "
                  "re-pins before a bot leg pays the 404."),
-        acceptance=["Re-pin or restore every named member and prove "
-                    "`make check-agent-model-catalog` exits 0 (proven: the command's rc "
-                    "on the fixed tree, or the next weekly registry-sync run carrying it "
-                    "green)",
-                    "the agent image rebuilds with the re-pinned chain (proven: "
-                    "`make agent-image-profiles-check` rc=0 on the fixed tree)"],
+        acceptance=["the chosen drop-in for every named member is recorded on this "
+                    "issue (proven: a comment on this issue naming the chosen catalog id),",
+                    "the re-pin PR closes this issue and proves the new chain: "
+                    "`make check-agent-model-catalog` exits 0 against the live catalog "
+                    "and `make agent-image-profiles-check` exits 0 on the merged tree "
+                    "(proven: the commands' rc on the fixed tree)"],
         technical=[f"Producer: scripts/check_agent_model_catalog.py (make check-agent-model-catalog).",
                    f"Measured {utc}: {len(catalog)} models in {CATALOG_URL}; the :free "
                    f"catalog ids: {', '.join(free_candidates)}",
                    f"Named by this run: {', '.join(names)}",
-                   f"Declared chain ids ({len(members)}): {', '.join(sorted(members))}"],
+                   f"Declared chain ids ({len(members)}): {', '.join(sorted(members))}",
+                   *dropins],
         marker=MARKER,
     )
 

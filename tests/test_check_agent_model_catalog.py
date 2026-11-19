@@ -293,3 +293,80 @@ def test_the_producer_and_layers_are_registered():
     assert "check_agent_model_catalog" in layers["groups"]["Bots and automation"]
     assert any(e["from"] == "check_agent_model_catalog" and e["to"] == "proc"
                for e in layers["allowed_edges"])
+
+
+# ------------------------------------------------- decision path + drop-in budgets (#2939)
+
+def _drift_body(members, *, drop=(), extra=()):
+    models = _catalog_for(members, drop=drop)
+    models.extend({"id": cid, "context_length": ctx} for cid, ctx in extra)
+    findings = CAM.compare(members, models)
+    body = CAM.issue_text(findings, members, models, "2026-11-19T12:00:00Z")
+    return body, findings
+
+
+def _section(body: str, heading: str) -> str:
+    tail = body.split(f"## {heading}", 1)[1]
+    nxt = tail.find("\n## ")
+    return tail[:nxt] if nxt != -1 else tail
+
+
+def test_the_drift_body_carries_the_four_step_decision_path():
+    members = _members_from_config(REAL_CONFIG)
+    body, findings = _drift_body(members, drop=("upstage/solar-mini4:free",))
+    assert findings, "the fixture must still alarm"
+    how = _section(body, "How we fix it")
+    steps = [
+        "name ONE drop-in candidate",
+        "closes #<this issue>",
+        "make apply-hermes-base-config --all",
+        "make check-agent-model-catalog",
+    ]
+    positions = [how.find(step) for step in steps]
+    assert all(p != -1 for p in positions), how
+    assert positions == sorted(positions), "the decision path steps are out of order"
+    assert "agent-image-profiles-check" in how
+    # the path is rendered as four numbered items
+    numbered = [l for l in how.splitlines() if l.strip().startswith(("1.", "2.", "3.", "4."))]
+    assert len(numbered) == 4, numbered
+
+
+def test_dropin_candidates_respect_the_committed_budget():
+    members = _members_from_config(REAL_CONFIG)
+    budget = members["qwen/qwen4-max:free"]["budgets"][0][1]
+    body, findings = _drift_body(
+        members, drop=("qwen/qwen4-max:free",),
+        extra=(("newco/bigmodel:free", budget),            # drop-in: equal budget
+               ("tiny/tiny:free", budget - 1)),            # too small: excluded
+    )
+    assert findings and findings[0].startswith("FINDING: qwen/qwen4-max:free")
+    technical = _section(body, "Technical")
+    line = next(l for l in technical.splitlines()
+                if "drop-in candidates for qwen/qwen4-max:free" in l)
+    assert "newco/bigmodel:free" in line
+    assert "tiny/tiny:free" not in line
+
+
+def test_no_dropin_when_no_free_id_meets_the_budget(tmp_path):
+    cfg = tmp_path / "big.yaml"
+    cfg.write_text(yaml.safe_dump({
+        "model": {"provider": "custom", "model": "giant/gone:free",
+                  "context_window": 1000000},
+    }), encoding="utf-8")
+    members = _members_from_config(cfg)
+    body, findings = _drift_body(members, drop=("giant/gone:free",),
+                                 extra=(("small/kept:free", 999999),))
+    assert findings
+    technical = _section(body, "Technical")
+    assert "no drop-in" in technical
+
+
+def test_decision_path_does_not_change_the_alarm_semantics(capsys):
+    members = _members_from_config(REAL_CONFIG)
+    models = _catalog_for(members, drop=("upstage/solar-mini4:free",))
+    findings = CAM.compare(members, models)
+    out = capsys.readouterr().out
+    assert len(findings) == 1
+    assert "FINDING: upstage/solar-mini4:free" in out
+    # compare() is still the alarm: it prints no drop-in guidance lines
+    assert "drop-in candidates for" not in out
