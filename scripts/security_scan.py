@@ -60,13 +60,14 @@ REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports")
 #: Syft writes the CycloneDX SBOM and Grype matches it, Semgrep covers SAST. Between them they answer
 #: "is anything in this tree known-vulnerable" from data shipped/downloaded to the runner.
 TOOLS = ("trivy", "grype", "semgrep")
-#: Syft is a tool id without an image of its own: it writes the SBOM through the Grype image
-#: (`--entrypoint syft`), so it is in the tool set a caller may ask for but not in the roster
-#: `containers/scanners/digests.json` has to carry an image for.
+#: Syft writes the SBOM from its OWN pinned image (`containers/scanners/syft/Dockerfile`,
+#: issue #746): it was the one tool id without an image, reached via `--entrypoint syft` on the
+#: grype image. That carve-out is closed — syft now has a `digests.json` entry like the others.
 SBOM_TOOL = "syft"
-#: Syft is a first-class tool id: `make security-scan TOOL=syft` writes the SBOM, and the default
-#: sweep runs it first because Grype matches exactly that file. It is reached through the Grype
-#: image (`--entrypoint syft`), so the stack builds one image per CVE scanner and none per SBOM.
+#: Syft is a first-class tool id AND a first-class image: `make security-scan TOOL=syft` writes
+#: the SBOM by running `<registry>/llgenie/syft:<hash>` directly, and the default sweep runs it
+#: first because Grype matches exactly that file. The stack now builds one image per tool, none
+#: borrowed.
 #: No tool in ALL_TOOLS reads a credential: each judges the tree from data the runner downloads
 #: itself, so no scan is ever skipped for a missing secret.
 ALL_TOOLS = (SBOM_TOOL,) + TOOLS
@@ -101,11 +102,11 @@ SCANNER_BASELINE: dict[str, str] = {
     "semgrep": "1.165.0-r0",
     "trivy": "0.70.0-r5",
     "grype": "0.121.3-r2",
-    # The SBOM tool rides the grype image (`--entrypoint syft`); its pin lives in that
-    # Dockerfile's `ARG SYFT_VERSION` and in digests.json as `grype.syft_version`, so the
-    # cataloger that writes the SBOM gets the same freshness floor as the CVE scanners
-    # (issue #2708).
-    "syft": "1.57.1-r2",
+    # The SBOM tool has its own image since issue #746: its pin lives in
+    # `containers/scanners/syft/Dockerfile`'s `ARG SYFT_VERSION` and in digests.json as the
+    # `syft` entry, so the cataloger that writes the SBOM carries the same freshness floor as
+    # the CVE scanners — measured from the same index (Wolfi latest 1.57.2-r0 on 2026-11-19).
+    "syft": "1.57.2-r0",
 }
 
 #: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
@@ -132,9 +133,9 @@ WOLFI_INDEX_URL = "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz"
 #: deliberate weakening, same discipline as `RULES_BASELINE_DAYS` (#2283).
 FRESHNESS_GRACE_DAYS = 7
 
-#: The packages whose pins the live comparison resolves: the image-backed scanners from
-#: digests.json, plus Syft — which has no image entry of its own — from the
-#: `ARG SYFT_VERSION=` default baked into the Grype image (issue #2709).
+#: The packages whose pins the live comparison resolves: every tool in the roster reads its pin
+#: from its own digests.json entry — including Syft, which has carried its own image entry since
+#: issue #746 (it used to be read from the grype image's ARG).
 FRESHNESS_PACKAGES = TOOLS + (SBOM_TOOL,)
 
 
@@ -218,17 +219,13 @@ def _fetch_wolfi_index() -> str:
 def _pinned_scanner_versions() -> dict[str, str]:
     """The version this repo pins for each compared package (issue #2709).
 
-    The image-backed scanners take their `version` from digests.json; Syft's pin is the
-    `ARG SYFT_VERSION=` default baked into the Grype image — digests.json carries no entry for
-    a tool that has no image of its own.
+    Every compared package takes its pin from its own `digests.json` entry (issue #746): Syft
+    used to be read from the grype Dockerfile's `ARG SYFT_VERSION` because it had no entry; it
+    now has its own image, entry, and pin.
     """
     recorded = digests()
-    pins = {tool: str((recorded.get(tool) or {}).get("version") or "") for tool in TOOLS}
-    dockerfile = REPO / "containers" / "scanners" / "grype" / "Dockerfile"
-    match = (re.search(r"^ARG\s+SYFT_VERSION=(\S+)", dockerfile.read_text(encoding="utf-8"), re.M)
-             if dockerfile.is_file() else None)
-    pins[SBOM_TOOL] = match.group(1) if match else ""
-    return pins
+    return {tool: str((recorded.get(tool) or {}).get("version") or "")
+            for tool in TOOLS + (SBOM_TOOL,)}
 
 
 def _evaluate_freshness(text: str, source: str) -> int:
@@ -482,20 +479,23 @@ def ensure_image(tool: str) -> str:
     return ref
 
 
-def _run(argv: list[str], image: str, entrypoint: str | None = None,
+def _run(argv: list[str], image: str,
          volumes: list[str] | None = None) -> int:
     """Run one scanner from its image, with the checkout mounted so it writes its reports.
 
     `volumes` overrides the mount (published-image scans, issue #2706: the target is a registry
     ref, not the tree — only the reports dir needs to be writable from inside the container).
+
+    No caller overrides an entrypoint: since issue #746 every tool in the roster — Syft included —
+    is an image whose own ENTRYPOINT is that tool, so the old `--entrypoint syft` parameter has
+    no caller left.
     """
     REPORTS.mkdir(parents=True, exist_ok=True)
     # The image's own USER is a non-root one, but the mounted checkout belongs to the RUNNER user:
     # without `--user` the scanner cannot create its report ("permission denied") and would leave
     # root-owned files in the worktree (issue #433). Running as the invoking user fixes both.
-    extra = ["--entrypoint", entrypoint] if entrypoint else []
     mounts = volumes if volumes is not None else [f"{REPO}:/work:rw"]
-    cmd = [RUNTIME, "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", *extra,
+    cmd = [RUNTIME, "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
            *(item for vol in mounts for item in ("-v", vol)), "-w", "/work",
            "-e", "HOME=/tmp", ensure_image_for(image), *argv]
     print(f"[security-scan] $ {' '.join(cmd)}")
@@ -505,18 +505,17 @@ def _run(argv: list[str], image: str, entrypoint: str | None = None,
 def ensure_image_for(ref: str) -> str:
     """`_run` is handed a ref; resolve it to an available image (see `ensure_image`)."""
     tool = ref.rsplit("/", 1)[-1].split(":")[0]
-    if tool in TOOLS:
+    if tool in ALL_TOOLS:  # every tool in the roster is an image entry now (issue #746)
         return ensure_image(tool)
     return ref
 
 
 def sbom() -> int:
     """Syft writes the CycloneDX SBOM; Grype matches against exactly this file."""
-    # The Grype image's ENTRYPOINT is `grype`, so Syft is reached with `--entrypoint syft`; passing
-    # `syft` as an argument makes grype read it as a second positional and refuse ("accepts at most
-    # 1 arg(s), received 2") — measured on the first real CI run.
+    # Syft runs from its OWN pinned image (issue #746): the syft image's ENTRYPOINT is `syft`,
+    # so no `--entrypoint` override on another tool's image is needed — and none is allowed.
     return _run(["-o", "cyclonedx-json=/work/security-reports/sbom.cdx.json", "dir:."],
-                image_ref("grype"), entrypoint="syft")
+                image_ref("syft"))
 
 
 def scan(tool: str) -> int:
@@ -636,7 +635,7 @@ def scan_image(ref: str, slug: str = "target") -> int:
                "--format", "json", "--output", f"/reports/image-{slug}.trivy.json", ref],
               image_ref("trivy"), volumes=volumes)
     rc |= _run(["-o", f"cyclonedx-json=/reports/image-{slug}.cdx.json", ref],
-               image_ref("grype"), entrypoint="syft", volumes=volumes)
+               image_ref("syft"), volumes=volumes)
     rc |= _run([f"sbom:/reports/image-{slug}.cdx.json", "-o", "json",
                 "--file", f"/reports/image-{slug}.grype.json"], image_ref("grype"),
                volumes=volumes)
@@ -1000,12 +999,13 @@ def check() -> int:
     if set(map(str.lower, pol.get("pr_fail_on") or [])) - set(map(str.lower, pol.get("fail_on") or [])):
         problems.append("security-policy.json: `pr_fail_on` is not a subset of `fail_on`")
     recorded = digests()
-    # Only the image-backed scanners carry a digest entry: the SBOM tool runs through the Grype
-    # image (`--entrypoint syft`), so requiring an entry for it would demand an image that does
-    # not exist — and a gate that cannot pass is not a gate.
+    # Every tool in ALL_TOOLS carries a full digest entry: the SBOM tool used to run through the
+    # Grype image (`--entrypoint syft`), which is why requiring an entry for it "would demand an
+    # image that does not exist". Since issue #746 the image exists, the carve-out is gone, and
+    # the roster is uniform.
     if "grype" in recorded and not SBOM_TOOL:
         problems.append("no SBOM tool: Grype would have nothing to match")
-    for tool in TOOLS:
+    for tool in ALL_TOOLS:
         entry = recorded.get(tool) or {}
         for key in ("version", "tag", "ref", "image_digest"):
             if not entry.get(key):
@@ -1054,32 +1054,20 @@ def check() -> int:
     if not count:
         problems.append("digests.json: `semgrep` has no `rules_count` — the SAST rule set has no "
                         "parity target against upstream p/default (issue #2283)")
-    for tool in TOOLS:
+    # The freshness loop covers the WHOLE roster — Syft included, from its own entry (issue
+    # #746 closes the #2708 baked-record path: a lagging cataloger used to be caught through
+    # `grype.syft_version`; now it is caught exactly like a lagging CVE scanner, because the
+    # cataloger has its own image).
+    for tool in ALL_TOOLS:
         baseline = scanner_baseline(tool)
         version = (recorded.get(tool) or {}).get("version")
         if baseline and version and _version_sort_key(version) < _version_sort_key(baseline):
             problems.append(f"digests.json: `{tool}` records {version!r}, older than the declared "
                             f"current-release baseline {baseline!r} — bump the Dockerfile and "
                             "`make scanner-digests` (issue #1284)")
-    # The SBOM tool gets the same freshness floor (issue #2708): its version is baked into the
-    # grype image and recorded as `grype.syft_version`. A lagging cataloger narrows SBOM coverage
-    # invisibly — grype can only match what syft wrote — so the record is mandatory and the lag
-    # reds here instead of narrowing the scan silently.
-    if SBOM_TOOL and "grype" in recorded:
-        grype_entry = recorded.get("grype") or {}
-        syft_version = grype_entry.get("syft_version")
-        syft_baseline = scanner_baseline(SBOM_TOOL)
-        if not syft_version:
-            problems.append(f"digests.json: `grype` has no `syft_version` — the SBOM tool "
-                            f"`{SBOM_TOOL}` it bakes has no freshness record (issue #2708)")
-        elif not syft_baseline:
-            problems.append(f"SCANNER_BASELINE has no `{SBOM_TOOL}` entry — the SBOM tool has no "
-                            "declared current-release baseline to check against (issue #2708)")
-        elif _version_sort_key(syft_version) < _version_sort_key(syft_baseline):
-            problems.append(f"digests.json: `grype.syft_version` records {syft_version!r}, older "
-                            f"than the declared current-release baseline {syft_baseline!r} — bump "
-                            "the grype Dockerfile's `ARG SYFT_VERSION` and `make scanner-digests` "
-                            "(issue #2708)")
+        elif baseline and not version:
+            problems.append(f"digests.json: `{tool}` has no `version` although "
+                            f"`SCANNER_BASELINE` declares {baseline!r} (issue #1284)")
     # The published-image allow-list (issue #2706) must exist, carry a shape the resolver can use,
     # and be wired into BOTH lanes: the scheduled security lane and the engine publish cell. An
     # empty allow-list or a dropped step is the silent-skip this issue exists to prevent.
@@ -1135,8 +1123,8 @@ def check() -> int:
         return 1
     print(f"[security-scan] OK: fail_on={pol['fail_on']} pr_fail_on={pol['pr_fail_on']} "
           f"enforce_events={sorted(enforce)} require_fix={pol.get('require_fix')}, "
-          f"{len(TOOLS)} pinned scanner refs "
-          f"(sweep: {', '.join(ALL_TOOLS)}; the SBOM tool rides the grype image; no secret needed; "
+          f"{len(ALL_TOOLS)} pinned scanner refs "
+          f"(sweep: {', '.join(ALL_TOOLS)}; one image per tool, Syft included (issue #746); no secret needed; "
           f"the workflow triggers only on {', '.join(sorted(triggers(workflow))) or 'nothing'})")
     return 0
 

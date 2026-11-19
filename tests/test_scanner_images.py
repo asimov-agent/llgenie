@@ -289,6 +289,46 @@ def test_the_content_hash_moves_with_the_dockerfile(tmp_path, monkeypatch):
     assert ha != hb
 
 
+def test_a_grype_edit_never_moves_the_syft_tag(tmp_path, monkeypatch):
+    """Issue #746 AC: a grype bump cannot change the SBOM generator.
+
+    While Syft rode the grype image, any grype Dockerfile change silently changed what
+    `make sbom` ran. The tag each scanner publishes is the content hash of THAT scanner's
+    own Dockerfile, so the isolation between the two is assertable, not a promise.
+    """
+    grype = (
+        "# syntax=docker/dockerfile:1\n"
+        f"FROM cgr.dev/chainguard/wolfi-base@{BASE_DIGEST}\n\n"
+        "ARG GRYPE_VERSION=6.140.2-r0\n"
+        'RUN apk add --no-cache "grype=${GRYPE_VERSION}"\n\n'
+        'ENTRYPOINT ["grype"]\n'
+        'CMD ["version"]\n'
+    )
+    syft = (
+        "# syntax=docker/dockerfile:1\n"
+        f"FROM cgr.dev/chainguard/wolfi-base@{BASE_DIGEST}\n\n"
+        "ARG SYFT_VERSION=1.57.2-r0\n"
+        'RUN apk add --no-cache "syft=${SYFT_VERSION}"\n\n'
+        'ENTRYPOINT ["syft"]\n'
+        'CMD ["version"]\n'
+    )
+    for name, text in (("grype", grype), ("syft", syft)):
+        d = tmp_path / "containers" / "scanners" / name
+        d.mkdir(parents=True)
+        (d / "Dockerfile").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(si, "REPO", tmp_path)
+    g0, s0 = si.content_hash("grype"), si.content_hash("syft")
+
+    # When  the grype pin moves
+    (tmp_path / "containers" / "scanners" / "grype" / "Dockerfile").write_text(
+        grype.replace("6.140.2-r0", "6.141.0-r0"), encoding="utf-8"
+    )
+
+    # Then  grype's tag moves and syft's does not
+    assert si.content_hash("grype") != g0
+    assert si.content_hash("syft") == s0
+
+
 def test_an_unknown_scanner_is_refused():
     """A typo must fail loudly rather than build nothing and report success."""
 

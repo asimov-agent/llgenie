@@ -24,7 +24,7 @@ name: security-images — build and publish the scanner images, only the tags GH
 #                  fresh — a push to main
 #                  path-filtered to containers/scanners/** and scripts/scanner_image.py (a merge
 #                  that changes a Dockerfile publishes that scanner's new tag the moment it lands),
-#                  and workflow_dispatch (scanner = all|trivy|grype|semgrep, force = republish
+#                  and workflow_dispatch (scanner = all|trivy|grype|semgrep|syft, force = republish
 #                  even when the tag exists). There is NO pull_request trigger and no
 #                  unfiltered push: this workflow never checks a change and never runs on a PR.
 # Never: never runs on a pull_request, never gates a PR check or a push, never installs a scanner,
@@ -40,9 +40,9 @@ on:
   workflow_dispatch:
     inputs:
       scanner:
-        description: "Which scanner image to publish: all, or one of trivy / grype / semgrep"
+        description: "Which scanner image to publish: all, or one of trivy / grype / semgrep / syft"
         type: choice
-        options: [all, trivy, grype, semgrep]
+        options: [all, trivy, grype, semgrep, syft]
         default: all
       force:
         description: "Rebuild and push even when the content-hash tag is already on GHCR"

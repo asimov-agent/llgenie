@@ -83,7 +83,7 @@ check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanne
 check-gitleaks-pin: ## CI: fail when the secret-scan admission gate addresses gitleaks by a mutable tag or by a digest that diverges from the reviewed pin (issue #2235) — the #1252/#1262 silently-unsatisfiable-pin guard
 	python3 scripts/check_gitleaks_pin.py check
 
-scanner-freshness: ## CI: compare the pinned scanner versions (digests.json + the Syft ARG in the Grype Dockerfile) against the LIVE Wolfi x86_64 package index; a pin lagging the newest published build for longer than the grace window fails with the delta named. WOLFI_APKINDEX=<snapshot> runs it hermetically (issue #2709)
+scanner-freshness: ## CI: compare the pinned scanner versions (each tool's own digests.json entry, Syft included since issue #746) against the LIVE Wolfi x86_64 package index; a pin lagging the newest published build for longer than the grace window fails with the delta named. WOLFI_APKINDEX=<snapshot> runs it hermetically (issue #2709)
 	python3 scripts/security_scan.py freshness
 
 security-issues-plan: ## Print the tagged issues the current reports would create/update/clear and mutate nothing (issue #716)
@@ -116,7 +116,7 @@ security-bumps: ## Write tools/security-floors.in, regenerate the compiled pins 
 check-security-bumps: ## CI: fail when a floor line states no advisory, a compiled pin is below its floor, or the `-c security-floors.in` include is gone (issue #738)
 	python3 scripts/security_bumps.py check
 
-scanner-image: ## Build one scanner image from containers/scanners/<SCANNER>/Dockerfile (SCANNER=trivy|grype|semgrep, issue #714)
+scanner-image: ## Build one scanner image from containers/scanners/<SCANNER>/Dockerfile (SCANNER=trivy|grype|semgrep|syft, issue #714; syft joined the roster with its own image, issue #746)
 	python3 scripts/scanner_image.py build "$(SCANNER)"
 
 test-scanner-image: ## Build a scanner image and prove it prints the version its Dockerfile pins (SCANNER=<id>)

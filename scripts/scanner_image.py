@@ -47,6 +47,9 @@ SCANNERS: dict[str, dict[str, str]] = {
     "trivy": {"arg": "TRIVY_VERSION", "cmd": "version"},
     "grype": {"arg": "GRYPE_VERSION", "cmd": "version"},
     "semgrep": {"arg": "SEMGREP_VERSION", "cmd": "--version"},
+    # Syft was the one scanner without an image of its own (`--entrypoint syft` on the grype
+    # image). It joined the roster with its own Dockerfile — the exception is closed (issue #746).
+    "syft": {"arg": "SYFT_VERSION", "cmd": "version"},
 }
 #: A base image must be pinned by digest: `FROM image@sha256:<64 hex>`.
 FROM_DIGEST = re.compile(r"^FROM\s+(\S+)@sha256:([0-9a-f]{64})\s*$", re.M)
@@ -60,12 +63,15 @@ FROM_FLOAT = re.compile(r"^FROM\s+(?!\S*@sha256:)(\S+?):(\w[\w.-]*)\s*$", re.M)
 #: apk repo publishes for the scanner's `apk add` — the honest "current" the Dockerfile can reach.
 #: `make check-scanner-images` (and check-security-scan) fail when digests.json records an older
 #: one, so a pinned engine cannot silently lag the releases it should cover. Measured against
-#: packages.wolfi.dev (x86_64 APKINDEX) on 2026-11-15 (issue #2707 bump); bump with the Dockerfile
-#: via `make scanner-digests` + PR whenever apk publishes a newer build.
+#: packages.wolfi.dev (x86_64 APKINDEX) on 2026-11-15 (issue #2707 bump; syft's entry measured
+#: 2026-11-19 when it joined the roster, issue #746); bump with the Dockerfile via
+#: `make scanner-digests` + PR whenever apk publishes a newer build.
 RELEASE_BASELINE: dict[str, str] = {
     "semgrep": "1.165.0-r0",
     "trivy": "0.70.0-r5",
     "grype": "0.121.3-r2",
+    # Syft joins the baselines with its own image (issue #746); measured from the same index.
+    "syft": "1.57.2-r0",
 }
 
 
@@ -98,24 +104,6 @@ def pinned_version(scanner: str) -> str:
     m = re.search(rf"^ARG\s+{arg}=(\S+)\s*$", text, re.M)
     if not m:
         raise SystemExit(f"[scanner-image] {scanner}: no `ARG {arg}=<version>` pin")
-    return m.group(1)
-
-
-#: Tools baked into another scanner's image (issue #2708): no Dockerfile directory of their own,
-#: so their pin is read from the HOST image's Dockerfile ARG and recorded under the host entry as
-#: `<tool>_version` — the SBOM tool syft rides the grype image and gets a freshness record that
-#: way. `check-security-scan` compares that record against its declared baseline.
-BAKED_TOOLS: dict[str, tuple[str, str]] = {"syft": ("grype", "SYFT_VERSION")}
-
-
-def baked_version(tool: str) -> str:
-    """The exact version a baked tool's host Dockerfile pins."""
-    host, arg = BAKED_TOOLS[tool]
-    text = dockerfile(host).read_text(encoding="utf-8")
-    m = re.search(rf"^ARG\s+{arg}=(\S+)\s*$", text, re.M)
-    if not m:
-        raise SystemExit(f"[scanner-image] {tool}: no `ARG {arg}=<version>` pin in the "
-                         f"{host} Dockerfile")
     return m.group(1)
 
 
@@ -239,13 +227,6 @@ def write() -> int:
         }
         for scanner in SCANNERS
     }
-    # Baked tools get their freshness record where they actually live: under the host image's
-    # entry (`grype.syft_version`), read from that Dockerfile's ARG (issue #2708). Only hosts
-    # actually being written get their baked-tool record — a subset write never reads a Dockerfile
-    # it was not asked about.
-    for tool, (host, _arg) in BAKED_TOOLS.items():
-        if host in data:
-            data[host][f"{tool}_version"] = baked_version(tool)
     if rules_sha:
         data["semgrep"]["rules_sha"] = rules_sha
         data["semgrep"]["rules_file"] = f"{SCANNER_DIR}/semgrep/rules/default.yml"

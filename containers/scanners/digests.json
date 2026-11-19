@@ -3,7 +3,6 @@
     "dockerfile": "containers/scanners/grype/Dockerfile",
     "image_digest": "sha256:806d7ac23ea8d70c97d011b097e43997a26353930ff7a1e5dce5dc8331a0ad39",
     "ref": "ghcr.io/asimov-agent/llgenie/grype:c52ac5da0f5c",
-    "syft_version": "1.57.1-r2",
     "tag": "c52ac5da0f5c",
     "version": "0.121.3-r2"
   },
@@ -17,6 +16,13 @@
     "rules_sha": "35377b8f3956d14a382d44886fa2b76a81ddb78c64744d8ae01af9f063ab5828",
     "tag": "5954e2aad609",
     "version": "1.165.0-r0"
+  },
+  "syft": {
+    "dockerfile": "containers/scanners/syft/Dockerfile",
+    "image_digest": "sha256:f59cf75c939fd1d9d49f33fca1edadbba3ad2249b7e4867b2cf5b71e555b7f1e",
+    "ref": "ghcr.io/asimov-agent/llgenie/syft:1844da087d23",
+    "tag": "1844da087d23",
+    "version": "1.57.2-r0"
   },
   "trivy": {
     "dockerfile": "containers/scanners/trivy/Dockerfile",
