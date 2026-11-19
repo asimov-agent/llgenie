@@ -88,3 +88,41 @@ def test_gc_reports_failure_when_a_delete_leaves_an_orphan():
                     version_lookup=lambda ref, digest: 42, digest_resolver=lambda ref: "sha256:x",
                     assume_yes=True)
     assert rc == 2
+
+
+# Captured verbatim 2026-11-19 from GHCR: `docker buildx imagetools inspect
+# ghcr.io/asimov-agent/llgenie/agent:buildcache`. The alignment (`Digest:` + padding spaces) is
+# exactly what the old exact single-space scan missed (issue #2924) — this is the parser's only
+# real-world input format, so the REAL digest_of must be tested, not just an injected resolver.
+CAPTURED_IMAGETOOLS = """\
+Name:      ghcr.io/asimov-agent/llgenie/agent:buildcache
+MediaType: application/vnd.oci.image.manifest.v1+json
+Digest:    sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650
+"""
+
+CAPTURED_DIGEST = "sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650"
+
+
+def _stub_inspect(monkeypatch, text: str) -> None:
+    class _Out:
+        stdout, stderr = text, ""
+
+    monkeypatch.setattr(rco, "run_ok", lambda cmd: _Out())
+
+
+def test_digest_of_resolves_the_padded_real_imagetools_alignment(monkeypatch):
+    _stub_inspect(monkeypatch, CAPTURED_IMAGETOOLS)
+    assert rco.digest_of(f"{REG}/llgenie/agent:buildcache") == CAPTURED_DIGEST
+
+
+def test_digest_of_still_resolves_the_legacy_single_space_line(monkeypatch):
+    _stub_inspect(monkeypatch, "digest: sha256:e983b988c320793ede86e336c6221eb3d50d2c11f1e5f6f4f8b49fb9c299fccb\n")
+    assert rco.digest_of(f"{REG}/llgenie/agent:buildcache") == \
+        "sha256:e983b988c320793ede86e336c6221eb3d50d2c11f1e5f6f4f8b49fb9c299fccb"
+
+
+def test_digest_of_refuses_output_without_a_digest(monkeypatch):
+    _stub_inspect(monkeypatch, "errors: denied: requested access to the resource is denied\n")
+    with pytest.raises(SystemExit) as exc:
+        rco.digest_of(f"{REG}/llgenie/agent:buildcache")
+    assert "no digest for" in str(exc.value)

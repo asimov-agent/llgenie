@@ -88,12 +88,25 @@ def split_ref(ref: str) -> tuple[str, str]:
     return owner, "/".join(pkg_parts)
 
 
+_DIGEST_RE = re.compile(r"digest:\s*(sha256:[0-9a-fA-F]{16,})", re.IGNORECASE)
+
+
+def _extract_digest(ref: str, text: str) -> str:
+    """Pull the manifest digest out of inspect output, whatever the alignment.
+
+    `docker buildx imagetools inspect` aligns as `Digest:    sha256:<hex>` (colon + padding
+    spaces); the exact single-space scan this module shipped with missed it on the first
+    human-side sweep run (issue #2924), so the match is tolerant to whitespace and case.
+    """
+    m = _DIGEST_RE.search(text)
+    if not m:
+        raise SystemExit(f"[registry-cache-orphans] no digest for {ref}")
+    return m.group(1)
+
+
 def digest_of(ref: str) -> str:
     out = run_ok(["docker", "buildx", "imagetools", "inspect", ref])
-    for line in (out.stdout + out.stderr).splitlines():
-        if line.strip().lower().startswith("digest: sha256:"):
-            return line.split(":", 1)[1].strip()
-    raise SystemExit(f"[registry-cache-orphans] no digest for {ref}")
+    return _extract_digest(ref, out.stdout + out.stderr)
 
 
 def version_id_for(ref: str, digest: str) -> int:
