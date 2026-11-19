@@ -245,6 +245,27 @@ PR step had no log at all). Its recipe re-checks the store diff and exits before
 no-change run still files nothing, and `Open / update the sync PR` keeps its change-only condition: a
 file whose checks did not pass is never pushed.
 
+#### The weekly lane also checks the Hermes model chain against the live catalog (issue #2930)
+
+`agents/hermes-base-config.yaml` pins the model chain (issue #2929) by catalog id with
+catalog-copied `context_window` budgets — but a synthesized `:free` variant can leave the catalog,
+and then every bot leg that hops to that alias dies at 404 with no alarm. `check-agent-model-catalog`
+is the LAST step of the `registry-sync` sync job (a red finding must not forfeit the sync PR the job
+just opened, the #775 lesson):
+
+```bash
+make check-agent-model-catalog [DRY=1] [CATALOG=<json>] [REPO=<owner/repo>]  # chain vs GET /v1/models; files ONE issue on drift
+```
+
+It reads the chain from the config itself (primary, every alias, every `fallback_providers` entry),
+GETs `https://inference-api.nousresearch.com/v1/models` — public, measured 2026-11-19: HTTP 200
+without any auth header, so the step carries no secret — and exits 0 only when every declared id is
+listed AND its budget equals the published `context_length`. Findings file exactly one
+`agent:implement` issue through the one renderer (`issue_body.render`, marker first line
+`<!-- agent-model-catalog-check: chain-membership -->`), deduped by a body SEARCH of open issues
+(#2848) and updated on later weeks via REST PATCH + read-back (#2673), never duplicated. A transport
+failure exits 3 and files nothing: an unreadable catalog is not news.
+
 The `engine-bump` workflow runs on its **own** cron (weekly,
 Monday `23 6 * * 1`, separate from the registry sync) and pins every engine skill
 to the latest upstream commit, opening a PR per changed engine (issue #107):
