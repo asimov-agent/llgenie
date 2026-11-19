@@ -12,8 +12,8 @@
       global fallback, window filter, all three loud failures, line shape)
 - [x] Register the script in `scripts/package-layers.json`; document the report in `docs/BOTS.md`;
       agent-wiki entry + `docs/changes.d/` fragment + `make changes-index`
-- [ ] Gates green at the final head: targeted pytest battery, `make check-secret-output`,
+- [x] Gates green at the final head: targeted pytest battery, `make check-secret-output`,
       `make check-wiring`, `make check-docs`, `make openspec-validate NAME=agent-leg-model-route`,
       live proof `make hermes-smoke` prints a `model-route: ` line
-- [ ] Final alignment: issue #2931 body, PR body, and commit text carry the same ticked AC items
+- [x] Final alignment: issue #2931 body, PR body, and commit text carry the same ticked AC items
       with replayable proven clauses at the final head
