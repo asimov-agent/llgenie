@@ -17,7 +17,8 @@ This proves the capability instead, with a value the model cannot produce withou
 A text-only model cannot produce the nonce. A model that calls another tool, or none, fails. A missing
 transcript is a loud, named failure — never a pass.
 
-Reads the same store `hermes sessions list` reads: `$HERMES_HOME/state.db` (`sessions`, `messages`).
+Reads the same store `hermes sessions list` reads: the run's own Hermes home's `state.db` — for a
+`-p <lane>` run that is the PROFILE's home (`$HERMES_HOME/profiles/<lane>/state.db`, issue #2929).
 """
 from __future__ import annotations
 
@@ -91,10 +92,21 @@ def prompt_for(token_path: str) -> str:
     return PROMPT.format(command=COMMAND.format(token_path=token_path), token_path=token_path)
 
 
-def state_db(home: str | None = None) -> Path:
-    """The transcript store Hermes writes: `$HERMES_HOME/state.db`."""
-    base = home or os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes")
-    return Path(base) / "state.db"
+def state_db(home: str | None = None, profile: str | None = None) -> Path:
+    """The transcript store Hermes writes.
+
+    A `hermes -p <lane>` run gets the PROFILE's own home as its Hermes home (measured against
+    Hermes 0.23.2, issue #2929), so the session the profile creates lands in
+    `$HERMES_HOME/profiles/<lane>/state.db`, not the global `$HERMES_HOME/state.db`. When the
+    profile home exists, that is where its new session must be audited; the global store stays
+    the answer for unnamed (default-home) runs.
+    """
+    base = Path(home or os.environ.get("HERMES_HOME") or str(Path.home() / ".hermes"))
+    if profile:
+        profile_home = base / "profiles" / profile
+        if profile_home.is_dir():
+            return profile_home / "state.db"
+    return base / "state.db"
 
 
 def connect(db: Path) -> sqlite3.Connection:
@@ -203,7 +215,7 @@ def evaluate(conn: sqlite3.Connection, session_id: str, expected: str) -> list[s
     return problems
 
 
-def run(hermes: str, alias: str, reasoning: str, db: Path, timeout: float,
+def run(hermes: str, profile: str, reasoning: str, db: Path, timeout: float,
         keep_token: bool = False) -> int:
     """The proof: write the nonce, run the agent, judge the session it created.
 
@@ -230,8 +242,9 @@ def run(hermes: str, alias: str, reasoning: str, db: Path, timeout: float,
                           f"run's tool use cannot be proven", file=sys.stderr)
                     return 1
 
-        argv = [hermes, "-z", prompt, "-m", alias, "--reasoning", reasoning, "--yolo"]
-        print(f"[hermes-smoke] running the alias the bots use: {alias} (reasoning {reasoning})")
+        argv = [hermes, "-z", prompt, "-p", profile, "--reasoning", reasoning, "--yolo"]
+        print(f"[hermes-smoke] running as the lane profile the bots use: {profile} "
+              f"(reasoning {reasoning}; the model chain comes from the profile's own config)")
         proc = subprocess.run(argv, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if proc.stdout.strip():
             print(proc.stdout.rstrip())
@@ -283,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run the smoke for real and judge the session it created")
-    r.add_argument("--alias", default="nous-deepseek", help="the model alias the bots use")
+    r.add_argument("--profile", default="llgenie-status-keeper",
+                   help="the lane profile the smoke runs as (issue #2929; the chain loads from its config)")
     r.add_argument("--reasoning", default="low")
     r.add_argument("--hermes", default="hermes", help="the hermes executable")
     r.add_argument("--state-db", default="", help="override the transcript store (default $HERMES_HOME/state.db)")
@@ -296,8 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "prompt":
         print(prompt_for(args.token_path))
         return 0
-    db = Path(args.state_db) if args.state_db else state_db()
-    return run(args.hermes, args.alias, args.reasoning, db, args.timeout, args.keep_token)
+    db = Path(args.state_db) if args.state_db else state_db(profile=args.profile or None)
+    return run(args.hermes, args.profile, args.reasoning, db, args.timeout, args.keep_token)
 
 
 if __name__ == "__main__":

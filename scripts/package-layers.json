@@ -134,6 +134,8 @@
     "Bots and automation": [
       "acceptance_writeback",
       "agent_image_profiles_check",
+      "apply_hermes_base_config",
+      "seed_profile_hermes_env",
       "agent_model_pin",
       "agent_profile_sync",
       "agent_shell_keys_check",
@@ -194,6 +196,11 @@
       "from": "acceptance_writeback",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "agent_lanes_check",
+      "to": "apply_hermes_base_config",
+      "reason": "the installed-profile lane gate re-measures the model chain with the very seam that writes it (drift()/load_base() is the ONE owned-key comparison the image refuses); restating the chain shape there would let the gate and the installer disagree (issue #2929)."
     },
     {
       "from": "agent_profile_sync",

@@ -263,6 +263,34 @@ def main(argv: list[str] | None = None) -> int:
         if rc_final != 0:
             return rc_final
 
+    # Chain into every lane (issue #2929): the install step already applied the ONE home's
+    # chain to the GLOBAL Hermes home; the provisioner lands the IDENTICAL chain into every
+    # lane profile's config.yaml, through scripts/apply_hermes_base_config.py — the same seam,
+    # the same read-back. A lane whose chain differs from agents/hermes-base-config.yaml is as
+    # much a build failure as a lane missing its SOUL.md.
+    try:
+        from apply_hermes_base_config import apply as chain_apply, drift as chain_drift, load_base
+    except ModuleNotFoundError as exc:
+        print(f"[provision] FAIL: the chain seam apply_hermes_base_config.py must sit next to "
+              f"the provisioner ({exc})", file=sys.stderr)
+        return 2
+    chain_base = load_base(root)
+    chain_bad: list[str] = []
+    for name in profiles:
+        if not args.check:
+            chain_apply(base / name, chain_base)
+        chain_bad.extend(chain_drift(base / name, chain_base))
+    if chain_bad:
+        for line in chain_bad:
+            print(f"[provision] CHAIN FAIL: {line}", file=sys.stderr)
+        print(f"[provision] chain gate: {len(chain_bad)} drift(s) across {len(profiles)} "
+              "lane(s) — every lane must carry the base chain identically (issue #2929)",
+              file=sys.stderr)
+        return 1
+    print(f"[provision] chain: {len(profiles)} lane(s) carry the base chain "
+          f"({chain_base['model']['default']} primary, "
+          f"{chain_base['fallback_providers'][-1]['model']} last)")
+
     # --resolve (issue #2669): copied is not loadable. The agent image build runs this seam, so
     # every skill a lane's tree carries must also resolve through Hermes for that lane — the proof
     # the Dockerfile's old `cp -r` loop never produced.

@@ -26,7 +26,7 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
-	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat) Follow the preloaded skill rebase-conflict; the prompt above carries the conflicted files." -s $(REBASE_BOT_SKILLS) $(nous-alias) --reasoning medium --yolo')
+	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat) Follow the preloaded skill rebase-conflict; the prompt above carries the conflicted files." -s $(REBASE_BOT_SKILLS) -p llgenie-pr-merge-conflict --reasoning medium --yolo')
 # Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
 # is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
 
@@ -57,7 +57,7 @@ issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the threa
 	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner')
 
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
-	hermes -z "Follow the preloaded skill issue-refiner. Its Input is refine-in.md (with fetched/index.md as the pre-fetched evidence) and its Output is refine.md, in the shape the skill prints." -s issue-refiner,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-refiner. Its Input is refine-in.md (with fetched/index.md as the pre-fetched evidence) and its Output is refine.md, in the shape the skill prints." -s issue-refiner,bot-unattended -p llgenie-planner --reasoning $(HERMES_REASONING) --yolo
 
 issue-refiner-apply: ## Apply the review in refine.md: ONE comment on the issue + the agent:refined label (never a PR; refuses a `refined` verdict with no RESTATED block)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-refiner-apply ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
@@ -77,7 +77,7 @@ issue-dedup: ## Hermes decides whether the picked pair is the SAME defect (reads
 	  $(AGENT_IMAGE) bash -lc 'make _issue-dedup')
 
 _issue-dedup: # (internal) the host recipe the agent image runs: the decision, not the change
-	hermes -z "Follow the preloaded skill issue-dedup. Its Input is dedup-in.md and its Output is dedup.md, in the shape the skill prints." -s issue-dedup,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-dedup. Its Input is dedup-in.md and its Output is dedup.md, in the shape the skill prints." -s issue-dedup,bot-unattended -p llgenie-planner --reasoning $(HERMES_REASONING) --yolo
 
 issue-dedup-apply: ## Apply dedup.md: retire the COPY with a comment citing the canonical + agent:duplicate, close it, and queue the canonical (COPY=<n>; never touches a claimed issue; refuses a duplicate without EVIDENCE)
 	@test -n "$(COPY)" || { echo "Usage: make issue-dedup-apply COPY=<n> [FILE=dedup.md] [REPO=<owner/repo>] [DRY=1]"; exit 1; }
@@ -128,7 +128,7 @@ issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole commen
 	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage')
 
 _issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
-	hermes -z "Follow the preloaded skill issue-triage. Its Input is issue.md and its Output is triage.md, in the shape the skill prints." -s issue-triage,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-triage. Its Input is issue.md and its Output is triage.md, in the shape the skill prints." -s issue-triage,bot-unattended -p llgenie-planner --reasoning $(HERMES_REASONING) --yolo
 
 issue-bot-changed: ## Did the implement step actually change the tree? Prints changed=true|false, the bot's own run inputs excluded; exit 2 when git cannot read the tree (issue #428)
 	python3 scripts/issue_implementer.py changed
@@ -181,7 +181,7 @@ architecture-bot-doc: ## Rewrite the architecture doc with Hermes INSIDE the age
 
 _architecture-bot-doc: # (internal) the host recipe the agent image runs: only the doc is writable
 	$(MAKE) _agent-jev-preflight
-	hermes -z "Follow the preloaded skill architecture-doc. The brief is $(ARCH_BRIEF); the only file you may write is $(DOC)." -s architecture-doc,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill architecture-doc. The brief is $(ARCH_BRIEF); the only file you may write is $(DOC)." -s architecture-doc,bot-unattended -p llgenie-architect --reasoning $(HERMES_REASONING) --yolo
 
 architecture-bot-publish: ## File ONE issue + ONE linked PR for the doc change (REPO=; DOC=; STAMP=; DRY=1 previews) — nothing without drift, never merges (issue #449)
 	@test -n "$(REPO)" || { echo "Usage: make architecture-bot-publish REPO=<owner/repo> [DOC=docs/ARCHITECTURE.md] [DRY=1]"; exit 1; }
@@ -225,7 +225,7 @@ issue-bot-pr-body-check: ## CI: refuse the agent's pr-body.md before the leg spe
 _implement-issue: # (internal) the host recipe: implement issue.md with Hermes. Invoked
 # inside the agent image by the public `implement-issue` target.
 	$(MAKE) _agent-jev-preflight
-	hermes -z "Follow the preloaded skill issue-implement. Its Input is issue.md; leave the change uncommitted in /repo and write pr-body.md at the repo root." -s issue-implement,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-implement. Its Input is issue.md; leave the change uncommitted in /repo and write pr-body.md at the repo root." -s issue-implement,bot-unattended -p llgenie-issse-implementer --reasoning $(HERMES_REASONING) --yolo
 
 bots-restore-health: ## The #902 restore condition, as a measurement — guard that no never-pause workflow is `disabled_manually`, and report the ordered restore list once the queue is healthy (issue #902/#817; REPO= slug, CMD= restore|measure)
 	python3 scripts/bots_restore_health.py "$(if $(CMD),$(CMD),restore)" $(if $(REPO),--repo "$(GH_REPO)",)

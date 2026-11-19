@@ -114,6 +114,8 @@ IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     # writer/checker, or the byte-comparator must move the agent tag, exactly like an install-script
     # edit does — the image is the code of THIS commit, including the code path it installs with.
     "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",
+                                              "scripts/apply_hermes_base_config.py",
+                                              "scripts/seed_profile_hermes_env.py",
                                               "scripts/hermes_skills_register.py",
                                               "scripts/install_nerve_ci.sh",
                                               "scripts/nerve_profile_check.py",

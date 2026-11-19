@@ -327,6 +327,20 @@ def test_a_run_that_writes_no_store_is_a_named_failure(tmp_path):
     assert str(db) in proc.stderr
 
 
+def test_a_profile_run_is_audited_in_the_profile_home(tmp_path, monkeypatch):
+    """`hermes -p <lane>` gets the profile's own home (measured against Hermes 0.23.2, issue #2929),
+    so the smoke must judge the profile's store, not the global one — and must not invent a store
+    path for a lane whose home does not exist."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    profile_home = tmp_path / "profiles" / "llgenie-status-keeper"
+    profile_home.mkdir(parents=True)
+    assert smoke.state_db(profile="llgenie-status-keeper") == profile_home / "state.db"
+    # An unnamed (default-home) run is still audited in the global store.
+    assert smoke.state_db() == tmp_path / "state.db"
+    # A lane with no home falls back to the global store instead of fabricating a path.
+    assert smoke.state_db(profile="llgenie-no-such-lane") == tmp_path / "state.db"
+
+
 def test_the_prompt_names_the_command_and_never_the_value(tmp_path):
     """The prompt states the command and the file, never the nonce it asks for."""
 
@@ -366,14 +380,19 @@ def test_the_recipe_and_the_workflow_run_the_proof():
             break
     body = "\n".join(body_lines)
 
-    # Then  the recipe runs the script with the alias variable, and the workflow calls the target
+    # Then  the recipe runs the script AS A LANE PROFILE (issue #2929: the chain loads from the
+    # profile's own config; no model flag), and the workflow calls the target
     assert "scripts/hermes_smoke.py run" in body, body
-    assert "--alias $(nous-model)" in body, body
+    assert "--profile llgenie-status-keeper" in body, body
+    assert "--alias" not in body and "-m " not in body, "no model flag may return (issue #2929)"
     assert "make hermes-smoke" in (REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text(), \
         "the routing smoke lives in the reusable leg (issue #798)"
     assert "./.github/actions/agent-leg" in workflow, "issue-bot.yml must call the reusable leg"
     assert 'routing_smoke: "true"' in workflow, "issue-bot.yml opts into the routing smoke"
-    assert re.search(r"(?m)^nous-model := nous-deepseek$", makefile), "one place the alias name lives"
+    assert "nous-model :=" not in makefile, "the alias variable is retired (issue #2929)"
+    base_cfg = (REPO / "agents" / "hermes-base-config.yaml").read_text()
+    assert "nous-deepseek:" in base_cfg and "model: deepseek/deepseek-v4-flash-0731" in base_cfg, \
+        "the paid LAST alias lives in the ONE home"
 
 
 def _prompt_carriers() -> list[Path]:

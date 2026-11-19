@@ -17,11 +17,16 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 #: The 30 targets issue #2676 moves (its 31 candidates minus `agent-image-ref`, whose recipe is a
-#: `scripts/ci_images.py` call — image-shaped by the issue's own membership rule).
+#: `scripts/ci_images.py` call — image-shaped by the issue's own membership rule), plus
+#: `apply-hermes-base-config` and `seed-hermes-profile-env`, the model-chain seams issue #2929
+#: added to the same domain (their recipes write lane-profile homes — agent-shaped by the same
+#: rule; the seed lands the key_env secret the chain's routes name).
 MOVED = [
     "hermes-skills-register",
     "sync-agent-profile",
     "provision-agent-profiles",
+    "apply-hermes-base-config",
+    "seed-hermes-profile-env",
     "skill-parity",
     "tester-fold-live",
     "profile-drift-alarm",

@@ -10,6 +10,7 @@ paragraph pasted into the prompt), re-checks, stops as soon as it is green, give
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -288,7 +289,10 @@ def test_the_default_agent_command_reads_the_prompt_through_z():
     script = (REPO / "scripts" / "fix_loop.sh").read_text()
     assert 'FIX_AGENT_CMD:-hermes -z' in script, "the default must be a one-shot"
     assert "$(cat)" in script, "it reads the prompt from stdin"
-    assert "-m ${FIX_AGENT_ALIAS:-nous-deepseek}" in script
+    # issue #2929: the loop runs as its lane profile and loads the chain from the profile's
+    # config.yaml — no `-m` model flag survives anywhere in the script
+    assert "-p llgenie-issse-implementer" in script
+    assert not re.search(r"\s-m\s", script), "a -m model flag is back (issue #2929)"
     assert "--yolo" in script
     cmd_line = next(l for l in script.splitlines() if l.startswith("AGENT_CMD="))
     assert "--provider nous" not in cmd_line, "OAuth-only: a key cannot satisfy it"

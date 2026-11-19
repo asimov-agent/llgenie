@@ -19,11 +19,17 @@ import json
 from pathlib import Path
 
 import scripts.agent_lanes_check as lanes  # noqa: E402  (the real gate, never a copy)
+import scripts.apply_hermes_base_config as chain  # the same seam the install uses (issue #2929)
+
+REPO = Path(__file__).resolve().parent.parent
 
 
-def _tree(tmp_path: Path, declared: list[str], installed: list[str]) -> tuple[Path, Path]:
-    """agents/ tree declaring `declared` (each with a SOUL.md, the manifest is the truth) and a
-    profiles/ dir that holds exactly `installed` (each with a SOUL.md)."""
+def _tree(tmp_path: Path, declared: list[str], installed: list[str],
+          *, with_base: bool = True, with_chain: bool = True) -> tuple[Path, Path]:
+    """agents/ tree declaring `declared` (each with a SOUL.md, the manifest is the truth, and the
+    chain home `hermes-base-config.yaml` the gate also proves) and a profiles/ dir that holds
+    exactly `installed` (each with a SOUL.md AND the chain landed through the real seam, so the
+    fixture mirrors a properly installed image)."""
     agents, profiles = tmp_path / "agents", tmp_path / "profiles"
     agents.mkdir()
     (agents / "manifest.json").write_text(
@@ -31,10 +37,34 @@ def _tree(tmp_path: Path, declared: list[str], installed: list[str]) -> tuple[Pa
     for name in declared:
         (agents / name).mkdir(parents=True)
         (agents / name / "SOUL.md").write_text(f"# {name}\n")
+    if with_base:
+        (agents / chain.BASE_CONFIG.split("/")[-1]).write_text(
+            (REPO / chain.BASE_CONFIG).read_text(encoding="utf-8"))
     for name in installed:
         (profiles / name).mkdir(parents=True)
         (profiles / name / "SOUL.md").write_text(f"# {name}\n")
+        if with_chain:
+            chain.apply(profiles / name, chain.load_base(tmp_path))
     return agents, profiles
+
+
+def test_an_installed_lane_without_the_chain_reds_the_build(tmp_path, capsys):
+    """A lane installed without the model chain would run a model the repo no longer declares:
+    the gate names the lane and the missing chain keys (issue #2929)."""
+    agents, profiles = _tree(tmp_path, ["llgenie-planner", "llgenie-security"],
+                             ["llgenie-planner", "llgenie-security"], with_chain=False)
+    findings = lanes.findings(agents, profiles)
+    assert findings, findings
+    assert any("llgenie-planner" in f and "model.default" in f for f in findings), findings
+    assert any("llgenie-security" in f and "model.default" in f for f in findings), findings
+
+
+def test_a_tree_without_the_chain_home_reds_the_build(tmp_path):
+    """If the ONE home for the chain is gone from the agents tree, no lane can be proven."""
+    agents, profiles = _tree(tmp_path, ["llgenie-planner"], ["llgenie-planner"],
+                             with_base=False, with_chain=False)
+    findings = lanes.findings(agents, profiles)
+    assert any("no home" in f for f in findings), findings
 
 
 def test_every_declared_lane_installed_greens(tmp_path, capsys):

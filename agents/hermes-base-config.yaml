@@ -1,0 +1,119 @@
+# llgenie Hermes BASE model config (issue #2929, change hermes-model-chain).
+# ONE home for the model chain. scripts/apply_hermes_base_config.py merges the
+# keys this file owns into the Hermes GLOBAL home config.yaml and into every
+# llgenie lane profile's config.yaml (host: `make apply-hermes-base-config`;
+# image: scripts/install_hermes_ci.sh + scripts/provision_agent_profiles.py) —
+# host and image run the same code path, so a lane and the image resolve the
+# identical chain.
+#
+# Chain policy (owner directive 2026-11-19): Nous FREE models first — LongCat
+# primary — the other free entries as the ordered fallbacks, and the paid
+# deepseek-v4-flash-0731 snapshot answers LAST. No bot invocation carries a
+# model flag: profiles own the routing (`hermes -p llgenie-<lane>`).
+# scripts/agent_model_pin.py (make check-agent-model) referees this file: the
+# order of model.aliases + fallback_providers, the budgets, and the wiring
+# (no `-m` bot flags anywhere in the Makefile/mk/ scripts that open a leg).
+#
+# SHAPE — measured against Hermes 0.23.2 (probe image llgenie/agent:probe,
+# 2026-11-19), because profile routing (`hermes -p llgenie-<lane>`, no `-m`)
+# reads the PROFILE config as its whole route:
+#   * `model.default` must be the REAL model id — Hermes sends a bare alias
+#     string to the endpoint and the request 404s; aliases resolve only for an
+#     explicit `-m`/`/model` switch (hermes_cli/model_switch.py resolve_alias).
+#     The `aliases` map below stays for interactive `-m nous-*` convenience.
+#   * `model.provider` / `model.base_url` / `model.key_env` are top-level keys
+#     of the same `model:` block: provider `auto` on a profile with no key
+#     falls through to the setup wizard mid-leg instead of the chain.
+#   * every `fallback_providers` entry must be a full custom route
+#     (provider custom + base_url + key_env): Hermes's bundled `nous` provider
+#     is OAuth-only, and a hop to such an entry is silently skipped — the chain
+#     must carry its own route per entry (fallback_config.py
+#     resolve_entry_api_key reads `key_env` via the agent secret scope).
+#   * the secret: Hermes reads a profile's `key_env` from the PROFILE's own
+#     `.env` file, not the leg's exported environment — scripts/
+#     seed_profile_hermes_env.py writes `NOUS_API_KEY` from the leg environment
+#     into every profile `.env`; the agent image runs it at leg start through
+#     an /etc/profile.d hook (the leg shell is `bash -lc`). The KEY is never
+#     baked into the image: only its env-var NAME is known at build time.
+#
+# BUDGETS: max_tokens 16000 stays the deliberate reply budget (issue #2319);
+# context_window is each model's catalog-published length (measured 2026-11-19
+# against inference-api.nousresearch.com/v1/models).
+
+model:
+  default: meituan/longcat-2.5:free
+  provider: custom
+  base_url: https://inference-api.nousresearch.com/v1
+  key_env: NOUS_API_KEY
+  max_tokens: 16000
+  context_window: 1048576
+  aliases:
+    nous-longcat:
+      model: meituan/longcat-2.5:free
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 1048576
+    nous-hy4:
+      model: tencent/hy4-flash:free
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 1048576
+    nous-step:
+      model: stepfun/step-3.7-flash:free
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 262144
+    nous-qwen4max:
+      model: qwen/qwen4-max:free
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 1000000
+    nous-solar:
+      model: upstage/solar-mini4:free
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 524288
+    nous-deepseek:
+      model: deepseek/deepseek-v4-flash-0731
+      provider: custom
+      base_url: https://inference-api.nousresearch.com/v1
+      key_env: NOUS_API_KEY
+      max_tokens: 16000
+      context_window: 1048576
+
+# get_fallback_chain() (hermes_cli/fallback_config.py) treats top-level
+# `fallback_providers` as its primary source of truth and keeps this order;
+# the chain runs only after the primary model has failed, so
+# deepseek/deepseek-v4-flash-0731 answers LAST. Each entry carries its own
+# custom route (see SHAPE above): a hop resolves the entry, not the profile.
+fallback_providers:
+  - provider: custom
+    model: tencent/hy4-flash:free
+    base_url: https://inference-api.nousresearch.com/v1
+    key_env: NOUS_API_KEY
+  - provider: custom
+    model: stepfun/step-3.7-flash:free
+    base_url: https://inference-api.nousresearch.com/v1
+    key_env: NOUS_API_KEY
+  - provider: custom
+    model: qwen/qwen4-max:free
+    base_url: https://inference-api.nousresearch.com/v1
+    key_env: NOUS_API_KEY
+  - provider: custom
+    model: upstage/solar-mini4:free
+    base_url: https://inference-api.nousresearch.com/v1
+    key_env: NOUS_API_KEY
+  - provider: custom
+    model: deepseek/deepseek-v4-flash-0731
+    base_url: https://inference-api.nousresearch.com/v1
+    key_env: NOUS_API_KEY

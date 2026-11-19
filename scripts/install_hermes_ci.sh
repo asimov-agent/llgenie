@@ -54,39 +54,24 @@ if [ "$hermes_got" != "$HERMES_VERSION" ]; then
 fi
 echo "[hermes-ci] hermes ${hermes_got} == pinned release ${HERMES_VERSION}"
 
-# The alias the bots call by name. Every value is a documented default and every one is
-# overridable, because the model id is a pin that moves — but a pin that moves must move in
-# every file at once, which is why `make check-agent-model` compares this default with the
-# Dockerfile's (scripts/agent_model_pin.py, issue #405).
-ALIAS="${HERMES_ALIAS:-nous-deepseek}"
-MODEL_ID="${HERMES_MODEL_ID:-deepseek/deepseek-v4-flash-0731}"   # provider-prefixed; `-0731` is the SNAPSHOT (2026-07-31) — the unsuffixed id is the April 23 release, a different model
-BASE_URL="${HERMES_BASE_URL:-https://inference-api.nousresearch.com/v1}"
-# The snapshot's published budget (context_length 1048576, max_completion_tokens 65536). Written
-# literally on purpose: these belong to the MODEL, not to a deployment choice, and leaving them
-# unset makes Hermes budget the run from models.dev, which has no entry for this snapshot id.
-MAX_TOKENS="${HERMES_MAX_TOKENS:-16000}"
-CONTEXT_WINDOW="${HERMES_CONTEXT_WINDOW:-1048576}"
-
-hermes config set "model.aliases.${ALIAS}.model" "$MODEL_ID"
-hermes config set "model.aliases.${ALIAS}.provider" custom
-hermes config set "model.aliases.${ALIAS}.base_url" "$BASE_URL"
-hermes config set "model.aliases.${ALIAS}.key_env" NOUS_API_KEY
-hermes config set "model.aliases.${ALIAS}.max_tokens" "16000"
-hermes config set "model.aliases.${ALIAS}.context_window" "1048576"
-
-# Loud if the alias did not land: a bot whose alias is missing fails at run time, far from here.
-# All three values are checked — a present alias with the wrong model, or with no budget, is the
-# half-written state this exists to catch.
-for kv in "model=${MODEL_ID}" "key_env=NOUS_API_KEY" "max_tokens=${MAX_TOKENS}" \
-          "context_window=${CONTEXT_WINDOW}"; do
-  key="${kv%%=*}"; want="${kv#*=}"
-  got="$(hermes config get "model.aliases.${ALIAS}.${key}" 2>/dev/null || true)"
-  if [ "$got" != "$want" ]; then
-    echo "[hermes-ci] alias ${ALIAS}.${key} is '${got}', expected '${want}': the bots would fail at run time" >&2
-    exit 1
-  fi
-done
-echo "[hermes-ci] alias ${ALIAS} -> ${MODEL_ID} via ${BASE_URL} (max_tokens=${MAX_TOKENS}, context_window=${CONTEXT_WINDOW}, key_env=NOUS_API_KEY)"
+# The model chain, installed from its ONE home (issue #2929; referee issue #405).
+# `agents/hermes-base-config.yaml` declares the chain — Nous FREE models first
+# (`nous-longcat` primary), the other free models as the ordered fallbacks,
+# `deepseek/deepseek-v4-flash-0731` LAST — and scripts/apply_hermes_base_config.py is the only
+# writer of its owned keys (model.default, model.aliases, fallback_providers). The single-alias
+# MODEL_ID/ALIAS build ARGs are gone: this home gets the chain, and scripts/provision_agent_profiles.py
+# gives every lane profile the identical chain. Bots carry no `-m` flag; they run as their lane
+# profile and load the chain from its config.yaml. The write is followed by a read-back --check:
+# a chain that did not land fails the BUILD, not a bot run ninety minutes later.
+HERMES_HOME_RESOLVED="${HERMES_HOME:-$HOME/.hermes}"
+HERMES_CHAIN_ROOT="${HERMES_CHAIN_ROOT:-/opt/llgenie}"
+if [ ! -f "${HERMES_CHAIN_ROOT}/agents/hermes-base-config.yaml" ]; then
+  HERMES_CHAIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # a repo checkout running this script (tests, host dry-runs)
+fi
+APPLY_SEAM="/usr/local/bin/apply_hermes_base_config.py"   # the image path the Dockerfile COPYs
+[ -f "$APPLY_SEAM" ] || APPLY_SEAM="$(dirname "$0")/apply_hermes_base_config.py"   # a repo checkout
+python3 "$APPLY_SEAM" --home "$HERMES_HOME_RESOLVED" --root "$HERMES_CHAIN_ROOT"
+python3 "$APPLY_SEAM" --check --home "$HERMES_HOME_RESOLVED" --root "$HERMES_CHAIN_ROOT"
 
 # The bots' contracts are Hermes PROJECT skills: `.hermes/skills/<name>/SKILL.md` in the checkout,
 # preloaded by each leg with `hermes -s <name>` (issue #577). Hermes reads skills from its own home

@@ -1147,9 +1147,11 @@ def test_the_agent_recipe_runs_hermes_directly_inside_the_image():
     mk = makefiles_text()
     recipe = mk.split("rebase-bot-agent:", 1)[1].split("\nrebase-bot:", 1)[0]
 
-    # Then it runs Hermes inline, inside the redacting public leg, with the model pin's one alias
+    # Then it runs Hermes inline, inside the redacting public leg, as its declared lane profile
+    # (issue #2929: the chain loads from the profile's config; no model flag, no alias variable)
     assert "hermes -z" in recipe
-    assert "$(nous-alias)" in recipe
+    assert "-p llgenie-pr-merge-conflict" in recipe
+    assert "$(nous-alias)" not in recipe and " -m " not in recipe
     assert "$(call scrubbed_run," in recipe
 
     # And no nested make target exists (it would parse the conflicted file)
