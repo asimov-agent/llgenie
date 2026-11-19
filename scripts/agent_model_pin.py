@@ -48,6 +48,14 @@ ALIAS = "nous-deepseek"
 MAX_TOKENS = 16000
 CONTEXT_WINDOW = 1048576
 
+# The Hermes release the image installs (issue #2932). install.sh's `stable` channel floats,
+# so the pin names the release AND the commit: the peeled commit of the upstream annotated
+# tag v0.23.2 (tag object 28f57ed8e3dba4eceb67dfd3e3abda1a7604452d; a `--commit` checkout of
+# the tag OBJECT is a clone failure, only the peeled commit is checkable). PyPI's
+# hermes-agent tops out at 0.19.0, so this release line travels only through install.sh.
+HERMES_VERSION = "0.23.2"
+HERMES_INSTALL_COMMIT = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
+
 DOCKERFILE = "containers/agent/Dockerfile"
 INSTALL_SCRIPT = "scripts/install_hermes_ci.sh"
 
@@ -56,6 +64,15 @@ _DOCKERFILE_ARG = re.compile(r'^ARG\s+HERMES_MODEL_ID="?(?P<value>[^"\s]+)"?\s*$
 # `MODEL_ID="${HERMES_MODEL_ID:-deepseek/deepseek-v4-flash-0731}"   # …`
 _INSTALL_DEFAULT = re.compile(
     r'^MODEL_ID="\$\{HERMES_MODEL_ID:-(?P<value>[^}]+)\}"', re.MULTILINE
+)
+
+# The Hermes version pin (issue #2932): two Dockerfile ARGs, the ARGS list that must pass the
+# commit to install.sh, and the install script's own default + read-back assert.
+_DOCKERFILE_VERSION_ARG = re.compile(r'^ARG\s+HERMES_VERSION="?(?P<value>[^"\s]+)"?\s*#?.*$', re.MULTILINE)
+_DOCKERFILE_COMMIT_ARG = re.compile(r'^ARG\s+HERMES_INSTALL_COMMIT="?(?P<value>[^"\s]+)"?\s*#?.*$', re.MULTILINE)
+_DOCKERFILE_INSTALL_ARGS = re.compile(r'^ARG\s+HERMES_INSTALL_ARGS="(?P<value>[^"]*)"', re.MULTILINE)
+_INSTALL_VERSION_DEFAULT = re.compile(
+    r'^HERMES_VERSION="\$\{HERMES_VERSION:-(?P<value>[^}]+)\}"', re.MULTILINE
 )
 
 
@@ -111,14 +128,56 @@ def budget_findings(root: Path = REPO) -> list[str]:
     return out
 
 
+def version_findings(root: Path = REPO) -> list[str]:
+    """The Hermes release the image installs must be named in every home that installs it.
+
+    Four checks (issue #2932): the Dockerfile names the version; the Dockerfile names the
+    peeled v0.23.2 commit; the install ARGS actually pass that commit to install.sh via
+    --commit; and the install script declares the same version default AND reads the
+    installed CLI's version back.
+    """
+    out: list[str] = []
+    dockerfile = _read(root / DOCKERFILE)
+
+    m = _DOCKERFILE_VERSION_ARG.search(dockerfile)
+    if not m:
+        out.append(f"{DOCKERFILE}: no ARG HERMES_VERSION found (expected {HERMES_VERSION})")
+    elif m.group("value") != HERMES_VERSION:
+        out.append(f"{DOCKERFILE}: installs Hermes {m.group('value')} (expected {HERMES_VERSION})")
+
+    c = _DOCKERFILE_COMMIT_ARG.search(dockerfile)
+    if not c:
+        out.append(f"{DOCKERFILE}: no ARG HERMES_INSTALL_COMMIT found (expected {HERMES_INSTALL_COMMIT})")
+    elif c.group("value") != HERMES_INSTALL_COMMIT:
+        out.append(f"{DOCKERFILE}: pins install commit {c.group('value')} (expected {HERMES_INSTALL_COMMIT})")
+
+    a = _DOCKERFILE_INSTALL_ARGS.search(dockerfile)
+    if not a or "--commit ${HERMES_INSTALL_COMMIT}" not in a.group("value"):
+        out.append(
+            f"{DOCKERFILE}: HERMES_INSTALL_ARGS does not pass ${{HERMES_INSTALL_COMMIT}} "
+            "to install.sh via --commit (a floating stable-channel checkout is what this refuses)"
+        )
+
+    script = _read(root / INSTALL_SCRIPT)
+    v = _INSTALL_VERSION_DEFAULT.search(script)
+    if not v:
+        out.append(f"{INSTALL_SCRIPT}: no HERMES_VERSION default found (expected {HERMES_VERSION})")
+    elif v.group("value") != HERMES_VERSION:
+        out.append(f"{INSTALL_SCRIPT}: expects Hermes {v.group('value')} (expected {HERMES_VERSION})")
+    if "hermes --version" not in script:
+        out.append(f"{INSTALL_SCRIPT}: the installed Hermes version is never read back")
+    return out
+
+
 def report(root: Path = REPO) -> str:
     lines = [
         f"[model-pin] pinned: {MODEL_ID} via alias {ALIAS} "
         f"(max_tokens={MAX_TOKENS}, context_window={CONTEXT_WINDOW})",
         f"[model-pin] {DOCKERFILE}: {pin_in_dockerfile(root) or '(none)'}",
         f"[model-pin] {INSTALL_SCRIPT}: {pin_in_install_script(root) or '(none)'}",
+        f"[model-pin] hermes: {HERMES_VERSION} installed at commit {HERMES_INSTALL_COMMIT} (issue #2932)",
     ]
-    bad = findings(root) + budget_findings(root)
+    bad = findings(root) + budget_findings(root) + version_findings(root)
     lines.extend(f"[model-pin] FINDING {f}" for f in bad)
     lines.append(f"[model-pin] {'OK' if not bad else f'{len(bad)} finding(s)'}")
     return "\n".join(lines)
@@ -136,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         print(report(root))
         return 0
 
-    bad = findings(root) + budget_findings(root)
+    bad = findings(root) + budget_findings(root) + version_findings(root)
     print(report(root))
     if bad:
         print(

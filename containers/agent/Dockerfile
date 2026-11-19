@@ -70,12 +70,25 @@ FROM ${TEST_IMAGE}
 # maintainer can pin a version without editing this file.
 ARG HERMES_INSTALL_URL="https://hermes-agent.nousresearch.com/install.sh"
 ARG HERMES_PACKAGE="hermes-agent"
+# The Hermes release this image installs, NAMED by the tree (issue #2932). install.sh's
+# default `stable` channel floats ("whatever the latest published release is at build
+# time"), so two builds of the same llgenie commit could ship different Hermeses and both
+# go green. HERMES_INSTALL_COMMIT pins install.sh (--commit) to the peeled commit of the
+# upstream annotated tag v0.23.2 (tag object 28f57ed8e3dba4eceb67dfd3e3abda1a7604452d);
+# HERMES_VERSION is what the install step must read back from `hermes --version`. PyPI
+# cannot deliver this release line (hermes-agent tops out at 0.19.0 there), which is why
+# the pin travels through install.sh --commit and not through `uv tool install`
+# (HERMES_PACKAGE below stays the documented no-network fallback path).
+ARG HERMES_VERSION="0.23.2"
+ARG HERMES_INSTALL_COMMIT="ae2a81ccc00e9b7c06301523e5bb09608397149c"   # peeled commit of v0.23.2
 # Hermes install args forwarded to upstream install.sh via `bash -s --` (issue #2836):
 # the published image ships NEITHER the agent-browser/Playwright toolchain NOR the
 # computer-use stack — no llgenie lane uses them, and the Chromium they pull in is a
 # 1878-advisory stream the repo can neither fix nor audit. Re-add them with
-# --build-arg HERMES_INSTALL_ARGS="".
-ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use"
+# --build-arg HERMES_INSTALL_ARGS="". A full override must re-add the --commit pin:
+# scripts/agent_model_pin.py (make check-agent-model) refuses an ARGS list that does not
+# pass ${HERMES_INSTALL_COMMIT} to install.sh (issue #2932).
+ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}"
 # The model pin and its provider alias (see the header). The model id must stay
 # provider-prefixed: the Nous endpoint 404s a bare id.
 ARG HERMES_ALIAS="nous-deepseek"
@@ -157,6 +170,7 @@ COPY check_agent_skills.py /opt/llgenie/bin/check_agent_skills.py
 COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_INSTALL_ARGS=${HERMES_INSTALL_ARGS} \
+    HERMES_VERSION=${HERMES_VERSION} \
     HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
     HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
     HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \
