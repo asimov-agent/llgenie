@@ -2804,6 +2804,19 @@ make fix-loop-image     # the same loop inside the agent image (AGENT_IMAGE= ove
 make fix-bot-report     # render the loop's failure report (REPORT=<path>) — the comment the workflow posts
 ```
 
+### The reconcile guard: a PR-numbered red re-reads its own state first (issue #1749)
+
+```
+make lane-reconcile-guard PR=<n> [REPO=<owner/repo>]  # one verdict line from the live pulls/<n> read
+```
+
+`scripts/pr_reconcile_guard.py` is the state re-read a reconcile trigger carries: it prints exactly
+one line — `#<n> merged, read-only …` / `#<n> closed, read-only …` / `#<n> open, actionable (head …,
+mergeState=…, mergeable=…)` — and exits non-zero **with no verdict** when the read fails, so an
+unevidenced reconcile stays blocked. Act on `open, actionable` only: a `merged, read-only` verdict
+retires the claim naming the merge commit (the phantom reconciles of merged #1742 and closed #1644
+are its AC evidence), and no lane rebases, amends, or re-cuts against either verdict.
+
 The loop runs the failing check, hands the failure to Hermes and re-checks, up to
 `FIX_ROUNDS` (default 3). The loop itself never commits or pushes; the workflow pushes
 the repaired tree as ONE commit with the owner PAT (so CI re-runs) only when the loop

@@ -860,6 +860,10 @@ move on — a red nobody's process is measuring is not a defect. **A watcher's F
   --state all --json number,state,mergedAt`: a whole architect-refined queue can arrive ALREADY
   MERGED when a prior context window of yours (or a peer lane) landed those PRs while you worked
   another item — so claiming it rebuilds shipped work and burns a full implement-verify cycle.
+  For any item this reading hands back as a PR-numbered red to reconcile, the reconcile trigger's
+  own read is `make lane-reconcile-guard PR=<n>` — act only on `open, actionable`; a
+  `merged, read-only` / `closed, read-only` verdict retires that item naming its merge commit
+  (issue #1749).
   Then verify it is actually YOURS: the referenced worktrees sit under a path/naming convention you use (your
   own scratch worktrees vs. another lane's `llgenie-wt/<slug>`), the branches are ones you own,
   and the credited "sweep"/attribution matches work you actually performed. A planner can attach
