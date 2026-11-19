@@ -81,7 +81,7 @@ agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text t
 	  $(AGENT_IMAGE) bash -lc 'make _agent-fetch URL="$$URL" OUT="$$OUT"')
 
 _agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key by name, never printed
-	hermes -z "Follow the preloaded skill agent-fetch: the URL is $(URL) and the output file is $(OUT)." -s agent-fetch,bot-unattended -p llgenie-documentation-maintainer --reasoning $(HERMES_REASONING) --yolo
+	leg_start=$$(date +%s); hermes -z "Follow the preloaded skill agent-fetch: the URL is $(URL) and the output file is $(OUT)." -s agent-fetch,bot-unattended -p llgenie-documentation-maintainer --reasoning $(HERMES_REASONING) --yolo; rc=$$?; python3 scripts/hermes_model_route.py --lane llgenie-documentation-maintainer --since $$leg_start; exit $$rc
 
 search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
 	@python3 scripts/require_env.py FIRECRAWL_API_KEY

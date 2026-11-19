@@ -280,6 +280,21 @@ def run(hermes: str, profile: str, reasoning: str, db: Path, timeout: float,
                 return 1
             print(f"[hermes-smoke] OK: session {session} called the terminal tool and its output "
                   f"(`{expected}`) reached the answer")
+            # Issue #2931: the session row already records WHICH chain model served the run, and
+            # the smoke is the standing agent-leg proof, so it names that model too. A session
+            # without a recorded model is a named note on stderr: never a fabricated route, and
+            # the verdict (exit 0) is unchanged either way.
+            model, why = "", ""
+            try:
+                row = conn.execute("SELECT model FROM sessions WHERE id = ?", (session,)).fetchone()
+                model = (row[0] or "").strip() if row else ""
+                why = "" if model else "carries no model value"
+            except sqlite3.Error as exc:
+                model, why = "", f"could not read its model row ({exc})"
+            if model:
+                print(f"model-route: {model}")
+            else:
+                print(f"[hermes-smoke] note: session {session} in {db} {why}", file=sys.stderr)
             return 0
     finally:
         if keep_token:

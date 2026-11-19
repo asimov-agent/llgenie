@@ -158,6 +158,7 @@
       "fix_bot_report",
       "fix_bot_sweep",
       "fold-live-profile",
+      "hermes_model_route",
       "hermes_skills_register",
       "hermes_smoke",
       "host_bot_capabilities",

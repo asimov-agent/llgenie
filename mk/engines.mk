@@ -201,7 +201,7 @@ registry-sync-review: ## Hermes reviews the green store (reads registry-review-i
 	  $(AGENT_IMAGE) bash -lc 'make _registry-sync-review')
 
 _registry-sync-review: # (internal) the host recipe the agent image runs: the review, not the code
-	hermes -z "Follow the preloaded skill registry-sync-review. Its Input is $(REGISTRY_REVIEW_BRIEF) and its Output is $(REGISTRY_REVIEW_OUT), in the shape the skill prints." -s registry-sync-review,bot-unattended -p llgenie-engine-improver --reasoning $(HERMES_REASONING) --yolo
+	leg_start=$$(date +%s); hermes -z "Follow the preloaded skill registry-sync-review. Its Input is $(REGISTRY_REVIEW_BRIEF) and its Output is $(REGISTRY_REVIEW_OUT), in the shape the skill prints." -s registry-sync-review,bot-unattended -p llgenie-engine-improver --reasoning $(HERMES_REASONING) --yolo; rc=$$?; python3 scripts/hermes_model_route.py --lane llgenie-engine-improver --since $$leg_start; exit $$rc
 
 registry-review-publish: ## File ONE issue labelled agent:implement from registry-review.md, keyed by the store's generated_utc — updates it in place for the same store (REPO=; DRY=1 previews)
 	python3 scripts/registry_review.py publish --in "$(REGISTRY_REVIEW_OUT)" $(if $(REPO),--repo "$(GH_REPO)",) $(if $(DRY),--dry,)
@@ -227,7 +227,7 @@ engine-params-review: ## Issue #583: Hermes reviews the derived params against t
 	  $(AGENT_IMAGE) bash -lc 'make _engine-params-review')
 
 _engine-params-review: # (internal) the host recipe the agent image runs: the review, not the change
-	hermes -z "Follow the preloaded skill engine-params-review. Its Input is params-review-in.md and its Output is params-review.md, in the PROPOSE/NO REVIEW shape the skill prints. Propose only parameters whose flag AND quoted evidence appear in the named upstream file; the host drops anything else." -s engine-params-review,bot-unattended -p llgenie-engine-improver --reasoning $(HERMES_REASONING) --yolo
+	leg_start=$$(date +%s); hermes -z "Follow the preloaded skill engine-params-review. Its Input is params-review-in.md and its Output is params-review.md, in the PROPOSE/NO REVIEW shape the skill prints. Propose only parameters whose flag AND quoted evidence appear in the named upstream file; the host drops anything else." -s engine-params-review,bot-unattended -p llgenie-engine-improver --reasoning $(HERMES_REASONING) --yolo; rc=$$?; python3 scripts/hermes_model_route.py --lane llgenie-engine-improver --since $$leg_start; exit $$rc
 
 engine-params-review-apply: ## Issue #583: validate params-review.md (the flag AND its quote must be in the named upstream file), append accepted flags to the skill, regenerate params/Dockerfiles and write the PR section (ENGINE=; DRY=1 previews, mutating nothing)
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-params-review-apply ENGINE=<id> [DRY=1]"; exit 1; }

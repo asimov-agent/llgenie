@@ -249,11 +249,12 @@ def test_forcing_a_real_command_output_to_empty_success_is_detected(tmp_path):
     assert "terminal" in blob, problems
 
 
-def _hermes_stub(tmp_path: Path, *, writes_store: bool) -> Path:
+def _hermes_stub(tmp_path: Path, *, writes_store: bool, model: str | None = None) -> Path:
     """A real `hermes` executable: it writes the session a passing smoke needs, or nothing at all.
 
     The nonce is read from the token file the PROMPT names (argv), so the stub proves the same rule
-    the real model faces: the value can only come from that file (issue #471).
+    the real model faces: the value can only come from that file (issue #471). `model` is the model
+    value the session row records — the chain model a passing run must name (issue #2931).
     """
     db = tmp_path / "home" / "state.db"
     script = tmp_path / "hermes"
@@ -271,9 +272,9 @@ def _hermes_stub(tmp_path: Path, *, writes_store: bool) -> Path:
         "os.makedirs(os.path.dirname(DB), exist_ok=True)\n"
         "c = sqlite3.connect(DB)\n"
         "c.executescript('CREATE TABLE sessions (id TEXT PRIMARY KEY, started_at REAL,"
-        " tool_call_count INTEGER); CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT,"
-        " role TEXT, tool_name TEXT, content TEXT);')\n"
-        "c.execute('INSERT INTO sessions VALUES (?, ?, ?)', ('sess-fresh', 1.0, 1))\n"
+        " tool_call_count INTEGER, model TEXT); CREATE TABLE messages (id INTEGER PRIMARY KEY,"
+        " session_id TEXT, role TEXT, tool_name TEXT, content TEXT);')\n"
+        f"c.execute('INSERT INTO sessions VALUES (?, ?, ?, ?)', ('sess-fresh', 1.0, 1, {model!r}))\n"
         "rows = [('user', None, 'run the command'), ('assistant', None, None),\n"
         "        ('tool', 'terminal', '{\"output\": \"smoke-ok:' + nonce + '\"}'),\n"
         "        ('assistant', None, 'smoke-ok:' + nonce)]\n"
@@ -339,6 +340,49 @@ def test_a_profile_run_is_audited_in_the_profile_home(tmp_path, monkeypatch):
     assert smoke.state_db() == tmp_path / "state.db"
     # A lane with no home falls back to the global store instead of fabricating a path.
     assert smoke.state_db(profile="llgenie-no-such-lane") == tmp_path / "state.db"
+
+
+def test_a_passing_smoke_names_the_model_that_served_the_session(tmp_path):
+    """Issue #2931: the session row records which chain model served the run, and the smoke —
+    the standing agent-leg proof — prints that route as `model-route: <model-id>` on stdout."""
+
+    # Given  a hermes whose session row records the chain's primary model
+    db = tmp_path / "home" / "state.db"
+    stub = _hermes_stub(tmp_path, writes_store=True, model="meituan/longcat-2.5:free")
+
+    # When   the smoke runs against that store
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "run", "--state-db", str(db), "--hermes", str(stub),
+         "--timeout", "5"],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    # Then   it passes AND names the serving model on stdout
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "OK: session sess-fresh" in proc.stdout, proc.stdout
+    assert "model-route: meituan/longcat-2.5:free" in proc.stdout, proc.stdout
+
+
+def test_a_model_less_passing_session_is_a_note_not_a_fabricated_route(tmp_path):
+    """A session with no recorded model does not stop the smoke proving the tool call, but the
+    smoke must not invent a route either: a named note on stderr, no model-route line."""
+
+    # Given  a hermes whose session row carries no model value (the stub's default)
+    db = tmp_path / "home" / "state.db"
+    stub = _hermes_stub(tmp_path, writes_store=True)
+
+    # When   the smoke runs
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "run", "--state-db", str(db), "--hermes", str(stub),
+         "--timeout", "5"],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    # Then   it still passes, with no route line and a named note instead
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "OK: session sess-fresh" in proc.stdout, proc.stdout
+    assert "model-route:" not in proc.stdout, proc.stdout
+    assert "carries no model value" in proc.stderr, proc.stderr
 
 
 def test_the_prompt_names_the_command_and_never_the_value(tmp_path):
