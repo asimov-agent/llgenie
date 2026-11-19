@@ -11,12 +11,12 @@ bash-check:
 # `make install`) resolves even in non-interactive make subprocesses — not just
 # in an interactive zsh that sourced ~/.zshrc.
 
-check-agent-model: ## CI: fail when the agent image's model pin (Dockerfile ARG, install script) is not the one snapshot scripts/agent_model_pin.py declares — or the alias's budget is missing (issue #405)
-	python3 scripts/agent_model_pin.py check
+check-agent-model: ## CI: fail when the model chain in agents/hermes-base-config.yaml drifts from what scripts/agent_model_pin.py referees — order, budgets, wiring, seams, or a `-m` bot call is back (issue #405 → #2929)
+	$(PY) scripts/agent_model_pin.py check
 
 
-model-pin-report: ## Print the bots' pinned model snapshot, where each place declares it, and every finding (issue #405)
-	python3 scripts/agent_model_pin.py report
+model-pin-report: ## Print the model chain, its ONE home, the Hermes pin, and every finding (issue #405 → #2929)
+	$(PY) scripts/agent_model_pin.py report
 
 # ---- every bot leg loads its contract from a project skill (issue #577) --------------
 # A leg's inline prompt used to be its whole rulebook (1005-1629 characters, the same

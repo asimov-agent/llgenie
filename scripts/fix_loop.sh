@@ -27,7 +27,7 @@ CHECK="${FIX_CHECK:-make ci-unit}"
 # The prompt arrives on STDIN, so the default reads it into the one-shot `-z` flag and names
 # the image's custom-provider alias (`-m` is the MODEL flag; `--provider nous` cannot work with
 # a secret, see scripts/install_hermes_ci.sh).
-AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -s pr-fix,bot-unattended -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
+AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -s pr-fix,bot-unattended -p llgenie-issse-implementer --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
 RULES="${FIX_RULES:-.hermes/skills/pr-fix/SKILL.md}"
 REPORT="${FIX_REPORT:-/tmp/fix-report.txt}"
 # A captured failure log from the RUN that failed (a `workflow_run` trigger, issue #538): the local

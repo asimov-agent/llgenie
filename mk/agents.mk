@@ -22,8 +22,14 @@ sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (P
 	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1] [FORCE=1]"; exit 2; }
 	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,) $(if $(FORCE),--force,)
 
-provision-agent-profiles: ## Materialise EVERY lane's agents/<profile>/ into its Hermes home recursively, idempotently, then gate the result back against the tree (issue #2165) — the profile-creation/rebuild entrypoint (DEST=; CHECK=1 compares instead of writing; ROOT=; RESOLVE=1 additionally proves each lane's skills resolve through `hermes -p <lane> skills list`, issue #2669) — HOST-ONLY: a CI runner has no live profiles to provision, but the caller wires it into install so a rebuild cannot skip it
-	@python3 scripts/provision_agent_profiles.py $(if $(DEST),--dest "$(DEST)",) $(if $(CHECK),--check,) $(if $(ROOT),--root "$(ROOT)",) $(if $(RESOLVE),--resolve,)
+provision-agent-profiles: ## Materialise EVERY lane's agents/<profile>/ into its Hermes home recursively, idempotently, land the model chain into every lane profile's config.yaml, then gate the result back against the tree (issue #2165, chain #2929) — the profile-creation/rebuild entrypoint (DEST=; CHECK=1 compares instead of writing; ROOT=; RESOLVE=1 additionally proves each lane's skills resolve through `hermes -p <lane> skills list`, issue #2669) — HOST-ONLY: a CI runner has no live profiles to provision, but the caller wires it into install so a rebuild cannot skip it
+	@$(PY) scripts/provision_agent_profiles.py $(if $(DEST),--dest "$(DEST)",) $(if $(CHECK),--check,) $(if $(ROOT),--root "$(ROOT)",) $(if $(RESOLVE),--resolve,)
+
+apply-hermes-base-config: ## Merge the model chain from agents/hermes-base-config.yaml into every llgenie-* lane profile's config.yaml (--lanes: the interactive default home's own model config is NOT touched — the chain owns the bots, not the human's session; PROFILE_HOME= overrides the profiles parent) (CHECK=1 compares instead of writing) — HOST-ONLY: the image installs the chain through the SAME seam via install_hermes_ci.sh + provision_agent_profiles.py (issue #2929)
+	@$(PY) scripts/apply_hermes_base_config.py --lanes $(if $(PROFILE_HOME),--profiles-parent "$(PROFILE_HOME)",) $(if $(CHECK),--check,)
+
+seed-hermes-profile-env: ## Move this shell's NOUS_API_KEY into the .env files Hermes actually reads: `hermes -p <lane>` resolves model.key_env from the PROFILE's own .env, not the caller's environment (measured against Hermes 0.23.2, issue #2929) — HOST-ONLY: --lanes leaves the interactive default home's .env alone, and the agent image seeds every leg's profiles at leg start through its /etc/profile.d hook, so no CI runner needs this target. Never invents or prints a value (CHECK=1 verifies without writing; PROFILE_HOME= overrides the profiles parent)
+	@$(PY) scripts/seed_profile_hermes_env.py --lanes $(if $(PROFILE_HOME),--profiles-parent "$(PROFILE_HOME)",) $(if $(CHECK),--check,)
 
 skill-parity: ## Report live↔tree skill parity for every llgenie profile (issue #1924, Layer A) — HOST-ONLY and READ-ONLY: it diffs agents/<profile>/skills/ against the live ~/.hermes/profiles/<profile>/skills/ and prints live-only / tree-only counts and names; it NEVER writes (a CI runner has no live profiles, so this is one finding that needs a caller where they exist). No sync, no fold (#791/#1062)
 	@python3 scripts/skill_parity.py report
@@ -75,7 +81,7 @@ agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text t
 	  $(AGENT_IMAGE) bash -lc 'make _agent-fetch URL="$$URL" OUT="$$OUT"')
 
 _agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key by name, never printed
-	hermes -z "Follow the preloaded skill agent-fetch: the URL is $(URL) and the output file is $(OUT)." -s agent-fetch,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill agent-fetch: the URL is $(URL) and the output file is $(OUT)." -s agent-fetch,bot-unattended -p llgenie-documentation-maintainer --reasoning $(HERMES_REASONING) --yolo
 
 search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
 	@python3 scripts/require_env.py FIRECRAWL_API_KEY
@@ -140,7 +146,7 @@ _agent-jev-preflight: # (internal) report whether the JEV layer is available in 
 _hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool. Invoked inside
 # the agent image by the public `hermes-smoke` target.
 	@python3 scripts/require_env.py NOUS_API_KEY
-	python3 scripts/hermes_smoke.py run --alias $(nous-model) --reasoning low
+	python3 scripts/hermes_smoke.py run --profile llgenie-status-keeper --reasoning low
 
 agent-image-profiles-check: ## CI (publish-agent-image, post-publish): boot the agent image the lane just published (the standard agent leg: guard, scrubbed stream, forwarded keys, bot marker) and assert every profile declared in agents/manifest.json exists where Hermes resolves `-p <lane>` ($HERMES_HOME/profiles/<lane>/). Prints OK/MISSING per lane; any MISSING reddens the publish lane (issue #2934)
 	@python3 scripts/require_env.py NOUS_API_KEY

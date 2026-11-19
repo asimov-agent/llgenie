@@ -96,6 +96,49 @@ def test_fresh_empty_home_matches_tree_exactly_after_provision(tmp_path):
     assert gate.returncode == 0, gate.stdout + gate.stderr
 
 
+def test_every_lane_home_carries_the_base_model_chain(tmp_path):
+    """Issue #2929: the provisioner lands agents/hermes-base-config.yaml, through the seam,
+    into EVERY lane profile's config.yaml — identical chain in all of them, read back."""
+    import json  # noqa: PLC0415
+    import yaml  # noqa: PLC0415
+    dest = tmp_path / "profiles"
+    r = _run(dest)
+    assert r.returncode == 0, r.stderr
+    names = [p["name"] for p in json.loads((REPO / "agents" / "manifest.json").read_text())["profiles"]]
+    for name in names:
+        cfg = dest / name / "config.yaml"
+        assert cfg.is_file(), f"{name} has no config.yaml — the chain did not land"
+        data = yaml.safe_load(cfg.read_text())
+        assert data["model"]["default"] == "meituan/longcat-2.5:free"
+        assert data["model"]["aliases"]["nous-longcat"]["model"] == "meituan/longcat-2.5:free"
+        order = [e["model"] for e in data["fallback_providers"]]
+        assert order[-1] == "deepseek/deepseek-v4-flash-0731", f"{name}: {order}"
+    assert "carry the base chain" in r.stdout, r.stdout
+
+
+def test_a_lane_chain_mutation_reddens_the_check_and_reprovision_greens(tmp_path):
+    """Negative control (the AC exactly): mutate one lane's model id in its home config,
+    `--check` reddens naming CHAIN FAIL + the lane; a re-provision restores the ONE home's chain."""
+    import json  # noqa: PLC0415
+    import yaml  # noqa: PLC0415
+    dest = tmp_path / "profiles"
+    assert _run(dest).returncode == 0
+    name = json.loads((REPO / "agents" / "manifest.json").read_text())["profiles"][0]["name"]
+    cfg = dest / name / "config.yaml"
+    data = yaml.safe_load(cfg.read_text())
+    data["model"]["aliases"]["nous-longcat"]["model"] = "meituan/longcat-2.4:free"
+    cfg.write_text(yaml.safe_dump(data))
+
+    r = _run(dest, "--check")
+    assert r.returncode != 0, "a drifted lane chain must redden the provision gate"
+    assert "CHAIN FAIL" in r.stderr, r.stderr
+    assert name in r.stderr, r.stderr
+
+    assert _run(dest).returncode == 0, "re-provision must restore the chain"
+    restored = yaml.safe_load(cfg.read_text())["model"]["aliases"]["nous-longcat"]["model"]
+    assert restored == "meituan/longcat-2.5:free"
+
+
 def test_gate_reds_on_mutation_and_greens_after_reprovision(tmp_path):
     # The rebuild case: a profile whose tree-carried SOUL.md is MISSING (a fresh
     # or partial home — the exact silent failure #2165 exists for, since a missing

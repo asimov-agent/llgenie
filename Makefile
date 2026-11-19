@@ -94,6 +94,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report tester-fold-live provision-agent-profiles \
+	apply-hermes-base-config seed-hermes-profile-env \
 	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
 	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep bots-restore-health audit-ticks audit-ticks-notes audit-ticks-post targets-coverage
 
@@ -186,14 +187,14 @@ ENGINE_ARGS = $(if $(BACKEND),--backend $(BACKEND),)
 REGISTRY_REVIEW_BRIEF ?= registry-review-in.md
 REGISTRY_REVIEW_OUT ?= registry-review.md
 
-# ---- the model pin the bots call (issue #405) --------------------------------
-# The bots run the Hermes CLI in the agent image against ONE pinned snapshot through the alias
-# `nous-deepseek`. That pin lives in two build inputs (the Dockerfile's ARG default and the
-# install script's MODEL_ID default), and both used to name `deepseek/deepseek-v4.1-flash` —
-# the OLDER, different model behind `canonical_slug …-20260910` — while the owner's host alias
-# ran the `-1017` snapshot. Nothing compared them, and the one test asserted a substring any
-# newer id satisfies. `scripts/agent_model_pin.py` is now the referee: stdlib only, no network,
-# no key, and it names the file and the value it read when they disagree.
+# ---- the model chain the bots run (issue #405, chain home issue #2929) ------
+# The bots no longer name a model. `agents/hermes-base-config.yaml` declares the chain ONCE
+# (Nous free models first — `nous-longcat` primary — the other free models as the ordered
+# fallbacks, `deepseek/deepseek-v4-flash-0731` LAST), `scripts/apply_hermes_base_config.py`
+# merges its owned keys into the agent image's global Hermes home AND every llgenie lane
+# profile's config.yaml, and each bot call runs as its lane profile (`hermes -p llgenie-<lane>`)
+# which loads the chain from its own config. `scripts/agent_model_pin.py` referees the chain,
+# the budgets and the wiring: no `-m` bot flag may return to this tree.
 .PHONY: bot-preflight
 .PHONY: bot-stamp-body
 .PHONY: bot-close-reasons-report
@@ -202,7 +203,7 @@ REGISTRY_REVIEW_OUT ?= registry-review.md
 .PHONY: check-package-layers
 .PHONY: check-agent-profiles-ratchet
 
-.PHONY: provision-agent-profiles
+.PHONY: provision-agent-profiles apply-hermes-base-config seed-hermes-profile-env
 
 
 .PHONY: skill-parity check-skill-code-parity
@@ -238,8 +239,7 @@ REBASE_BOT_SKILLS := rebase-conflict,bot-unattended
 # stays the writer: the agent may only propose a `-D` flag whose evidence it quotes from the upstream
 # tree at the pin, and the apply step drops anything it cannot find there.
 .PHONY: orchestrator-tick orchestrator-tick-pending orchestrator-tick-report
-nous-model := nous-deepseek
-nous-alias := -m $(nous-model)
+# The chain lives in agents/hermes-base-config.yaml; profiles own the model (issue #2929).
 HERMES_REASONING ?= low
 # The bots run INSIDE the agent image (issues #222/#238/#248): Hermes, git, gh and the docker
 # CLI are installed when the image is built, so a runner never installs the agent on the fly —

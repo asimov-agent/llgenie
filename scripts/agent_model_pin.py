@@ -1,79 +1,75 @@
 #!/usr/bin/env python3
-"""The bots' model pin, declared ONCE, and a gate that refuses drift (issue #405).
+"""The bots' model CHAIN, declared ONCE, and a gate that refuses drift (issue #405 → #2929).
 
-The agent image runs the Hermes CLI against the Nous OpenAI-compatible endpoint through a
-CUSTOM provider alias (`nous-deepseek`; Hermes's bundled `nous` provider is OAuth-only, so a
-secret-supplied NOUS_API_KEY only works through an alias — see scripts/install_hermes_ci.sh).
+The chain has ONE home in this repo: `agents/hermes-base-config.yaml`. Nous FREE models run
+first (`nous-longcat` primary), the other free models are the ordered fallbacks, and the paid
+`deepseek/deepseek-v4-flash-0731` sits LAST. The install step lands it into the agent image's
+global Hermes home and `scripts/provision_agent_profiles.py` lands the identical chain into
+every lane profile's config.yaml — bots run as their lane profile (`hermes -p llgenie-<lane>`)
+and load the chain from that config. No bot call carries a `-m <model>` flag any more.
 
-Two files carry that pin, because each is an independent build input:
-
-    containers/agent/Dockerfile       ARG HERMES_MODEL_ID="…"
-    scripts/install_hermes_ci.sh      MODEL_ID="${HERMES_MODEL_ID:-…}"
-
-Nothing used to compare them, and the only test on the id was a SUBSTRING assert
-(``"deepseek/deepseek-v4.1-flash" in script``) that any newer snapshot satisfies — so the bots
-quietly ran the previous snapshot (``…-20260910``, served by Impala) while the owner's host ran
-``…-1017`` (``…-20261017``). Both answer 200 from inside a bot job, which is why nothing went red.
+Every chain entry is a CUSTOM provider alias: Hermes's bundled `nous` provider is OAuth-only,
+so a secret-supplied NOUS_API_KEY only works through an alias pointed at the Nous inference
+endpoint (history: see scripts/install_hermes_ci.sh).
 
 This module is the referee:
 
     python3 scripts/agent_model_pin.py check     # non-zero on drift, naming file + value
     python3 scripts/agent_model_pin.py report    # what each place says
 
-Stdlib only, no network, no key: it reads the two files and compares them with the values below.
-A DIFFERENT snapshot (older or newer) is drift, never "close enough".
-
-The values are the pinned snapshot's own: the catalogue at
-https://inference-api.nousresearch.com/v1/models publishes
-``context_length: 1048576`` and ``max_completion_tokens: 65536`` for this id, so a 16000-token
-reply budget with the full 1M window is a deliberate, sub-limit choice (the host's alias uses the
-same pair). Leaving them unset makes Hermes budget the run from models.dev, which does not carry
-this snapshot id at all.
+It checks (issue #2929): the base config's structure and ORDER (free first, deepseek-0731
+LAST), every alias's wiring (custom provider, the endpoint, NOUS_API_KEY, a written budget),
+that the install/provision seams are the writers, that the single-pin build ARGs stayed dead,
+that no `-m` bot call survived, and — unchanged from issue #405/#2932 — the Hermes release pin.
+Stdlib + PyYAML only, no network, no key. A different snapshot or a re-ordered chain is drift,
+never "close enough".
 """
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from apply_hermes_base_config import BASE_CONFIG, load_base  # noqa: E402
+
 REPO = Path(__file__).resolve().parent.parent
 
-# ---- the pin (the ONE declaration) ------------------------------------------------------
-# Provider-prefixed: the endpoint 404s a bare id. The `-0731` suffix is the SNAPSHOT
-# (2026-07-31) of DeepSeek V4 Flash. There is no `deepseek-v4.1-flash-0731`. Dropping
-# the suffix selects `deepseek/deepseek-v4-flash`, the April 23 release, not this pin.
-MODEL_ID = "deepseek/deepseek-v4-flash-0731"
-ALIAS = "nous-deepseek"
-MAX_TOKENS = 16000
-CONTEXT_WINDOW = 1048576
+# ---- the chain policy (the referee's expectation, issue #2929) ---------------------------
+PRIMARY_ALIAS = "nous-longcat"                    # the first alias in the map
+PRIMARY_MODEL = "meituan/longcat-2.5:free"        # model.default carries the REAL id:
+#   Hermes profile routing sends model.default straight to the endpoint; a bare alias there
+#   404s (measured against Hermes 0.23.2). Aliases resolve only for an explicit -m switch.
+LAST_MODEL = "deepseek/deepseek-v4-flash-0731"  # the ONLY paid model, and it is LAST
+FREE_SUFFIX = ":free"
+NOUS_ENDPOINT = "https://inference-api.nousresearch.com/v1"
+MAX_TOKENS = 16000                            # every alias carries a written budget
+KEY_ENV = "NOUS_API_KEY"
+MODEL_ROUTE = {"provider": "custom", "base_url": NOUS_ENDPOINT, "key_env": KEY_ENV,
+               "max_tokens": MAX_TOKENS}          # the route a profile run must carry
 
-# The Hermes release the image installs (issue #2932). install.sh's `stable` channel floats,
-# so the pin names the release AND the commit: the peeled commit of the upstream annotated
-# tag v0.23.2 (tag object 28f57ed8e3dba4eceb67dfd3e3abda1a7604452d; a `--commit` checkout of
-# the tag OBJECT is a clone failure, only the peeled commit is checkable). PyPI's
-# hermes-agent tops out at 0.19.0, so this release line travels only through install.sh.
 HERMES_VERSION = "0.23.2"
 HERMES_INSTALL_COMMIT = "ae2a81ccc00e9b7c06301523e5bb09608397149c"
 
 DOCKERFILE = "containers/agent/Dockerfile"
 INSTALL_SCRIPT = "scripts/install_hermes_ci.sh"
 
-# `ARG HERMES_MODEL_ID="deepseek/deepseek-v4-flash-0731"` (quote style tolerated)
-_DOCKERFILE_ARG = re.compile(r'^ARG\s+HERMES_MODEL_ID="?(?P<value>[^"\s]+)"?\s*$', re.MULTILINE)
-# `MODEL_ID="${HERMES_MODEL_ID:-deepseek/deepseek-v4-flash-0731}"   # …`
-_INSTALL_DEFAULT = re.compile(
-    r'^MODEL_ID="\$\{HERMES_MODEL_ID:-(?P<value>[^}]+)\}"', re.MULTILINE
-)
-
-# The Hermes version pin (issue #2932): two Dockerfile ARGs, the ARGS list that must pass the
-# commit to install.sh, and the install script's own default + read-back assert.
+# The Hermes version pin (issue #2932), unchanged.
 _DOCKERFILE_VERSION_ARG = re.compile(r'^ARG\s+HERMES_VERSION="?(?P<value>[^"\s]+)"?\s*#?.*$', re.MULTILINE)
 _DOCKERFILE_COMMIT_ARG = re.compile(r'^ARG\s+HERMES_INSTALL_COMMIT="?(?P<value>[^"\s]+)"?\s*#?.*$', re.MULTILINE)
 _DOCKERFILE_INSTALL_ARGS = re.compile(r'^ARG\s+HERMES_INSTALL_ARGS="(?P<value>[^"]*)"', re.MULTILINE)
 _INSTALL_VERSION_DEFAULT = re.compile(
     r'^HERMES_VERSION="\$\{HERMES_VERSION:-(?P<value>[^}]+)\}"', re.MULTILINE
 )
+
+# Where a model flag must NOT appear any more: the bot call sites (issue #2929).
+BOT_CALL_FILES = ("Makefile", "mk/bots.mk", "mk/agents.mk", "mk/engines.mk", "scripts/fix_loop.sh")
+_MODEL_FLAG = re.compile(r'(?:-m|--model)\s+[\w"$.{}-]*(?:nous|deepseek|longcat)[\w$.{}:-]*')
+_ALIAS_RE = re.compile(r'nous-alias|nous-model')
+_PROFILE_FLAG = re.compile(r'-p\s+(llgenie-[\w-]+)')
 
 
 def _read(path: Path) -> str:
@@ -83,48 +79,127 @@ def _read(path: Path) -> str:
         raise SystemExit(f"[model-pin] cannot read {path}: {exc}")
 
 
-def pin_in_dockerfile(root: Path = REPO) -> str | None:
-    """The value of the Dockerfile's `ARG HERMES_MODEL_ID` default, or None when absent."""
-    match = _DOCKERFILE_ARG.search(_read(root / DOCKERFILE))
-    return match.group("value") if match else None
-
-
-def pin_in_install_script(root: Path = REPO) -> str | None:
-    """The install script's `MODEL_ID` default, or None when absent."""
-    match = _INSTALL_DEFAULT.search(_read(root / INSTALL_SCRIPT))
-    return match.group("value") if match else None
-
-
-def findings(root: Path = REPO) -> list[str]:
-    """Every place that does not carry the pinned snapshot, as one line each."""
+def chain_findings(root: Path = REPO) -> list[str]:
+    """Every way the ONE home of the chain fails the policy, as one line each."""
     out: list[str] = []
-    for path, reader in ((DOCKERFILE, pin_in_dockerfile), (INSTALL_SCRIPT, pin_in_install_script)):
-        value = reader(root)
-        if value is None:
-            out.append(f"{path}: no model pin found (expected {MODEL_ID})")
-        elif value != MODEL_ID:
-            out.append(f"{path}: pins {value} (expected {MODEL_ID})")
-    return out
+    try:
+        base = load_base(root)
+    except SystemExit as exc:  # the seam's own unreadable/missing-base failure, phrased as a finding
+        return [str(exc)]
 
+    model = base["model"]
+    aliases = model["aliases"]
+    default = model.get("default")
+    if default != PRIMARY_MODEL:
+        hint = " (an ALIAS at model.default 404s: profile routing sends it to the endpoint unresolved)" \
+            if default == PRIMARY_ALIAS else ""
+        out.append(f"{BASE_CONFIG}: model.default is {default!r} (expected the real primary id "
+                   f"{PRIMARY_MODEL!r}{hint})")
+    for key, want in MODEL_ROUTE.items():
+        if model.get(key) != want:
+            out.append(f"{BASE_CONFIG}: model.{key} is {model.get(key)!r} (expected {want!r}: "
+                       "a profile run resolves the profile config as its whole route)")
+    if not isinstance(model.get("context_window"), int) or model.get("context_window") <= 0:
+        out.append(f"{BASE_CONFIG}: model.context_window is not a positive int")
+    if aliases.get(PRIMARY_ALIAS, {}).get("model") != PRIMARY_MODEL:
+        out.append(f"{BASE_CONFIG}: alias {PRIMARY_ALIAS} must map to {PRIMARY_MODEL!r}")
 
-def budget_findings(root: Path = REPO) -> list[str]:
-    """The alias must carry the model's real budget, in the script AND in the build assert."""
-    out: list[str] = []
+    # every alias: custom provider, the endpoint, the secret's env name, a written budget
+    for name, entry in aliases.items():
+        if not isinstance(entry, dict):
+            out.append(f"{BASE_CONFIG}: alias {name} is not a mapping")
+            continue
+        for key, want in (("provider", "custom"), ("base_url", NOUS_ENDPOINT),
+                          ("key_env", KEY_ENV), ("max_tokens", MAX_TOKENS)):
+            if entry.get(key) != want:
+                out.append(f"{BASE_CONFIG}: alias {name}.{key} is {entry.get(key)!r} (expected {want!r})")
+        if not isinstance(entry.get("context_window"), int) or entry["context_window"] <= 0:
+            out.append(f"{BASE_CONFIG}: alias {name} has no positive context_window")
+        mid = entry.get("model")
+        if not isinstance(mid, str) or not mid:
+            out.append(f"{BASE_CONFIG}: alias {name} declares no model id")
+
+    # the fallback list IS the rest of the chain: every non-primary alias model, in the order
+    # the aliases declare them, the paid model LAST. The primary is not its own fallback —
+    # Hermes hops only after the primary fails, and hopping back to it is a silent retry.
+    fallback = base["fallback_providers"]
+    order = [e.get("model") if isinstance(e, dict) else e for e in fallback]
+    alias_models = [e.get("model") for e in aliases.values() if isinstance(e, dict)]
+    want_order = [m for m in alias_models if m != aliases.get(PRIMARY_ALIAS, {}).get("model")]
+    if order != want_order:
+        out.append(f"{BASE_CONFIG}: fallback_providers is {order} (expected the non-primary "
+                   f"chain in declared order: {want_order})")
+    if order and order[-1] != LAST_MODEL:
+        out.append(f"{BASE_CONFIG}: fallback_providers ends with {order[-1]!r} "
+                   f"(expected {LAST_MODEL!r} LAST)")
+    for entry in order[:-1]:
+        if not str(entry).endswith(FREE_SUFFIX):
+            out.append(f"{BASE_CONFIG}: fallback {entry!r} is not a FREE model — only the LAST "
+                       f"entry of the chain may be paid")
+    if LAST_MODEL in [str(m) for m in order[:-1]]:
+        out.append(f"{BASE_CONFIG}: {LAST_MODEL} appears before the last position — the paid "
+                   "fallback is LAST or nowhere")
+    if len(set(order)) != len(order):
+        out.append(f"{BASE_CONFIG}: fallback_providers repeats a model (order: {order})")
+    chain_models = {str(m) for m in order}
+    declared = {m for m in alias_models if m}
+    if chain_models - declared:
+        out.append(f"{BASE_CONFIG}: fallback names models no alias declares: "
+                   f"{sorted(chain_models - declared)}")
+    # each fallback entry is a full custom route: a hop resolves the ENTRY (its provider +
+    # base_url + key_env), not the profile — Hermes's bundled `nous` provider is OAuth-only
+    # and a hop aimed at it is silently skipped (fallback_config.py, measured 2026-11-19)
+    for pos, entry in enumerate(fallback):
+        if not isinstance(entry, dict):
+            out.append(f"{BASE_CONFIG}: fallback_providers[{pos}] is not a mapping")
+            continue
+        if entry.get("provider") != "custom":
+            out.append(f"{BASE_CONFIG}: fallback_providers[{pos}] names provider "
+                       f"{entry.get('provider')!r} — hops need a full custom route")
+        for key, want in (("base_url", NOUS_ENDPOINT), ("key_env", KEY_ENV)):
+            if entry.get(key) != want:
+                out.append(f"{BASE_CONFIG}: fallback_providers[{pos}].{key} is "
+                           f"{entry.get(key)!r} (expected {want!r})")
+
+    # the seams are the only writers, and they must be wired (issue #2929)
     script = _read(root / INSTALL_SCRIPT)
-    for key, value in (("max_tokens", MAX_TOKENS), ("context_window", CONTEXT_WINDOW)):
-        line = re.search(
-            rf'hermes config set "model\.aliases\.\$\{{ALIAS}}\.{key}"\s+"?(?P<value>[^"\s]+)"?',
-            script,
-        )
-        if not line:
-            out.append(f"{INSTALL_SCRIPT}: the alias never sets {key} (expected {value})")
-        elif line.group("value") != str(value):
-            out.append(f"{INSTALL_SCRIPT}: alias {key} is {line.group('value')} (expected {value})")
-
+    if "apply_hermes_base_config.py" not in script:
+        out.append(f"{INSTALL_SCRIPT}: does not apply the base config — the chain has no installer")
     dockerfile = _read(root / DOCKERFILE)
-    for key in ("model", "max_tokens", "context_window"):
-        if f'model.aliases.${{HERMES_ALIAS}}.{key}' not in dockerfile:
-            out.append(f"{DOCKERFILE}: the build does not assert the alias's {key}")
+    if "apply_hermes_base_config.py --check" not in dockerfile:
+        out.append(f"{DOCKERFILE}: the build does not re-check the chain against {BASE_CONFIG}")
+    if "apply_hermes_base_config.py" not in _read(root / "scripts/provision_agent_profiles.py"):
+        out.append("scripts/provision_agent_profiles.py: does not land the chain into lane profiles")
+    # profile mode resolves key_env from the PROFILE's OWN .env (measured against Hermes 0.23.2):
+    # a key only in the leg's exported environment authenticates nothing, so the image must seed
+    # it at leg start (issue #2929)
+    if "seed_profile_hermes_env.py" not in dockerfile:
+        out.append(f"{DOCKERFILE}: no seed_profile_hermes_env.py hook — a profile run cannot read "
+                   "its key_env from the profile .env the image never seeds")
+
+    # the single-pin build ARGs are dead (issue #2929): an ARG naming a model is drift
+    for arg in ("HERMES_MODEL_ID", "HERMES_ALIAS", "HERMES_MAX_TOKENS", "HERMES_CONTEXT_WINDOW"):
+        if re.search(rf'^ARG\s+{arg}\b', dockerfile, re.MULTILINE):
+            out.append(f"{DOCKERFILE}: ARG {arg} is back — the chain has ONE home, not build args")
+
+    # no bot call names a model (issue #2929): profiles load the chain — and every profile a
+    # bot call names must be a lane the image installs (issue #2181: a `-p` lane absent from
+    # agents/manifest.json resolves against an empty profile home at run time)
+    try:
+        declared_lanes = {p["name"] for p in json.loads(_read(root / "agents" / "manifest.json"))["profiles"]}
+    except (SystemExit, json.JSONDecodeError, KeyError) as exc:
+        out.append(f"agents/manifest.json: unreadable lane roster ({exc}) — no `-p` call can be checked")
+        declared_lanes = set()
+    for rel in BOT_CALL_FILES:
+        text = _read(root / rel)
+        for m in _MODEL_FLAG.finditer(text):
+            out.append(f"{rel}: a bot call names a model ({m.group(0)!r}) — bots run as lane "
+                       f"profiles and load the chain (issue #2929)")
+        if _ALIAS_RE.search(text):
+            out.append(f"{rel}: references the retired nous-alias/nous-model variables")
+        for lane in sorted(set(_PROFILE_FLAG.findall(text)) - declared_lanes):
+            out.append(f"{rel}: bot call names -p {lane}, which agents/manifest.json does not "
+                       f"declare — the image would not install it (issue #2181)")
     return out
 
 
@@ -171,21 +246,24 @@ def version_findings(root: Path = REPO) -> list[str]:
 
 def report(root: Path = REPO) -> str:
     lines = [
-        f"[model-pin] pinned: {MODEL_ID} via alias {ALIAS} "
-        f"(max_tokens={MAX_TOKENS}, context_window={CONTEXT_WINDOW})",
-        f"[model-pin] {DOCKERFILE}: {pin_in_dockerfile(root) or '(none)'}",
-        f"[model-pin] {INSTALL_SCRIPT}: {pin_in_install_script(root) or '(none)'}",
+        f"[model-pin] chain home: {BASE_CONFIG} (primary {PRIMARY_ALIAS} = {PRIMARY_MODEL}, "
+        f"paid LAST {LAST_MODEL})",
         f"[model-pin] hermes: {HERMES_VERSION} installed at commit {HERMES_INSTALL_COMMIT} (issue #2932)",
     ]
-    bad = findings(root) + budget_findings(root) + version_findings(root)
+    bad = chain_findings(root) + version_findings(root)
     lines.extend(f"[model-pin] FINDING {f}" for f in bad)
     lines.append(f"[model-pin] {'OK' if not bad else f'{len(bad)} finding(s)'}")
     return "\n".join(lines)
 
 
+def findings(root: Path = REPO) -> list[str]:
+    """The gate's aggregate: chain drift + Hermes version drift (issue #2929 + #2932)."""
+    return chain_findings(root) + version_findings(root)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Check the bots' pinned model snapshot against the files that carry it"
+        description="Check the bots' model chain against its ONE home and the seams that install it"
     )
     parser.add_argument("command", choices=("check", "report"))
     parser.add_argument("--root", default=str(REPO), help="repository root (default: this checkout)")
@@ -195,12 +273,12 @@ def main(argv: list[str] | None = None) -> int:
         print(report(root))
         return 0
 
-    bad = findings(root) + budget_findings(root) + version_findings(root)
+    bad = findings(root)
     print(report(root))
     if bad:
         print(
-            "[model-pin] FAIL: the bots would call a different model than the pin "
-            "(issue #405); move every value above together",
+            "[model-pin] FAIL: a bot would run a model the chain does not declare "
+            "(issue #2929); fix the ONE home or the seam, never a call site",
             file=sys.stderr,
         )
         return 1

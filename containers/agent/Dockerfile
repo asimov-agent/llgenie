@@ -16,21 +16,19 @@
 #   Build-time args let the maintainer pin the source without editing this file:
 #     --build-arg HERMES_INSTALL_URL=... --build-arg HERMES_PACKAGE=...
 #
-# ADDED: the Nous model wiring, as build args with the live defaults, so the pin is
-# visible here instead of buried in the install script:
-#     --build-arg HERMES_ALIAS=nous-deepseek
-#     --build-arg HERMES_MODEL_ID=deepseek/deepseek-v4-flash-0731   (provider-prefixed)
-#     --build-arg HERMES_BASE_URL=https://inference-api.nousresearch.com/v1
-# The `-0731` suffix is the SNAPSHOT (2026-07-31) of DeepSeek V4 Flash. There is no
-# `deepseek-v4.1-flash-0731` on the endpoint. The unsuffixed `deepseek/deepseek-v4-flash`
-# is a DIFFERENT model (`canonical_slug …-20260423`) that also answers 200 — so dropping
-# the suffix silently runs the bots on the April release (issue #405).
-# The pin lives in ONE place too: scripts/agent_model_pin.py, gated by `make check-agent-model`.
-# Hermes's bundled `nous` provider is OAuth-only — a bare NOUS_API_KEY is IGNORED and
-# `--provider nous` fails with "not logged into Nous Portal" — so the install script writes
-# a CUSTOM provider alias (provider=custom, the base_url above, key_env=NOUS_API_KEY), with the
-# snapshot's published budget (max_tokens, context_window), and the build asserts every key.
-# The alias is why every bot call is `hermes -z ... -m nous-deepseek`.
+# ADDED: the Nous model CHAIN (issue #2929; single-pin history issue #405). The chain is
+# declared ONCE in the repo — agents/hermes-base-config.yaml: Nous FREE models first
+# (nous-longcat primary, the other free models as the ordered fallbacks), and the paid
+# deepseek/deepseek-v4-flash-0731 LAST. There are no model build args anymore: the install
+# step runs scripts/apply_hermes_base_config.py, the only writer of the owned keys
+# (model.default / model.aliases / fallback_providers), into the global Hermes home, and
+# scripts/provision_agent_profiles.py lands the identical chain in every lane profile's
+# config.yaml. Every chain entry is a CUSTOM-provider alias (Hermes's bundled `nous` provider
+# is OAuth-only — a bare NOUS_API_KEY is IGNORED and `--provider nous` fails), pointed at the
+# Nous inference endpoint with key_env NOUS_API_KEY supplied at run time. No bot call carries
+# `-m <model>` any more: bots run as their lane profile (`hermes -p llgenie-<lane>`) and load
+# the chain from their own config. scripts/agent_model_pin.py (`make check-agent-model`)
+# referees the chain, the budgets, and that no `-m` bot call survived in the tree.
 #
 # ADDED: the Nerve plugin and its settings, installed at build time by
 # scripts/install_nerve_ci.sh (issue #238). The host runs Hermes with Nerve enabled — its JEV
@@ -89,17 +87,6 @@ ARG HERMES_INSTALL_COMMIT="ae2a81ccc00e9b7c06301523e5bb09608397149c"   # peeled 
 # scripts/agent_model_pin.py (make check-agent-model) refuses an ARGS list that does not
 # pass ${HERMES_INSTALL_COMMIT} to install.sh (issue #2932).
 ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}"
-# The model pin and its provider alias (see the header). The model id must stay
-# provider-prefixed: the Nous endpoint 404s a bare id.
-ARG HERMES_ALIAS="nous-deepseek"
-ARG HERMES_MODEL_ID="deepseek/deepseek-v4-flash-0731"
-ARG HERMES_BASE_URL="https://inference-api.nousresearch.com/v1"
-# The alias's budget: the pinned snapshot publishes context_length 1048576 and
-# max_completion_tokens 65536, so this is a deliberate sub-limit pair (the same one the host's
-# alias uses). Left unset, Hermes budgets the bot run from models.dev, which has no entry for this
-# snapshot id (issue #405).
-ARG HERMES_MAX_TOKENS="16000"
-ARG HERMES_CONTEXT_WINDOW="1048576"
 # The Nerve plugin pin and the provider it supervises through (see the header, issue #238).
 ARG HERMES_NERVE_PLUGIN="keeltrace/hermes-nerve"
 ARG HERMES_NERVE_REF="3de7d94982b7a2cb87c829e4b2366ced927d8fed"   # keeltrace/hermes-nerve v0.3.1
@@ -145,6 +132,8 @@ RUN set -eux; \
 # lane COPY below can reference it by its repo path — a flat copy would collide every profile's
 # SOUL.md onto the same basename.
 COPY install_hermes_ci.sh /usr/local/bin/install_hermes_ci.sh
+COPY apply_hermes_base_config.py /usr/local/bin/apply_hermes_base_config.py
+COPY apply_hermes_base_config.py /opt/llgenie/bin/apply_hermes_base_config.py
 COPY hermes_skills_register.py /usr/local/bin/hermes_skills_register.py
 COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
 COPY nerve_profile_check.py /usr/local/bin/nerve_profile_check.py
@@ -171,8 +160,6 @@ COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_INSTALL_ARGS=${HERMES_INSTALL_ARGS} \
     HERMES_VERSION=${HERMES_VERSION} \
-    HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
-    HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
     HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \
     HERMES_NERVE_PROVIDER=${HERMES_NERVE_PROVIDER} \
     HERMES_NERVE_PROFILE=${HERMES_NERVE_PROFILE} \
@@ -184,16 +171,12 @@ RUN chmod +x /usr/local/bin/install_hermes_ci.sh \
     && /usr/local/bin/install_hermes_ci.sh \
     && export PATH="/home/agent/.local/bin:$PATH" \
     && hermes --version \
-    # The install script writes the alias; prove it right here so a bad pin fails the BUILD
-    # (an image whose alias is missing or stale only fails later, inside a bot run). All four
-    # keys, not just the name: an alias without its budget is budgeted from models.dev, which
-    # has no entry for this snapshot id (issue #405).
-    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.model")" = "${HERMES_MODEL_ID}" \
-    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.provider")" = "custom" \
-    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.key_env")" = "NOUS_API_KEY" \
-    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.max_tokens")" = "${HERMES_MAX_TOKENS}" \
-    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.context_window")" = "${HERMES_CONTEXT_WINDOW}" \
-    && echo "[agent-image] alias ${HERMES_ALIAS} -> ${HERMES_MODEL_ID} (max_tokens=${HERMES_MAX_TOKENS}, context_window=${HERMES_CONTEXT_WINDOW}, key supplied at run time)"
+    # The install script applied the chain from its ONE home; the build re-checks this home
+    # against the repo's base config so a wrong, missing, or mis-ordered chain fails HERE,
+    # not inside a bot run (issue #2929).
+    && python3 /usr/local/bin/apply_hermes_base_config.py --check --home /home/agent/.hermes \
+        --root /opt/llgenie \
+    && echo "[agent-image] chain OK: $(hermes config get model.default) primary, ordered fallbacks + budgets read back identical to agents/hermes-base-config.yaml"
 
 # The supervisory layer (issue #238). HERMES_HOME is explicit because the plugin, its settings
 # and the run-time gate must all agree on which home is "this" home — plugins are per-home, and
@@ -233,6 +216,21 @@ RUN set -eux; \
         --agents /opt/llgenie/agents \
         --profiles "${HERMES_HOME}/profiles" \
     && echo "[agent-image] llgenie lanes installed into ${HERMES_HOME}/profiles through the host's own seam (provision_agent_profiles.py --resolve) and agent_lanes_check.py passed"
+
+# Profile-scoped secrets (issue #2929, measured against Hermes 0.23.2): a profile run resolves
+# `model.key_env` from the PROFILE's OWN .env file — a key that only sits in the leg's exported
+# environment authenticates nothing. This hook is sourced at the start of every agent leg (the
+# Makefile agent legs all boot `bash -lc`, and /etc/profile sources /etc/profile.d/*.sh) and moves
+# the leg's NOUS_API_KEY into every llgenie profile home's .env through the SAME script the host
+# runs (`make seed-hermes-profile-env`). The image knows only the variable's NAME — the value is
+# supplied per-leg by require_env'd legs (AGENTS.md: no secrets baked). The marker export is the
+# build-time proof below that a login shell really sources the hook.
+COPY seed_profile_hermes_env.py /usr/local/bin/seed_profile_hermes_env.py
+RUN chmod +x /usr/local/bin/seed_profile_hermes_env.py \
+    && printf '#!/bin/sh\n# llgenie: seed profile-scoped Hermes secrets from the leg environment (issue #2929)\nif [ -n "${NOUS_API_KEY:-}" ]; then\n    python3 /usr/local/bin/seed_profile_hermes_env.py --all >/dev/null 2>&1 || true\nfi\nexport LLGENIE_HERMES_PROFILE_ENV=sourced\n' > /etc/profile.d/llgenie-hermes-profile-env.sh \
+    && chmod 0644 /etc/profile.d/llgenie-hermes-profile-env.sh \
+    && bash -lc 'test "${LLGENIE_HERMES_PROFILE_ENV:-}" = sourced' \
+    && echo "[agent-image] profile-env hook installed: every bash -lc leg seeds profile .env from its own environment"
 
 # The repo is checked out by the workflow (the agent edits the working tree); this is only
 # the default working dir, and `git config` is left to the workflow so the bot's identity

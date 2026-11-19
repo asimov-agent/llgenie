@@ -41,7 +41,12 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # the chain seam sits beside this script
+
+from apply_hermes_base_config import drift as chain_drift, load_base  # noqa: E402
+
 PROFILES_SUBDIR = "profiles"  # the subdir under HERMES_HOME the install step writes lanes into
+BASE_CONFIG_NAME = "hermes-base-config.yaml"  # the ONE home of the model chain (issue #2929)
 
 
 def _manifest_profiles(manifest: Path) -> list[str]:
@@ -75,7 +80,31 @@ def findings(agents: Path, profiles: Path) -> list[str]:
                            f"no {name} lane")
             continue
         missing.extend(_skill_findings(agents, name, profiles))
+        missing.extend(_chain_findings(agents, name, profiles))
     return missing
+
+
+def _chain_findings(agents: Path, name: str, profiles: Path) -> list[str]:
+    """Every owned chain key the lane's config.yaml does not carry identically (issue #2929).
+
+    The install step lands the chain through scripts/apply_hermes_base_config.py; this gate
+    proves the read-back: the lane's config.yaml must carry the base config's model.default,
+    every base alias, and the ordered fallback list — a lane that drifted is as uninstalled
+    as a lane missing its SOUL.md, because it would run a model the repo no longer declares.
+    """
+    if not (profiles / name).is_dir():
+        return []  # the missing lane itself is already a finding; the chain cannot ride a home
+                    # that does not exist (and double-naming one absence as two findings skews
+                    # the gate's own count assertions)
+    base_path = agents / BASE_CONFIG_NAME
+    if not base_path.is_file():
+        return [f"{agents.name}/{BASE_CONFIG_NAME} is missing — the model chain has no home, "
+                f"so no lane can be proven to carry it"]
+    try:
+        base = load_base(agents.parent)
+    except SystemExit as exc:  # the seam's own unreadable-base failure, phrased as a finding
+        return [str(exc)]
+    return [f"lane {name!r}: {line}" for line in chain_drift(profiles / name, base)]
 
 
 def _skill_findings(agents: Path, name: str, profiles: Path) -> list[str]:

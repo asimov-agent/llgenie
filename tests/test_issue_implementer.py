@@ -461,24 +461,28 @@ def test_the_agent_image_definition_is_present_and_installs_hermes():
     assert '"agent"' in registry, "the image is a declared input set (its tag is their hash)"
 
 
-def test_the_agent_call_uses_the_image_alias_not_a_bogus_flag():
+def test_the_agent_call_runs_as_its_lane_profile_not_a_model_flag():
     """The invocation that actually works against the Nous endpoint (verified live).
 
     Three traps, each one a dead bot: `--alias` is not a Hermes flag at all; `-m` is the MODEL
     flag, so `-m "Reply with exactly: ok"` sets the model to that sentence; and `--max-steps`
-    does not exist. The working form is `-z <prompt> -m <alias> --reasoning <level> --yolo`.
+    does not exist. Since issue #2929 the working form is `-z <prompt> -p <lane-profile>
+    --reasoning <level> --yolo`: the model chain arrives through the profile's own config.yaml
+    (landed from agents/hermes-base-config.yaml), so NO call site names a model.
     """
     makefile = makefiles_text()
-    # The alias name lives once, and the flag form is derived from it (issue #407).
-    assert "nous-model := nous-deepseek" in makefile
-    assert "nous-alias := -m $(nous-model)" in makefile
+    # The alias variables are retired: the chain has ONE home, not a Makefile variable (issue #2929).
+    assert "nous-model := " not in makefile
+    assert "nous-alias := " not in makefile
     assert "--max-steps" not in makefile, "`--max-steps` is not a hermes flag"
 
     hermes_lines = [line for line in makefile.splitlines() if "hermes -z" in line]
     assert hermes_lines, "the one-shot (-z) form is the only way a leg calls the model"
-    # `--alias` is not a hermes flag: the smoke script has its own `--alias`, a hermes line may not.
+    # `--alias` is not a hermes flag: a hermes line may not carry it.
     assert not [line for line in hermes_lines if "--alias" in line], hermes_lines
-    assert all("$(nous-alias)" in line for line in hermes_lines), hermes_lines
+    # every leg names its declared lane profile and carries NO model flag
+    assert all("-p llgenie-" in line for line in hermes_lines), hermes_lines
+    assert not [line for line in hermes_lines if " -m " in f" {line} "], hermes_lines
     assert all("--yolo" in line for line in hermes_lines), hermes_lines
 
     # The smoke proves a tool call instead of asserting a sentence (issue #407).
@@ -487,23 +491,33 @@ def test_the_agent_call_uses_the_image_alias_not_a_bogus_flag():
     assert '"--yolo"' in smoke_script, "the script keeps the working invocation"
 
 
-def test_the_image_wires_the_nous_token_as_a_custom_provider_alias():
+def test_the_image_wires_the_nous_chain_through_the_base_config_seam():
     """Hermes's bundled `nous` provider is OAuth-only: a bare NOUS_API_KEY is ignored and
-    `--provider nous` fails with "not logged into Nous Portal". The install script must write
-    the custom-provider alias that makes the token work (verified by a live smoke)."""
+    `--provider nous` fails with "not logged into Nous Portal". Since issue #2929 the install
+    script no longer hand-writes an alias — it lands the custom-provider chain from
+    agents/hermes-base-config.yaml through scripts/apply_hermes_base_config.py, and the build
+    fails loudly when the read-back does not match that ONE home."""
     script = (REPO / "scripts" / "install_hermes_ci.sh").read_text()
-    assert "model.aliases.${ALIAS}.provider" in script and "custom" in script
-    assert "model.aliases.${ALIAS}.base_url" in script and "inference-api.nousresearch.com/v1" in script
-    assert "model.aliases.${ALIAS}.key_env" in script and "NOUS_API_KEY" in script
-    assert "model.aliases.${ALIAS}.model" in script
+    base_cfg = (REPO / "agents" / "hermes-base-config.yaml").read_text()
+
+    # The install delegates to the seam and READS THE CHAIN BACK before the build may pass.
+    assert "apply_hermes_base_config.py" in script, "the chain has one installer (issue #2929)"
+    assert "--check" in script, "the install proves the chain landed, at build time not run time"
+    assert "model.aliases.${ALIAS}." not in script, "the hand-written alias block is retired"
+
+    # The wiring that makes the token work lives in the ONE home, per alias: custom provider,
+    # the Nous endpoint, the secret's env name — never the OAuth-only bundled provider alone.
+    assert "provider: custom" in base_cfg
+    assert "base_url: https://inference-api.nousresearch.com/v1" in base_cfg
+    assert "key_env: NOUS_API_KEY" in base_cfg
+
     # The EXACT snapshot, not the family prefix: `-0731` is the 2026-07-31 V4 Flash release,
     # and the unsuffixed id is a different model (April 23) that also answers 200 (issue #405).
-    # A prefix assert is what let the bots run the previous snapshot unnoticed.
-    assert "deepseek/deepseek-v4-flash-0731" in script, "the model id is the pinned snapshot"
-    assert "would fail at run time" in script, (
-        "a bot whose alias is missing must fail loudly at build time, not at run time"
-    )
-    assert 'for kv in "model=${MODEL_ID}"' in script, "the check covers the model id, not just key_env"
+    # It survives as the chain's LAST paid entry.
+    assert "deepseek/deepseek-v4-flash-0731" in base_cfg, "the paid LAST model is the pinned snapshot"
+    hard = [line for line in script.splitlines()
+            if "deepseek-v4-flash-0731" in line and not line.lstrip().startswith("#")]
+    assert not hard, f"a call path hardcodes the model: {hard}"
 
 
 # ---------------------------------------------------------------------------
