@@ -61,6 +61,7 @@ MAKE_SEQUENCE: tuple[str, ...] = (
     "make check-proc-gate",
     "make proc-gate-report",
     "make check-issue-bodies",
+    "make check-agent-access",
     "make check-skill-code-parity",
     "make check-pr-authors",
     "make check-pr-closing",

@@ -68,6 +68,7 @@ FAST_GATES: tuple[str, ...] = (
 DEFERRED: dict[str, str] = {
     "check-ci-discipline": "reads every workflow file, the schedule/agent allow-lists, and AGENTS.md: the change that moves it is a workflow- or rules-edit, not the issue-bot's own PR, and FAST_GATES is the fixed #475 list (widening it is that issue's follow-up, not this one)",
     "check-issue-bodies": "reads the seven issue producers and the issue skills plus AGENTS.md: a producer/rule change moves it, ci-unit already catches it on the bot's own PR, and FAST_GATES is the fixed #475 list (widening it is that issue's follow-up, not this one)",
+    "check-agent-access": "reads the AGENTS.md identity/access section and the host agent's access skill: an agent-policy or skills-tree edit moves it, not the issue-bot's own PR, and FAST_GATES is the fixed #475 list (widening it is that issue's follow-up, not this one)",
     "check-security-bot": "reads the bot's select labels and pin sources against the issue roster: a security-tracker change moves it, not the issue-bot's own PR",
     "check-security-issues": "reads the issue label roster and the scan policy: a security-tracker change moves it, not the issue-bot's own PR",
     "check-security-scan": "reads data/security-policy.json and the scan digests: a security-pipeline change moves it, not the issue-bot's own PR",
