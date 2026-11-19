@@ -37,6 +37,11 @@ from proc import ProcError, run_checked, run_ok  # noqa: E402
 # tag (`<pin>-<digest>-<variant>-buildcache`) must NEVER match this.
 ORPHAN_TAG_RE = re.compile(r"^buildcache(-[a-z0-9]+)?$")
 
+# `docker buildx imagetools inspect` aligns its header as `Digest:    sha256:...`
+# (colon then padding spaces), and older tool versions wrote `digest: sha256:...`
+# (single space). Both resolve here; a content digest is always 64 hex chars.
+_DIGEST_RE = re.compile(r"digest:\s*(sha256:[0-9a-fA-F]{16,})", re.IGNORECASE)
+
 
 def candidate_refs() -> list[str]:
     """Every fixed-name cache ref the two retired schemes could have pushed.
@@ -88,12 +93,17 @@ def split_ref(ref: str) -> tuple[str, str]:
     return owner, "/".join(pkg_parts)
 
 
+def _extract_digest(ref: str, text: str) -> str:
+    """Resolve the digest from imagetools inspect output, or refuse with the canonical msg."""
+    m = _DIGEST_RE.search(text)
+    if not m:
+        raise SystemExit(f"[registry-cache-orphans] no digest for {ref}")
+    return m.group(1)
+
+
 def digest_of(ref: str) -> str:
     out = run_ok(["docker", "buildx", "imagetools", "inspect", ref])
-    for line in (out.stdout + out.stderr).splitlines():
-        if line.strip().lower().startswith("digest: sha256:"):
-            return line.split(":", 1)[1].strip()
-    raise SystemExit(f"[registry-cache-orphans] no digest for {ref}")
+    return _extract_digest(ref, out.stdout + out.stderr)
 
 
 def version_id_for(ref: str, digest: str) -> int:

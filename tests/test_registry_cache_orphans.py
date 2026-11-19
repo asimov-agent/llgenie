@@ -88,3 +88,48 @@ def test_gc_reports_failure_when_a_delete_leaves_an_orphan():
                     version_lookup=lambda ref, digest: 42, digest_resolver=lambda ref: "sha256:x",
                     assume_yes=True)
     assert rc == 2
+
+
+# --- digest_of: the REAL parser against imagetools inspect output (#2922) ---
+
+# The three-line inspect header captured verbatim from GHCR on main c564764c —
+# `docker buildx imagetools inspect ghcr.io/asimov-agent/llgenie/agent:buildcache`.
+CAPTURED_IMAGETOOLS = (
+    "Name:      ghcr.io/asimov-agent/llgenie/agent:buildcache\n"
+    "MediaType: application/vnd.oci.image.index.v1+json\n"
+    "Digest:    sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650\n"
+)
+LEGACY_INSPECT = "digest: sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650\n"
+NO_DIGEST_INSPECT = "Name:      ghcr.io/asimov-agent/llgenie/agent:buildcache\nMediaType: application/vnd.oci.image.index.v1+json\n"
+
+
+class _Out:
+    def __init__(self, text: str):
+        self.stdout, self.stderr, self.returncode = text, "", 0
+
+
+def test_digest_of_reads_the_captured_padded_imagetools_format(monkeypatch):
+    # When  the imagetools inspect output is the real padded `Digest:` alignment
+    monkeypatch.setattr(rco, "run_ok", lambda cmd: _Out(CAPTURED_IMAGETOOLS))
+
+    # Then  digest_of resolves the full content digest
+    assert rco.digest_of(f"{REG}/llgenie/agent:buildcache") == (
+        "sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650")
+
+
+def test_digest_of_still_reads_the_legacy_single_space_form(monkeypatch):
+    # Given the old imagetools output with exactly one space after the colon
+    monkeypatch.setattr(rco, "run_ok", lambda cmd: _Out(LEGACY_INSPECT))
+
+    # When  digest_of parses it
+    assert rco.digest_of(f"{REG}/llgenie/agent:buildcache") == (
+        "sha256:c5299a4136c4473606ff8eeedefd28ace2c783c05ee1f7e974b88de08bd36650")
+
+
+def test_digest_of_refuses_a_no_digest_output(monkeypatch):
+    # Given  an inspect output with no digest line (index header only)
+    monkeypatch.setattr(rco, "run_ok", lambda cmd: _Out(NO_DIGEST_INSPECT))
+
+    # When  digest_of cannot find a digest
+    with pytest.raises(SystemExit, match="no digest for"):
+        rco.digest_of(f"{REG}/llgenie/agent:buildcache")
