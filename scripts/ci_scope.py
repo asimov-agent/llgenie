@@ -69,6 +69,13 @@ CLASSES: dict[str, tuple[str, ...]] = {
 #: A path matching one of these selects EVERY class: it can change what any gate proves.
 WILDCARDS: tuple[str, ...] = (
     "Makefile",
+    # The Makefile SPLIT is a wildcard too (issue #2942): mk/ci.mk holds the ci-scope target
+    # itself, mk/tests.mk the unit stage, mk/engines.mk the engine matrix, mk/bots.mk the bot
+    # recipes — editing any of them changes what the jobs run. Measured 2026-11-19: PR #2941
+    # (run 44580098715) reddened ci-scope with "mk/agents.mk matches no class" for a
+    # recipe-only edit; every merged mk/** commit before it passed only because its diff
+    # incidentally carried a wildcard file.
+    "mk/**",
     "tools/**",
     ".github/**",
     "scripts/ci_*.py",

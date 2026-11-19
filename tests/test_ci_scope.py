@@ -88,6 +88,10 @@ def test_openspec_dockerfile_is_a_container_change_that_publishes_ci_images():
 
 @pytest.mark.parametrize("path", [
     "Makefile",
+    # The Makefile split (issue #2942): recipe files are wildcards because they define the stages.
+    "mk/bots.mk",
+    "mk/ci.mk",
+    "mk/engines.mk",
     "tools/Makefile",
     ".github/workflows/ci.yml",
     "scripts/ci_images.py",
