@@ -51,6 +51,9 @@ MOVED = [
     "memory-check",
     "memory-render",
     "memory-status",
+    # issue #2934 added it to mk/agents.mk beside the hermes-smoke pair it verifies with
+    "agent-image-profiles-check",
+    "_agent-image-profiles-check",
 ]
 
 #: Internal `_`-prefixed legs and the memory-* sextet carry no `##` help line at the base file;
@@ -59,6 +62,7 @@ NO_HELP_ON_PURPOSE = {
     "_agent-shell-keys-check",
     "_agent-fetch",
     "_agent-jev-preflight",
+    "_agent-image-profiles-check",
     "_hermes-smoke",
     "memory-install",
     "memory-bootstrap",

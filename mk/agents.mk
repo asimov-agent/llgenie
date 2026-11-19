@@ -142,6 +142,19 @@ _hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool
 	@python3 scripts/require_env.py NOUS_API_KEY
 	python3 scripts/hermes_smoke.py run --alias $(nous-model) --reasoning low
 
+agent-image-profiles-check: ## CI (publish-agent-image, post-publish): boot the agent image the lane just published (the standard agent leg: guard, scrubbed stream, forwarded keys, bot marker) and assert every profile declared in agents/manifest.json exists where Hermes resolves `-p <lane>` ($HERMES_HOME/profiles/<lane>/). Prints OK/MISSING per lane; any MISSING reddens the publish lane (issue #2934)
+	@python3 scripts/require_env.py NOUS_API_KEY
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
+	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
+	  $(AGENT_IMAGE) bash -lc 'make _agent-image-profiles-check')
+
+_agent-image-profiles-check: # (internal) runs INSIDE the agent image: assert every agents/manifest.json
+# lane has its profile config at $HERMES_HOME/profiles/<lane>/config.yaml — the exact path Hermes
+# resolves `-p <lane>` from (issue #2934).
+	@python3 scripts/agent_image_profiles_check.py --manifest agents/manifest.json
+
 nerve-profile-check: ## Probe the rule the agent image build enforces: a nerve setting whose module the selected profile does not register is inert, so the build fails (issue #611)
 	python3 scripts/nerve_profile_check.py --self-test
 
