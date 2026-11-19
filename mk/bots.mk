@@ -236,6 +236,10 @@ issue-cleaner-scan: ## Which OPEN issue a merged PR already implemented (the lin
 issue-cleaner-apply: ## Close the issues a merged-to-main PR implemented but left open, each with a comment citing the PR (issue #325; the stale-branch cleanup workflow runs this daily, issue #1414; REPO= picks the repo)
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)"
 
+lane-reconcile-guard: ## Read pulls/<n> state BEFORE any reconcile action (PR=<n> [REPO=<owner/repo>): one verdict line — `#<n> merged, read-only …` / `#<n> closed, read-only …` / `#<n> open, actionable …`; a failed read exits non-zero with no verdict, so an unevidenced reconcile stays blocked (issue #1749)
+	@test -n "$(PR)" || { echo "Usage: make lane-reconcile-guard PR=<n> [REPO=<owner/repo>]"; exit 1; }
+	python3 scripts/pr_reconcile_guard.py --pr $(PR) --repo "$(GH_REPO)"
+
 queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254); COMMENT=1 delivers the report, DRY=1 previews it
 	python3 scripts/queued_run_alarm.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,) $(if $(DRY),--dry,)
 

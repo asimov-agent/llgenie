@@ -236,6 +236,12 @@ dispatch while a `bot-claim:` TTL is live.
   `references/kanban-board-revival.md`.
 - **A delivery is landed when the task's worktree shows edits**, `git -C <worktree> status --porcelain`, not when the
   task reads `running`.
+- **A red carrying a PR number is not reconcile work until `pulls/<n>` says open** (issue #1749). A straggler wake
+  (a post-merge `main`/`workflow_run` notification) or a `--state all` search row can name a PR the API already
+  merged: measured phantom reconciles of merged #1742 (head `8482c24b`, squash `ebabd9f1`) and closed #1644. Before
+  dispatching any rebase/amend/vehicle-hunt for a PR-numbered red, run `make lane-reconcile-guard PR=<n>` and act
+  only on `open, actionable`; a `merged, read-only` verdict completes the stale card naming the merge commit, and a
+  `closed, read-only` retires the claim — never a dispatch against either.
 - **Dispatch a homogeneous auto-generated PR batch as ONE assignment.** When a generator (engine pin bump,
   registry sync, image refresh) opens N PRs sharing one failure class at one head, hand the whole batch to the domain
   lane in a single message that names every PR id, the shared class and the proof line — N per-PR dispatches serialise

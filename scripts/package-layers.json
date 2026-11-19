@@ -172,6 +172,7 @@
       "orchestrator_tick",
       "pr_body_write",
       "pr_heads",
+      "pr_reconcile_guard",
       "profile_drift_alarm",
       "provision_agent_profiles",
       "queued_run_alarm",
@@ -426,6 +427,11 @@
       "from": "pr_body_write",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "pr_reconcile_guard",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the reconcile guard runs gh through it like resolve_run_pr does (issue #1749)."
     },
     {
       "from": "provision_agent_profiles",
