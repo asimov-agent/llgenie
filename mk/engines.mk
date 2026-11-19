@@ -234,11 +234,14 @@ engine-params-review-apply: ## Issue #583: validate params-review.md (the flag A
 	python3 scripts/engine_params_review.py apply --engine "$(ENGINE)" $(if $(DRY),--dry,)
 
 
-sync-strata-models: ## Write data/strata_models.json from Strata's setup.py at the skill's pinned commit (the GGUF files Strata runs)
+sync-strata-models: ## Write data/strata_models.json AND vendor the pinned setup.py it read into data/vendor/strata/ (+ manifest) — the only target that fetches Strata's model map
 	python3 scripts/strata_models.py sync
 
-check-strata-models: ## CI: fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
+check-strata-models: ## CI (hermetic, #519): fail when data/strata_models.json differs from the VENDORED pinned setup.py — never runs git, never reaches the network
 	python3 scripts/strata_models.py check
+
+check-strata-models-live: ## Explicit upstream audit (not a CI job): clone Strata's pinned commit and compare the LIVE setup.py to the committed map
+	python3 scripts/strata_models.py check-live
 
 engine-bump-rebase: ## Rebase every open chore/engine-bump-* PR onto the latest main (DRY=1 prints what it would do and pushes nothing)
 	python3 scripts/engine_bump_rebase.py $(if $(DRY),--dry,)

@@ -733,8 +733,12 @@ trend matrix lives under `tests/fixtures/`:
   it, and `make check-security-scan` / `make check-security-issues` refuse a policy that
   would gate a push or a pull request, or disagree with the label roster.
 - `data/strata_models.json` is written from Strata's `setup.py` at the skill's pinned
-  commit (`make sync-strata-models`, checked by `make check-strata-models`; the pin is
-  `v0.2.11@4a416016` today). A family is either Hub-hosted — `repo` + `revision` +
+  commit (`make sync-strata-models`, which also vendors that pinned source — `setup.py`
+  plus the `strata_control` import surface its module-level imports need, with a per-file
+  sha256 manifest — under `data/vendor/strata/`; `make check-strata-models` re-derives the
+  map from the vendor hermetically and never fetches (issue #519), while
+  `make check-strata-models-live` is the explicit upstream audit that does; the pin is
+  `v0.2.15@0a80d5e5` today). A family is either Hub-hosted — `repo` + `revision` +
   `subdir` and no `hub` key — or explicitly not-Hub: `hub: false` with no repo, never both
   and never neither. `check` runs `family_shape_problems()` first, so a malformed map is
   named by family and defect instead of surfacing as a 100-line diff; WHICH families are

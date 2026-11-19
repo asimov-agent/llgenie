@@ -2319,7 +2319,10 @@ make test-variant-image      # CUDA toolkit + python variant-build image, built 
 make download-test-model  # fetch Qwen2.5-0.5B into ~/models/Qwen/8GB (via `hf` CLI)
 make lint-fix          # append a missing trailing newline to tracked text files (containerized)
 make check-registry-keys     # fail when the vendored registry dropped a key, model or measurement vs the committed copy
-make check-strata-models     # fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
+make check-strata-models     # fail when data/strata_models.json differs from the VENDORED pinned Strata
+                             # source under data/vendor/strata/ — hermetic since #519: never git, never
+                             # network (issue #519; `make check-strata-models-live` is the explicit
+                             # upstream audit that fetches the pinned commit and compares the LIVE source)
                              # A FAMILIES entry with no Hub URL (e.g. the vendor-hosted `nvfp4`) is vendored as
                              # "hub": false with no repo — it is not downloadable here, and it no longer breaks the
                              # vendor step (a family with a URL keeps the committed shape byte for byte; issue #416)

@@ -67,6 +67,11 @@
   "agent-image-pull": {
    "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it — publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly — and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",
    "decided": "2026-10-15"
+  },
+  "check-strata-models-live": {
+   "reason": "Explicit upstream audit for the Strata model map: clone the pinned upstream and re-derive the map, needing the network. By design (issue #519) it is not a CI job — CI proves the map hermetically from the committed vendor tree (`make check-strata-models`), and this audit stays a human/host target so no CI clock clones upstream.",
+   "decided": "2026-11-19",
+   "issue": 519
   }
  }
 }
