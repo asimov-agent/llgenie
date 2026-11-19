@@ -58,7 +58,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 SCHEDULE_ALLOW: dict[str, str] = {
     "engine-bump.yml": "the owner's weekly lane: engine bumps, engine image builds, latest models/inference servers (ADDENDUM: the only weekly lane besides the registry fetch it feeds)",
     "engine-bump-rebase.yml": "rebase plumbing for the branches the weekly engine lane opens",
-    "registry-sync.yml": "the weekly trending-store fetch (latest models and inference servers) that feeds the engine lane",
+    "registry-sync.yml": "the weekly trending-store fetch (latest models and inference servers) that feeds the engine lane, and the weekly Hermes model-catalog check (issue #2930)",
     "all-pipelines.yml": "the weekly scheduled test battery: tests only, no agent job (the gate checks it)",
     "arms.yml": "arms auto-merge/auto-approve for green PRs (the owner's landing mandate)",
     "auto-merge.yml": "merges green, CLEAN PRs on its slot (the owner's landing mandate)",

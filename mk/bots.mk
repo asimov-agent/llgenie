@@ -330,3 +330,6 @@ arm-auto-merge: ## Arm auto-merge on every open PR that is not a draft and not a
 
 arm-auto-merge-report: ## Show the open PRs that carry no auto-merge intent yet, with their author and mergeable state (issue #912)
 	python3 scripts/arm_auto_merge.py report $(if $(AUTHOR),--author "$(AUTHOR)",)
+
+check-agent-model-catalog: ## Prove every Hermes model chain member in agents/hermes-base-config.yaml is listed in the live Nous catalog with a matching context_length budget; on drift files ONE deduped agent:implement issue (RUN lane: weekly registry-sync; DRY=1 prints the body, CATALOG=<json> checks a saved payload, REPO= overrides the slug — issue #2930)
+	python3 scripts/check_agent_model_catalog.py --repo "$(GH_REPO)" $(if $(DRY),--dry-run,) $(if $(CATALOG),--catalog "$(CATALOG)",)
