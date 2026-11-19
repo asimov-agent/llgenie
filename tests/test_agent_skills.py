@@ -549,3 +549,27 @@ def test_the_variable_expansion_is_bounded_and_safe(tmp_path):
     # Then  the known one is replaced and the others are left alone
     assert "$(GOOD)" not in out and ",gamma," in out
     assert "$(MISSING)" in out
+
+
+def test_the_planner_carries_the_engine_domain_ownership_reference():
+    """The planner's delegation walk routes `component:engine` work by label (#2270)."""
+
+    # Given the shipped routing reference under the planner's orchestration skill
+    ref = (REPO / "agents" / "llgenie-planner" / "skills" / "llgenie-bot-orchestration"
+           / "references" / "engine-domain-ownership.md").read_text(encoding="utf-8")
+
+    # Then it states the two-job split and names the targets that prove it
+    assert "make engine-bump-plan" in ref and "make render-engine-skill-gap" in ref
+    assert "spawn-engine-skill-issues" in ref
+    # …the routing key and the owner lane it dispatches to
+    assert "component:engine" in ref and "llgenie-engine-improver" in ref
+    # …the spawned-issue label triple the writer in scripts/engine_skill_gap.py produces
+    soul_gap = (REPO / "scripts" / "engine_skill_gap.py").read_text(encoding="utf-8")
+    assert 'ENGINE_DOMAIN_LABEL = "component:engine"' in soul_gap
+    # …and the negative control beside the table: the gate SCRIPT is not the engine lane's
+    assert "llgenie-ci-pipelines-maintainer" in ref and "GATE SCRIPT" in ref
+
+    # And the skill links the reference from its delegation walk
+    skill = (REPO / "agents" / "llgenie-planner" / "skills" / "llgenie-bot-orchestration"
+             / "SKILL.md").read_text(encoding="utf-8")
+    assert "references/engine-domain-ownership.md" in skill

@@ -53,6 +53,15 @@ ISSUE_LABEL = "bug"
 # because `gh issue create --label` has been measured to be dropped on the CI token path
 # (#724) — the issue existing and the issue being labelled are two different facts.
 QUEUE_LABEL = "agent:implement"
+# The label that pins WHICH lane owns the issue (#2270). The queue label says the
+# issue is claimable; `component:engine` says the claimant is the engine lane —
+# the planner's engine-domain row (references/engine-domain-ownership.md) routes
+# every gap issue carrying it to `llgenie-engine-improver` (new-engine scaffold:
+# skill stub, pinned params, engine matrix row, verify rebuild; and engine-bump PR
+# repair). A spawned issue was measured arriving lane-blind (#2903/#2904 closed
+# through the implementer queue), so the spawn writes the domain marker itself.
+ENGINE_DOMAIN_LABEL = "component:engine"
+SPAWN_LABELS = [ISSUE_LABEL, QUEUE_LABEL, ENGINE_DOMAIN_LABEL]
 
 
 def _model_engines(model: dict) -> list[str]:
@@ -356,16 +365,23 @@ def set_labels(gh: str, repo: str, number: int, labels: list[str], dry: bool = F
 
 
 def ensure_queue_label(gh: str, repo: str, number: int, dry: bool = False) -> bool:
-    """Put the issue in the bots' queue, then PROVE it: returns True when labelled.
+    """Put the issue in the bots' queue AND pin its owning lane, then PROVE it.
 
-    The label is applied through the API (never `--add-label`, #724) and read back, so an
-    issue that already exists and lost its queue label is repaired on the next sync instead
-    of staying invisible to the bot.
+    The labels are applied through the API (never `--add-label`, #724) and read back, so an
+    issue that already exists and lost a label is repaired on the next sync instead
+    of staying invisible to the bot. The POST to the labels endpoint REPLACES the
+    issue's label set, so the repair carries the UNION of what the issue already
+    carries and what a gap issue must carry — a human's extra label (e.g. `blocked`)
+    is never silently dropped by the repair (#2270).
     """
-    if QUEUE_LABEL in _issue_labels(gh, repo, number):
+    have = _issue_labels(gh, repo, number)
+    if all(label in have for label in SPAWN_LABELS):
         return True
-    set_labels(gh, repo, number, [QUEUE_LABEL], dry)
-    return True if dry else QUEUE_LABEL in _issue_labels(gh, repo, number)
+    set_labels(gh, repo, number, sorted(set(have) | set(SPAWN_LABELS)), dry)
+    if dry:
+        return True
+    final = _issue_labels(gh, repo, number)
+    return all(label in final for label in SPAWN_LABELS)
 
 
 def open_issue(gh: str, repo: str, name: str, body: str, dry: bool = False) -> dict:
@@ -390,7 +406,7 @@ def open_issue(gh: str, repo: str, name: str, body: str, dry: bool = False) -> d
     if number is None:
         raise SystemExit(f"[engine-skill-gap] the created issue for {name} returned no number "
                          f"(gh said {url!r}); cannot label or link it")
-    set_labels(gh, repo, number, [ISSUE_LABEL, QUEUE_LABEL], dry)
+    set_labels(gh, repo, number, SPAWN_LABELS, dry)
     return {"engine": name, "action": "created", "number": number, "url": url}
 
 
@@ -436,7 +452,8 @@ def main(argv: list[str] | None = None) -> int:
         for name in g["unresolved"]:
             res = open_issue(a.gh, a.repo, name, issue_body(name, registry, g), a.dry)
             where = res.get("url") or (f"#{res['number']}" if res.get("number") else "")
-            print(f"[engine-skill-gap] {res['action']}: {name} -> {where}")
+            print(f"[engine-skill-gap] {res['action']}: {name} -> {where} "
+                  f"labels: {', '.join(SPAWN_LABELS)}")
         return 0
 
     # `report` is a report: it NAMES the unresolved engines and exits 0, so the weekly

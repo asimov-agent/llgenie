@@ -278,7 +278,7 @@ def test_the_october_fixture_registry_validates_with_the_real_decisions():
 # the visible artifact: one tracking issue per unresolved engine
 # ---------------------------------------------------------------------------
 def _fake_gh(tmp_path: Path, open_issues: list | None = None, create_fails: bool = False,
-             label_sticks: bool = True):
+             label_sticks: bool = True, label_state: dict | None = None):
     """`gh` that records every argv as ONE JSON line and answers `issue list` with
     `open_issues`, `issue create` with a URL, and the label endpoints of `gh api` from a
     label store. It is a real executable the product starts as a subprocess — only the
@@ -299,7 +299,7 @@ def _fake_gh(tmp_path: Path, open_issues: list | None = None, create_fails: bool
     counter = tmp_path / "n"
     counter.write_text("500")
     labels = tmp_path / "labels.json"
-    labels.write_text(json.dumps({}))
+    labels.write_text(json.dumps(label_state or {}))
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
@@ -376,6 +376,8 @@ def test_spawn_opens_one_issue_per_unresolved_engine_with_real_evidence(tmp_path
     assert "repos/acme/llgenie/issues/501/labels" in posts[0]
     assert f"labels[]={gap_mod.QUEUE_LABEL}" in posts[0]
     assert f"labels[]={gap_mod.ISSUE_LABEL}" in posts[0]
+    # …and the domain label that pins WHICH lane owns the gap (#2270)
+    assert f"labels[]={gap_mod.ENGINE_DOMAIN_LABEL}" in posts[0]
     title = args[args.index("--title") + 1]
     body = args[args.index("--body") + 1]
     assert "BrandNewServer" in title and "has no llgenie skill" in title
@@ -554,6 +556,69 @@ def test_a_tracking_issue_that_cannot_be_labelled_fails_the_step_naming_it(tmp_p
     posts = [c for c in _calls(_log) if c[:1] == ["api"] and "POST" in c]
     assert len(posts) == 1, _calls(_log)
     assert "repos/acme/llgenie/issues/501/labels" in posts[0]
+
+
+def test_a_spawned_gap_issue_carries_the_engine_domain_label(tmp_path):
+    """A new-engine gap issue names its OWNING lane, not just a queue (#2270)."""
+
+    # Given an unresolved registry engine and a gh whose issue store starts unlabelled
+    reg_file, manifest = _unresolved_registry(tmp_path)
+    gh, log = _fake_gh(tmp_path)
+
+    # When spawn runs
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "engine_skill_gap.py"), "spawn",
+                        "--registry", str(reg_file), "--unsupported", str(manifest),
+                        "--repo", "acme/llgenie", "--gh", str(gh)],
+                       capture_output=True, text=True, timeout=120)
+
+    # Then the single label POST carries the full triple, bug + queue + engine domain
+    assert r.returncode == 0, r.stderr
+    posts = [c for c in _calls(log) if c[:1] == ["api"] and "POST" in c]
+    assert len(posts) == 1, _calls(log)
+    for label in gap_mod.SPAWN_LABELS:
+        assert f"labels[]={label}" in posts[0], posts[0]
+    # …and the read-back store ends up with exactly the triple (sorted)
+    state = json.loads((tmp_path / "labels.json").read_text())
+    assert sorted(state["501"]) == sorted(gap_mod.SPAWN_LABELS), state
+    # …and the spawn report NAMES the label set it applied
+    assert gap_mod.ENGINE_DOMAIN_LABEL in r.stdout
+
+
+def test_an_issue_with_the_engine_label_is_reported_unchanged(tmp_path):
+    """Reconciliation is a field read: an already-labelled gap issue gets no POST (#2270)."""
+
+    # Given the tracking issue already carries bug + queue + engine domain
+    reg_file, manifest = _unresolved_registry(tmp_path)
+    have = [gap_mod.ISSUE_LABEL, gap_mod.QUEUE_LABEL, gap_mod.ENGINE_DOMAIN_LABEL]
+    gh, log = _fake_gh(tmp_path,
+                       open_issues=[{"number": 43, "title": gap_mod.issue_title("BrandNewServer")}],
+                       label_state={"43": have})
+
+    # When spawn runs
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "engine_skill_gap.py"), "spawn",
+                        "--registry", str(reg_file), "--unsupported", str(manifest),
+                        "--repo", "acme/llgenie", "--gh", str(gh)],
+                       capture_output=True, text=True, timeout=120)
+
+    # Then it reports the open issue and issues NO label write at all
+    assert r.returncode == 0, r.stderr
+    calls = _calls(log)
+    posts = [c for c in calls if c[:1] == ["api"] and "POST" in c]
+    assert posts == [], calls
+    assert "existing: BrandNewServer" in r.stdout and "#43" in r.stdout
+    # …and a human's extra label survives a repair untouched: the union POST shape
+    gh2, log2 = _fake_gh(tmp_path / "second",
+                         open_issues=[{"number": 44, "title": gap_mod.issue_title("BrandNewServer")}],
+                         label_state={"44": ["blocked"]})
+    r2 = subprocess.run([sys.executable, str(REPO / "scripts" / "engine_skill_gap.py"), "spawn",
+                         "--registry", str(reg_file), "--unsupported", str(manifest),
+                         "--repo", "acme/llgenie", "--gh", str(gh2)],
+                        capture_output=True, text=True, timeout=120)
+    assert r2.returncode == 0, r2.stderr
+    posts2 = [c for c in _calls(log2) if c[:1] == ["api"] and "POST" in c]
+    assert len(posts2) == 1, _calls(log2)
+    for label in ["blocked"] + gap_mod.SPAWN_LABELS:
+        assert f"labels[]={label}" in posts2[0], posts2[0]
 
 
 # ---------------------------------------------------------------------------
