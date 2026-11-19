@@ -54,7 +54,7 @@ def test_the_committed_pin_matches_the_one_declared_value():
     """The tree as committed carries the pinned snapshot in both places, and the gate is green."""
     # Given the repository as committed
     # When  the checker runs against this checkout
-    bad = _PIN.findings(REPO) + _PIN.budget_findings(REPO)
+    bad = _PIN.findings(REPO) + _PIN.budget_findings(REPO) + _PIN.version_findings(REPO)
 
     # Then  every place agrees with the pin, and the declared pin is the 0731 snapshot
     assert bad == [], bad
@@ -171,3 +171,86 @@ def test_the_pin_module_is_wired_to_its_target():
     assert "python3 scripts/agent_model_pin.py check" in makefile
     assert "python3 scripts/agent_model_pin.py report" in makefile
     assert shutil.which("python3"), "python3 is the interpreter every gate uses"
+
+
+# ---------------------------------------------------------------------------
+# The Hermes release the image installs (issue #2932)
+# ---------------------------------------------------------------------------
+
+def test_the_committed_hermes_version_pin_is_green():
+    """The tree as committed names the Hermes release, its commit, and the read-back."""
+    # Given the repository as committed
+    # When  the version referee runs against this checkout
+    bad = _PIN.version_findings(REPO)
+
+    # Then  it is green, and the declared pin is the v0.23.2 peeled commit
+    assert bad == [], bad
+    assert _PIN.HERMES_VERSION == "0.23.2"
+    assert _PIN.HERMES_INSTALL_COMMIT == "ae2a81ccc00e9b7c06301523e5bb09608397149c"
+
+
+def test_the_dockerfile_names_the_release_the_commit_and_forwards_it():
+    """The install channel is named at the ARG block AND reaches the install step."""
+    text = DOCKERFILE.read_text()
+    assert 'ARG HERMES_VERSION="0.23.2"' in text
+    assert 'ARG HERMES_INSTALL_COMMIT="ae2a81ccc00e9b7c06301523e5bb09608397149c"' in text
+    # The pin reaches install.sh: ARGS carries `--commit ${HERMES_INSTALL_COMMIT}`…
+    assert "--commit ${HERMES_INSTALL_COMMIT}" in text
+    # …and the version reaches the install step, where the read-back compares against it.
+    assert "HERMES_VERSION=${HERMES_VERSION}" in text
+
+
+def test_the_install_script_reads_the_installed_version_back():
+    """install.sh compares the installed CLI against the pin; drift exits, never warns."""
+    script = INSTALL_SCRIPT.read_text()
+    assert 'HERMES_VERSION="${HERMES_VERSION:-0.23.2}"' in script
+    assert "hermes --version" in script
+    assert '!= "$HERMES_VERSION"' in script
+
+
+def test_a_drifted_hermes_version_is_a_finding(tmp_path):
+    """A Dockerfile installing a different Hermes is a finding naming file and value."""
+    # Given a Dockerfile installing an older release
+    root = _tree(tmp_path, dockerfile=DOCKERFILE.read_text().replace(
+        'HERMES_VERSION="0.23.2"', 'HERMES_VERSION="0.19.0"'
+    ))
+
+    # When  the version referee runs
+    bad = _PIN.version_findings(root)
+
+    # Then  the Dockerfile is named, with the value it read
+    assert any(_PIN.DOCKERFILE in f and "0.19.0" in f for f in bad), bad
+
+
+def test_a_drifted_install_commit_is_a_finding(tmp_path):
+    """A pin pointing at a different commit is drift, not 'close enough'."""
+    root = _tree(tmp_path, dockerfile=DOCKERFILE.read_text().replace(
+        _PIN.HERMES_INSTALL_COMMIT, "deadbeef"
+    ))
+
+    bad = _PIN.version_findings(root)
+    assert any(_PIN.DOCKERFILE in f and "deadbeef" in f for f in bad), bad
+
+
+def test_install_args_that_skip_the_commit_are_a_finding(tmp_path):
+    """HERMES_INSTALL_ARGS must actually pass the commit to install.sh (issue #2932)."""
+    # Given an ARGS list that dropped the --commit pin: install.sh would float on `stable`
+    root = _tree(tmp_path, dockerfile=DOCKERFILE.read_text().replace(
+        " --commit ${HERMES_INSTALL_COMMIT}", ""
+    ))
+
+    # When  the version referee runs
+    bad = _PIN.version_findings(root)
+
+    # Then  it names the ARGS line and what it refuses
+    assert any("HERMES_INSTALL_ARGS" in f for f in bad), bad
+
+
+def test_an_install_script_without_the_read_back_is_a_finding(tmp_path):
+    """The version assert is part of the install step, not a comment about it."""
+    root = _tree(tmp_path, script=INSTALL_SCRIPT.read_text().replace(
+        "hermes --version", "command -v hermes"
+    ))
+
+    bad = _PIN.version_findings(root)
+    assert any("never read back" in f for f in bad), bad
