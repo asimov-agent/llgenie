@@ -104,8 +104,11 @@ before the full suite.
   image's own non-root `USER` cannot write the runner's checkout (`failed to create output file: …
   permission denied`) and otherwise leaves root-owned files behind.
 - **`docker run <image> <binary> …` goes through the image ENTRYPOINT.** To use a second binary that
-  the image ships (e.g. `syft` inside a `grype` image), pass `--entrypoint syft`; passing `syft` as an
-  argument turns it into a positional and the CLI refuses with `accepts at most 1 arg(s), received 2`.
+  the image ships (e.g. a second CLI inside a base-tools image), pass `--entrypoint <binary>`; passing
+  the binary as an argument turns it into a positional and the CLI refuses with `accepts at most 1
+  arg(s), received 2`. In llgenie's scanner stack this override is GONE: every tool in the roster —
+  Syft included — is an image whose own ENTRYPOINT is that tool (issue #746), so an `--entrypoint`
+  override on a scanner image is a defect, not a workaround.
 - **An image published only on `push` to the default branch does not exist for a PR run.** Resolve by
   pull-else-build: try `docker image inspect`, then `docker pull`, and when both fail BUILD the same
   Dockerfile and tag it with the same immutable ref — same content, one implementation — and log
