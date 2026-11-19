@@ -91,7 +91,9 @@ def test_the_fetch_prompt_reads_the_key_by_name_and_forbids_printing_it():
     """The fetch contract is the `agent-fetch` skill, which the leg preloads (issue #577)."""
 
     mk = makefiles_text()
-    recipe = next(l for l in mk.splitlines() if l.lstrip().startswith("hermes -z")
+    # The fetch leg's line (issue #2931: recipes now open with the leg-start epoch capture, so
+    # the hermes call is identified by its content, not its position at line start).
+    recipe = next(l for l in mk.splitlines() if "hermes -z" in l
                   and "-s agent-fetch" in l)
     skill = (REPO / ".hermes" / "skills" / "agent-fetch" / "SKILL.md").read_text()
 
