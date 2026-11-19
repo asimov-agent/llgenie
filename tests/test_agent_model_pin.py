@@ -144,6 +144,106 @@ def test_the_context_window_matches_the_published_length():
     assert _PIN.MAX_TOKENS == 16000
 
 
+def test_the_committed_hermes_version_pin_matches_the_one_declared_value():
+    """The tree as committed carries the pinned Hermes version/commit, and the gate is green."""
+    # Given the repository as committed
+    # When  the checker runs against this checkout
+    bad = _PIN.findings(REPO) + _PIN.budget_findings(REPO) + _PIN.version_findings(REPO)
+
+    # Then  every place agrees with the declared Hermes pin
+    assert bad == [], bad
+    assert _PIN.HERMES_VERSION == "0.23.2"
+    assert _PIN.HERMES_INSTALL_COMMIT == "ae2a81ccc00e9b7c06301523e5bb09608397149c"
+    assert _PIN.version_in_dockerfile(REPO) == _PIN.HERMES_VERSION
+    assert _PIN.commit_in_dockerfile(REPO) == _PIN.HERMES_INSTALL_COMMIT
+    assert _PIN.version_in_install_script(REPO) == _PIN.HERMES_VERSION
+
+
+def test_a_drifted_version_in_the_dockerfile_is_a_finding(tmp_path):
+    """A Dockerfile ARG HERMES_VERSION that drifted is caught and named as the finding."""
+    # Given a Dockerfile whose HERMES_VERSION ARG names a different release
+    stale = DOCKERFILE.read_text().replace(
+        f'ARG HERMES_VERSION="{_PIN.HERMES_VERSION}"', 'ARG HERMES_VERSION="0.23.1"'
+    )
+    assert "ARG HERMES_VERSION=\"0.23.1\"" in stale, "the fixture must carry the drifted version"
+    root = _tree(tmp_path, dockerfile=stale)
+
+    # When  the checker runs against that tree
+    bad = _PIN.version_findings(root)
+
+    # Then  it names the Dockerfile's version ARG and nothing else
+    assert len(bad) == 1, bad
+    assert bad[0].startswith("containers/agent/Dockerfile:")
+    assert "HERMES_VERSION" in bad[0] and "0.23.1" in bad[0]
+
+
+def test_a_drifted_version_in_the_install_script_is_a_finding(tmp_path):
+    """An install-script VERSION default that drifted is caught too — the twin home of the pin."""
+    # Given an install script whose VERSION default drifted
+    script = INSTALL_SCRIPT.read_text().replace(
+        f'VERSION="${{HERMES_VERSION:-{_PIN.HERMES_VERSION}}}"',
+        'VERSION="${HERMES_VERSION:-0.24.0}"',
+    )
+    assert 'VERSION="${HERMES_VERSION:-0.24.0}"' in script, "the fixture must carry the drift"
+    root = _tree(tmp_path, script=script)
+
+    # When  the checker runs against that tree
+    bad = _PIN.version_findings(root)
+
+    # Then  it names the install script's version default
+    assert len(bad) == 1, bad
+    assert bad[0].startswith("scripts/install_hermes_ci.sh:")
+    assert "0.24.0" in bad[0]
+
+
+def test_a_drifted_commit_in_the_dockerfile_is_a_finding(tmp_path):
+    """A HERMES_INSTALL_COMMIT ARG that drifted reddens the referee."""
+    # Given a Dockerfile whose HERMES_INSTALL_COMMIT ARG names a different commit
+    stale = DOCKERFILE.read_text().replace(
+        f'ARG HERMES_INSTALL_COMMIT="{_PIN.HERMES_INSTALL_COMMIT}"',
+        'ARG HERMES_INSTALL_COMMIT="0000000000000000000000000000000000000000"',
+    )
+    assert "0000000000000000000000000000000000000000" in stale
+    root = _tree(tmp_path, dockerfile=stale)
+
+    # When  the checker runs against that tree
+    bad = _PIN.version_findings(root)
+
+    # Then  it names the drifted commit ARG (the args line still references the variable, which
+    #       docker would resolve to the wrong value at build time — precisely the drift)
+    assert len(bad) == 1, bad
+    assert "HERMES_INSTALL_COMMIT" in bad[0]
+    assert "0000000000000000000000000000000000000000" in bad[0]
+
+
+def test_a_dropped_commit_flag_in_the_dockerfile_is_a_finding(tmp_path):
+    """HERMES_INSTALL_ARGS without the --commit flag leaves the install floating — a finding."""
+    # Given a Dockerfile whose install args dropped the --commit flag
+    stale = DOCKERFILE.read_text().replace(
+        "--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}\"",
+        "--skip-browser --skip-computer-use\"",
+    )
+    assert "--commit ${HERMES_INSTALL_COMMIT}" not in stale, "the fixture must drop the flag"
+    root = _tree(tmp_path, dockerfile=stale)
+
+    # When  the checker runs against that tree
+    bad = _PIN.version_findings(root)
+
+    # Then  it names the missing --commit forward
+    assert any("HERMES_INSTALL_ARGS" in f and "--commit" in f for f in bad), bad
+
+
+def test_the_dockerfile_forwards_the_pinned_commit_to_install_sh():
+    """The install script receives the pin through HERMES_INSTALL_ARGS's --commit flag."""
+    # Given the Dockerfile as committed
+    text = DOCKERFILE.read_text(encoding="utf-8")
+
+    # When  its HERMES_INSTALL_ARGS default is read
+    # Then  it forwards --commit <the pinned sha> and the committed tree passes the referee
+    assert "--commit ${HERMES_INSTALL_COMMIT}" in text, text
+    assert _PIN.version_findings(REPO) == []
+
+
 def test_ci_unit_runs_the_check_and_the_targets_are_phony():
     """A gate no CI job executes is a defect: `ci-unit` must run it, and both targets are .PHONY."""
     # Given the Makefile (the top + its mk/*.mk includes — check-agent-model lives behind one)

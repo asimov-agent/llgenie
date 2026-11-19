@@ -38,6 +38,21 @@ fi
 command -v hermes >/dev/null 2>&1 || { echo "[hermes-ci] hermes is still not on PATH after install" >&2; exit 1; }
 echo "[hermes-ci] installed: $(command -v hermes)"
 
+# The pinned Hermes version, refreed exactly like the model id: the image's build args carry
+# it (Dockerfile ARG HERMES_VERSION) and the install script carries this default, and
+# `make check-agent-model` compares both with the ONE value scripts/agent_model_pin.py declares.
+# The same referee also pins the install.sh `--commit` on the Dockerfile and the installed CLI —
+# a build that installs a different Hermes than the pin is a build failure, never a surprise
+# served to the bots at run time (install.sh's default `stable` channel floats otherwise).
+VERSION="${HERMES_VERSION:-0.23.2}"
+INSTALLED_VERSION="$(hermes --version)"
+FIRST_VERSION_TOKEN="${INSTALLED_VERSION%% *}"
+if [ "$FIRST_VERSION_TOKEN" != "$VERSION" ]; then
+  echo "[hermes-ci] installed Hermes is '${INSTALLED_VERSION}', expected the pinned ${VERSION} (first token '${FIRST_VERSION_TOKEN}' != '${VERSION}')" >&2
+  exit 1
+fi
+echo "[hermes-ci] installed Hermes ${FIRST_VERSION_TOKEN} matches the pinned ${VERSION}"
+
 # The alias the bots call by name. Every value is a documented default and every one is
 # overridable, because the model id is a pin that moves — but a pin that moves must move in
 # every file at once, which is why `make check-agent-model` compares this default with the

@@ -70,12 +70,22 @@ FROM ${TEST_IMAGE}
 # maintainer can pin a version without editing this file.
 ARG HERMES_INSTALL_URL="https://hermes-agent.nousresearch.com/install.sh"
 ARG HERMES_PACKAGE="hermes-agent"
+# The Hermes CLI version this image is built against, and the peeled commit install.sh checks
+# out for exactly that release. install.sh's default `stable` channel takes "the latest
+# published release" as of the build moment — a floating-version image is an untracked build
+# input (two identical llgenie commits could ship different Hermeses). HERMES_INSTALL_COMMIT
+# feeds the `--commit` flag below, which short-circuits channel selection; both are forwarded
+# to the install step via ENV and refreed by `make check-agent-model` alongside the model pin
+# (scripts/agent_model_pin.py).
+ARG HERMES_VERSION="0.23.2"
+ARG HERMES_INSTALL_COMMIT="ae2a81ccc00e9b7c06301523e5bb09608397149c"   # peeled v0.23.2
 # Hermes install args forwarded to upstream install.sh via `bash -s --` (issue #2836):
 # the published image ships NEITHER the agent-browser/Playwright toolchain NOR the
 # computer-use stack — no llgenie lane uses them, and the Chromium they pull in is a
 # 1878-advisory stream the repo can neither fix nor audit. Re-add them with
-# --build-arg HERMES_INSTALL_ARGS="".
-ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use"
+# --build-arg HERMES_INSTALL_ARGS="". The `--commit` flag pins the checkout to exactly
+# HERMES_INSTALL_COMMIT; install.sh's usage confirms `--commit` short-circuits channel selection.
+ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}"
 # The model pin and its provider alias (see the header). The model id must stay
 # provider-prefixed: the Nous endpoint 404s a bare id.
 ARG HERMES_ALIAS="nous-deepseek"
@@ -156,6 +166,7 @@ COPY check_agent_skills.py /opt/llgenie/bin/check_agent_skills.py
 # did not land.
 COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
+    HERMES_VERSION=${HERMES_VERSION} \
     HERMES_INSTALL_ARGS=${HERMES_INSTALL_ARGS} \
     HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
     HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
