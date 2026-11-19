@@ -14,8 +14,9 @@ pin. What is locked here is the invariant instead: a family is Hub-hosted (`repo
 `subdir`, no `hub` key) or explicitly not-Hub (`hub: false`, no repo), never both, never neither,
 whatever set of families the pin declares; the not-Hub set is derived from the `setup.py` being
 extracted, never from a list in this file. Whether the committed map still matches the PINNED
-`setup.py` is `make check-strata-models`' byte comparison (`tests/test_strata_download.py` asserts
-the derived set against the fetched pin).
+`setup.py` is `make check-strata-models`' byte comparison against the vendored copy under
+`data/vendor/strata/` (#519; `tests/test_strata_download.py` asserts the derived set against
+the fetched pin on the live target).
 
 These tests run the real loader and the real vendoring function against a fixture `setup.py`, and
 the real consumer helpers against a fixture map — no network, no Strata checkout.

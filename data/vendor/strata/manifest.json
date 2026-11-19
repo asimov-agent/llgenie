@@ -1,0 +1,21 @@
+{
+  "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
+  "url": "https://github.com/Niko1221/Strata",
+  "ref": "v0.2.15",
+  "pinned": "0a80d5e5ed2f3c7602efb9d697be71a6321abf62",
+  "files": {
+    "setup.py": "b463d33449b1fdf370c94df2e219c921dc1b36be80edc654c8ef26708759e36f",
+    "strata_control/__init__.py": "be37edabb7e19fa3a820bfd67a67fccf5453221beb607aaf8fac5f4c404fc4cd",
+    "strata_control/acquisition.py": "8bb91dc8e270c35fe5f74d7c83dab92519e9a78414485bdf698bd14303eadd05",
+    "strata_control/atomic.py": "39ec0b180e6b256a6d129dd5ad9ae88fbbf27c1c1a082bf4e419f328e99babab",
+    "strata_control/discovery.py": "ccb52954ca8ec2ecc2ee36343a1fb1b9ab62e192c2789fa42f5c072d3ffcc61c",
+    "strata_control/draft_layer.py": "6cce070e84d97fc81a03a53b7235e121018973ca220b81407cc5774fee202dc8",
+    "strata_control/engine_component.py": "d72326fbdf68f7967b49fd66f4ca283bbc81a5efb6f777efb5cd18b7903c8452",
+    "strata_control/longpath.py": "b254e3bbfa9dba96bc7535f4408a5d534fe7a7287c607287f96fad5ad3f857ac",
+    "strata_control/netpolicy.py": "9ca865f8182287b477ab4084b9e4dc0212d765d968b5ba77034464c130608de0",
+    "strata_control/sysinfo.py": "dc1736e73bbec9d480c9682c45dd29b8e6bd75850baec7f20d748d20198c2d99",
+    "strata_control/targets.py": "851d67d47b8f8e5e612af9bc4652af1566a4ccbf47064b785b2bb541975d540c",
+    "strata_control/tls.py": "c9bde669f81a02c3d7e7e73e2cfe7ed5cc91c5b3afee19deaa8712febbf5e551",
+    "strata_control/user_args.py": "b536b137d18fa5768f9cd9c4793aa1280f1a392b0394897db084b2186cc8d858"
+  }
+}
