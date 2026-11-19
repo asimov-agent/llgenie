@@ -8,7 +8,8 @@ the entry point as `MAKE_SEQUENCE`; the target recipe became the thin wrapper
 - `MAKE_SEQUENCE` is byte-for-byte and in-order the base recipe's 51 commands
   (`tests/fixtures/ci-unit-sequence-base.txt`, captured from dcfb96b7df) plus the documented
   additions since that capture — currently `make check-ci-discipline` (issue #2701), inserted
-  after `make check-wiring`;
+  after `make check-wiring`, and `make check-agent-access` (issue #2923), inserted after
+  `make check-issue-bodies`;
 - `run` fail-fasts at the first failing sub-target and returns that sub-target's exit code;
 - `--dry-run` prints all planned commands and executes nothing;
 - the sub-makes run through the make binary make itself sets (`MAKE` env, fallback `make`),
@@ -51,22 +52,25 @@ def test_the_sequence_is_the_base_recipes_51_commands_byte_for_byte():
     base = [l for l in BASE_FIXTURE.read_text().splitlines() if l.strip()]
     # When the entry point's sequence is compared to it
     # Then same commands, same order, plus the documented additions since the capture:
-    # `make check-ci-discipline` (issue #2701), inserted directly after `make check-wiring`.
+    # `make check-ci-discipline` (issue #2701), inserted directly after `make check-wiring`,
+    # and `make check-agent-access` (issue #2923), inserted directly after
+    # `make check-issue-bodies`.
     assert base[0] == "make test-unit" and len(base) == 51
     expected = list(base)
     expected.insert(expected.index("make check-wiring") + 1, "make check-ci-discipline")
+    expected.insert(expected.index("make check-issue-bodies") + 1, "make check-agent-access")
     assert list(ci_unit.MAKE_SEQUENCE) == expected
 
 
 def test_sequence_targets_are_the_gate_roster_the_consumers_read():
     # When the target names are derived from the sequence
     targets = ci_unit.sequence_targets()
-    # Then they are the 51 base gates in execution order plus the #2701 addition,
+    # Then they are the 51 base gates in execution order plus the #2701 and #2923 additions,
     # gate-classification-usable
-    assert len(targets) == 52
+    assert len(targets) == 53
     assert targets[0] == "test-unit"
     for gate in ("check-wiring", "check-ci-discipline", "check-docs",
-                 "issue-bot-gates", "issue-bot-gates-check"):
+                 "issue-bot-gates", "issue-bot-gates-check", "check-agent-access"):
         assert gate in targets
 
 
@@ -97,9 +101,9 @@ def test_dry_run_prints_all_planned_commands_and_executes_nothing(monkeypatch, c
     # When --dry-run is requested
     rc = ci_unit.main(["--dry-run"])
     out = capsys.readouterr().out.splitlines()
-    # Then all 52 planned commands (51 base + the #2701 gate) are printed, none executed
+    # Then all 53 planned commands (51 base + the #2701 and #2923 gates) are printed, none executed
     assert rc == 0
-    assert len(out) == 52
+    assert len(out) == 53
     assert out[0].endswith("test-unit")
 
 

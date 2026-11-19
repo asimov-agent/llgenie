@@ -1060,6 +1060,10 @@ links, every `agent-wiki/` note names its issue and PR and has its own index row
 `docs/changes.d/` — `CHANGES.md` is that index rendered, so no two changes edit one line
 (issue #934) — and `README.md` carries no change history), `make check-pr-hygiene`,
 `make check-issue-bodies`,
+`make check-agent-access` (the agent's GitHub identity policy is enforced: the AGENTS.md section
+names the acting identity and maps every token scope to the step it unblocks, the host agent's
+access skill carries the audit rules, and no token-shaped string may sit in either artifact —
+issue #2923),
 `make check-pr-authors`, `make check-secret-output`, `make check-file-hygiene` (a committed
 `*.log` or dot-scratch artifact such as `.pr874.md` is refused unless a dated exception
 records why, issue #2484 — the `.gitignore` blankets the whole log class), `make check-engine-source` (a
@@ -1075,7 +1079,8 @@ Makefile's shell) and `scripts/check_python.py`, which `tools/Makefile` runs to 
 venv on Python 3.11. All of them run inside `make ci-unit`. Every gate has a report target
 that prints what it read without deciding anything — `make workflows-report`,
 `make wiring-report`, `make docs-report`, `make changes-index-report`, `make pr-hygiene-report`,
-`make issue-bodies-report`, `make pr-authors-report`, `make secret-output-report`,
+`make issue-bodies-report`, `make agent-access-report`, `make pr-authors-report`,
+`make secret-output-report`,
 `make file-hygiene-report` (every committed `*.log` / dot-scratch artifact and every stale
 exception the hygiene gate reads, issue #2484),
 `make model-pin-report`, `make agent-skills-report`, `make engine-source-report`,

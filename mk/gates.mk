@@ -179,6 +179,12 @@ check-issue-bodies: ## CI: fail when a producer hand-builds an issue body, a bod
 
 issue-bodies-report: ## Show every issue producer, whether it renders through the one seam, the section order and the verdict
 	python3 scripts/check_issue_body.py report
+
+check-agent-access: ## CI: fail when the AGENTS.md identity/access section or the host agent's access skill is lost, a scope loses its operation mapping, or a token-shaped secret appears in either (issue #2923)
+	python3 scripts/check_agent_access.py check
+
+agent-access-report: ## Show the acting identity, the scope map, the skill's audit rules, and the secret-scan verdict
+	python3 scripts/check_agent_access.py report
 # BASE/HEAD bound the commit range the guard reads (defaults: origin/main..HEAD). ci-unit runs it with
 # no range, so the static half (AGENTS.md + the producers) is still checked on a push to main; a PR
 # run reads the commits the PR adds.

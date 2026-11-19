@@ -1390,6 +1390,46 @@ nothing is masked in a log a job uploads itself. So no leg prints its stream raw
 - **A leg that calls `hermes` outside the macro is a defect**, and so is a workflow that uploads the
   raw `$(HERMES_LOG)` — the raw file holds the unredacted stream by construction.
 
+## The agent's GitHub identity and required access (MANDATORY, durable)
+
+Agent lanes act as ONE named identity: **`asimov-agent`** — the repo-owner bot account, `admin` on
+`asimov-agent/llgenie`. A worker/collaborator credential (repo permissions `pull/push/triage`,
+`admin:false`, no packages-delete scope) is a pairing identity: it implements and reviews, but an
+acceptance item that needs an admin scope closes under the bot identity, not through a human
+round-trip (measured on #2914: the GC sweep tooling sat merged for weeks because no acting identity
+carried `delete:packages`).
+
+The acting identity's token carries exactly this scope roster, and every scope exists because a
+named step needs it — the roster is a map (scope → the step it unblocks), never a bare list:
+
+- `repo` — branches, pushes, PRs and issue writes: every lane's ordinary work (branch off `main`,
+  push to `origin`, mirror issue/PR bodies).
+- `workflow` — writing `.github/workflows` files: every pipeline change goes through a PR this
+  roster authorizes and the workflow-validation gate re-proves.
+- `read:org` — membership checks when a guard job asks who triggered a lane.
+- `gist` — scratch notes a session pins; no repo consequence.
+- `write:packages` — publishing engine/agent images to GHCR through the post-merge producer lanes,
+  and pulling them for local verification.
+- `delete:packages` — garbage-collect superseded GHCR refs and nothing else: the
+  `make registry-cache-gc` sweep issue #2914 requests.
+
+An elevated run is an audited run:
+
+- An elevated or destructive step (registry delete, ruleset write, image publish) runs **only when
+  an open issue already requested it** — the issue body names the operation before a hand touches
+  the registry, a ruleset, or an engine start. Engine starts keep their own explicit
+  human-permission gate; this section changes nothing about that.
+- Every elevated run is **stamped** on the issue that requested it: what ran, which identity ran
+  it, and the replayable commands that re-measure the outcome. An un-audited sweep is a workflow
+  defect even when it deleted the right things.
+- `gh auth status` is read BEFORE the elevated step (it prints only masked tokens); an identity
+  mismatch stops the lane.
+- No credential text in any artifact — issue, comment, PR body, commit message, log, or this
+  section. `make check-agent-access` reddens token-shaped strings (`gh[pousr]_…`, `github_pat_…`)
+  inside this section and the host agent's access skill
+  (`agents/llgenie-issse-implementer/skills/agent-github-access/SKILL.md`); runtime streams are
+  covered by the transcript-redaction rule above. `make agent-access-report` prints what it reads.
+
 ## Hermes cron jobs never run on the host (MANDATORY, durable)
 
 No Hermes profile cron job may dispatch on this host — not the planner's tick, not auto-approve,
