@@ -3725,3 +3725,95 @@ def test_the_planner_soul_states_host_lane_precedence_and_recall_before_classify
     assert soul.count("is not a verdict, and `green` is not `mergeable`") == 1, (
         "the cancelled/green rule was duplicated — it already existed at L132 before #2112"
     )
+
+
+# ---- issue #2972: live-comparison verdicts carry the file state they measured --
+
+_ISO_STAMP = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+
+
+def test_a_live_longer_finding_names_live_state_and_run_stamp(tmp_path):
+    """`live-longer` names live size, live mtime (UTC ISO) and the run's own stamp (#2972).
+
+    A finding a reader cannot date is not evidence: the live rulebook moves between runs
+    (24,791 b then 21,349 b measured), so each finding must say which live state it measured.
+    """
+    import re
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    (prof / "skills" / "s").mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    (prof / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    live = tmp_path / "live" / "someone"
+    (live / "skills" / "s").mkdir(parents=True)
+    (live / "SOUL.md").write_text("a much longer live rulebook\n" * 100)
+    (live / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-longer"]
+    detail = items[0]["detail"]
+    assert re.search(_ISO_STAMP, detail), detail
+    assert "this check ran at" in detail, detail
+    assert "date the finding against those stamps" in detail, detail
+
+
+def test_a_live_lines_missing_finding_carries_the_same_stamp(tmp_path):
+    """The OTHER live-comparison class is equally datable: live mtime + run stamp, not just bytes."""
+    import re
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    (prof / "skills" / "s").mkdir(parents=True)
+    (prof / "SOUL.md").write_text("x\n" * 100)          # tree longer in BYTES ...
+    (prof / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    live = tmp_path / "live" / "someone"
+    (live / "skills" / "s").mkdir(parents=True)
+    (live / "SOUL.md").write_text("y\n")                # ... but live carries a line the tree lacks
+    (live / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-lines-missing"]
+    detail = items[0]["detail"]
+    assert re.search(_ISO_STAMP, detail), detail
+    assert "this check ran at" in detail, detail
+
+
+def test_the_ok_comparison_line_carries_the_same_stamp(tmp_path, monkeypatch, capsys):
+    """Green is as datable as red (#2972): the OK line names pair count, live mtime range, run start."""
+    import re
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents"])
+    out = capsys.readouterr().out
+    assert code == 0, out                                # exit codes unchanged by the stamping
+    assert "live comparison stamped:" in out, out
+    assert re.search(r"\d+ live/tree file pair\(s\)", out), out
+    assert re.search(_ISO_STAMP + r" -> " + _ISO_STAMP, out), out
+    assert "run started" in out, out
+
+
+def test_a_stamped_finding_still_exits_red(tmp_path, monkeypatch, capsys):
+    """Stamping is message text only: the red verdict and its exit 1 are unchanged (AC #2972)."""
+    import re
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    soul = (agents / "someone" / "SOUL.md").read_text()
+    (live_home / "someone" / "SOUL.md").write_text(soul + "an extra live-only rule\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err     # FAIL lines print on stdout, the summary on stderr
+    assert code == 1, text                               # stamping never softens the verdict
+    assert "FAIL live-longer" in text, text
+    assert "this check ran at" in text, text
+    assert re.search(_ISO_STAMP, text), text

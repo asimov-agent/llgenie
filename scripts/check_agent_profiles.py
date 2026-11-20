@@ -491,6 +491,16 @@ _stamp = _iso
 _STARTED = time.time()
 
 
+def run_stamp() -> str:
+    """This run's start as a UTC ISO stamp (issue #2972).
+
+    Every live-comparison finding and the OK comparison line name this stamp, so a reader can
+    date the verdict against their own re-read of the live file and tell a stale finding from a
+    live one BEFORE acting on it.
+    """
+    return _iso(_STARTED)
+
+
 def snapshot_caveat(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     live: Path | None = None, started: float | None = None) -> str | None:
     """The line that says the live reference moved while we were reading it, or None.
@@ -528,6 +538,39 @@ def snapshot_caveat(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
             + ", ".join(moved[:3])
             + (" …" if len(moved) > 3 else "")
             + " — this comparison is a SNAPSHOT of a moving file; re-run to confirm")
+
+
+def comparison_stats(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
+                     live: Path | None = None) -> str | None:
+    """What the live comparison actually read: pair count, live mtime range, and the run start (#2972).
+
+    A green OK line is a verdict against a moving live reference too. Without this stamp neither
+    green nor red can be dated against a later reader's own re-read, and a green re-run minutes
+    later hides whether anything moved (issue #2972). Returns None when the comparison compared
+    nothing — the audible SKIPPED line already states that explicitly.
+    """
+    agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
+    base = live if live is not None else live_root(root)
+    if base is None or not agents.is_dir():
+        return None
+    profiles, _ = read_manifest(agents)
+    mtimes: list[float] = []
+    for profile in profiles:
+        live_profile = base / profile["name"]
+        tree_profile = agents / profile["name"]
+        if not live_profile.is_dir() or not tree_profile.is_dir():
+            continue
+        for path in sorted(tree_profile.rglob("*")):
+            if not path.is_file() or _is_binary_path(path):
+                continue
+            counterpart = live_profile / path.relative_to(tree_profile)
+            if not counterpart.is_file() or _is_binary_path(counterpart):
+                continue
+            mtimes.append(counterpart.stat().st_mtime)
+    if not mtimes:
+        return None
+    return (f"{len(mtimes)} live/tree file pair(s), live mtimes {_iso(min(mtimes))} -> "
+            f"{_iso(max(mtimes))}, run started {run_stamp()}")
 
 
 def source_time(agents: Path, name: str, path: Path) -> float:
@@ -672,7 +715,8 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     "key": "live-longer",
                     "where": f"{tree_profile.name}/{rel}",
                     "detail": f"the tree has {tree} b, the live profile has {there} b "
-                              f"(live mtime {_iso(counterpart.stat().st_mtime)}) and carries "
+                              f"(live mtime {_iso(counterpart.stat().st_mtime)}, this check ran at "
+                              f"{run_stamp()} — date the finding against those stamps, #2972) and carries "
                               f"{len(missing)} line(s) the tree lacks — the seed is a prefix of the "
                               f"rulebook, so `make sync-agent-profile` would replace {there} bytes with "
                               f"{tree} and no gate would notice (issue #791). First: "
@@ -684,7 +728,9 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     "key": "live-lines-missing",
                     "where": f"{tree_profile.name}/{rel}",
                     "detail": f"the tree copy carries {len(missing)} line(s) the live profile has, "
-                              f"although it is {tree} b against {there} b — size says nothing here, and a "
+                              f"although it is {tree} b against {there} b (live mtime "
+                              f"{_iso(counterpart.stat().st_mtime)}, this check ran at {run_stamp()}, "
+                              f"#2972) — size says nothing here, and a "
                               f"sync would delete rulebook that exists only live (issue #791). First: "
                               f"{sorted(missing)[0][:90]!r}",
                 })
@@ -1479,12 +1525,17 @@ def main(argv: list[str] | None = None) -> int:
         if snapshot:
             caveat += " — the live reference moved DURING this run, so the comparison is a snapshot"
         scope = (f" (scoped to {scoped_profile!r})" if scoped_profile else "")
+        # Green carries the same datable stamp as a FAIL (#2972): what was compared, the live mtimes
+        # it measured, and when this run started. The SKIPPED line above is the explicit note when
+        # nothing was compared.
+        stamp = comparison_stats(root, agents_dir, live_base)
         print(f"[check-agent-profiles] OK{scope}: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
               f"matches its directory, its body is under the {SKILL_MAX_CHARS:,}-character "
               "skill-writer cap, and it carries no secret value"
               + ("" if live_base is None else
                  ", and no file exists only in the live profile")
+              + (f"; live comparison stamped: {stamp}" if stamp else "")
               + f"{caveat}")
         # Informational, never a failure: a canonical rule stated twice is debt the gate must not
         # stay silent about even when green (one bullet, one place — #972); the removal is a
