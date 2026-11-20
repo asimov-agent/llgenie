@@ -99,7 +99,10 @@ jobs:
   hf-live:
     needs: [guard]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 105, not 60: the network battery now carries the #2973 patience window
+    # (bounded 3600s re-probe loop) on top of its normal run — a genuinely
+    # unpublished pin reds at the deadline inside this job, never via timeout.
+    timeout-minutes: 105
     permissions:
       contents: read
       packages: read
@@ -168,6 +171,13 @@ jobs:
           fi
       - name: make test-unit-network (the @pytest.mark.network ownership set, via the seam, issue #1000)
         if: steps.debounce.outputs.skip != 'true'
+        env:
+          # issue #2973: this battery races the main CI run that pushes the very images
+          # the committed-pin check reads. The check re-probes an unresolved manifest
+          # within this window (the main pipeline's normal push span) instead of
+          # reddening on the transient; a genuinely unpublished pin still reds at the
+          # deadline. Every other lane leaves the knob unset and stays immediate-red.
+          ENGINE_PINS_PATIENCE_SECONDS: "3600"
         run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/unit-network.log" -- make test-unit-network
       - name: Prune orphaned test containers
         if: always()

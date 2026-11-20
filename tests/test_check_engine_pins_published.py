@@ -650,3 +650,121 @@ def test_scheduled_and_successful_publisher_keep_the_dispatch_contract():
     assert "-f push=true" in wf and "workflow run engine-build.yml" in wf
     assert "exit \"$rc\"" in wf, "the ALL=1 hard-fail must be untouched for the success/scheduled path"
     assert "check-engine-pins-published ALL=1" in wf, "the fleet gate must still run ALL=1"
+
+
+# --- issue #2973: the patience window (bounded re-probe, never an unpinned wait) ---
+
+
+def _fake_clock_and_sleep():
+    """Virtual time: sleep advances the clock; nothing real is waited."""
+    state = {"t": 0.0, "slept": []}
+
+    def clock():
+        return state["t"]
+
+    def sleep(seconds):
+        state["slept"].append(seconds)
+        state["t"] += seconds
+
+    return clock, sleep, state
+
+
+def _patience_cell():
+    engine, variant = "mlx", "cpu"
+    ref = f"{REGISTRY}/{cpp.exact_tags(engine, variant)}"
+    return [(engine, variant)], ref
+
+
+def test_a_committed_pin_published_midwindow_resolves_green(tmp_path, capsys):
+    """AC1 fixture shape: a committed cell whose manifest appears mid-window resolves
+    GREEN within the window instead of reddening the battery transient."""
+    cells, ref = _patience_cell()
+    calls = {"n": 0}
+
+    def probe(r):
+        calls["n"] += 1
+        if calls["n"] == 1:          # first sweep: absent; the first re-probe: published
+            return "", "404 Not Found"
+        return "sha256:latebump", ""
+
+    clock, sleep, state = _fake_clock_and_sleep()
+    rc = cpp.check_committed(digest=probe, registry=REGISTRY, root=tmp_path,
+                             cells=cells, patience_seconds=600,
+                             sleep=sleep, clock=clock)
+    out = capsys.readouterr().out
+    assert rc == 0, "a manifest landing inside the window must resolve green"
+    assert "PATIENCE" in out and ref in out, "the wait must be loud, naming the ref"
+    assert state["slept"] == [120], "resolves on the first re-probe, not the full window"
+    assert calls["n"] == 2           # initial sweep + 1 re-probe (found)
+
+
+def test_a_never_published_pin_reds_at_the_deadline(tmp_path, capsys):
+    """AC2 negative control: the patience window must not soften a genuinely absent
+    manifest — same red as today, reached at the bounded deadline and never later."""
+    cells, ref = _patience_cell()
+    calls = {"n": 0}
+
+    def probe(r):
+        calls["n"] += 1
+        return "", "404 Not Found"
+
+    clock, sleep, state = _fake_clock_and_sleep()
+    rc = cpp.check_committed(digest=probe, registry=REGISTRY, root=tmp_path,
+                             cells=cells, patience_seconds=600,
+                             sleep=sleep, clock=clock)
+    out = capsys.readouterr().out
+    assert rc == 1, "an unpublished pin must still red"
+    assert f"NOT PUBLISHED {ref}" in out
+    assert state["t"] <= 600, f"the window is bounded: clock reached {state['t']}"
+    assert state["slept"] == [120] * 5, "re-probes every retry step up to the deadline"
+    assert calls["n"] == 6           # 1 sweep + 5 re-probes, bounded
+
+
+def test_without_the_knob_every_lane_stays_immediate_red(tmp_path, monkeypatch):
+    """AC2 (the strict half): with no env knob the committed check probes once per
+    cell and reds at once — PR-lane strictness (#1622: a pin must not merge while
+    its image is unpublished) is untouched."""
+    monkeypatch.delenv("ENGINE_PINS_PATIENCE_SECONDS", raising=False)
+    cells, ref = _patience_cell()
+    calls = {"n": 0}
+
+    def probe(r):
+        calls["n"] += 1
+        return "", "404 Not Found"
+
+    def sleep(seconds):
+        raise AssertionError("the impatient path must never sleep")
+
+    rc = cpp.check_committed(digest=probe, registry=REGISTRY, root=tmp_path,
+                             cells=cells, sleep=sleep)
+    assert rc == 1
+    assert calls["n"] == 1, "impatient path probes each cell exactly once"
+
+
+def test_the_workflow_knob_drives_the_window(tmp_path, monkeypatch, capsys):
+    """AC3 mechanism: the window arrives via ENGINE_PINS_PATIENCE_SECONDS (set by
+    ci-hf-live) and only that env var; a non-numeric value warns and stays 0."""
+    cells, ref = _patience_cell()
+    monkeypatch.setenv("ENGINE_PINS_PATIENCE_SECONDS", "900")
+
+    def probe(r):
+        return "sha256:ok", ""
+
+    clock, sleep, state = _fake_clock_and_sleep()
+    rc = cpp.check_committed(digest=probe, registry=REGISTRY, root=tmp_path,
+                             cells=cells, sleep=sleep, clock=clock)
+    assert rc == 0
+    assert state["slept"] == [], "a published fleet never enters the window"
+
+    monkeypatch.setenv("ENGINE_PINS_PATIENCE_SECONDS", "not-a-window")
+
+    def probe404(r):
+        return "", "404 Not Found"
+
+    def sleep2(seconds):
+        raise AssertionError("a malformed knob must leave the lane impatient")
+
+    rc = cpp.check_committed(digest=probe404, registry=REGISTRY, root=tmp_path,
+                             cells=cells, sleep=sleep2)
+    assert rc == 1
+    assert "WARN" in capsys.readouterr().err, "a malformed knob is loud, not silent"

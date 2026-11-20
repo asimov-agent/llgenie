@@ -124,3 +124,24 @@ def test_ci_hf_live_is_exempted_with_a_reason():
     assert entry, "ci-hf-live must have a workflow-run-exemptions entry"
     reason = ex["workflows"][entry[0]].get("reason", "")
     assert len(reason) > 80, "the exemption reason must explain why the red is expected/routed"
+
+
+def test_the_battery_step_carries_the_pin_patience_window_with_job_headroom():
+    """issue #2973: the battery that runs the committed-pin live check must set the
+    bounded patience knob (ENGINE_PINS_PATIENCE_SECONDS) on its step, and the job
+    timeout must give the window headroom — an unpublished pin reds at its own
+    deadline, never disguised as a job timeout."""
+    wf = (REPO / ".github" / "workflows" / "ci-hf-live.yml").read_text()
+    job = wf.split("\n  hf-live:")[1]
+    step = job.split("- name: make test-unit-network", 1)[1]
+    assert "ENGINE_PINS_PATIENCE_SECONDS" in step, \
+        "the network battery step must set the patience knob (issue #2973)"
+    import re as _re
+    m = _re.search(r'ENGINE_PINS_PATIENCE_SECONDS:\s*"(\d+)"', step)
+    assert m, "the knob must be a numeric string"
+    window = int(m.group(1))
+    assert window == 3600, "the window must cover the main pipeline's normal push span"
+    tm = _re.search(r"timeout-minutes:\s*(\d+)", job)
+    assert tm, "the hf-live job must keep its timeout ceiling (#2317)"
+    assert int(tm.group(1)) * 60 >= window + 1800, \
+        "the job timeout must exceed the window with battery headroom"
