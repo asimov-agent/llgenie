@@ -53,11 +53,13 @@ def test_the_sequence_is_the_base_recipes_51_commands_byte_for_byte():
     # When the entry point's sequence is compared to it
     # Then same commands, same order, plus the documented additions since the capture:
     # `make check-ci-discipline` (issue #2701), inserted directly after `make check-wiring`,
-    # and `make check-agent-access` (issue #2923), inserted directly after
-    # `make check-issue-bodies`.
+    # `make check-gh-json-fields` (issue #515), inserted directly after
+    # `make check-ci-discipline`, and `make check-agent-access` (issue #2923), inserted
+    # directly after `make check-issue-bodies`.
     assert base[0] == "make test-unit" and len(base) == 51
     expected = list(base)
     expected.insert(expected.index("make check-wiring") + 1, "make check-ci-discipline")
+    expected.insert(expected.index("make check-ci-discipline") + 1, "make check-gh-json-fields")  # issue #515 gh --json field guard
     expected.insert(expected.index("make check-issue-bodies") + 1, "make check-agent-access")
     assert list(ci_unit.MAKE_SEQUENCE) == expected
 
@@ -65,11 +67,11 @@ def test_the_sequence_is_the_base_recipes_51_commands_byte_for_byte():
 def test_sequence_targets_are_the_gate_roster_the_consumers_read():
     # When the target names are derived from the sequence
     targets = ci_unit.sequence_targets()
-    # Then they are the 51 base gates in execution order plus the #2701 and #2923 additions,
+    # Then they are the 51 base gates in execution order plus the #2701, #515 and #2923 additions,
     # gate-classification-usable
-    assert len(targets) == 53
+    assert len(targets) == 54
     assert targets[0] == "test-unit"
-    for gate in ("check-wiring", "check-ci-discipline", "check-docs",
+    for gate in ("check-wiring", "check-ci-discipline", "check-gh-json-fields", "check-docs",
                  "issue-bot-gates", "issue-bot-gates-check", "check-agent-access"):
         assert gate in targets
 
@@ -101,9 +103,9 @@ def test_dry_run_prints_all_planned_commands_and_executes_nothing(monkeypatch, c
     # When --dry-run is requested
     rc = ci_unit.main(["--dry-run"])
     out = capsys.readouterr().out.splitlines()
-    # Then all 53 planned commands (51 base + the #2701 and #2923 gates) are printed, none executed
+    # Then all 54 planned commands (51 base + the #2701, #515 and #2923 gates) are printed, none executed
     assert rc == 0
-    assert len(out) == 53
+    assert len(out) == 54
     assert out[0].endswith("test-unit")
 
 

@@ -480,8 +480,12 @@ def test_tracking_issues_name_their_dispatched_engine_build_run():
     # Given the filing step records the issue it created or reused, per tag
     assert wf.count(">> tracking_issues.txt") == 2, \
         "both the reused-issue and created-issue branches must record tag->issue"
-    assert "--json number --jq .number" in wf, \
-        "a created issue's number must be captured, not just its URL printed"
+    assert "gh issue create" in wf and "issues/##" in wf, \
+        "a created issue's number must be captured — from the printed URL, because " \
+        "`gh issue create` has no --json field set at all (issue #515's live finding; " \
+        "the old `--json number` was silently swallowed by 2>/dev/null)"
+    assert "issue create --repo" not in wf or "--json number" not in wf.split("issue create")[1].split("\n")[0], \
+        "the create call must not ask issue create for --json fields it does not have (#515)"
 
     # Given the dispatch step names the dispatched run by polling the queue, never guessing
     assert "created=%3E%3D$since" in wf, \
