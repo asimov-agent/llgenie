@@ -135,6 +135,9 @@ jobs:
           fi
       - name: full-fleet committed-tag pin-validity gate
         id: fleet
+        env:
+          ENGINE_PINS_ALIAS: "1"  # issue #2987: a published pin tag whose :<variant>
+          # alias still points at an older digest must redden this gate, not stay green
         run: |
           # The #2190 class: a committed engine tag (pin + params hash) that resolves
           # `manifest unknown` in ghcr must FAIL this job — not be filed as a soft issue
@@ -207,11 +210,12 @@ jobs:
               num=$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug 2>/dev/null | sed -E 's#.*/issues/##') && echo "filed issue #$num for $engine ($tag)" && printf '%s %s\n' "$tag" "$num" >> tracking_issues.txt
             fi
           done < unnamed.txt
-      - name: dispatch engine-build push=true for every missing committed tag (#2259)
+      - name: dispatch engine-build push=true for every missing or alias-lagging committed tag (#2259, #2987)
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          ENGINE_PINS_ALIAS: "1"  # same alias contract as the fleet gate (#2987)
         run: |
           set +e
           make check-engine-pins-published ALL=1 > dispatch.out 2>&1
