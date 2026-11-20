@@ -36,7 +36,9 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     """`gh` that records every argv as one JSON line and answers the bot's queries.
 
     opts:
-      filed:  keys whose marker `issue list --search` should find (already-filed findings)
+      filed:    keys whose marker `issue list --search` should find (already-filed findings)
+      pr_files: the `pr list --state open` answer: [{number, files: [{path}]}] (issue #293)
+      refuse_pr_list: answer the `pr list` call with a refusal (rc 1), pinning loud degradation
     """
     opts = opts or {}
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -46,6 +48,8 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
 import json, sys
 args = sys.argv[1:]
 FILED = {json.dumps(opts.get("filed", []))}
+PR_FILES = {json.dumps(opts.get("pr_files", []))}
+REFUSE_PR = {repr(bool(opts.get("refuse_pr_list", False)))}
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 if args[:2] == ["issue", "list"]:
@@ -55,6 +59,10 @@ elif args[:2] == ["issue", "create"]:
     print("https://github.com/asimov-agent/llgenie/issues/900")
 elif args[:2] == ["secret", "list"]:
     print(json.dumps([{{"name": n}} for n in {json.dumps(opts.get("secrets", []))}]))
+elif args[:2] == ["pr", "list"]:
+    if REFUSE_PR:
+        sys.exit(1)
+    print(json.dumps(PR_FILES))
 else:
     print("[]")
 ''')
@@ -534,11 +542,67 @@ def test_dry_run_creates_nothing(tmp_path):
 
 
 def test_the_bot_never_writes_code(tmp_path):
-    """Its whole output is issues: no `pr`, no `issue comment`, no `workflow run` from the filer."""
+    """Its whole output is issues: no write verb anywhere — `pr list` is the one read it may add
+    (issue #293: the in-flight check reads open PRs, it never touches them)."""
     gh, log = _fake_gh(tmp_path)
     cr.file_findings(str(gh), "asimov-agent/llgenie", _one_finding(), cap=3)
     verbs = {tuple(c[:2]) for c in _calls(log)}
-    assert verbs <= {("issue", "list"), ("issue", "create")}, verbs
+    assert verbs <= {("issue", "list"), ("issue", "create"), ("pr", "list")}, verbs
+    assert not any(v in {("pr", "create"), ("pr", "merge"), ("pr", "checkout"),
+                         ("issue", "comment"), ("workflow", "run")} for v in verbs), verbs
+
+
+# ---------------------------------------------------------------------------
+# in-flight dedupe against OPEN PRs (issue #293)
+# ---------------------------------------------------------------------------
+def test_a_finding_whose_file_an_open_pr_touches_is_not_filed(tmp_path, capsys):
+    """The exact #270-while-#277-was-open shape: the fix is in flight, so no new issue — and the
+    run SAYS which PR owns it."""
+    gh, log = _fake_gh(tmp_path, {"pr_files": [
+        {"number": 277, "files": [{"path": ".github/workflows/a.yml"}]}]})
+    created = cr.file_findings(str(gh), "asimov-agent/llgenie", _one_finding(), cap=5)
+    assert created == []
+    assert not [c for c in _calls(log) if c[:2] == ["issue", "create"]]
+    out = capsys.readouterr().out
+    assert "already in flight: PR #277" in out
+
+
+def test_the_same_finding_files_when_no_open_pr_touches_the_file(tmp_path, capsys):
+    """The other direction: the PR closed without the fix -> the finding is filed again (the only
+    remaining memory is the marker, and this fixture has no marker)."""
+    gh, log = _fake_gh(tmp_path, {"pr_files": [
+        {"number": 300, "files": [{"path": ".github/workflows/other.yml"}]}]})
+    created = cr.file_findings(str(gh), "asimov-agent/llgenie", _one_finding(), cap=5)
+    assert [c["key"] for c in created] == ["check/a.yml"]
+    out = capsys.readouterr().out
+    assert "already in flight" not in out
+
+
+def test_a_bare_workflow_name_in_where_matches_the_pr_path_basename(tmp_path):
+    """The secrets check names files bare (`a.yml`); the PR lists them full. The match still hits."""
+    gh, log = _fake_gh(tmp_path, {"pr_files": [
+        {"number": 277, "files": [{"path": ".github/workflows/a.yml"}]}]})
+    finding = [{**_one_finding()[0], "where": "a.yml"}]
+    created = cr.file_findings(str(gh), "asimov-agent/llgenie", finding, cap=5)
+    assert created == []
+    assert not [c for c in _calls(log) if c[:2] == ["issue", "create"]]
+
+
+def test_the_open_pr_map_is_fetched_once_per_run(tmp_path):
+    gh, log = _fake_gh(tmp_path)
+    items = _one_finding() + _one_finding(key="check/b.yml") + _one_finding(key="check/c.yml")
+    cr.file_findings(str(gh), "asimov-agent/llgenie", items, cap=5)
+    assert len([c for c in _calls(log) if c[:2] == ["pr", "list"]]) == 1
+
+
+def test_a_refused_pr_listing_degrades_loudly_and_still_files(tmp_path, capsys):
+    """#312 loudness: a degraded in-flight check is printed, never swallowed; filing proceeds on
+    the marker dedupe alone."""
+    gh, log = _fake_gh(tmp_path, {"refuse_pr_list": True})
+    created = cr.file_findings(str(gh), "asimov-agent/llgenie", _one_finding(), cap=5)
+    assert [c["key"] for c in created] == ["check/a.yml"]
+    err = capsys.readouterr().err
+    assert "was refused" in err and "in-flight check is degraded" in err, err
 
 
 # ---------------------------------------------------------------------------

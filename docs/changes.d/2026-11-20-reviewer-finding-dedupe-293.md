@@ -1,0 +1,1 @@
+| 2026-11-20 | the code-review bot now consults open PRs before filing: a finding whose file an open PR touches is reported `already in flight: PR #N` instead of becoming a duplicate issue, with the marker dedupe unchanged and a refused PR listing degrading loudly | [note](agent-wiki/2026-11-20-reviewer-finding-dedupe-293.md) | #293 |

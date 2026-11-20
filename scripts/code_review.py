@@ -38,7 +38,7 @@ import json
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -437,6 +437,48 @@ def _gh_soft(gh: str, args: list[str]) -> str | None:
     return r.stdout
 
 
+def open_pr_file_map(gh: str, repo: str) -> dict[str, int] | None:
+    """Files changed by OPEN pull requests -> the PR number claiming them (issue #293).
+
+    A finding whose fix is already riding an open PR must not become a second work item for the
+    same line (measured: the bot filed #270 while PR #277 changed that exact line). The read is
+    read-only gh; a refused listing returns None and the caller degrades LOUDLY to marker-only
+    filing — never a silent skip. The first open PR to touch a file claims it.
+    """
+    out = _gh_soft(gh, ["pr", "list", "--repo", repo, "--state", "open",
+                        "--limit", "200", "--json", "number,files"])
+    if out is None:
+        return None
+    mapping: dict[str, int] = {}
+    for pr in json.loads(out or "[]") or []:
+        number = pr.get("number")
+        for changed in pr.get("files") or []:
+            path = changed.get("path")
+            if path and number is not None:
+                mapping.setdefault(path, number)
+    return mapping
+
+
+def in_flight_pr(finding: dict, open_files: dict[str, int]) -> tuple[int, str] | None:
+    """Does an open PR already touch this finding's file? Returns (PR number, matched path).
+
+    Findings name files as full repo-relative paths (`.github/workflows/x.yml`) or bare workflow
+    names (the secrets check lists `x.yml`), so the match accepts an exact path OR a basename —
+    workflow file names are unique in the tree, so a basename hit is unambiguous.
+    """
+    where = finding.get("where", "")
+    tokens = [str(t).strip() for t in (where if isinstance(where, list) else str(where).split(","))]
+    for token in tokens:
+        if not token:
+            continue
+        if token in open_files:
+            return open_files[token], token
+        for path, number in open_files.items():
+            if PurePosixPath(path).name == token:
+                return number, path
+    return None
+
+
 def defined_secrets(gh: str, repo: str) -> set[str] | None:
     """The repo's secret names, or None when the token cannot read them (needs admin)."""
     out = _gh_soft(gh, ["secret", "list", "--repo", repo, "--json", "name"])
@@ -525,14 +567,29 @@ def filed(gh: str, repo: str, key: str) -> bool:
 
 
 def file_findings(gh: str, repo: str, items: list[dict], cap: int = 3, dry: bool = False) -> list[dict]:
-    """Create one issue per NEW finding, up to `cap` per run. Never edits a file, never merges."""
+    """Create one issue per NEW finding, up to `cap` per run. Never edits a file, never merges.
+
+    Two memories gate each filing (issue #293): the marker dedupe (has this finding been filed?)
+    and the in-flight check (does an OPEN PR already touch the finding's file?). The PR map is
+    fetched ONCE per run; a refused listing degrades loudly to marker-only filing.
+    """
     created = []
+    open_files = open_pr_file_map(gh, repo)
+    if open_files is None:
+        print("[code-review] NOTE: the in-flight check is degraded here (the open-PR listing was "
+              "refused); findings file on the marker dedupe alone.", file=sys.stderr)
+        open_files = {}
     for f in items:
         if len(created) >= cap:
             print(f"[code-review] cap reached: {len(created)}/{cap} issues filed this run")
             break
         if filed(gh, repo, f["key"]):
             print(f"[code-review] already filed: {f['key']}")
+            continue
+        hit = in_flight_pr(f, open_files)
+        if hit:
+            pr, path = hit
+            print(f"[code-review] already in flight: PR #{pr} touches {path} — not filing {f['key']}")
             continue
         if dry:
             print(f"[code-review] would file: {f['title']} (key {f['key']})")
