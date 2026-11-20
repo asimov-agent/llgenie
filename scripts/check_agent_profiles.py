@@ -58,7 +58,7 @@ Stdlib only.
 from __future__ import annotations
 
 import argparse
-import filecmp
+import hashlib
 import json
 import os
 import re
@@ -566,11 +566,13 @@ def comparison_stats(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
             counterpart = live_profile / path.relative_to(tree_profile)
             if not counterpart.is_file() or _is_binary_path(counterpart):
                 continue
-            mtimes.append(counterpart.stat().st_mtime)
+            mtimes.append(live_snapshot(counterpart)[2])
     if not mtimes:
         return None
+    n, manifest = snapshot_manifest()
     return (f"{len(mtimes)} live/tree file pair(s), live mtimes {_iso(min(mtimes))} -> "
-            f"{_iso(max(mtimes))}, run started {run_stamp()}")
+            f"{_iso(max(mtimes))}, run started {run_stamp()}, snapshot manifest {n} file(s) "
+            f"digest {manifest[:12]}")
 
 
 def source_time(agents: Path, name: str, path: Path) -> float:
@@ -623,11 +625,13 @@ def live_edited_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                 continue
             # The harm is a live-only edit: content differs AND the live file is newer than when the
             # tree copy was committed. Either alone is not it — an identical file writes nothing, and
-            # a newer file without a content difference has nothing to reconcile.
-            if filecmp.cmp(path, counterpart, shallow=False):
+            # a newer file without a content difference has nothing to reconcile. Both sides are the
+            # SNAPSHOT's sides: the live content, size and mtime come from one read (#2979).
+            snap = live_snapshot(counterpart)
+            if path.read_bytes() == snap[0]:
                 continue
-            tree, there = path.stat().st_size, counterpart.stat().st_size
-            src, live_mtime = source_time(agents, name, path), counterpart.stat().st_mtime
+            tree, there = path.stat().st_size, snap[1]
+            src, live_mtime = source_time(agents, name, path), snap[2]
             if live_mtime <= src + 1:  # same second of slack as the sync's own moving-reference guard
                 continue
             items.append({
@@ -635,7 +639,7 @@ def live_edited_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                 "where": f"{tree_profile.name}/{rel}",
                 "detail": f"the LIVE profile was edited at {_iso(live_mtime)}, AFTER the tree copy was "
                           f"committed at {_iso(src)} — the tree has {tree} b, the live profile has "
-                          f"{there} b. Sync is one-way (tree → live), so this edit exists only in the "
+                          f"{there} b ({snap_tag(counterpart)}). Sync is one-way (tree → live), so this edit exists only in the "
                           f"live profile: commit it via an issue+PR under agents/{name}/, then "
                           f"`make sync-agent-profile PROFILE={name}` clears it. Do not re-take the "
                           f"live file into the tree.",
@@ -652,7 +656,56 @@ def _is_binary_path(path: Path) -> bool:
     return path.suffix in _SKIP_SUFFIXES or any(part in _SKIP_DIRS for part in path.parts)
 
 
-def _text_lines(path: Path) -> set[str] | None:
+#: One snapshot per run (#2979): every compared live file is read ONCE and its size, mtime and
+#: content digest are fixed for the rest of the walk. The live profiles home is not frozen — another
+#: lane rewrites it while this gate is reading it — so a finding must report the bytes the run
+#: actually saw, and every consumer of the same file must see the same ones. The digest is what
+#: `make profile-drift` names in the finding and on the OK line; a reader can re-check it later.
+_SNAPSHOT: "dict[Path, tuple[bytes, int, float, str]]" = {}
+
+
+def live_snapshot(path: Path) -> tuple[bytes, int, float, str]:
+    """The file as this run saw it: (content, size, mtime, sha256) — first read wins.
+
+    A file rewritten after its first read cannot change a finding: every later access — size,
+    mtime, line-set, content compare — consumes this record, never a fresh `stat()` or re-read
+    (issue #2979, the Not-covered half of #2972).
+    """
+    rec = _SNAPSHOT.get(path)
+    if rec is None:
+        data = path.read_bytes()
+        rec = (data, len(data), path.stat().st_mtime, hashlib.sha256(data).hexdigest())
+        _SNAPSHOT[path] = rec
+    return rec
+
+
+def snap_tag(path: Path) -> str:
+    """The finding-facing identity of the snapshot behind a live number."""
+    return f"live snapshot {live_snapshot(path)[3][:12]}"
+
+
+def snapshot_manifest() -> "tuple[int, str]":
+    """(file count, manifest digest) over every snapshot this run took — what the OK line names."""
+    digest = hashlib.sha256(
+        "\n".join(f"{p}:{rec[3]}" for p, rec in sorted(_SNAPSHOT.items())).encode("utf-8")
+    ).hexdigest()
+    return len(_SNAPSHOT), digest
+
+
+def _snap_lines(path: Path) -> "set[str] | None":
+    """The snapshot's non-blank lines, or None when the snapshot bytes cannot be decoded.
+
+    Decodes the SNAPSHOT bytes, not a fresh read: the line-set compare must see the same bytes the
+    size in the same finding came from (issue #2979).
+    """
+    try:
+        return {ln.strip() for ln in live_snapshot(path)[0].decode("utf-8").splitlines()
+                if ln.strip()}
+    except UnicodeDecodeError:
+        return None
+
+
+def _text_lines(path: Path) -> "set[str] | None":
     """The file's non-blank lines, or None when it cannot be decoded.
 
     Returning None rather than raising is the point: an exception here aborts the whole gate, and an
@@ -691,13 +744,13 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                 continue
             if _is_binary_path(path) or _is_binary_path(counterpart):
                 continue
-            tree, there = path.stat().st_size, counterpart.stat().st_size
+            tree, there = path.stat().st_size, live_snapshot(counterpart)[1]
             # CONTENT decides, and size is only context. A live file can be bigger because it repeats a
             # block (measured: five SOULs carried the canonical fleet block twice after an append), and a
             # size test calls that a truncated seed when the tree carries every live rule already. The
             # question that matters is the one `sync` asks: would a copy delete a line the live file has?
             tree_lines = _text_lines(path)
-            live_lines = _text_lines(counterpart)
+            live_lines = _snap_lines(counterpart)
             if tree_lines is None or live_lines is None:
                 # Reported, never raised: an exception aborts the gate and prints no FAIL, which every
                 # caller reads as clean (issue #1134).
@@ -715,7 +768,8 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     "key": "live-longer",
                     "where": f"{tree_profile.name}/{rel}",
                     "detail": f"the tree has {tree} b, the live profile has {there} b "
-                              f"(live mtime {_iso(counterpart.stat().st_mtime)}, this check ran at "
+                              f"(live mtime {_iso(live_snapshot(counterpart)[2])}, "
+                              f"{snap_tag(counterpart)}, this check ran at "
                               f"{run_stamp()} — date the finding against those stamps, #2972) and carries "
                               f"{len(missing)} line(s) the tree lacks — the seed is a prefix of the "
                               f"rulebook, so `make sync-agent-profile` would replace {there} bytes with "
@@ -729,7 +783,8 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     "where": f"{tree_profile.name}/{rel}",
                     "detail": f"the tree copy carries {len(missing)} line(s) the live profile has, "
                               f"although it is {tree} b against {there} b (live mtime "
-                              f"{_iso(counterpart.stat().st_mtime)}, this check ran at {run_stamp()}, "
+                              f"{_iso(live_snapshot(counterpart)[2])}, {snap_tag(counterpart)}, "
+                              f"this check ran at {run_stamp()}, "
                               f"#2972) — size says nothing here, and a "
                               f"sync would delete rulebook that exists only live (issue #791). First: "
                               f"{sorted(missing)[0][:90]!r}",
@@ -833,8 +888,9 @@ def absent_from_tree_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_
     a whole live skill directory whose path the tree does not carry, once it is known to be the
     lane's own behaviour rather than library (see `shared_library()` / `installed_library_names()`).
 
-    The content of a live file is never read or printed — only its path and size. A live profile holds
-    credentials, and this gate prints to a console.
+    The content of a live file is snapshotted only as a sha256 digest (#2979) — what is printed is
+    the path, the snapshot size and the digest, never the content. A live profile holds credentials,
+    and this gate prints to a console.
     """
     agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
     base = live if live is not None else live_root(root)
@@ -855,7 +911,8 @@ def absent_from_tree_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_
             items.append({
                 "key": "absent-from-tree",
                 "where": f"{name}/{SOUL}",
-                "detail": f"exists ONLY in the live profile ({soul_live.stat().st_size} b) — the tree "
+                "detail": f"exists ONLY in the live profile ({live_snapshot(soul_live)[1]} b, "
+                          f"{snap_tag(soul_live)}) — the tree "
                           f"carries no SOUL.md for this lane, so the role it runs under is unversioned: "
                           f"commit it via an issue+PR under agents/{name}/ (issue #1060)",
             })
@@ -874,7 +931,8 @@ def absent_from_tree_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_
                 items.append({
                     "key": "absent-from-tree",
                     "where": f"{name}/{SKILLS}/{rel.as_posix()}/{file_rel.as_posix()}",
-                    "detail": f"exists ONLY in the live profile ({path.stat().st_size} b) — the tree "
+                    "detail": f"exists ONLY in the live profile ({live_snapshot(path)[1]} b, "
+                              f"{snap_tag(path)}) — the tree "
                               f"has no counterpart, so this instruction is unversioned and "
                               f"unreviewable: commit it via an issue+PR under "
                               f"agents/{name}/{SKILLS}/{rel.as_posix()}/ (issue #1060), then "
@@ -894,12 +952,14 @@ def absent_from_tree_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_
                 continue
             files = [p for p in skill_dir.rglob("*")
                      if p.is_file() and not _bookkeeping(p.relative_to(skill_dir))]
+            dir_snap = [live_snapshot(p) for p in files]
             items.append({
                 "key": "absent-from-tree",
                 "where": f"{name}/{SKILLS}/{rel.as_posix()}",
                 "detail": f"a whole skill directory exists ONLY in the live profile "
                           f"({len(files)} file(s), "
-                          f"{sum(p.stat().st_size for p in files)} b) — the tree carries no skill at "
+                          f"{sum(r[1] for r in dir_snap)} b, live snapshot "
+                          f"{hashlib.sha256(' '.join(r[3] for r in dir_snap).encode('utf-8')).hexdigest()[:12]}) — the tree carries no skill at "
                           f"this path, so every instruction in it is unversioned and unreviewable: "
                           f"commit it via an issue+PR under agents/{name}/{SKILLS}/ (issue #1060), "
                           f"then `make sync-agent-profile PROFILE={name}` keeps both sides the same",
@@ -1417,6 +1477,7 @@ def _profile_scope(items: list[dict], profiles: list[dict], name: str) -> list[d
 
 
 def main(argv: list[str] | None = None) -> int:
+    _SNAPSHOT.clear()  # one snapshot universe per run (#2979): tests and repeat runs start clean
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("mode", nargs="?", default="check", choices=("check", "report"))
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")

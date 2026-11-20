@@ -1475,7 +1475,8 @@ def test_a_live_only_reference_file_is_a_finding_naming_profile_and_path(tmp_pat
     assert [i["key"] for i in items] == ["absent-from-tree"], items
     assert items[0]["where"] == \
         "someone/skills/llgenie-bot-orchestration/references/new-tonight.md", items[0]
-    assert f"({(live / 'new-tonight.md').stat().st_size} b)" in items[0]["detail"], items[0]["detail"]
+    assert f"{(live / 'new-tonight.md').stat().st_size} b" in items[0]["detail"], items[0]["detail"]
+    assert "live snapshot " in items[0]["detail"], items[0]["detail"]  # #2979: the size names its snapshot
     assert "agents/someone/skills/llgenie-bot-orchestration/" in items[0]["detail"], items[0]["detail"]
 
 
@@ -3798,6 +3799,84 @@ def test_the_ok_comparison_line_carries_the_same_stamp(tmp_path, monkeypatch, ca
     assert re.search(r"\d+ live/tree file pair\(s\)", out), out
     assert re.search(_ISO_STAMP + r" -> " + _ISO_STAMP, out), out
     assert "run started" in out, out
+
+
+def test_the_ok_comparison_line_names_the_snapshot_manifest(tmp_path, monkeypatch, capsys):
+    """#2979 AC2: the OK line names the manifest the run compared — file count + digest, re-checkable."""
+    import re
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+    cap._SNAPSHOT.clear()
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents"])
+    out = capsys.readouterr().out
+    assert code == 0, out
+    m = re.search(r"snapshot manifest (\d+) file\(s\) digest ([0-9a-f]{12})", out)
+    assert m, out                                        # the digest is 12 hex and the count is real
+    assert int(m.group(1)) >= 1, out
+
+
+def test_a_live_longer_finding_names_the_snapshot_it_measured(tmp_path):
+    """#2979: the finding's size and mtime came from one snapshot, and the finding names its digest."""
+    import hashlib
+    import check_agent_profiles as cap
+
+    cap._SNAPSHOT.clear()
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    (prof / "skills" / "s").mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    (prof / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    live = tmp_path / "live" / "someone"
+    (live / "skills" / "s").mkdir(parents=True)
+    (live / "SOUL.md").write_text("a much longer live rulebook\n" * 100)
+    (live / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    digest = hashlib.sha256((live / "SOUL.md").read_bytes()).hexdigest()[:12]
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-longer"]
+    assert f"live snapshot {digest}" in items[0]["detail"], items[0]["detail"]
+
+
+def test_a_live_file_mutated_after_the_snapshot_still_renders_the_snapshot(tmp_path):
+    """The race this gate used to lose: the live file is rewritten mid-run; the finding keeps its snapshot.
+
+    The first walk snapshots the live SOUL. A second walk — after a fresh rewrite — must report the
+    SAME size and digest as the first, because the finding's job is to describe the bytes the run
+    actually read (issue #2979). The rewrite on disk is a fact about the live home, not about this verdict.
+    """
+    import hashlib
+    import check_agent_profiles as cap
+
+    cap._SNAPSHOT.clear()
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    (prof / "skills" / "s").mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    (prof / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    live = tmp_path / "live" / "someone"
+    (live / "skills" / "s").mkdir(parents=True)
+    original = "a much longer live rulebook\n" * 100
+    (live / "SOUL.md").write_text(original)
+    (live / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    digest = hashlib.sha256(original.encode("utf-8")).hexdigest()[:12]
+
+    first = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in first] == ["live-longer"]
+
+    (live / "SOUL.md").write_text("rewritten mid-run\n")  # a lane edits the live home NOW
+    second = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in second] == ["live-longer"]
+    detail = second[0]["detail"]
+    assert f"live snapshot {digest}" in detail, detail   # the digest the run actually saw
+    assert f"{len(original.encode('utf-8'))} b" in detail, detail   # the snapshot size, not the new one
+    new_size = (live / "SOUL.md").stat().st_size
+    assert new_size != len(original.encode("utf-8"))
+    assert f"{new_size} b" not in detail, detail  # the mid-run rewrite never enters the finding
 
 
 def test_a_stamped_finding_still_exits_red(tmp_path, monkeypatch, capsys):
