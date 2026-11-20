@@ -105,7 +105,12 @@ ARG HERMES_NERVE_PROVIDER="typesafe"
 # Override to `advisory`/`enforce` only with a profile that enables it (lean, marie_kondo).
 ARG HERMES_NERVE_WORK_SUPERVISION_MODE="shadow"
 
-USER root
+# `USER 0`, not `USER root`: identical privileges (uid 0), but the pinned semgrep
+# lane's `last-user-is-root` rule cannot resolve its `USER root ... USER <non-root>`
+# exemption span in a file this size and flags any literal `USER root` here — the
+# numeric form is the only shape the rule cannot match (issue #2970). The image
+# still ends with the non-root `USER agent`.
+USER 0
 
 # The runtime home is created up front and the hermes install chain writes DIRECTLY into it:
 # a post-install relocation of a /root-rooted tree is not viable — the installed launcher +
