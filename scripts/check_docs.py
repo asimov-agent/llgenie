@@ -85,6 +85,15 @@ FRAGMENTS = "docs/changes.d"
 DOCS_DIR = "docs"
 WIKI_DIR = "agent-wiki"
 EXCEPTIONS = "tests/fixtures/docs-exceptions.json"
+BOTS_DOC = "docs/BOTS.md"
+# The generated target table lives in docs/BOTS.md between these markers (issue #681), the way
+# the dispatch table does: the user guide is not a place a generator rewrites.
+BOTS_TABLE_BEGIN = "<!-- bots-targets:begin -->"
+BOTS_TABLE_END = "<!-- bots-targets:end -->"
+# A target the prose of docs/BOTS.md names: "`make some-target`". Membership in the generated
+# table is decided by this prose, never by the generated block itself — a table cannot document
+# its own membership.
+MAKE_REF_RE = re.compile(r"`make ([a-z0-9][a-z0-9._%-]*)`")
 
 # `target: ... ## help` — the shape `make help` prints (and so the user-facing surface).
 TARGET_RE = re.compile(r"^([a-z0-9][a-z0-9._-]*%?):[^\n]*##[^\n]*$", re.M)
@@ -168,6 +177,68 @@ def _readme(root: Path) -> str:
     """The README's own text (empty when it does not exist — the caller reports that)."""
     path = root / README
     return path.read_text() if path.exists() else ""
+
+
+def _bots_prose(text: str) -> str:
+    """docs/BOTS.md minus whatever sits inside the generated target-table block."""
+    if BOTS_TABLE_BEGIN in text and BOTS_TABLE_END in text:
+        pre, rest = text.split(BOTS_TABLE_BEGIN, 1)
+        post = rest.split(BOTS_TABLE_END, 1)[1] if BOTS_TABLE_END in rest else ""
+        return pre + post
+    return text
+
+
+def bots_table(root: Path = REPO) -> str:
+    """THE generator of the docs/BOTS.md target table (issue #681): one row per target the
+    prose of docs/BOTS.md names (`make <name>`) that carries a `##` help line, pairing the name
+    with the Makefile's own help text — the text `make help` prints. The render and the
+    staleness check both call this function; there is no second copy of the rule."""
+    targets = _targets(root)
+    path = root / BOTS_DOC
+    prose = _bots_prose(path.read_text()) if path.exists() else ""
+    named = {m.group(1) for m in MAKE_REF_RE.finditer(prose)}
+    rows = ["| target | what it does (the Makefile's `##` help line) |", "|---|---|"]
+    for name in sorted(targets):
+        if name not in named:
+            continue
+        help_text = targets[name].replace("|", "\\|")
+        rows.append(f"| `make {name}` | {help_text} |")
+    return "\n".join(rows)
+
+
+def bots_table_problem(root: Path = REPO) -> str | None:
+    """Why the docs/BOTS.md target table is missing or stale, or None when it is current.
+    A checkout without a docs/BOTS.md at all is not a target-table problem (the docs surface
+    rule already answers that); once the file exists the block must."""
+    path = root / BOTS_DOC
+    if not path.exists():
+        return None
+    text = path.read_text()
+    if BOTS_TABLE_BEGIN not in text or BOTS_TABLE_END not in text:
+        return (f"{BOTS_DOC} has no `{BOTS_TABLE_BEGIN}` … `{BOTS_TABLE_END}` block for the "
+                f"generated target table — render it with `make bots-targets-index` (issue #681)")
+    have = text.split(BOTS_TABLE_BEGIN, 1)[1].split(BOTS_TABLE_END, 1)[0].strip()
+    want = bots_table(root).strip()
+    if have != want:
+        return (f"the {BOTS_DOC} target table is stale — a Makefile `##` help line or the named "
+                f"targets moved; regenerate it with `make bots-targets-index` (issue #681)")
+    return None
+
+
+def bots_table_write(root: Path) -> str | None:
+    """Rewrite the generated block in docs/BOTS.md in place; returns None on success."""
+    path = root / BOTS_DOC
+    if not path.exists():
+        return f"{BOTS_DOC} does not exist"
+    text = path.read_text()
+    if BOTS_TABLE_BEGIN not in text or BOTS_TABLE_END not in text:
+        return (f"{BOTS_DOC} has no `{BOTS_TABLE_BEGIN}` … `{BOTS_TABLE_END}` markers — add the "
+                f"generated section between them first, then re-run")
+    table = bots_table(root)
+    pre, rest = text.split(BOTS_TABLE_BEGIN, 1)
+    post = rest.split(BOTS_TABLE_END, 1)[1]
+    path.write_text(f"{pre}{BOTS_TABLE_BEGIN}\n{table}\n{BOTS_TABLE_END}{post}")
+    return None
 
 
 def _surface(root: Path) -> dict[str, str]:
@@ -289,6 +360,8 @@ def graph(root: Path = REPO) -> dict:
                       for name, text in rule_doc_texts(root).items()},
         "change_headings": [m.group(0).strip() for m in CHANGE_HEADING_RE.finditer(readme)]
                             + [m.group(0).strip() for m in CHANGELOG_HEADING_RE.finditer(readme)],
+        # None when the generated docs/BOTS.md target table matches bots_table(); else why not.
+        "bots_table_stale": bots_table_problem(root),
     }
 
 
@@ -371,6 +444,8 @@ def problems(info: dict) -> list[str]:
                 f"{FRAGMENTS}/<note-stem>.md and {CHANGES} is rendered by `make changes-index` "
                 f"(issue #934); neither the change nor the rule may edit it: …{snippet[-120:]}"
             )
+    if info["bots_table_stale"]:
+        errors.append(info["bots_table_stale"])
     return errors
 
 
@@ -382,6 +457,9 @@ def report(info: dict) -> str:
         f"{len(info['documented'])} documented in {len(info['surface'])} doc(s) "
         f"({', '.join(info['surface'])}), {len(info['undocumented'])} not, "
         f"{len(recorded)} recorded exception(s)",
+        f"[check-docs] {BOTS_DOC} target table: "
+        + ("STALE — " + info["bots_table_stale"] if info["bots_table_stale"]
+           else "current (renders from the Makefile `##` help lines)"),
     ]
     for target in info["undocumented"]:
         mark = "recorded" if target in recorded else "MISSING"
@@ -499,7 +577,7 @@ def change_note_problems(root: Path, base: str) -> "list[str]":
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="check_docs.py", description=__doc__)
-    parser.add_argument("mode", choices=("check", "report"))
+    parser.add_argument("mode", choices=("check", "report", "bots-table", "bots-table-write"))
     parser.add_argument("--root", default=str(REPO),
                         help="checkout to check (default: this file's repo; a test seam)")
     parser.add_argument("--base", default=os.environ.get("CHECK_DOCS_BASE", ""),
@@ -507,6 +585,16 @@ def main(argv: list[str] | None = None) -> int:
                              "resolves origin/main, and the rule is skipped (with a printed note) "
                              "when no base ref is available")
     args = parser.parse_args(argv)
+    if args.mode == "bots-table":
+        print(bots_table(Path(args.root)))
+        return 0
+    if args.mode == "bots-table-write":
+        problem = bots_table_write(Path(args.root))
+        if problem:
+            print(f"[check-docs] ERROR: {problem}", file=sys.stderr)
+            return 1
+        print(f"[check-docs] rewrote the generated target table in {BOTS_DOC}")
+        return 0
     info = graph(Path(args.root))
     if args.mode == "report":
         print(report(info))

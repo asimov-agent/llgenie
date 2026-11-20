@@ -109,6 +109,13 @@ def _referent_problems(ref: str) -> list[str]:
     arch = (REPO_ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     bots_path = REPO_ROOT / "docs" / "BOTS.md"
     bots = bots_path.read_text(encoding="utf-8") if bots_path.exists() else ""
+    # The generated target table (issue #681) is RENDERED text, not prose: it carries every
+    # named target's full ## help verbatim, including sentences that name removed scripts/.
+    # The census reads PROSE claims, so the block between the bots-targets markers is stripped
+    # here exactly as scripts/check_docs.py strips it for its own prose scans.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import check_docs as _cd
+    bots = bots.split(_cd.BOTS_TABLE_BEGIN, 1)[0] + bots.split(_cd.BOTS_TABLE_END, 1)[-1]
     tree = _scripts_tree_names(ref)
     section_names = _scripts_coverage_names(_scripts_section(arch))
     bots_names = _scripts_mentions(_bots_push_fact_paragraph(bots))

@@ -1,0 +1,1 @@
+| 2026-11-20 | docs/BOTS.md carries a generated target table (name + Makefile ## help line) between bots-targets markers; check-docs reddens a stale one and `make bots-targets-index` rewrites it — one generator serves render and check | [note](agent-wiki/2026-11-20-bots-md-target-table-681.md) | #681 |
