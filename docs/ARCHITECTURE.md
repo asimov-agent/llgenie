@@ -621,7 +621,11 @@ step is a make target, so the workflow, a developer and CI run the same command:
 
 The `guard` job runs before any scanner and allows the owner, `github-actions[bot]` on a
 same-repo head, and a collaborator with write; anyone else is refused. The manual form takes
-`tools` (`all` or one scanner) and `enforce` (`full`, or `report`).
+`tools` (`all` or one scanner) and `enforce` (`full`, or `report`). The guard job also runs
+`make check-orphan-commits`: a same-repo remote branch that is the source of a MERGED PR must
+not have its tip moved past the merged head with no open PR and no landing in main — each
+stranded commit fails red naming its branch, sha and merged PR, and `git cherry` patch-id
+equivalence excludes squash-landed content (issue #442).
 
 ## Supply-chain pins
 

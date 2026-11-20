@@ -141,6 +141,10 @@ check-pr-acceptance-body: ## CI: fail when a PR whose OWN `## Acceptance criteri
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
 
+check-orphan-commits: ## CI: fail when a same-repo remote branch is the source of a MERGED PR whose tip moved past the merged head without an open PR or a landing in main — the #413/feat-bot-model-1017 shape; name each orphan commit with its branch and merged PR; residues recorded in data/orphan-baseline.json are named as tolerated (cleanup tracked on issue #442), any new orphan fails (issue #442)
+	python3 scripts/check_orphan_commits.py
+.PHONY: check-orphan-commits
+
 check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
 	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
 
