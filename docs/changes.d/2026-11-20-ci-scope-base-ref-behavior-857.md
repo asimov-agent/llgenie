@@ -1,0 +1,1 @@
+| 2026-11-20 | the ci-scope base-ref fallback is now pinned by executing the step with stubbed `make`/`git` (empty base_ref ⇒ `origin/main`, with the fallback audible) instead of grepping its shell syntax, with planted variants proving the pins fail when the behaviour goes | [note](agent-wiki/2026-11-20-ci-scope-base-ref-behavior-857.md) | #857 |
