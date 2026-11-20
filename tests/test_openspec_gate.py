@@ -51,3 +51,43 @@ def test_the_loop_validates_all_changes_without_a_name():
     assert "llama-ai-tooling" not in src
     assert "openspec-validate-all" in src
     assert "openspec-validate" in stage
+
+
+def test_openspec_run_writes_as_the_invoking_user():
+    """issue #433: the OpenSpec CLI run WRITES into the mounted repo, so it must
+    map to the invoking uid:gid like TEST_OPTS does — never `-u root`."""
+
+    # Given the Makefile seam definitions
+    mk = makefiles_text()
+
+    # When  the two write-path option variables are read
+    os_opts = next(l for l in mk.splitlines() if l.startswith("OS_OPTS :="))
+    test_opts = next(l for l in mk.splitlines() if l.startswith("TEST_OPTS :="))
+
+    # Then  both map the invoking uid:gid, OS_OPTS carries no -u root,
+    # and the CLI gets a world-writable HOME on the mapped uid
+    for line in (os_opts, test_opts):
+        assert "id -u" in line and "id -g" in line, line
+        assert "-u root" not in line, line
+    assert "-e HOME=/tmp" in os_opts
+
+
+def test_only_the_carved_out_stages_run_as_root():
+    """issue #433 / #2563: exactly the docker.sock engine stage and the
+    root-tree cleaner may mount the repo as root, each named by variable."""
+
+    # Given every root-user container run in the Makefile seams
+    mk = makefiles_text()
+    root_runs = {
+        line.split(":", 1)[0].split()[0]
+        for line in mk.splitlines()
+        if ":=" in line and "-u root" in line
+    }
+
+    # When  the set is compared to the carved-out pair
+    # Then  no other definition runs root (OS_OPTS joined the mapped side)
+    assert root_runs == {"ENGINE_TEST_ARGS", "CI_HOME_CLEAN"}
+
+    # And   no mk/*.mk recipe hardcodes a root run around the variables
+    for mk_file in (REPO / "mk").glob("*.mk"):
+        assert "-u root" not in mk_file.read_text(), mk_file.name

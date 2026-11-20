@@ -493,7 +493,13 @@ version: ## Show numpy/gguf versions inside the venv
 # this repository. This is the checklist-of-record for agent work: every step
 # you implement maps to a task in openspec/changes/<name>/tasks.md.
 
-OS_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo $(OS_IMG)
+# Non-root OpenSpec runs (issue #433): the CLI WRITES into the mounted repo
+# (openspec/changes/<name>/), so this run maps to the uid:gid that owns the
+# checkout — the same seam TEST_OPTS proved (issue #2563). HOME=/tmp is the
+# world-writable spot the Node CLI writes to on the mapped uid (the image's
+# USER 65532 has no writable home otherwise). The engine stages that need the
+# root-only docker.sock keep `-u root` on purpose (see below).
+OS_OPTS := --rm -u "$(shell id -u):$(shell id -g)" -v "$(REPO)":/repo:rw -w /repo -e HOME=/tmp $(OS_IMG)
 # Same pin as openspec/Dockerfile ARG OPENSPEC_VERSION. macOS has no Docker, so
 # openspec-validate installs this CLI instead of `docker run` (issue #120).
 OPENSPEC_VERSION := 1.10.0
