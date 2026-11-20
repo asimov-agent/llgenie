@@ -26,6 +26,12 @@ sys.path.insert(0, str(REPO / "scripts"))
 import ci_scope as cs  # noqa: E402
 from conftest import ci_unit_expanded, makefiles_text  # noqa: E402  (include-resolving reader + ci-unit seam reader, issue #2458/#2675)
 
+# The executed-fallback pins below drive subprocesses; imported after the recorded sys.path
+# bootstrap (line 25 is the site pinned by check-import-roots' ratchet, issue #796/#1101).
+import os  # noqa: E402
+import re  # noqa: E402
+import subprocess  # noqa: E402
+
 CI = REPO / ".github" / "workflows" / "ci.yml"
 
 
@@ -376,3 +382,91 @@ def test_select_every_real_class_still_returns_every_job():
 
     assert len(rows) == len(cs.JOBS)
     assert all(runs for _, runs, _ in rows)
+
+
+# ---- issue #857: the base-ref fallback is pinned by behaviour, not spelling -------
+#
+# The step used to be pinned by grepping its syntax (`${EVENT_BASE_REF:-main}`), which reds on any
+# correct rewrite while proving nothing about what the step must DO. The pins below EXECUTE the
+# step's `run:` body with `make`/`git` stubbed to record their argv: they survive any re-spelling —
+# including moving the resolution into `scripts/` — and fail when the behaviour itself goes away.
+
+SCOPE = REPO / ".github" / "workflows" / "scope.yml"
+
+
+def _classify_step_body() -> str:
+    """The `run:` body of the scope job's `make ci-scope` step, verbatim."""
+    workflow = yaml.safe_load(SCOPE.read_text())
+    for step in workflow["jobs"]["scope"]["steps"]:
+        run = step.get("run", "")
+        if "make ci-scope" in run:
+            return run
+    raise AssertionError("the scope job has no `make ci-scope` step")
+
+
+def _run_step(body: str, base_ref: str, event_name: str, tmp_path: Path):
+    """Execute the step body as the runner would: `${{ … }}` evaluated, stub make/git on PATH.
+
+    Returns (stdout, recorded calls); each stub appends `tool argv…` to a record file.
+    """
+    text = (body.replace("${{ github.base_ref }}", base_ref)
+                .replace("${{ github.event_name }}", event_name))
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    record = tmp_path / "calls.txt"
+    for tool in ("make", "git"):
+        stub = bin_dir / tool
+        stub.write_text(f'#!/bin/sh\necho "{tool} $*" >> "{record}"\nexit 0\n')
+        stub.chmod(0o755)
+    proc = subprocess.run(
+        ["bash", "-c", text],
+        capture_output=True, text=True, cwd=tmp_path, timeout=60,
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"},
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    return proc.stdout, record.read_text().splitlines() if record.exists() else []
+
+
+def _scope_call(calls: list[str]) -> str:
+    hits = [c for c in calls if c.startswith("make ci-scope")]
+    assert hits, calls
+    return hits[0]
+
+
+def test_an_event_without_a_base_ref_resolves_to_origin_main(tmp_path):
+    """Property 1 (resolution): empty base_ref ⇒ the classifier is handed origin/main."""
+    _, calls = _run_step(_classify_step_body(), "", "workflow_dispatch", tmp_path)
+    assert "BASE=origin/main" in _scope_call(calls), calls
+
+
+def test_the_fallback_says_which_event_left_it_empty(tmp_path):
+    """Property 2 (visibility): the silent fallback is the failure mode this repo keeps paying for."""
+    out, _ = _run_step(_classify_step_body(), "", "workflow_dispatch", tmp_path)
+    assert "No github.base_ref for event 'workflow_dispatch'" in out, out
+
+
+def test_an_event_that_carries_a_base_ref_needs_no_fallback(tmp_path):
+    out, calls = _run_step(_classify_step_body(), "feat/x", "pull_request", tmp_path)
+    assert "BASE=origin/feat/x" in _scope_call(calls), calls
+    assert "No github.base_ref" not in out, out
+
+
+def test_a_body_that_dropped_the_fallback_block_resolves_to_nothing(tmp_path):
+    """Negative control: removing the `if [ -z ]` block must red the resolution pin."""
+    body = _classify_step_body()
+    planted = re.sub(r'if \[ -z "\$BASE" \]; then\n.*?\nfi\n', "", body, flags=re.S)
+    assert planted != body, "the planted variant did not remove the fallback block"
+    _, calls = _run_step(planted, "", "workflow_dispatch", tmp_path)
+    assert "BASE=origin/main" not in _scope_call(calls), calls
+    assert "BASE=origin/" in _scope_call(calls), calls
+
+
+def test_a_body_that_dropped_the_fallback_log_line_loses_visibility(tmp_path):
+    """Negative control: resolution alone is not enough — the why must stay audible."""
+    body = _classify_step_body()
+    planted = "\n".join(line for line in body.splitlines()
+                        if "No github.base_ref for event" not in line)
+    assert planted != body, "the planted variant did not remove the echo line"
+    out, calls = _run_step(planted, "", "workflow_dispatch", tmp_path)
+    assert "BASE=origin/main" in _scope_call(calls), calls
+    assert "No github.base_ref" not in out, out
