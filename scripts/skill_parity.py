@@ -64,7 +64,7 @@ def tree_skill_dirs(root: Path, profile: str) -> list[Path]:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_agent_profiles import holds_a_profile  # noqa: E402  same layer (structural gates)
+from check_agent_profiles import holds_a_profile, _iso, run_stamp  # noqa: E402  same layer (structural gates)
 
 
 def live_skills_root(root: Path = REPO) -> Path | None:
@@ -173,11 +173,27 @@ def profile_drift(root: Path = REPO):
                                 if not _bookkeeping(n) and n not in library)
         tree_only_dirs = sorted(n for n in (tree_names - live_names)
                                 if not _bookkeeping(n) and n not in library)
+        # #2972: the OK verdict needs the same datable stamp as a finding — what this comparison
+        # actually read (live∩tree file pairs) and the live mtimes it measured, so a green run can
+        # be dated against a later re-read of the live tree. Rels are per mirrored dir, so each
+        # pair's live path is resolved against its own `live_dir`.
+        common: list[Path] = []
+        for tdir in surface:
+            rel = str(tdir.relative_to(root / "agents" / name / "skills"))
+            if rel in ("", "."):
+                continue
+            live_dir = live_skills / rel
+            if not live_dir.is_dir():
+                continue
+            common += [live_dir / r for r in _rel_files(live_dir) & _rel_files(tdir)]
+        newest = max((p.stat().st_mtime for p in common if p.is_file()), default=None)
         report[name] = {
             "live_only_files": sorted(live_files - tree_files),
             "tree_only_files": sorted(tree_files - live_files),
             "live_only_dirs": live_only_dirs,
             "tree_only_dirs": tree_only_dirs,
+            "compared_pairs": len(common),
+            "newest_live_mtime": newest,
         }
     return report
 
@@ -218,7 +234,16 @@ def report(root: Path = REPO) -> int:
     print(f"[skill-parity] comparing agents/<profile>/skills/ against live profiles at `{homes}` "
           f"(read-only, tree-mirrored skills only) ")
     if not rows:
-        print("[skill-parity] OK: every llgenie profile's mirrored live skills match the tree")
+        # The OK line carries the same datable stamp as a finding (#2972): pair count, the live
+        # mtimes the comparison measured, and this run's start.
+        pairs = sum(d.get("compared_pairs", 0) for d in (drift or {}).values())
+        mtimes = [d["newest_live_mtime"] for d in (drift or {}).values()
+                  if d.get("newest_live_mtime") is not None]
+        stamp = (f" — stamped: {pairs} compared skill file(s), newest live mtime "
+                 f"{_iso(max(mtimes))}, run started {run_stamp()}" if mtimes else
+                 " — stamped: nothing compared (no mirrored skill surface was present)")
+        print("[skill-parity] OK: every llgenie profile's mirrored live skills match the tree"
+              + stamp)
         return 0
     for row in rows:
         print(f"  - {row}")

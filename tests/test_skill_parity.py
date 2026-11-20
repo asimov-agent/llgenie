@@ -64,3 +64,27 @@ def test_no_live_profiles_is_not_a_failure(tmp_path, monkeypatch):
     repo = _setup(tmp_path, monkeypatch)
     monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "absent"))
     assert sp.check(repo) == 0
+
+
+def test_the_green_ok_line_is_stamped_like_a_finding(tmp_path, monkeypatch, capsys):
+    """#2972: a green skill-parity line names what it compared and when: pair count, newest live
+    mtime (UTC ISO), and the run start — so staleness is visible without re-running the gate."""
+    import re
+    repo = tmp_path / "repo"
+    (repo / "agents" / "p1" / "skills" / "s").mkdir(parents=True)
+    (repo / "agents" / "p1" / "skills" / "s" / "SKILL.md").write_text("# s\n")
+    (repo / "agents" / "manifest.json").write_text(json.dumps(
+        {"profiles": [{"name": "p1", "rules": []}]}))
+    homes = tmp_path / "profiles"
+    (homes / "p1" / "skills" / "s").mkdir(parents=True)
+    (homes / "p1" / "SOUL.md").write_text("# p1\n")
+    (homes / "p1" / "skills" / "s" / "SKILL.md").write_text("# s\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(homes))
+    monkeypatch.delenv("HERMES_PROFILE_HOME", raising=False)
+
+    assert sp.report(repo) == 0
+    out = capsys.readouterr().out
+    assert "OK: every llgenie profile" in out, out
+    assert "stamped: 1 compared skill file(s)" in out, out
+    assert re.search(r"newest live mtime \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", out), out
+    assert "run started" in out, out

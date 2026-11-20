@@ -1,0 +1,1 @@
+| 2026-11-20 | Live-profile gates now stamp every comparison with the live file state they measured — findings and the OK line carry live size, live mtime (UTC ISO) and the run start, so a verdict can be dated against a later re-read | [note](agent-wiki/2026-11-20-live-profile-mtime-stamp-2972.md) | #2972 |
