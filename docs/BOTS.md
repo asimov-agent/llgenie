@@ -519,6 +519,10 @@ none. The gate therefore prints a counted line rather than a bare green:
 On a host that has them the same line carries the real count, and `make profile-drift` (`check --only live-longer`)
 is the caller for that half: it exits non-zero listing each stale copy with both sizes, so drift has something to
 run it other than memory. In CI, `--summary` writes the count into the job summary for the same reason.
+The live side is measured through ONE snapshot pass per run (issue #2979): each compared live file is read once,
+and every finding names that snapshot — `live snapshot <sha12>` next to its size and mtime — while the OK line
+names the manifest (`snapshot manifest N file(s) digest <sha12>`). A live home rewritten mid-run cannot change a
+finding: the digest printed is the bytes the run actually compared.
 
 `make profile-drift-alarm` (`scripts/profile_drift_alarm.py`) is the caller a timer can run: exit `0` clean,
 `3` drift, `2` could-not-compare, and with `--file-issue` it opens **one** issue titled
