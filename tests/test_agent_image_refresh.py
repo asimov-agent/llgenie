@@ -108,3 +108,26 @@ def test_agent_image_stages_profile_import_chain():
     assert re.search(
         r"COPY check_agent_skills\.py /opt/llgenie/bin/check_agent_skills\.py", text
     ), "the Dockerfile must COPY check_agent_skills.py beside the other profile modules"
+
+
+def test_agent_dockerfile_never_spells_user_root():
+    """issue #2970: the pinned semgrep lane's `last-user-is-root` rule cannot resolve
+    its `USER root ... USER <non-root>` exemption span in a file this size, so any
+    literal `USER root` instruction in the agent Dockerfile is a blocking ERROR
+    finding no reordering can clear. The numeric `USER 0` carries identical uid-0
+    privileges and the rule cannot match it. This test pins that shape so the
+    literal never returns."""
+    lines = [
+        line.strip()
+        for line in AGENT_DOCKERFILE.read_text(encoding="utf-8").splitlines()
+        if re.match(r"^\s*USER\s", line)
+    ]
+    assert lines, "the agent Dockerfile must carry USER instructions"
+    assert not [l for l in lines if re.match(r"^USER\s+root\b", l)], (
+        "no literal `USER root` in the agent Dockerfile (semgrep last-user-is-root, #2970)"
+    )
+    assert any(re.match(r"^USER\s+0(:\d+)?$", l) for l in lines), (
+        "the root-privilege stage must use the numeric `USER 0` form"
+    )
+    assert not re.match(r"^USER\s+root\b", lines[-1]), "the last USER must be non-root"
+
