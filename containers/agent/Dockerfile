@@ -87,6 +87,14 @@ ARG HERMES_INSTALL_COMMIT="ae2a81ccc00e9b7c06301523e5bb09608397149c"   # peeled 
 # scripts/agent_model_pin.py (make check-agent-model) refuses an ARGS list that does not
 # pass ${HERMES_INSTALL_COMMIT} to install.sh (issue #2932).
 ARG HERMES_INSTALL_ARGS="--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}"
+# The fetched installer's CONTENT is a pinned input too (issue #2958): the --commit pin
+# selects WHICH Hermes install.sh installs, but the script itself arrives over an
+# unversioned URL and whoever answers that URL chooses the bytes every build executes.
+# scripts/install_hermes_ci.sh verifies the downloaded script against this sha256 before
+# running it and fails the build on mismatch. When the upstream installer legitimately
+# changes, re-measure with `curl -fsSL <url> | sha256sum` and bump this ARG in the same
+# commit — the Dockerfile is a hash input, so the image tag moves with the pin.
+ARG HERMES_INSTALL_SCRIPT_SHA="c73dad4dcf7c9ecadb98578e28cc763d23d7be3fa1b513545319038795493214"
 # The Nerve plugin pin and the provider it supervises through (see the header, issue #238).
 ARG HERMES_NERVE_PLUGIN="keeltrace/hermes-nerve"
 ARG HERMES_NERVE_REF="3de7d94982b7a2cb87c829e4b2366ced927d8fed"   # keeltrace/hermes-nerve v0.3.1
@@ -159,6 +167,7 @@ COPY check_agent_skills.py /opt/llgenie/bin/check_agent_skills.py
 COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_INSTALL_ARGS=${HERMES_INSTALL_ARGS} \
+    HERMES_INSTALL_SCRIPT_SHA=${HERMES_INSTALL_SCRIPT_SHA} \
     HERMES_VERSION=${HERMES_VERSION} \
     HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \
     HERMES_NERVE_PROVIDER=${HERMES_NERVE_PROVIDER} \

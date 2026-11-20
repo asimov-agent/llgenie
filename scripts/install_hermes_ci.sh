@@ -21,11 +21,29 @@ if command -v hermes >/dev/null 2>&1; then
 else
   if [ -n "${HERMES_INSTALL_URL:-}" ]; then
     echo "[hermes-ci] installing from HERMES_INSTALL_URL"
+    # issue #2958: the fetched installer is verified against a pinned content hash BEFORE
+    # it runs. HERMES_INSTALL_COMMIT pins which Hermes the script installs; nothing pinned
+    # the script's own bytes, so whoever answers the URL chose what every build executes.
+    # With HERMES_INSTALL_SCRIPT_SHA set, a content mismatch fails the build HERE.
+    installer_tmp="$(mktemp)"
+    curl -fsSL "$HERMES_INSTALL_URL" -o "$installer_tmp"
+    if [ -n "${HERMES_INSTALL_SCRIPT_SHA:-}" ]; then
+      got_sha="$(sha256sum "$installer_tmp" | cut -d' ' -f1)"
+      if [ "$got_sha" != "$HERMES_INSTALL_SCRIPT_SHA" ]; then
+        echo "[hermes-ci] install script content drift: sha256 ${got_sha} != pinned ${HERMES_INSTALL_SCRIPT_SHA}; refusing to run the fetched installer" >&2
+        rm -f "$installer_tmp"
+        exit 1
+      fi
+      echo "[hermes-ci] install script verified against pinned sha256 ${got_sha}"
+    else
+      echo "[hermes-ci] WARNING: HERMES_INSTALL_SCRIPT_SHA unset — the fetched installer runs UNVERIFIED" >&2
+    fi
     # HERMES_INSTALL_ARGS is word-split on purpose: it is a flag list for install.sh,
     # not one quoted string. The agent Dockerfile defaults it to
     # `--skip-browser --skip-computer-use --commit ${HERMES_INSTALL_COMMIT}` (issues
     # #2836, #2932) — the --commit is what makes the installed Hermes a named release.
-    curl -fsSL "$HERMES_INSTALL_URL" | bash -s -- ${HERMES_INSTALL_ARGS:-}
+    bash "$installer_tmp" ${HERMES_INSTALL_ARGS:-}
+    rm -f "$installer_tmp"
   elif command -v uv >/dev/null 2>&1; then
     echo "[hermes-ci] installing with uv (HERMES_PACKAGE=${HERMES_PACKAGE:-hermes-agent})"
     uv tool install --quiet "${HERMES_PACKAGE:-hermes-agent}"

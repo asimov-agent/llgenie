@@ -65,9 +65,33 @@ def test_install_script_forwards_hermes_args():
     # Given the CI Hermes install seam
     text = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
-    # Then the installer receives the forwarded flag list
-    assert re.search(r"bash -s -- \$\{HERMES_INSTALL_ARGS:-\}", text), \
+    # Then the installer receives the forwarded flag list (issue #2958: the fetched
+    # script runs from a verified temp file, not straight off the pipe)
+    assert re.search(r'bash "\$installer_tmp" \$\{HERMES_INSTALL_ARGS:-\}', text), \
         "install_hermes_ci.sh must forward HERMES_INSTALL_ARGS to install.sh"
+
+
+def test_installer_content_is_pinned_and_verified():
+    """issue #2958: the Hermes installer is fetched over an unversioned URL. Its content
+    must be checked against a pinned sha256 BEFORE the build runs it: a mismatch fails
+    the install step instead of shipping into every agent:<hash> image."""
+    # Given the pin in the image definition and the check in the install seam
+    docker = AGENT_DOCKERFILE.read_text(encoding="utf-8")
+    arg = re.search(r'ARG HERMES_INSTALL_SCRIPT_SHA="([0-9a-f]{64})"', docker)
+    assert arg, "the Dockerfile must pin the installer content with a sha256 ARG"
+    assert re.search(r"HERMES_INSTALL_SCRIPT_SHA=\$\{HERMES_INSTALL_SCRIPT_SHA\}", docker), \
+        "the pin must reach the install step via ENV"
+
+    # When  the install script's URL path is read in statement order
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+    fetch = script.find('curl -fsSL "$HERMES_INSTALL_URL" -o "$installer_tmp"')
+    verify = script.find('got_sha="$(sha256sum "$installer_tmp"')
+    run = script.find('bash "$installer_tmp"')
+
+    # Then  fetch lands to a file, verification precedes execution, drift exits non-zero
+    assert fetch != -1 and verify != -1 and run != -1, "fetch/verify/run statements missing"
+    assert fetch < verify < run, "verify must happen BEFORE the fetched script runs"
+    assert "exit 1" in script[verify:run], "a content mismatch must fail the install step"
 
 
 def test_agent_image_stages_profile_import_chain():
