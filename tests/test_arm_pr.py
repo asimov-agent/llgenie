@@ -21,6 +21,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import gh_fake  # the shared fake-gh field guard (issue #2975)
+
 SCRIPT = (
     Path(__file__).resolve().parent.parent
     / "agents"
@@ -58,6 +60,7 @@ class FakeGH:
         vm = "\n".join(f"{n}) printf %s {shlex.quote(json.dumps(c))}; exit 0 ;;"
                        for n, c in (view_map or {}).items())
         script = f"""#!/bin/bash
+python3 {shlex.quote(gh_fake.module_path())} "$@" || exit 1
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then printf %s '{checks}'; exit 0; fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit {merge_rc}; fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
@@ -241,3 +244,18 @@ def test_all_sweep_propagates_exit_964_defect(tmp_path):
     assert "autoMergeRequest is STILL absent" in out.stdout
     assert "NOT success" in out.stdout
 
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's bash fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request():
+    tmp = Path(tempfile.mkdtemp())
+    fgh = FakeGH(tmp)
+    boom = subprocess.run(
+        [str(fgh.gh), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

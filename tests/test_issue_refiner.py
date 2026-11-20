@@ -23,6 +23,8 @@ from scripts import bot_claims as bc
 from scripts import issue_refiner as ir
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
+
 OWNER, NAME = "asimov-agent", "llgenie"
 
 
@@ -39,6 +41,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 REFINED = {json.dumps(refined_today)}
 QUEUED = json.loads({json.dumps(__import__("json").dumps(queued))})
@@ -394,3 +397,23 @@ def test_dry_run_writes_nothing_into_the_checkout(tmp_path, capsys):
     # And   the real run still writes it
     ir.pick(str(gh), f"{OWNER}/{NAME}", dry=False, out_path=out)
     assert out.exists() and out.read_text().strip()
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh, _log = _fake_gh(tmp_path)
+    boom = subprocess.run(
+        [str(gh), "issue", "view", "515", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr
+    ok = subprocess.run(
+        [str(gh), "issue", "list", "--repo", "asimov-agent/llgenie",
+         "--json", "number,title,labels"],
+        capture_output=True, text=True,
+    )
+    assert ok.returncode == 0

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +27,8 @@ from scripts import verify_closure as vc
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text()
 MERGE_WF = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
+
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
 MAKEFILE = makefiles_text()
 README = (REPO / "README.md").read_text()
 #: The documentation surface (issue #678): the user guide plus the reference pages it links.
@@ -81,6 +84,7 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
     runs_default = [{"status": "completed", "conclusion": "success"}]
     gh.write_text(f'''#!{sys.executable}
 import json, os, pathlib, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -523,16 +527,21 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
 # ---- only fields `gh pr view` actually has (issue #513) ----------------------
 
 def test_every_requested_field_is_in_ghs_own_allowlist():
-    """A field name `gh` does not have kills the run before the decision, so the list is locked."""
+    """A field name `gh` does not have kills the run before the decision, so the list is locked.
 
-    # Given the allowlist captured from a real `gh pr view --json __probe__`
-    fixture = json.loads((REPO / "tests" / "fixtures" / "gh-pr-view-fields.json").read_text())
+    Issue #2975 re-homed this validation onto the shared seam (`tests/gh_fake.py` +
+    `tests/fixtures/gh-json-fields.json`) so it checks the same roster the fake enforces;
+    the pinned behaviour (subset check, `authorAssociation` absence, real-gh provenance) is unchanged.
+    """
+
+    # Given the allowlist captured from real `gh … --json __probe__` via the shared seam
+    data = json.loads((REPO / "tests" / "fixtures" / "gh-json-fields.json").read_text())
+    allow = set(gh_fake.load_allowlists()["pr view"])
 
     # When  the module's requested field names are read
     # Then  every one of them exists in gh, and the invented field is gone from both
-    allow = set(fixture["fields"])
-    assert fixture["command"] == "gh pr view --json __probe__", fixture
-    assert fixture["gh_version"].startswith("gh version "), fixture
+    assert data["gh_version"].startswith("gh version "), data
+    assert data["source"].startswith("gh <cmd> --json __probe__"), data
     assert "authorAssociation" not in allow, "the fixture was not captured from gh"
     for field in am.PR_VIEW_FIELDS:
         assert field in allow, f"`gh pr view --json {field}` does not exist: {sorted(allow)}"
@@ -2783,3 +2792,17 @@ def test_an_unfinished_newer_row_does_not_clear_an_older_red(tmp_path):
     assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
     body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
     assert "5001" in body and "scope" in body, body
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh = _fake_gh(tmp_path, _state())
+    boom = subprocess.run(
+        [str(gh), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

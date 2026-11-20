@@ -21,6 +21,8 @@ REPO = Path(__file__).resolve().parents[1]
 REACTOR = REPO / "scripts" / "run_failure_reactor.py"
 from scripts import run_failure_reactor as reactor
 
+import gh_fake  # the shared fake-gh field guard (issue #2975)
+
 OWNER = "asimov-agent"
 
 
@@ -54,6 +56,7 @@ def gh_stub(tmp_path: Path, run: dict, prs: list[dict], comments: dict | None = 
     gh = bin_dir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import json, pathlib, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 sc = json.loads(pathlib.Path("{scenario}").read_text())
 a = sys.argv[1:]
 import os
@@ -796,3 +799,17 @@ def test_a_cancelled_run_is_not_folded_into_the_timed_out_route(tmp_path):
     calls = log.read_text().splitlines()
     assert not [c for c in calls if c.startswith("issue create")], calls
     assert not [c for c in calls if "workflow run" in c], calls
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh_stub(tmp_path, {}, [])
+    boom = subprocess.run(
+        [str(tmp_path / "bin" / "gh"), "run", "view", "1", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

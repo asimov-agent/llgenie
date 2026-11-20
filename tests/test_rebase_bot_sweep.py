@@ -23,6 +23,8 @@ REPO = Path(__file__).resolve().parent.parent
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 from scripts import rebase_bot_sweep as rb
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
+
 OWNER, NAME = "asimov-agent", "llgenie"
 
 
@@ -53,6 +55,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 here = pathlib.Path(__file__).parent
 with open({str(log)!r}, "a") as fh:
@@ -1458,3 +1461,24 @@ def test_a_crash_line_without_a_pr_number_posts_nothing():
     posted = []
     assert rb.surface_crashes("gh", "o/r", ["the PR list could not be read"], lambda gh, args: posted.append(args)) == []
     assert posted == []
+
+
+# ------------------------------------------------------------------------------------- #2975
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    """The guard covers the pr|issue|run roster exactly like the scanner: a
+    bad field on `pr view` dies like real gh, and the leg's real
+    `gh search prs --json number` stays a valid answer."""
+    gh, _log = _fake_gh(tmp_path)
+    boom = subprocess.run(
+        [str(gh), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr
+    ok = subprocess.run(
+        [str(gh), "search", "prs", "--repo", "asimov-agent/llgenie",
+         "--updated", ">=2026-10-14", "--json", "number", "--limit", "50"],
+        capture_output=True, text=True,
+    )
+    assert ok.returncode == 0

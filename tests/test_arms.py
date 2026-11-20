@@ -10,6 +10,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 import check_arms as am
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
+
 
 def _run(args: list[str], monkeypatch) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(REPO / "scripts" / "check_arms.py"), *args],
@@ -22,6 +24,7 @@ def _fake_gh(tmp_path: Path, prs: list[dict]) -> Path:
     gh = bindir / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 if sys.argv[1:3] == ["pr", "list"]:
     print({json.dumps(prs)!r})
     sys.exit(0)
@@ -155,3 +158,17 @@ def test_finished_unarmed_decision_branches_on_the_right_fields():
     assert am.finished_unarmed(_pr(1, checks=RED)) is False  # red CI, not finished work
     assert am.finished(_pr(1, checks=IN_CI)) is False  # mid-CI is not finished (#2378)
     assert am.finished(_pr(1)) is True  # green + mergeable + main-based + non-draft is finished
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    bindir = _fake_gh(tmp_path, [])
+    boom = subprocess.run(
+        [str(bindir / "gh"), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

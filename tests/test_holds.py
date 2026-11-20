@@ -24,6 +24,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / "scripts" / "check_holds.py"
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
+
 
 def run(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
@@ -133,6 +135,7 @@ def _fake_gh_binary(tmp_path: Path, comments: list[dict], api_exit: int = 0) -> 
     gh = bindir / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -271,3 +274,17 @@ def test_a_held_pr_whose_proof_binds_to_the_current_head_is_not_superseded(tmp_p
     assert "superseded-proof" not in out.stdout, out.stdout
     # it still has no remedy, so it is the ordinary gate-red shape (a real board reader must still see it)
     assert "#1251" in out.stdout, out.stdout
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    bindir = _fake_gh_binary(tmp_path, [])
+    boom = subprocess.run(
+        [str(bindir / "gh"), "pr", "view", "904", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

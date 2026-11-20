@@ -1,0 +1,1 @@
+| 2026-11-20 | Every bot fake-gh in `tests/` now refuses `--json` field names real gh lacks (shared `tests/gh_fake.py` seam, 15 responder files migrated, one red pin each) | [note](agent-wiki/2026-11-20-fake-gh-field-refusal-2975.md) | #2975 |

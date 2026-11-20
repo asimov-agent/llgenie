@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import gh_fake  # the shared fake-gh field guard (issue #2975)
+
 REPO = Path(__file__).resolve().parents[1]
 SEAM = REPO / "scripts" / "pr_body_write.py"
 FIX_BOT_YML = REPO / ".github" / "workflows" / "fix-bot.yml"
@@ -77,6 +79,7 @@ def gh_stub(tmp_path: Path) -> Path:
     gh = bin_dir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import pathlib, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 a = sys.argv[1:]
 with open("{log}", "a") as fh:
     print(" ".join(a), file=fh)
@@ -163,3 +166,17 @@ def test_fix_bot_repairs_through_the_seam(tmp_path: Path) -> None:
     # the seam is wired to a target CI can run (AGENTS.md: workflows call make, never scripts)
     assert "\nbot-body-write: ##" in (REPO / "mk" / "bots.mk").read_text()
     assert ".PHONY: bot-body-write" in (REPO / "Makefile").read_text()
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh_stub(tmp_path)
+    boom = subprocess.run(
+        [str(tmp_path / "bin" / "gh"), "pr", "view", "7", "--repo", "octo/wheel",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

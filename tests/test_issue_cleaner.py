@@ -25,6 +25,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 from scripts import issue_cleaner as cleaner
 
+import gh_fake  # the shared fake-gh field guard (issue #2975)
+
 OWNER = "asimov-agent"
 
 
@@ -117,6 +119,7 @@ def gh_stub(tmp_path: Path, merged: list[dict], issues: list[dict]) -> Path:
     gh = bin_dir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import json, pathlib, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 sc = json.loads(pathlib.Path("{scenario}").read_text())
 a = sys.argv[1:]
 with open("{log}", "a") as fh:
@@ -395,3 +398,17 @@ def test_a_close_behind_open_list_position_200_is_still_seen(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "closed #2847" in r.stdout
     assert "issue close 2847" in (tmp_path / "gh-calls").read_text()
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh_stub(tmp_path, [], [])
+    boom = subprocess.run(
+        [str(tmp_path / "bin" / "gh"), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr
