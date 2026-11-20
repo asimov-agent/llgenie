@@ -1,0 +1,1 @@
+| 2026-11-20 | the agent-profiles live-root probe survives unreadable live directories instead of aborting the whole gate: a typo'd profiles home is rejected with the rejected directory named in the skip line, and `skill_parity` now reads the root through the same hardened probe | [note](agent-wiki/2026-11-20-agent-profiles-live-root-probe-923.md) | #923 |

@@ -1920,6 +1920,109 @@ def test_the_ok_line_carries_the_caveat_when_the_comparison_is_skipped(tmp_path,
     out = capsys.readouterr().out
     assert "OK:" in out and "tree checks only, LIVE RULEBOOKS NOT COMPARED" in out, out
 
+# --- live-root probe hardening: an unreadable answer is an answer, not an exception (issue #923) -------
+
+
+def test_the_live_root_probe_tolerates_an_unreadable_candidate(tmp_path, monkeypatch, capsys):
+    """#923 AC1: a live candidate that cannot be READ is not a profile and not a gate failure.
+
+    pathlib does NOT swallow EACCES on `is_file`/`is_dir`/`iterdir` (measured on 3.11), so a probe
+    that walks the profiles home crashes the WHOLE gate on the first mode-000 entry — the exact
+    abort #923 measured when a typo resolved to `/` and the walk hit `/boot`. The real profile must
+    still be found and compared through the same probe.
+    """
+
+    # Given a mirror tree + live profile, plus a live directory nothing on this host may read
+    root, _agents, profiles = _mirror(tmp_path)
+    locked = profiles / "locked"
+    locked.mkdir(parents=True)
+    (locked / "SOUL.md").write_text("# hidden\n")
+    locked.chmod(0o000)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(profiles))
+    try:
+        # When  the gate runs
+        rc = guard.main(["check", "--root", str(root)])
+
+        # Then  it finished, compared the real profile, and checked the unreadable one as absent
+        assert rc == 0, capsys.readouterr()
+    finally:
+        locked.chmod(0o755)  # so pytest can remove the fixture tree
+
+
+def test_an_unlistable_base_skips_and_names_the_directory_it_rejected(tmp_path, monkeypatch, capsys):
+    """#923 AC1+AC4: a base whose answer is unavailable takes the skip path, naming ITSELF.
+
+    A mode-111 directory is walkable but not listable: the probe cannot even enumerate candidates,
+    so the base cannot answer the question and must NOT be accepted as "the profiles home". The
+    SKIPPED line must name the rejected directory, not just the variable.
+    """
+
+    # Given a mirror whose live profiles home cannot be listed
+    root, _agents, profiles = _mirror(tmp_path)
+    profiles.chmod(0o111)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(profiles))
+    try:
+        # When  the gate runs
+        rc = guard.main(["check", "--root", str(root)])
+        captured = capsys.readouterr()
+
+        # Then  it skipped, naming the base it rejected and the env var it read
+        assert rc == 0, captured
+        err, out = captured.err, captured.out
+        assert "SKIPPED" in err, err
+        assert str(profiles) in err, err
+        assert "$HERMES_PROFILES_HOME" in err, err
+        assert "tree checks only, LIVE RULEBOOKS NOT COMPARED" in out, out
+    finally:
+        profiles.chmod(0o755)
+
+
+def test_a_rejected_base_from_the_single_profile_var_names_its_parent(tmp_path, monkeypatch, capsys):
+    """The very env reading that produced #923 must now skip LOUDLY instead of walking the parent.
+
+    `$HERMES_PROFILE_HOME` names ONE profile's home, so its parent is the profiles home — but when
+    that parent holds no `<name>/SOUL.md` (a typo: `/nonexistent-home` → `/`), the old code accepted
+    the parent anyway and the gate walked the wrong tree. Now the reading is rejected AND the SKIPPED
+    line states which parent directory was rejected.
+    """
+
+    # Given a typo pointing at a profile home under a directory that holds no profiles
+    root, _agents, _profiles = _mirror(tmp_path)
+    typo = tmp_path / "typo-parent" / "someone-typo-home"
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(typo))
+    monkeypatch.delenv("HERMES_PROFILES_HOME", raising=False)
+
+    # When  the gate runs
+    assert guard.main(["check", "--root", str(root)]) == 0
+
+    # Then  the skip names the parent it rejected
+    err = capsys.readouterr().err
+    assert "SKIPPED" in err, err
+    assert "typo-parent" in err, err
+    assert "$HERMES_PROFILE_HOME" in err, err
+
+
+def test_the_hardened_probe_still_reds_a_live_soul_longer_than_the_tree(tmp_path, monkeypatch, capsys):
+    """Positive control: hardening the probe must not soften the comparison it feeds.
+
+    A live host that states MORE than the tree is exactly what `live-longer` catches; after the
+    unreadable-tolerance change the probe must still hand the gate the real profiles home and the
+    gate must still exit 1 naming the finding.
+    """
+
+    # Given a live SOUL that is a byte-extension of the tree's SOUL
+    root, agents, profiles = _mirror(tmp_path)
+    (agents / "someone" / "SOUL.md").write_text("# S\n\nNever merge anything\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(profiles))
+
+    # When  the gate runs
+    assert guard.main(["check", "--root", str(root)]) == 1
+
+    # Then  the finding is the live-longer one, not an abort
+    out = capsys.readouterr().out
+    assert "FAIL live-longer" in out, out
+
+
 # --- fleet rule 13: a hold without a remedy is abandonment (issue #948, rule in #873) -------------------
 
 
