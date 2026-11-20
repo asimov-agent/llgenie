@@ -536,7 +536,12 @@ VENV_GUARD := test -x "$(VENV)/bin/python" || { echo "ERROR: no Python 3.11 venv
 TEST_RUN := $(VENV_GUARD) env PATH="$(VENV)/bin:$$PATH"
 engine_test = $(VENV_GUARD) env HOME="$(CI_HOME)" RUNTIME=docker PATH="$(VENV)/bin:$$PATH" $(1)
 ENGINE_TEST_RUN := $(call engine_test,)
-CI_HOME_CLEAN := rm -rf "$(CI_HOME)"
+# Health-model download (issue #356): run natively with HOME at the SHARED stage
+# HOME so the model lands in .ci-home/models, where test-health-host reads it.
+MODEL_CACHE_RUN := $(VENV_GUARD) env HOME="$(CI_HOME)" PATH="$(VENV)/bin:$$PATH"
+# Stage clean keeps the model cache (issue #356): wipe .ci-home scratch, never the
+# models subtree, so every later stage reuses the one fetched health model.
+CI_HOME_CLEAN := find "$(CI_HOME)" -mindepth 1 -maxdepth 1 ! -name models -exec rm -rf {} + 2>/dev/null || true
 else
 # Engine-driven stages KEEP `-u root` on purpose (issue #2563): this container
 # reaches the HOST docker daemon through /var/run/docker.sock, which is
@@ -548,9 +553,15 @@ ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
 engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
 ENGINE_TEST_RUN := $(call engine_test,)
 # .ci-home is written by root inside the engine container: remove it as root too,
-# or the mapped uid cannot delete a root-owned tree (issue #2563).
-CI_HOME_CLEAN := $(RUNTIME) run --rm -u root -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
+# or the mapped uid cannot delete a root-owned tree (issue #2563). The clean keeps
+# the models subtree (issue #356): stage scratch is wiped, the fetched health
+# model stays so later stages reuse it instead of re-downloading 0.43 GB.
+CI_HOME_CLEAN := $(RUNTIME) run --rm -u root -v "$(ROOT)":/r $(TEST_IMG) sh -c 'cd /r/.ci-home && find . -mindepth 1 -maxdepth 1 ! -name models -exec rm -rf {} +; true'
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
+# Health-model download (issue #356): the same uid-mapped test container, but the
+# checkout mounted AT ITS OWN PATH and HOME=$(CI_HOME) — the same HOME the engine
+# stages' test-health-host step reads — so the model survives the --rm container.
+MODEL_CACHE_RUN := $(RUNTIME) run --rm -u "$(shell id -u):$(shell id -g)" -e HOME="$(CI_HOME)" -v "$(ROOT)":"$(ROOT)":rw -w "$(ROOT)" -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT) $(TEST_IMG)
 endif
 
 

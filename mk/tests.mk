@@ -112,5 +112,6 @@ test: ## Full fast suite (unit + install; hermetic files in the container, insta
 	$(TEST_RUN) python scripts/unit_tests.py run --group fast
 	$(MAKE) test-install-host
 
-download-test-model: ## Fetch the lightweight (0.5B Q4 ~340MB) model into container ~/models/Qwen/8GB
-	$(TEST_RUN) python scripts/download_test_model.py
+download-test-model: ## Fetch the lightweight (0.5B Q4 ~340MB) health model into the shared stage HOME: $(CI_HOME)/models/Qwen/8GB (issue #356: survives the container; test-health reuses it)
+	@mkdir -p "$(CI_HOME)"
+	$(MODEL_CACHE_RUN) python scripts/download_test_model.py
