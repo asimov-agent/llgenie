@@ -41,8 +41,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -163,36 +165,68 @@ def committed_cells(root: Path | None = None) -> list[tuple[str, str]]:
 
 
 def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]],
-           registry: str, what: str) -> int:
+           registry: str, what: str, patience_seconds: float = 0.0,
+           sleep: Callable[[float], None] = time.sleep,
+           clock: Callable[[], float] = time.monotonic,
+           retry_seconds: float = 120.0) -> int:
     """Probe every (engine, variant) cell's exact tag; exit 1 when any is not published.
 
     `cells` is the scope being verified (the repin diff, or the full committed set);
     `what` names it in the output for the two call sites.
+
+    `patience_seconds` (issue #2973): a committed-scope live run may overlap the main
+    CI pipeline that pushes those very images, so a manifest that is absent NOW may
+    land within the pipeline's normal push window. Every cell is probed once first;
+    only the UNRESOLVED refs are re-probed every `retry_seconds` until one bounded
+    deadline for the whole check (never one window per cell), resolving green the
+    moment a manifest appears. A genuinely unpublished ref still reds at the
+    deadline — never later. 0 (the default everywhere else, incl. every PR lane)
+    keeps today's immediate red: a pin bump may still not merge while its image
+    is unpublished.
     """
-    missing: list[str] = []
-    checked = 0
-    for engine, variant in cells:
-        tag = exact_tags(engine, variant)
-        ref = f"{registry}/{tag}"
+    tags = {f"{registry}/{exact_tags(engine, variant)}": (engine, variant)
+            for engine, variant in cells}
+    resolved: dict[str, tuple[str, str]] = {}
+    unresolved: dict[str, str] = {}
+    for ref, (engine, variant) in tags.items():
         d, err = probe(ref)
-        checked += 1
         if d:
+            resolved[ref] = (engine, variant)
+        else:
+            unresolved[ref] = err
+    if unresolved and patience_seconds > 0:
+        deadline = clock() + patience_seconds
+        while unresolved and clock() + retry_seconds <= deadline:
+            for ref, err in unresolved.items():
+                print(f"[pins] PATIENCE {ref} unresolved ({err}); re-probing within the "
+                      f"{patience_seconds:.0f}s push window (issue #2973)")
+            sleep(retry_seconds)
+            for ref in list(unresolved):
+                d, err = probe(ref)
+                if d:
+                    resolved[ref] = tags[ref]
+                    del unresolved[ref]
+                else:
+                    unresolved[ref] = err
+    missing: list[str] = []
+    for ref, (engine, variant) in tags.items():
+        if ref in resolved:
             print(f"[pins] PUBLISHED {ref}")
         else:
             missing.append(ref)
-            print(f"[pins] NOT PUBLISHED {ref} ({err})")
+            print(f"[pins] NOT PUBLISHED {ref} ({unresolved[ref]})")
             # Issue #2561 contract line: the canonical selection for this cell — the
             # COMMITTED engine id (dots intact, NOT the ghcr package spelling), the
             # variant, and the committed tag suffix. registry-liveness dispatches
             # engine-build from exactly these lines; package names are a namespace
             # where dots are illegal and must never be reverse-parsed back into ids.
-            print(f"[select] {engine} {variant} {tag.split(':')[-1]}")
+            print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
-              f"(of {checked} checked): dispatch engine-build with push=true, "
+              f"(of {len(tags)} checked): dispatch engine-build with push=true, "
               f"then re-run this check (issue #1622)", file=sys.stderr)
         return 1
-    print(f"[pins] every {what} engine image ({checked}) is published")
+    print(f"[pins] every {what} engine image ({len(tags)}) is published")
     return 0
 
 
@@ -212,20 +246,36 @@ def check(base: str, root: Path | None = None,
 
 def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
                     registry: str | None = None, root: Path | None = None,
-                    cells: list[tuple[str, str]] | None = None) -> int:
+                    cells: list[tuple[str, str]] | None = None,
+                    patience_seconds: float | None = None,
+                    sleep: Callable[[float], None] = time.sleep,
+                    clock: Callable[[], float] = time.monotonic) -> int:
     """Exit 0 only when EVERY committed enabled engine cell's tag resolves a manifest.
 
     The committed set, not the repin diff: a cell whose committed tag is absent
     from GHCR is a publish-gap a fresh install hits whether or not a PR moved it
     (issue #2190). `cells` injects the set for tests.
+
+    `patience_seconds=None` reads the knob from `ENGINE_PINS_PATIENCE_SECONDS`
+    (issue #2973): `ci-hf-live` sets it to the main CI image-push window so a pin
+    whose image lands mid-battery resolves green; every other caller leaves the env
+    unset and stays immediate-red. A non-numeric knob value warns and stays 0.
     """
     registry = registry if registry is not None else ei.REGISTRY
     probe = digest if digest is not None else ei._digest_http
     scope = cells if cells is not None else committed_cells(root)
+    if patience_seconds is None:
+        raw = os.environ.get("ENGINE_PINS_PATIENCE_SECONDS", "0")
+        try:
+            patience_seconds = max(0.0, float(raw))
+        except ValueError:
+            print(f"[pins] WARN ENGINE_PINS_PATIENCE_SECONDS={raw!r} is not a number; "
+                  "staying impatient (issue #2973)", file=sys.stderr)
+            patience_seconds = 0.0
     if not scope:
         print("[pins] no committed engine cells; nothing to check")
         return 0
-    return _probe(scope, probe, registry, "committed")
+    return _probe(scope, probe, registry, "committed", patience_seconds, sleep, clock)
 
 
 def _enabled_variants(engine: str) -> list[str]:
