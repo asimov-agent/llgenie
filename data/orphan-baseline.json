@@ -1,0 +1,34 @@
+[
+  {
+    "branch": "chore/engine-bump-llama.cpp",
+    "merged_pr": 2267,
+    "orphan_sha": "d074d16f9",
+    "subject": "chore(engine): bump llama.cpp to master@3a766037",
+    "filed_in": "issue #442 (live sweep 2026-11-20)",
+    "cleanup": "consent-gated deletion of the stale lane branch (issue #442 blocked label); prune this entry when the branch is gone"
+  },
+  {
+    "branch": "chore/engine-bump-ollama",
+    "merged_pr": 2263,
+    "orphan_sha": "31b741dff",
+    "subject": "chore(engine): bump ollama to v0.40.16@d63b7026",
+    "filed_in": "issue #442 (live sweep 2026-11-20)",
+    "cleanup": "consent-gated deletion of the stale lane branch (issue #442 blocked label); prune this entry when the branch is gone"
+  },
+  {
+    "branch": "chore/engine-bump-strata",
+    "merged_pr": 2266,
+    "orphan_sha": "f9e8ed230",
+    "subject": "chore(engine): bump strata to v0.2.15@0a80d5e5",
+    "filed_in": "issue #442 (live sweep 2026-11-20)",
+    "cleanup": "consent-gated deletion of the stale lane branch (issue #442 blocked label); prune this entry when the branch is gone"
+  },
+  {
+    "branch": "chore/engine-bump-tensorfold",
+    "merged_pr": 2440,
+    "orphan_sha": "bb5ddc8a1",
+    "subject": "chore(engine): bump tensorfold to v1.2.9@539dc9d6",
+    "filed_in": "issue #442 (live sweep 2026-11-20)",
+    "cleanup": "consent-gated deletion of the stale lane branch (issue #442 blocked label); prune this entry when the branch is gone"
+  }
+]

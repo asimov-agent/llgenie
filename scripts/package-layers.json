@@ -70,6 +70,7 @@
       "check_main_ruleset",
       "check_model_links_liveness",
       "check_openspec_tasks",
+      "check_orphan_commits",
       "check_package_layers",
       "check_pr_acceptance",
       "check_pr_authors",
@@ -300,6 +301,11 @@
       "from": "check_issue_body",
       "to": "issue_body",
       "reason": "the issue-body gate's subject is issue_body.PRODUCERS: a gate must read the renderer it holds to its shape."
+    },
+    {
+      "from": "check_orphan_commits",
+      "to": "bot_close_reasons",
+      "reason": "issue #442: the orphan guard reads merged pull requests through merged_pulls, the ONE merged-PR read the closure report already uses, so the guard and the closure report cannot disagree about which PRs merged."
     },
     {
       "from": "check_pr_acceptance",
