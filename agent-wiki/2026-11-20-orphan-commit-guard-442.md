@@ -18,4 +18,9 @@
 
 ## Current status
 
-Implementation complete on branch `feat/orphan-commit-guard-442` (`9ab23095d`); 8/8 tests green; live sweep green-instrumentation (4 named findings). Blocked on the branch-cleanup consent before push.
+Shipped: PR #2964 (closes #442), branch `feat/orphan-commit-guard-442`. CI run 44714501733
+measured the next defect: a recorded merged head buried by a force-push is unreachable, so
+`git log ^<head>` died `fatal: bad object`; the guard now fetches `refs/pull/<n>/head` for that
+case (and degrades to `git cherry` patch-id judgement when no PR ref exists) — 13/13 fixture
+tests green, live gate green with the 4 baseline residues named-and-tolerated. Branch deletion
+cleanup stays the separate consent-gated issue #2965.

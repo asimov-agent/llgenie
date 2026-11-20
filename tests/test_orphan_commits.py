@@ -163,6 +163,66 @@ def test_commit_landed_by_squash_is_not_an_orphan(tmp_path):
     assert late not in out  # the landed-by-patch commit is not named
 
 
+def test_merged_head_buried_by_force_push_is_resolved_from_the_pr_ref(tmp_path):
+    """CI measured (run 44714501733): the merged head's object lived on no branch ref any more
+    (the branch had been force-pushed past it), so `git log ^<head>` died `fatal: bad object`.
+    GitHub keeps that commit on the PR ref; the guard must fetch refs/pull/<n>/head and judge
+    the rebased tip normally."""
+    board = _mk_repo(tmp_path)
+    work = board.work
+    _git("checkout", "-q", "main", cwd=work)
+    (work / "landed.md").write_text("main moved on\n")
+    _git("add", "landed.md", cwd=work)
+    _git("commit", "-qm", "unrelated landed commit", cwd=work)
+    _git("push", "-q", "origin", "main", cwd=work)
+    _git("cherry-pick", board.head_a, cwd=work)  # squash stand-in: the merged patch on main
+    _git("push", "-q", "origin", "main", cwd=work)
+    _git("checkout", "-qB", "feat/x", "origin/main", cwd=work)
+    (work / "late-fix.md").write_text("rebased past the merge\n")
+    _git("add", "late-fix.md", cwd=work)
+    _git("commit", "-qm", "the rebased late fix", cwd=work)
+    _git("push", "-qf", "origin", "feat/x", cwd=work)
+    rebased = _git("rev-parse", "--short", "HEAD", cwd=work)
+    origin_dir = tmp_path / "origin.git"
+    _git("--git-dir", str(origin_dir), "update-ref", "refs/pull/10/head", board.head_a, cwd=work)
+    fresh = tmp_path / "fresh"  # a CI-like clone: no ref reaches head_a, so the object is absent
+    subprocess.run(["git", "clone", "-q", "--no-local", str(origin_dir), str(fresh)], check=True)
+    assert subprocess.run(["git", "cat-file", "-e", f"{board.head_a}^{{commit}}"],
+                          cwd=str(fresh), capture_output=True).returncode != 0
+    gh = _fake_gh(tmp_path, [_merged_row(board.head_a)], [])
+    rc, out = _check(fresh, gh)
+    assert rc == 1
+    assert rebased in out and "the rebased late fix" in out  # judged as an orphan, not a crash
+    assert "bad object" not in out
+
+
+def test_merged_head_without_its_pr_ref_degrades_to_patch_id_judgement(tmp_path):
+    """Same buried-head repo, but no PR ref exists: the exclusion is skipped instead of fatal,
+    and `git cherry` patch-id equivalence still carries the judgement."""
+    board = _mk_repo(tmp_path)
+    work = board.work
+    _git("checkout", "-q", "main", cwd=work)
+    (work / "landed.md").write_text("main moved on\n")
+    _git("add", "landed.md", cwd=work)
+    _git("commit", "-qm", "unrelated landed commit", cwd=work)
+    _git("push", "-q", "origin", "main", cwd=work)
+    _git("cherry-pick", board.head_a, cwd=work)
+    _git("push", "-q", "origin", "main", cwd=work)
+    _git("checkout", "-qB", "feat/x", "origin/main", cwd=work)
+    (work / "late-fix.md").write_text("rebased past the merge\n")
+    _git("add", "late-fix.md", cwd=work)
+    _git("commit", "-qm", "the rebased late fix", cwd=work)
+    _git("push", "-qf", "origin", "feat/x", cwd=work)
+    rebased = _git("rev-parse", "--short", "HEAD", cwd=work)
+    fresh = tmp_path / "fresh"
+    subprocess.run(["git", "clone", "-q", "--no-local", str(tmp_path / "origin.git"), str(fresh)], check=True)
+    gh = _fake_gh(tmp_path, [_merged_row(board.head_a)], [])
+    rc, out = _check(fresh, gh)
+    assert rc == 1
+    assert rebased in out and "the rebased late fix" in out
+    assert "bad object" not in out
+
+
 def test_branch_without_any_pr_is_not_in_the_merged_shape(tmp_path):
     board = _mk_repo(tmp_path)
     _git("checkout", "-qb", "scratch/other", cwd=board.work)

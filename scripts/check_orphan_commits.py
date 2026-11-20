@@ -137,7 +137,14 @@ def _is_ancestor(sha: str, target: str, cwd: Path) -> bool:
     raise SystemExit(f"[orphan-guard] git merge-base failed: {(r.stderr or '').strip()[:200]}")
 
 
-def _orphan_commits(branch: str, merged_head: str, cwd: Path) -> list[dict]:
+def _has_object(sha: str, cwd: Path) -> bool:
+    """Does this checkout carry the object? (CI measured run 44714501733: a recorded merged head
+    whose object no branch ref still reaches — a force-push buried it — made `git log ^<head>`
+    die with `fatal: bad object`.)"""
+    return run_ok(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=str(cwd)).returncode == 0
+
+
+def _orphan_commits(branch: str, merged_head: str, cwd: Path, pr_number: int = 0) -> list[dict]:
     """Commits on the branch reachable from neither the merged head nor main, MINUS commits whose
     PATCH already landed on main. This repository squash-merges: a landed bump commit is not an
     orphan even though its sha never appears in main — `git cherry` (patch-id upstream
@@ -146,7 +153,13 @@ def _orphan_commits(branch: str, merged_head: str, cwd: Path) -> list[dict]:
     three genuinely undelivered, strata's landed as a squash under a different PR)."""
     run_text(["git", "fetch", "--no-tags", "origin",
               f"refs/heads/{branch}:refs/remotes/origin/{branch}"], cwd=str(cwd), timeout=300)
-    neg = [f"^{merged_head}"] if merged_head else []
+    if merged_head and not _has_object(merged_head, cwd) and pr_number:
+        # The recorded head predates a force-push: its object survives only on the PR ref GitHub
+        # keeps, so fetch that ref and make the exclusion resolvable instead of dying on it.
+        run_ok(["git", "fetch", "--no-tags", "origin",
+                f"refs/pull/{pr_number}/head:refs/remotes/origin/pr-{pr_number}"],
+               cwd=str(cwd), timeout=120)
+    neg = [f"^{merged_head}"] if merged_head and _has_object(merged_head, cwd) else []
     log_out = run_text(["git", "log", "--no-merges", "--format=%H\t%h %s",
                         f"origin/{branch}", *neg, "^origin/main"], cwd=str(cwd))
     landed: set[str] = set()
@@ -184,7 +197,7 @@ def check(repo: str = BASE_REPO, gh: str = "gh", remote: str = "origin",
             continue  # an open PR covers this branch: in-flight work is not orphaned work
         if _is_ancestor(tip, "origin/main", cwd):
             continue  # the tip's work landed by some other road
-        commits = _orphan_commits(branch, pr["head_sha"], cwd)
+        commits = _orphan_commits(branch, pr["head_sha"], cwd, pr["number"])
         if not commits:
             continue  # tip differs from the merged head only through merge machinery
         filed = (branch, pr["number"]) in baseline
