@@ -159,3 +159,22 @@ def test_offer_and_matrix_agree_through_the_table(tmp_path, monkeypatch):
     # Then   both refuse: no matrix cell, and no engine kept for the CLI
     assert cell is None
     assert refused and refused[0].get("engines") == [] and refused[0].get("why")
+
+
+def test_the_quant_range_is_sorted_by_size_whatever_order_the_row_lists(tmp_path, monkeypatch):
+    # Given a committed table whose (model, engine) cell lists its two budget-fit plans
+    # NOT in size order (the biggest first, the way a `sort=downloads` search returned them)
+    _use_catalog(tmp_path, monkeypatch, {
+        MODEL_ID: {"MLX": {"arch": ["cuda"], "quants": [
+            _dir_quant(repo="org/test-m-MLX-8bit", size_gb=BUDGET_GB - 0.5),
+            _dir_quant(repo="org/test-m-MLX-4bit", size_gb=4.0)]}}})
+    _use_recording(tmp_path, monkeypatch)  # empty: nothing may go live
+
+    # When  the picker's quant range is asked for
+    plans = mp.engine_supported_quants(_model(), {"engine": "MLX"}, GB, RAM, ARCH)
+
+    # Then  the range comes back in ascending size no matter how the row lists them:
+    #   quant rank is a size decision, and the row's order is presentation (#737)
+    assert len(plans) == 2
+    sizes = [p["size"] for p in plans]
+    assert sizes == sorted(sizes) and sizes[0] < sizes[1], sizes

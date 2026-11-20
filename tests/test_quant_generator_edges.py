@@ -263,3 +263,27 @@ def test_a_gated_new_link_does_not_red_the_sync(monkeypatch, tmp_path, capsys):
     assert _row_urls(dst.read_text()) == {_A, _B}
     out = capsys.readouterr()
     assert "gated=1" in out.out or "gated (exists" in out.out
+
+
+def test_a_cell_is_generated_in_repository_order_whatever_order_the_hub_returns(monkeypatch):
+    # Given an MLX engine and a model whose two conversions the live search
+    # (`mlx_repos()` sorts by downloads) returns as [small, big] or [big, small]
+    monkeypatch.setattr(mp, "engine_ids", lambda *a, **k: {
+        "MLX": {"id": "mlx", "formats": ["mlx-safetensors"], "variants": ["metal", "cpu"]}})
+    small, big = "org/m1-MLX-4bit", "org/m1-MLX-8bit"
+    monkeypatch.setattr(mp, "_snapshot", lambda repo, *a, **k: {
+        "repo": repo, "files": ["config.json", "model.safetensors"],
+        "size": (4 if repo == small else 8) * 2**30})
+    m = {"id": "m1", "hf": "org/m1", "name": "M1", "supported_engines": ["MLX"]}
+
+    # When  the cell is generated once per candidate order
+    monkeypatch.setattr(gen, "_repos_for", lambda model, fmt: [big, small])
+    flipped = gen._model_catalog(m)
+    monkeypatch.setattr(gen, "_repos_for", lambda model, fmt: [small, big])
+    straight = gen._model_catalog(m)
+
+    # Then  both cells are identical and ordered by (size_gb, repo, path): the committed
+    #   order is the repository's decision, not the live search's download ranking (#737)
+    assert straight == flipped
+    keys = [(q["size_gb"], q["repo"], q["path"]) for q in straight["MLX"]["quants"]]
+    assert keys == sorted(keys) == [(4.0, small, ""), (8.0, big, "")]

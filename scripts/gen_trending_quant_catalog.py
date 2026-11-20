@@ -146,13 +146,16 @@ def _model_catalog(m):
                     for f in fs:
                         items.append(_plan_row(repo, "main", f["path"], [f["path"]],
                                                int(f["size"]) / GB))
-        # dedupe by (repo, path); keep engine order
+        # dedupe by (repo, path); the cell's plan order is repository-chosen (#737):
+        # ascending size_gb, then repo, then path — never the order a `sort=downloads`
+        # search happened to return, so the committed table is reproducible from the repo.
         seen, uniq = set(), []
         for it in items:
             k = (it["repo"], it["path"])
             if k not in seen:
                 seen.add(k)
                 uniq.append(it)
+        uniq = _cell_order(uniq)
         if uniq:
             info = mp.engine_ids().get(eng) or {}
             arch = sorted(info.get("variants") or [])
@@ -225,6 +228,14 @@ def links_to_validate(new_urls: set, prior: dict | None) -> list[str]:
     return sorted(new_urls - _all_urls(prior))
 
 
+def _cell_order(items: list[dict]) -> list[dict]:
+    """The repository-chosen order for one cell's plans (#737): ascending `size_gb`, then repo,
+    then path. Every writer of a cell — the generation and the sync's carry-over — runs its list
+    through here, so the committed table is reproducible from the repo rather than from whatever
+    order a `sort=downloads` search returned."""
+    return sorted(items, key=lambda it: (float(it.get("size_gb") or 0), it["repo"], it["path"]))
+
+
 def _plan_key(q: dict) -> tuple:
     """A plan's identity inside one (model, engine) cell: the repo, the file it loads, the
     files the download needs, its size and its link. Two plans with the same key are the same
@@ -256,8 +267,10 @@ def carry_over(committed: dict, generated: dict, probe=None) -> tuple[dict, list
     the generation dropped whose link still answers — kept in its own (model, engine) cell, and
     printed with the reason — and leaves a genuinely dead plan out.
 
-    Returns `(payload, kept, dropped)` where `kept`/`dropped` are the readable lines a sync prints.
-    A section or engine the generation lost entirely is not resurrected: that is a structural
+    Returns `(payload, kept, dropped)` where `kept`/`dropped` are the readable lines a sync
+    prints. A carried-over plan is re-inserted in the cell's repository order (#737), so the
+    table a sync writes is exactly what a replay of the same answers reproduces. A section or
+    engine the generation lost entirely is not resurrected: that is a structural
     change (`compare()` fails on it), not search churn.
     """
     probe = probe or _probe_status
@@ -285,6 +298,11 @@ def carry_over(committed: dict, generated: dict, probe=None) -> tuple[dict, list
                 fresh.setdefault("quants", []).append(q)
                 kept.append(f"{mid}/{eng}: {q.get('url')} (still reachable: {kind}; the live "
                             f"search no longer returns it)")
+    for engines in new_files.values():
+        for cell in engines.values():
+            if cell.get("quants"):
+                cell["quants"] = _cell_order(cell["quants"])  # #737: a carried-over plan lands
+                # in the repository's order, not appended after the freshly generated ones.
     return merged, kept, dropped
 
 
@@ -296,15 +314,15 @@ def compare(committed: dict, generated: dict, probe=None) -> tuple[list[str], li
     rendered for (`meta.generated_utc`) — each is a FAILURE, because the catalog is what
     llgenie reads and a silent change would ship an unverified download.
 
-    What the live Hub re-reads is a NOTE, because the table is regenerated from a SEARCH
-    (`mlx_repos()`/`tensorfold_repos()` query huggingface.co `sort=downloads`), so the same
-    set of plans comes back in a different ORDER as the repos' download counts move, and a
-    new conversion upstream publishes shows up as an extra row. Measured 2026-10-27: on
-    `main` itself, `qwen3.8-flash-next-125b`/MLX regenerated as the same 14 plans in a
-    different order, which turned `make check-quant-catalog` red for a reason no PR caused
-    and blocked every PR on the repository. Recording the new order/rows is the weekly
-    `make sync-quant-catalog`'s job; the check reports them and stays green — the same rule
-    the registry guard applies to data the store re-reads.
+    What the live Hub re-reads is a NOTE — a new conversion upstream publishes shows up as
+    an extra row, and a plan that fell off a search page but still answers its own link is
+    carried over. The plan ORDER is not churn anymore (issue #737, closing what #736 only
+    NOTE-ed): the generation sorts every cell by (size_gb, repo, path), so a committed cell
+    that holds the same set in a different order is out of step with a reproducible
+    generation and is a FAILURE — measured 2026-10-27: on `main` itself,
+    `qwen3.8-flash-next-125b`/MLX regenerated as the same 14 plans in a different order,
+    which turned `make check-quant-catalog` red for a reason no PR caused. Recording new
+    rows stays the weekly `make sync-quant-catalog`'s job.
 
     A committed plan the generation no longer contains is one of TWO different events, and
     the gate must say which (issue #769). The plan's own link is probed:
@@ -359,9 +377,10 @@ def compare(committed: dict, generated: dict, probe=None) -> tuple[list[str], li
             old_order = [_plan_key(q) for q in cell.get("quants") or []]
             new_order = [_plan_key(q) for q in fresh.get("quants") or []]
             if set(old_order) == set(new_order) and old_order != new_order:
-                notes.append(f"{mid}/{eng}: the live search lists the same "
-                             f"{len(new_order)} plan(s) in a different order — the next sync "
-                             f"records it")
+                failures.append(
+                    f"{mid}/{eng}: the same {len(new_order)} plan(s) in a different order — "
+                    "the committed cell is not in the generation's (size_gb, repo, path) "
+                    "order (#737); run make sync-quant-catalog")
 
     for mid, engines in new_files.items():
         if mid not in old_files:

@@ -161,6 +161,38 @@ def test_the_sync_carries_the_reachable_plan_over_and_leaves_the_dead_one_out(se
     assert failures == [], failures
 
 
+def test_the_carried_over_plan_lands_in_the_cells_repository_order(server):
+    """#737: carry-over must not undo the order rule — a kept plan lands where the repository
+    order puts it, not appended after the freshly generated plans."""
+
+    def _plan(repo: str, url: str, size_gb: float) -> dict:
+        return {"repo": repo, "revision": "main", "path": url.rsplit("/", 1)[-1],
+                "files": [url.rsplit("/", 1)[-1]], "size_gb": size_gb, "url": url}
+
+    live_small = _plan("z-org/live-small", f"{server}/ok/small.gguf", 1.0)
+    live_big = _plan("a-org/live-big", f"{server}/ok/big.gguf", 9.0)
+    carried = _plan("m-org/carried", f"{server}/ok/carried.gguf", 5.0)
+
+    # Given a committed cell (carried plan first) and a generation that dropped it
+    committed = {"meta": {"generated_utc": "2026-10-28T00:00:00Z"},
+                 "files": {"solstice-33b": {"mlx": {"arch": ["metal"],
+                                                    "quants": [carried, live_small, live_big]}}}}
+    generated = {"meta": {"generated_utc": "2026-10-28T00:00:00Z"},
+                 "files": {"solstice-33b": {"mlx": {"arch": ["metal"],
+                                                    "quants": [live_small, live_big]}}}}
+
+    # When  the sync's carry-over re-inserts the reachable plan
+    payload, kept, _dropped = gen.carry_over(committed, generated)
+
+    # Then  the cell is in (size_gb, repo, path) order, exactly what a replay reproduces
+    order = [(q["size_gb"], q["repo"], q["path"])
+             for q in payload["files"]["solstice-33b"]["mlx"]["quants"]]
+    assert order == [(1.0, "z-org/live-small", "small.gguf"),
+                     (5.0, "m-org/carried", "carried.gguf"),
+                     (9.0, "a-org/live-big", "big.gguf")], order
+    assert any("carried.gguf" in line for line in kept), kept
+
+
 def test_a_clean_catalog_costs_no_probe(server):
     """The gate probes only what a generation DROPPED: an unchanged table makes no request."""
 
