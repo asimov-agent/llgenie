@@ -13,9 +13,13 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import http.server
 import json
 import datetime as _dt
+import os
 import subprocess
+import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -348,11 +352,16 @@ def test_an_unknown_scanner_is_refused():
 
 
 def _fake_docker(monkeypatch, *, platforms=(), probe_rc=0, op_rc=0,
-                 op_stdout="load done", op_stderr=""):
+                 op_stdout="load done", op_stderr="", pushcheck_rc=0):
     """Fake the leg's one policy seam (`si.run_ok`): an `imagetools inspect` answers
     with the given platforms (or probe_rc when the registry lacks the tag), every
     other command answers with op_rc and these streams. No real Docker runs — unit
-    CI has none, and the behaviour under test is the leg's decision, not buildkit's."""
+    CI has none, and the behaviour under test is the leg's decision, not buildkit's.
+
+    The push-check (issue #2960, the #335 seam) is answered as a recorded call with
+    `pushcheck_rc`, so tests can SEE its position relative to the build; its real HTTP
+    shape is proven hermetically in test_ci_images.py and the stub-registry tests below.
+    """
 
     calls = []
 
@@ -366,7 +375,12 @@ def _fake_docker(monkeypatch, *, platforms=(), probe_rc=0, op_rc=0,
             return subprocess.CompletedProcess(cmd, 0, out, "")
         return subprocess.CompletedProcess(cmd, op_rc, op_stdout, op_stderr)
 
+    def fake_pushcheck(name):
+        calls.append(["pushcheck", str(name)])
+        return pushcheck_rc
+
     monkeypatch.setattr(si, "run_ok", fake)
+    monkeypatch.setattr(si._ci_images, "pushcheck", fake_pushcheck)
     return calls
 
 
@@ -495,6 +509,10 @@ def test_ensure_publishes_an_absent_ref(tmp_path, monkeypatch, capsys):
     assert len(pushes) == 1
     assert si.ref("trivy") in pushes[0] and "linux/amd64,linux/arm64" in pushes[0]
 
+    # And the write was PROVEN before the build: the push-check call precedes the --push (issue #2960)
+    assert ["pushcheck", "trivy"] in calls
+    assert calls.index(["pushcheck", "trivy"]) < calls.index(pushes[0])
+
 
 def test_ensure_force_republishes_a_present_ref(tmp_path, monkeypatch, capsys):
     """force (the dispatch input, passed as an env value) re-pushes even a present tag."""
@@ -508,9 +526,33 @@ def test_ensure_force_republishes_a_present_ref(tmp_path, monkeypatch, capsys):
     rc = si.ensure("trivy", force=True)
     out = capsys.readouterr().out
 
-    # Then  it published anyway (a --push ran, named the ref)
+    # Then  it published anyway (a --push ran, named the ref) — push-checked first (issue #2960)
     assert rc == 0 and "publishing" in out
     assert any("--push" in c for c in calls)
+    assert ["pushcheck", "trivy"] in calls
+    assert calls.index(["pushcheck", "trivy"]) < next(i for i, c in enumerate(calls) if "--push" in c)
+
+
+def test_ensure_skips_the_publish_when_the_push_check_refuses(tmp_path, monkeypatch, capsys):
+    """A package the credential cannot write must never reach the buildx build: ensure fails
+    right after the refusal, naming the scanner, with NO --push command ever issued (issue #2960)."""
+
+    # Given an absent tag AND a push-check that refuses
+    monkeypatch.setattr(si, "REPO", _tree(tmp_path))
+    calls = _fake_docker(monkeypatch, probe_rc=1, pushcheck_rc=1)
+
+    # When  ensure runs
+    rc = si.ensure("trivy")
+    err = capsys.readouterr().err
+
+    # Then  the leg fails with the refusal named...
+    assert rc == 1
+    assert "trivy: the credential cannot push" in err
+    assert "the build is skipped" in err
+
+    # ...and the build was never issued — only the tag probe and the push-check reached the seams
+    assert not any("--push" in c for c in calls)
+    assert ["pushcheck", "trivy"] in calls
 
 
 # --- the scanners' own pipeline (issue #745): ci.yml holds no scanner build, security-images.yml never a PR ---
@@ -555,5 +597,140 @@ def test_ensure_image_has_single_build_path():
     # the old inline builder arguments (docker build -t <ref> <context>) must not be present
     assert '"build"' not in src or "subprocess.run([RUNTIME, \"build\"" not in src
     assert "cannot build" not in src  # the old failure message naming the inline build is gone
+
+
+# ---------------------------------------------------------------------------
+# push-check before buildx (issue #2960: ensure IS the ci-security-images publish seam)
+# ---------------------------------------------------------------------------
+_DENIED_BODY = ('{"errors":[{"code":"DENIED","message":"denied: permission_denied: read_package"}]}')
+
+
+def _stub_registry_and_probe(tmp_path, upload_status: int = 202):
+    """A stand-in GHCR + the RUNTIME stub the lane would call, wired through a probe file.
+
+    Every request the registry answers bumps `probe.txt`; the fake runtime records that count when
+    a `buildx build` is issued — so a test can SEE whether the write was proven before the build.
+    """
+    seen: list[tuple[str, str, str]] = []
+    probe = tmp_path / "probe.txt"
+    probe.write_text("0")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args) -> None:
+            pass
+
+        def _answer(self, status: int, payload) -> None:
+            raw = (payload if isinstance(payload, str) else json.dumps(payload)).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def _bump(self):
+            probe.write_text(str(len(seen)))
+
+        def do_GET(self):
+            seen.append((self.command, self.path, self.headers.get("Authorization", "")))
+            self._bump()
+            self._answer(200 if self.path.startswith("/token?") else 404,
+                         {"token": "stub-token"} if self.path.startswith("/token?") else _DENIED_BODY)
+
+        def do_POST(self):
+            seen.append((self.command, self.path, self.headers.get("Authorization", "")))
+            self._bump()
+            self._answer(upload_status, "" if upload_status < 300 else _DENIED_BODY)
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    runtime = tmp_path / "fake-runtime.sh"
+    runtime.write_text(
+        "#!/bin/sh\n"
+        'echo "$*" >> "$RUNTIME_LOG"\n'
+        'if [ "$2" = "build" ]; then\n'
+        '  echo "BUILD_SEEN=$(cat "$PROBE_FILE" 2>/dev/null || echo 0)" >> "$RUNTIME_LOG"\n'
+        '  exit 0\n'
+        "fi\n"
+        "exit 1\n")
+    runtime.chmod(0o755)
+    env = {**os.environ, "LLGENIE_REGISTRY": f"http://127.0.0.1:{srv.server_address[1]}",
+           "GHCR_TOKEN": "s3cret", "GHCR_USER": "asimov-agent", "RUNTIME": str(runtime),
+           "RUNTIME_LOG": str(tmp_path / "runtime.log"), "PROBE_FILE": str(probe), "FORCE": ""}
+    return srv, seen, env, tmp_path / "runtime.log"
+
+
+def _run_ensure(env) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(REPO / "scripts" / "scanner_image.py"), "ensure", "syft"],
+                          env=env, capture_output=True, text=True, timeout=120)
+
+
+def test_a_missing_scanner_is_push_checked_before_it_is_built(tmp_path):
+    """`ensure` proves the credential may write the package BEFORE it issues a buildx push:
+    the registry saw the token exchange AND the empty upload before the build ran."""
+
+    # Given a registry that grants the push token and accepts the empty upload
+    srv, seen, env, log = _stub_registry_and_probe(tmp_path)
+    try:
+        # When the lane's publish seam runs for the missing syft image
+        r = _run_ensure(env)
+        assert r.returncode == 0, r.stdout + r.stderr
+
+        # Then the pre-flight hit the package the publish writes: push-scoped token, empty upload
+        assert seen[0][0] == "GET" and seen[0][1].startswith("/token?")
+        assert "scope=repository:llgenie/syft:push" in seen[0][1]
+        assert seen[1][:2] == ("POST", "/v2/llgenie/syft/blobs/uploads/")
+        assert seen[1][2] == "Bearer stub-token"
+
+        # And the build was issued only AFTER both write-proof requests had happened
+        log_text = log.read_text()
+        assert "buildx build" in log_text and "--push" in log_text
+        seen_at_build = int([ln for ln in log_text.splitlines() if ln.startswith("BUILD_SEEN=")][0]
+                            .split("=", 1)[1])
+        assert seen_at_build >= 2
+    finally:
+        srv.shutdown()
+
+
+def test_a_denied_push_skips_the_build_and_names_the_refusal(tmp_path):
+    """The whole point (issue #2960): a package the credential cannot write must fail the leg
+    BEFORE any multi-arch build burns — with the registry's own denial in the output."""
+
+    # Given a registry that grants the token but denies the empty upload (GHCR's read_package shape)
+    srv, seen, env, log = _stub_registry_and_probe(tmp_path, upload_status=403)
+    try:
+        # When the publish seam runs
+        r = _run_ensure(env)
+
+        # Then it fails, and the refusal is loud and named
+        assert r.returncode != 0
+        out = r.stdout + r.stderr
+        assert "push-check llgenie/syft" in out and "CANNOT push" in out
+        assert "permission_denied: read_package" in out          # the registry's own words
+        assert "syft: the credential cannot push" in out         # ensure names the scanner
+        assert "the build is skipped" in out
+
+        # And no build was ever issued — only the tag-lookup probe reached the runtime seam
+        log_text = log.read_text()
+        assert "buildx build" not in log_text
+        assert "buildx imagetools inspect" in log_text
+    finally:
+        srv.shutdown()
+
+
+def test_the_publish_step_is_handed_the_login_credential():
+    """The lane must prove the SAME identity it publishes with (the #335 pattern)."""
+
+    # Given the security-images workflow
+    wf = (REPO / ".github" / "workflows" / "security-images.yml").read_text()
+
+    # Then the step running the publish seam is handed the credential the login step logs in with
+    assert "GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in wf
+    step_start = wf.index("- name: make ci-security-images")
+    step_env = wf[step_start:wf.index("run: |", step_start)]
+    assert "GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in step_env
+    # and the job keeps the write permission the credential needs
+    job_start = wf.index("  build:\n")
+    assert "packages: write" in wf[job_start:step_start]
 
 
