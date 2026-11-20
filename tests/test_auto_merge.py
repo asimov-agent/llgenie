@@ -190,6 +190,10 @@ if args[:2] == ["pr", "merge"]:
     print("merged"); sys.exit(0)
 if args[:2] == ["pr", "comment"]:
     print("commented"); sys.exit(0)
+if args[:2] == ["issue", "comment"]:
+    # issue #2652: the sweep's own record comment; captured for assertion as [issue, body]
+    open({str(log)!r} + ".record", "a").write(json.dumps([args[2], args[args.index("--body") + 1]]) + "\\n")
+    print("commented"); sys.exit(0)
 print("unexpected: " + " ".join(args)); sys.exit(1)
 ''')
     gh.chmod(0o755)
@@ -1503,6 +1507,136 @@ def test_a_markerless_red_head_is_still_refused(tmp_path):
     # Then  nothing is merged
     assert rc == 0
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def _record_comments(tmp_path: Path) -> list:
+    """The `gh issue comment` bodies the fake gh captured: [issue, body] per post."""
+    p = tmp_path / "gh.log.record"
+    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
+
+
+def test_record_posts_the_sweep_record_with_deferral_reasons(tmp_path):
+    """#2652: `--record <issue>` makes the sweep write its own record comment on the tracker.
+
+    The record is the lane's own line of evidence: exactly one comment whose first line is
+    `[sweep <UTC-stamp>] merged=N approved=N deferred=N`, then one line per deferral THIS sweep
+    decided, with its reason. A markerless head with a red check is that deferral.
+    """
+
+    # Given a PR carrying the gate's deferral marker at its CURRENT head, whose head has a red check
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    view = _deferred_view(_state(headRepository=trust), HEAD)
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 603, "headRefOid": HEAD}], views={"603": view},
+                  checks=[{"name": "linux", "status": "completed", "conclusion": "failure"}])
+
+    # When  the sweep runs with a record target
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", record=2652)
+
+    # Then  exactly one comment lands on #2652 with the fixed first line + the deferral reason
+    assert rc == 0, rc
+    rec = _record_comments(tmp_path)
+    assert len(rec) == 1, rec
+    issue, body = rec[0]
+    assert issue == "2652", rec
+    first, *rest = body.splitlines()
+    assert re.fullmatch(r"\[sweep \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] merged=0 approved=0 deferred=1",
+                        first), first
+    assert len(rest) == 1 and rest[0].startswith("- PR #603:"), body
+
+
+def test_record_counts_a_merge_the_sweep_landed(tmp_path):
+    """The merged= count is what THIS sweep merged, not what GitHub merged elsewhere."""
+
+    # Given a markerless concluded-green head (the #2101 shape) with record=2652
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 604, "headRefOid": HEAD}], views={"604": _state(headRepository=trust)})
+
+    # When  the sweep runs with a record target
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", record=2652)
+
+    # Then  the record reads merged=1 deferred=0 and carries no deferral lines
+    assert rc == 0, rc
+    rec = _record_comments(tmp_path)
+    assert len(rec) == 1, rec
+    first, *rest = rec[0][1].splitlines()
+    assert re.fullmatch(r"\[sweep \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] merged=1 approved=0 deferred=0",
+                        first), first
+    assert rest == [], rec[0][1]
+
+
+def test_record_counts_an_approval_and_a_refused_merge(tmp_path):
+    """The approved= count is a review the sweep posted; a merge GitHub still refused counts deferred.
+
+    A review-blocked head is approved by the other identity; the merge then refuses. The record
+    must show BOTH facts: the act (approved=1) and the outcome it could not land (deferred=1).
+    """
+
+    # Given a review-blocked PR whose merge will be refused, sweeping with record=2652
+    blocked = _review_blocked(headRefOid=HEAD)
+    gh = _fake_gh(tmp_path, blocked, prs=[{"number": 605, "headRefOid": HEAD}],
+                  token_login="asimov-agent", merge_rc=1)
+
+    # When  the sweep runs with a record target
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", record=2652)
+
+    # Then  approved=1 deferred=1 merged=0, with the refusal reason on the deferral line
+    assert rc == 0, rc
+    rec = _record_comments(tmp_path)
+    assert len(rec) == 1, rec
+    first, *rest = rec[0][1].splitlines()
+    assert re.fullmatch(r"\[sweep \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] merged=0 approved=1 deferred=1",
+                        first), first
+    assert len(rest) == 1 and rest[0].startswith("- PR #605:") and "refused" in rest[0], rec[0][1]
+
+
+def test_dry_sweep_with_record_posts_nothing(tmp_path):
+    """`--dry` decides without posting: not on PRs, and not the record either."""
+
+    # Given a markerless concluded-green head, swept dry with record=2652
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 606, "headRefOid": HEAD}], views={"606": _state(headRepository=trust)})
+
+    # When  the sweep runs dry
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", dry=True, record=2652)
+
+    # Then  no issue comment (and no merge, and no deferral comment) was issued
+    assert rc == 0, rc
+    assert _record_comments(tmp_path) == []
+    calls = _calls(tmp_path / "gh.log")
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], calls
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+
+
+def test_a_sweep_without_record_writes_no_record_comment(tmp_path):
+    """Without `--record` the sweep is byte-identical to before #2652: the tracker stays quiet."""
+
+    # Given the same deferral shape as the record test, but with no record target
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 607, "headRefOid": HEAD}], views={"607": _state(headRepository=trust)},
+                  checks=[{"name": "linux", "status": "completed", "conclusion": "failure"}])
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  nothing was posted on any issue
+    assert rc == 0, rc
+    assert _record_comments(tmp_path) == []
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["issue", "comment"]]
+
+
+def test_the_recheck_lane_records_on_the_tracker_issue(tmp_path):
+    """#2652: the scheduled lane must carry the record itself — Hermes cron is banned on this host.
+
+    The lane passes RECORD=2652 through the make target, and the target forwards it as --record.
+    """
+    assert 'make auto-merge-recheck REPO="$REPO" MAX=50 RECORD=2652' in MERGE_WF, \
+        "the recheck job must pass RECORD=2652"
+    bots_mk = (REPO / "mk" / "bots.mk").read_text()
+    assert "--record $(RECORD)" in bots_mk, bots_mk
 
 
 def test_the_recheck_covers_every_open_pr_not_just_five(tmp_path):
