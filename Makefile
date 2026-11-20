@@ -88,6 +88,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	arm-auto-merge arm-auto-merge-report check-agent-model-catalog \
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
+	agent-image-source-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-engine-pins-published check-engine-pins-valid engine-pins-published-report engine-build-pr-trigger engine-build-pr-trigger-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix test-engine-host ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict verdict-roster test-engine-stage hf-cli-install bot-sync-main bot-sync-branch ci-wait-engine-images \

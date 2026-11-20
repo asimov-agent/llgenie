@@ -95,6 +95,10 @@ def platforms(name: str) -> str:
     return PLATFORMS_FOR.get(name, PLATFORMS)
 SOURCE = "https://github.com/" + (os.environ.get("GITHUB_REPOSITORY") or "asimov-agent/llgenie")
 
+# The label that carries the tree's content hash INTO the built agent image, so an agent-leg
+# preflight can prove the image it just resolved was built from THIS checkout (issue #2968).
+AGENT_SOURCE_LABEL = "llgenie.agent.source"
+
 # name -> (Dockerfile, the files COPYed into the build context next to it)
 IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     "test": ("containers/test/Dockerfile", ("tools/requirements.txt", "tools/requirements-dev.txt")),
@@ -169,9 +173,15 @@ def tag(name: str, root: Path = REPO) -> str:
 
 
 def build_args(name: str, root: Path = REPO) -> list[str]:
-    """Extra `--build-arg` flags: the agent image pins the exact test image it builds FROM."""
+    """Extra build flags: the agent image pins the exact test image it builds FROM, and stamps
+    its own tree's content hash as the `llgenie.agent.source` label (issue #2968).
+
+    One seam feeds BOTH build paths (`_buildx_push` publish and `_build_local` fallback), so
+    every agent image built from this change on carries the label `source_check` reads back.
+    """
     if name == "agent":
-        return ["--build-arg", f"TEST_IMAGE={ref('test', root)}"]
+        return ["--build-arg", f"TEST_IMAGE={ref('test', root)}",
+                "--label", f"{AGENT_SOURCE_LABEL}={tag('agent', root)}"]
     return []
 
 
@@ -369,6 +379,48 @@ def ensure(name: str, root: Path = REPO) -> int:
     return _build_local(name, root)
 
 
+def source_check(name: str = "agent", root: Path = REPO) -> int:
+    """Prove the resolved local image was built from THIS tree (issue #2968).
+
+    `ensure/pull agent` fetch the FLOATING published `:latest`, which only moves when a human
+    dispatches `publish-agent-image.yml` (#2935). While that dispatch lags, the checkout's agent
+    wiring (profiles, Hermes pin, Dockerfile) drifts from the published image, and legs running
+    on the stale image died mid-job with cryptic profile errors (three issue-bot failures on
+    2026-11-20). The build stamp (`llgenie.agent.source`, see `build_args`) makes that drift
+    checkable, so this reads the label back off the resolved image and names the staleness at
+    job start. Strict from the first run: images published before the stamp carry no label —
+    exactly the stale state today's failures prove. This check never builds an image.
+    """
+    expected = tag(name, root)
+    done = _sh([RUNTIME, "inspect", "--format",
+                f'{{{{ index .Config.Labels "{AGENT_SOURCE_LABEL}" }}}}', local_name(name)],
+               capture_output=True, text=True)
+    if done.returncode != 0:
+        print(f"[ci-images] source-check {name}: {local_name(name)} is not on this docker host — "
+              f"run `python3 scripts/ci_images.py ensure {name}` first; this check never builds",
+              file=sys.stderr, flush=True)
+        return 1
+    carried = (done.stdout or "").strip()
+    remedy = (f"dispatch publish-agent-image.yml on main (issue #2935) so {latest_ref(name)} "
+              f"points at this tree")
+    if carried in ("", "<no value>", "map[]"):
+        print(f"[ci-images] source-check {name}: STALE — the resolved {local_name(name)} carries "
+              f"no {AGENT_SOURCE_LABEL} label: it predates the build stamp, so the published "
+              f"image was not built from this checkout (tree source hash {expected}). Remedy: "
+              f"{remedy}", file=sys.stderr, flush=True)
+        return 1
+    if carried != expected:
+        print(f"[ci-images] source-check {name}: STALE — the resolved {local_name(name)} was "
+              f"built from a different tree: the image labels its source {carried}, this checkout "
+              f"hashes to {expected}. The published {latest_ref(name)} lags this checkout's agent "
+              f"wiring (profiles, Hermes pin, Dockerfile). Remedy: {remedy}",
+              file=sys.stderr, flush=True)
+        return 1
+    print(f"[ci-images] source-check {name}: OK — the resolved {local_name(name)} carries this "
+          f"tree's source hash {expected}", flush=True)
+    return 0
+
+
 # --------------------------------------------------------------------------- the push pre-flight
 def registry_parts() -> tuple[str, str, str]:
     """(scheme, host, owner) of the configured registry.
@@ -469,7 +521,8 @@ def pushcheck(name: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CI images on GHCR: publish once per hash, pull everywhere")
-    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "latest", "pushcheck"))
+    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "latest",
+                                    "pushcheck", "source-check"))
     ap.add_argument("names", nargs="*", default=list(IMAGES), help=f"default: {' '.join(IMAGES)}")
     ap.add_argument("--force", action="store_true",
                     help="publish: rebuild + push even when the content hash is already on the "
@@ -487,7 +540,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(latest_ref(n))
         return 0
-    run = {"publish": publish, "pull": pull, "ensure": ensure, "pushcheck": pushcheck}[a.cmd]
+    run = {"publish": publish, "pull": pull, "ensure": ensure, "pushcheck": pushcheck,
+           "source-check": source_check}[a.cmd]
     rc = 0
     for n in a.names:
         if a.cmd == "publish":

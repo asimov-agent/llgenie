@@ -53,6 +53,16 @@ runs:
         AGENT_SHELL_CHECK_KEYS: ${{ inputs.shell_keys }}
       run: make agent-shell-keys-check
 
+    # `ensure agent` fetches the FLOATING published `:latest`, which only moves when a human
+    # dispatches publish-agent-image.yml (#2935). When it lags this tree's agent wiring the leg
+    # used to die mid-smoke with `Profile '...' does not exist` (three issue-bot failures on
+    # 2026-11-20). The agent build stamps its tree's source hash into the image; read it back
+    # here so a stale image fails at job start with the root cause named (issue #2968).
+    - name: Prove the agent image was built from this tree (issue #2968)
+      if: inputs.phase == 'preflight' && inputs.routing_smoke == 'true'
+      shell: bash
+      run: make agent-image-source-check
+
     # A routing reach dies in seconds here, not after a full leg's budget
     # (issue #407). Only legs that actually reach a routed provider opt in.
     - name: Hermes routing smoke — die in seconds, not after 20 min (issue #407)
