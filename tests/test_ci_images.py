@@ -1246,5 +1246,6 @@ def test_agent_leg_source_check_precedes_the_routing_smoke():
     assert len(smoke) == 1, runs
     assert sc[0][0] < smoke[0][0], (sc, smoke)
     assert sc[0][2] == "inputs.phase == 'preflight' && inputs.routing_smoke == 'true'", sc
-    # The target wraps the CLI verb
-    assert "python3 scripts/ci_images.py source-check agent" in (REPO / "mk" / "agents.mk").read_text()
+    # The target wraps the CLI verb (declared in the gates domain: mk/gates.mk, since
+    # mk/agents.mk is pinned to the #2676 split roster)
+    assert "python3 scripts/ci_images.py source-check agent" in (REPO / "mk" / "gates.mk").read_text()

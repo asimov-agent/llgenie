@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "classes": [
+    "docs",
+    "scripts",
+    "tests"
+  ],
+  "paths": [
+    "CHANGES.md",
+    "agent-wiki/2026-11-20-reviewer-finding-dedupe-293.md",
+    "docs/changes.d/2026-11-20-reviewer-finding-dedupe-293.md",
+    "openspec/changes/reviewer-finding-dedupe/.openspec.yaml",
+    "openspec/changes/reviewer-finding-dedupe/proposal.md",
+    "openspec/changes/reviewer-finding-dedupe/specs/ci-code-review-bot/spec.md",
+    "openspec/changes/reviewer-finding-dedupe/tasks.md",
+    "scripts/code_review.py",
+    "tests/test_code_review.py"
+  ],
+  "wide": null,
+  "jobs": {
+    "guard": {
+      "run": true,
+      "why": "always"
+    },
+    "ci-images": {
+      "run": true,
+      "why": "class scripts+tests"
+    },
+    "linux/lint": {
+      "run": true,
+      "why": "always"
+    },
+    "linux/unit": {
+      "run": true,
+      "why": "class scripts+tests"
+    },
+    "linux/install": {
+      "run": true,
+      "why": "class scripts"
+    },
+    "linux/agents-read": {
+      "run": false,
+      "why": "no class from [docs,scripts,tests]; needs one of skills"
+    },
+    "linux/openspec": {
+      "run": true,
+      "why": "class docs"
+    },
+    "linux/top-tier": {
+      "run": true,
+      "why": "class scripts"
+    },
+    "linux/cpu-health": {
+      "run": true,
+      "why": "class scripts"
+    }
+  }
+}

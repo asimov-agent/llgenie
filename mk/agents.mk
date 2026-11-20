@@ -136,9 +136,6 @@ hermes-smoke: ## Prove the alias the bots use can CALL A TOOL, inside the agent 
 	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
 	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke')
 
-agent-image-source-check: ## Prove the resolved agent image was BUILT FROM THIS tree, at agent-leg preflight (issue #2968): read the `llgenie.agent.source` stamp the build put in and compare it with the tree's content hash; a stale published :latest fails HERE naming both hashes and the publish dispatch (#2935), instead of dying mid-hermes-smoke with a cryptic profile error
-	python3 scripts/ci_images.py source-check agent
-
 # Inside the image: the JEV preflight first, so the run knows whether the decision layer is
 # there. It reports; it never blocks.
 _agent-jev-preflight: # (internal) report whether the JEV layer is available in this home.

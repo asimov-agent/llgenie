@@ -303,5 +303,8 @@ lint-fix: ## Append a missing trailing newline (containerized)
 check-host-space: ## Host: refuse a /tmp worktree or container build when the shared tmpfs is below the headroom threshold (<20% space OR <50k inodes free) — the planner's preflight before dispatch (issue #1583)
 	python3 scripts/check_host_space.py check
 
+agent-image-source-check: ## Prove the resolved agent image was BUILT FROM THIS tree, at agent-leg preflight (issue #2968): read the `llgenie.agent.source` stamp the build put in and compare it with the tree's content hash; a stale published :latest fails HERE naming both hashes and the publish dispatch (#2935), instead of dying mid-hermes-smoke with a cryptic profile error
+	python3 scripts/ci_images.py source-check agent
+
 reclaim-tmp-worktrees: ## Host: reclaim /tmp worktree and probe-tree debris that is provably safe to delete — a tree is removed only when it is clean AND its HEAD is an ancestor of origin/main AND idle >= MIN_IDLE_MIN (issue #2141); DRY=1 by default and deletes/pins NOTHING (DRY=0 to act), FORCE=1 drops the on-main + idle tests but NEVER the dirty refusal and pins every novel head as refs/reclaimed/<name> before forced removal; SCAN_ROOT=/REPO=/MIN_IDLE_MIN=/BASE=/FORCE= override; root-owned leftovers are reported with the `sudo rm -rf <path>` remedy, never retried
 	@REPO="$${REPO:-$$HOME/repository/git/llgenie}" SCAN_ROOT="$${SCAN_ROOT:-/tmp}" MIN_IDLE_MIN="$${MIN_IDLE_MIN:-60}" DRY="$${DRY:-1}" FORCE="$${FORCE:-0}" BASE="$${BASE:-origin/main}" bash scripts/reclaim_tmp_worktrees.sh

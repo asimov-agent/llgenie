@@ -28,6 +28,6 @@ runs it before `hermes-smoke`. No publish-cadence change (#2935 stays a human di
 ## Verification provable at head (tick only with rc 0)
 
 - [x] 4.1 `pytest tests/test_ci_images.py -q` rc=0 at head
-- [ ] 4.2 full unit battery `make test-unit` rc=0 at head
-- [ ] 4.3 `make openspec-validate NAME=agent-image-source-stamp` rc=0 and
+- [x] 4.2 full unit battery `make test-unit` rc=0 at head
+- [x] 4.3 `make openspec-validate NAME=agent-image-source-stamp` rc=0 and
       `make lane-preflight` rc=0 at head
