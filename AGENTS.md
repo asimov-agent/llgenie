@@ -274,6 +274,24 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
      the owner PAT for exactly that reason — a merge made with the job token starts
      no workflows, so that run would never happen.
 
+## Host-side task pacing (MANDATORY, durable)
+
+- **One issue/PR at a time.** The host agent works exactly one work item at a
+  time: issue → OpenSpec change → branch → PR. A second lane starts only after
+  the current lane has been pushed. One interactive agent, one active lane.
+- **Never foreground-wait on a CI pipeline.** After pushing a lane, the agent
+  does NOT idle on `sleep`/poll chains waiting for that run to finish. The wait
+  is set as a **background watching task**: a poll loop (with completion
+  notification) that reports the run's conclusion, its failed steps, and
+  `mergeStateStatus` when it ends.
+- **Move to the next issue immediately.** While a lane's CI runs in the
+  background, the agent starts the next issue/PR on the board (fresh worktree,
+  OpenSpec change first) instead of blocking on the previous pipeline.
+- **Return to the board at the end.** Once all lanes are pushed, re-poll every
+  PR until each is fully GREEN and armed (auto-merge/auto-approve; rebase onto
+  the latest `origin/main` whenever `mergeStateStatus` is `BEHIND`/`DIRTY`).
+  The agent never merges by hand (see the CI merge rules above).
+
 ## Every issue carries the problem, why, the fix and the benefit — then the technical solution (MANDATORY, durable)
 
 An issue is the root of the pipeline — issue → feature branch → OpenSpec change → code → PR →
@@ -491,6 +509,17 @@ Rules that follow:
   itself as a path). `make workflows-report` prints what it reads. Its tests are
   `tests/test_workflows_valid.py` in `make test-unit`, where a strict YAML parse with no duplicate keys
   also runs — the make gate is stdlib only, so `ci-unit` can run it on the host on Linux and macOS.
+- **Since issue #2526 the gate also machine-checks the start surface of every `.github/workflows/*.yml`:**
+  each file is classified by who can start it (the automatic PR-creation chain and its `workflow_run`
+  followers, the merge-to-main push, cron, manual dispatch), and the gate enforces three rules on all of
+  them — **R1** every workflow declares an explicit top-level `permissions:` and `write-all` is refused;
+  **R2** `pull_request_target` is banned outright; **R3** every outsider-reachable trigger carries the
+  `github.triggering_actor` guard outside `run:` script text, or derives it transitively through a
+  `workflow_run` roster of already-guarded workflows (fixed point — cycles are not trust). Manual starts
+  (`workflow_dispatch`), pushes and crons are write-capable-only at the platform level and need no guard.
+  The fleet passes with **zero exemptions** and `tests/test_workflow_actor_gates.py` locks that state;
+  `make workflows-report` prints each file's start classes and guard state. Write start-surface-compliant
+  workflows from the first draft; do not wait for the gate to redden.
 
 ## PR review comments — check them and reply yourself (MANDATORY, durable)
 
