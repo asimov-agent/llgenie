@@ -62,20 +62,29 @@ def tree_skill_dirs(root: Path, profile: str) -> list[Path]:
     return [base] + sorted(p for p in base.iterdir() if p.is_dir())
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from check_agent_profiles import holds_a_profile  # noqa: E402  same layer (structural gates)
+
+
 def live_skills_root(root: Path = REPO) -> Path | None:
     """The profiles home, or None when this checkout is not on a machine with live profiles.
 
     `$HERMES_PROFILES_HOME` is the directory holding every profile; `$HERMES_PROFILE_HOME` is ONE
     profile's home, so its parent is used (the same reading `check_agent_profiles.live_root_info`
-    uses).
+    uses) — and now the *same code*: the shared `holds_a_profile` probe, so a typo resolving to a
+    directory that holds no `<name>/SOUL.md` (a bare filename, a bind mount, `/nonexistent-home` →
+    `/`) is rejected HERE too instead of being accepted as "the profiles home" (issue #923).
     """
     plural = os.environ.get("HERMES_PROFILES_HOME")
     singular = os.environ.get("HERMES_PROFILE_HOME")
     if plural:
-        return Path(plural).expanduser()
-    if singular:
-        return Path(singular).expanduser().parent
-    return Path.home() / ".hermes" / "profiles"
+        base = Path(plural).expanduser()
+    elif singular:
+        base = Path(singular).expanduser().parent
+    else:
+        base = Path.home() / ".hermes" / "profiles"
+    return base if holds_a_profile(base) else None
 
 
 def _bookkeeping(name: str) -> bool:
@@ -199,8 +208,10 @@ def findings(drift: dict) -> list[str]:
 def report(root: Path = REPO) -> int:
     homes = live_skills_root(root)
     if not homes or not homes.is_dir():
-        print(f"[skill-parity] no live profiles at `{homes}` — host-only gate, nothing to compare "
-              f"here (exit 0, no verdict)")
+        print("[skill-parity] no live profiles home: the profiles-root read "
+              "($HERMES_PROFILES_HOME / $HERMES_PROFILE_HOME's parent / ~/.hermes/profiles) resolved "
+              "to a directory holding no <name>/SOUL.md — host-only gate, nothing to compare "
+              "here (exit 0, no verdict)")
         return 0
     drift = profile_drift(root)
     rows = findings(drift) if drift else []

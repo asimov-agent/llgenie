@@ -417,6 +417,28 @@ def _skill_findings(skill_dir: Path, root: Path, exempt: frozenset[str] = frozen
     return items
 
 
+def holds_a_profile(base: Path) -> bool:
+    """True when `base` is a directory holding at least one `<name>/SOUL.md` — a probe that cannot crash.
+
+    #923's shape test walks the base, and "unreadable" is not among the errors pathlib swallows on
+    this Python (EACCES propagates from `is_file`/`is_dir`/`iterdir`, measured on 3.11). So a typo
+    like `HERMES_PROFILE_HOME=/nonexistent-home` resolved to `/`, the walk hit `/boot/SOUL.md`, and
+    the whole gate aborted with a PermissionError — NOTHING checked, on the exact probe meant to
+    decide a calm skip. An entry that cannot be READ is not a profile; it is an answer, not a fault.
+    """
+    try:
+        candidates = sorted(base.iterdir())
+    except OSError:
+        return False  # an unlistable base cannot answer the question: take the skip path
+    for d in candidates:
+        try:
+            if d.is_dir() and (d / "SOUL.md").is_file():
+                return True
+        except OSError:
+            continue  # an unreadable candidate is not a profile; keep looking
+    return False
+
+
 def live_root_info() -> tuple[Path | None, str]:
     """(the profiles directory or None, where that path came from) — the two env vars mean DIFFERENT things.
 
@@ -429,17 +451,19 @@ def live_root_info() -> tuple[Path | None, str]:
     plural = os.environ.get("HERMES_PROFILES_HOME")
     singular = os.environ.get("HERMES_PROFILE_HOME")
     if plural:
-        base, source = Path(plural).expanduser(), "$HERMES_PROFILES_HOME"
+        base, source = Path(plural).expanduser(), f"$HERMES_PROFILES_HOME {Path(plural).expanduser()}"
     elif singular:
         # The parent of anything exists — a typo, a bare filename, `/nonexistent-home` all have one —
         # so taking `.parent` unconditionally reported OK with no caveat while comparing nothing.
-        base, source = Path(singular).expanduser().parent, "$HERMES_PROFILE_HOME (its parent directory)"
+        resolved = Path(singular).expanduser().parent
+        base, source = resolved, f"$HERMES_PROFILE_HOME (its parent directory {resolved})"
     else:
         base, source = Path.home() / ".hermes" / "profiles", "~/.hermes/profiles"
     # A profiles home HOLDS profiles. `exists()` is not the test: a directory that contains no
     # `<name>/SOUL.md` cannot answer the question, and must take the skip path with its caveat.
-    holds_a_profile = base.is_dir() and any((d / "SOUL.md").is_file() for d in base.iterdir() if d.is_dir())
-    return (base if holds_a_profile else None), source
+    # A rejected *provided* base is named in `source` too (#923 AC4): the reader must see which
+    # directory was rejected, not just which variable was set.
+    return (base if holds_a_profile(base) else None), source
 
 
 def live_root(root: Path = REPO_ROOT) -> Path | None:

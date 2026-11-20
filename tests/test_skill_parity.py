@@ -19,6 +19,7 @@ def _setup(tmp_path: Path, monkeypatch):
     homes = tmp_path / "profiles"
     live_ref = homes / "p1" / "skills" / "s" / "references"
     live_ref.mkdir(parents=True)
+    (homes / "p1" / "SOUL.md").write_text("# p1\n")  # a profile home holds a SOUL.md (#923 probe shape)
     (live_ref / "a.md").write_text("# a")
     (live_ref / "only_live.md").write_text("# l")
     monkeypatch.setenv("HERMES_PROFILES_HOME", str(homes))
