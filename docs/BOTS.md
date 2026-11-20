@@ -990,11 +990,18 @@ make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY again
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
 make rebase-bot-abort     # abort a stopped rebase and return the tree to main (the run loops over many PRs)
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
+make rebase-sweep-record RECORD=<issue> DISPATCHED=<n> REBASED=<n> FAILED=<n> [LINES=<file>]  # the rebase lane's own sweep summary as ONE comment on the tracker (#2652, issue #2950)
 **Every open PR is kept on `main` by a third bot** (`rebase-bot.yml`, issue #246), because
 AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
 It runs on a manual dispatch (its 6-hourly clock `29 */6 * * *` was removed by issue #2701; the lane is classified keep-dispatch-only by issue #2703) and drains the backlog: **every eligible PR per run**, oldest first,
 bounded by the `max_prs` dispatch input (default 10) and by the sweep's daily cap. A PR whose
 rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries on.
+rebase failures, but the run **records itself on the tracker**: the drain step names every
+deferral (`UNKNOWN` deferrals read from the sweep's `deferred=#<n>` lines, failed picks from its
+own note) as a `- PR #<n>: <reason>` line, and a record step posts `make rebase-sweep-record
+RECORD=2652` with the run's counts — one `[rebase-sweep <UTC>] dispatched=N rebased=N deferred=N`
+comment per run, so a passing sweep and a stalled one are distinguishable by reading #2652
+(issue #2950, same tracker as the merge lane's records).
 - `make rebase-bot-sweep` decides *which* PR — an open, non-draft PR against `main` whose merge
   state is `BEHIND` (a clean rebase) or `DIRTY` (conflicts). GitHub computes mergeability
   **lazily**, so a PR the list reports as `UNKNOWN` is re-asked through `gh pr view

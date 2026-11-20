@@ -187,8 +187,13 @@ jobs:
           fi
           rebased=0
           failed=0
+          picked=0
           failed_prs=""
           skip=""
+          # #2950: every deferral this run leaves for the NEXT run lands as one `- PR #<n>: <reason>`
+          # line in this file; the record step turns them into the summary comment on #2652.
+          lines_file="$RUNNER_TEMP/rebase-sweep-lines.txt"
+          : > "$lines_file"
           for i in $(seq 1 "$MAX_PR"); do
             out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst SKIP="$skip"${TARGET_PR:+ TARGET_PR=\"$TARGET_PR\"})
             rc=$?
@@ -202,6 +207,13 @@ jobs:
               echo "::error::the rebase sweep failed (make rebase-bot-sweep rc=$rc)${why:+ reading $why}; refusing to treat a crashed decision as 'nothing to do'"
               exit 1
             fi
+            # Deferrals are read structurally (#2950): the sweep prints one `deferred=#<n>` per
+            # deferred PR, and the matching pass-over line names the reason. Each deferral joins
+            # the file the record step summarizes.
+            for dn in $(printf '%s\n' "$out" | sed -n 's/^deferred=#\([0-9][0-9]*\)$/\1/p'); do
+              why=$(printf '%s\n' "$out" | sed -n "s/^\[rebase-bot\] pass-over: #${dn} \(.*\)\$/- PR #${dn}: \1/p" | head -1)
+              printf '%s\n' "${why:-- PR #${dn}: deferred to the next run}" >> "$lines_file"
+            done
             action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
             pr=$(printf '%s\n' "$out" | sed -n 's/^pr=//p' | tail -1)
             branch=$(printf '%s\n' "$out" | sed -n 's/^head_branch=//p' | tail -1)
@@ -211,6 +223,7 @@ jobs:
               break
             fi
             echo "==> rebasing #$pr ($branch) [$i/$MAX_PR]"
+            picked=$((picked + 1))
             if make rebase-bot REPO="$REPO" PR="$pr" HEAD_BRANCH="$branch" HEAD_REPO="$headrepo"; then
               rebased=$((rebased + 1))
               # Never pick the same PR twice in one run: today's marker bounds the daily cap, not
@@ -219,6 +232,7 @@ jobs:
             else
               failed=$((failed + 1))
               failed_prs="${failed_prs:+$failed_prs,}#$pr"
+              printf '%s\n' "- PR #${pr}: picked and not rebased (rebase failed; retried next run)" >> "$lines_file"
               echo "::warning title=Rebase failed::#$pr ($branch) was not rebased; aborting it so the next decision runs on a clean tree"
               make rebase-bot-abort || true
               # The PR is still DIRTY, so without this the next iteration would pick it again and
@@ -227,10 +241,11 @@ jobs:
               skip="${skip:+$skip,}$pr"
             fi
           done
-          echo "rebased=$rebased failed=$failed failed_prs=$failed_prs"
+          echo "rebased=$rebased failed=$failed picked=$picked failed_prs=$failed_prs"
           {
             echo "rebased=$rebased"
             echo "failed=$failed"
+            echo "picked=$picked"
             echo "failed_prs=$failed_prs"
           } >> "$GITHUB_OUTPUT"
           if [ "$failed" != "0" ]; then
@@ -257,3 +272,18 @@ jobs:
             echo ""
             echo "The bot never merges and never pushes to \`main\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The #2950 record: the run's own counts reach the tracker #2652 as ONE greppable comment,
+      # so a passing sweep and a stalled one are distinguishable by reading the tracker. Only when
+      # the drain produced its outputs — a crashed decision must not be recorded as zeros. A
+      # failing recorder reddens the step (issue #312 loudness: no swallowed decision).
+      - name: Record the sweep summary on the tracker (issue #2950)
+        if: steps.drain.outputs.rebased != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make rebase-sweep-record REPO="$REPO" RECORD=2652 \
+            DISPATCHED="${{ steps.drain.outputs.picked }}" \
+            REBASED="${{ steps.drain.outputs.rebased }}" \
+            FAILED="${{ steps.drain.outputs.failed }}" \
+            LINES="$RUNNER_TEMP/rebase-sweep-lines.txt"
