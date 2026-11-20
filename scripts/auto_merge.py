@@ -62,6 +62,7 @@ Commands (stdlib only, the GitHub API only through a `gh` on PATH):
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -552,9 +553,22 @@ def pr_comments(gh: str, repo: str, pr: int) -> list[str]:
     return [str(c.get("body") or "") for c in (json.loads(out or "{}").get("comments") or [])]
 
 
-def defer(gh: str, repo: str, pr: int, head_sha: str, reason: str, dry: bool = False) -> None:
+def _record(outcome: "dict | None", kind: str, pr: int, reason: str = "") -> None:
+    """Tally this sweep's own decision as it happens (issue #2652's record line).
+
+    The record counts WHAT THE SWEEP DID: a merge it landed, an approval it posted, a
+    deferral it decided. `outcome` is owned by `recheck`; every other caller passes None,
+    so the single-PR decision path is byte-identical to before.
+    """
+    if outcome is not None:
+        outcome.setdefault(kind, []).append((pr, reason))
+
+
+def defer(gh: str, repo: str, pr: int, head_sha: str, reason: str, dry: bool = False,
+          outcome: "dict | None" = None) -> None:
     """Say why on the PR, once per head SHA: a run log is not where a reviewer looks."""
     print(f"[auto-merge] PR #{pr} deferred to a human: {reason}")
+    _record(outcome, "deferred", pr, reason)
     marker = DEFERRAL_MARKER.format((head_sha or "")[:40])
     if dry:
         print(f"[auto-merge] would comment the deferral on PR #{pr} ({marker})")
@@ -668,7 +682,7 @@ def commit_checkbox_hold(gh: str, repo: str, pr: int) -> "str | None":
 
 
 def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
-          admin: bool = False) -> int:
+          admin: bool = False, outcome: "dict | None" = None) -> int:
     same = _same_repo(state, repo)
     keeps = " (its branch stays in the fork)" if not same else ""
     bypass = " (admin: the required review cannot be self-approved)" if admin else ""
@@ -694,8 +708,10 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
                   f"never a red run (#2236)")
             return verify_closure.verify(gh, repo, pr)
         defer(gh, repo, pr, head_sha,
-              f"GitHub refused the merge at {(head_sha or '')[:8]}: {exc}", dry=dry)
+              f"GitHub refused the merge at {(head_sha or '')[:8]}: {exc}", dry=dry,
+              outcome=outcome)
         return 0
+    _record(outcome, "merged", pr)
     announce_merge(gh, repo, pr, head_sha, admin=admin)
     return verify_closure.verify(gh, repo, pr)
 
@@ -753,7 +769,8 @@ def wait_for_merge_state(gh: str, repo: str, pr: int, attempts: int = 0,
     return state
 
 
-def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -> int:
+def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
+                  outcome: "dict | None" = None) -> int:
     """Clear the one procedural block a bot may clear: a required review (issue #524).
 
     Order matters, and it is the order `trending-local-llms` gets for free: approve as the identity that is
@@ -767,22 +784,23 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
     if why is None:
         if dry:
             return 0
+        _record(outcome, "approved", pr)      # the approval landed: the sweep's own act (#2652)
         state = wait_for_merge_state(gh, repo, pr)      # bounded: the approval is not instant
         reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
         if reason is None:
-            return _merge(gh, repo, pr, head_sha, state, dry)
+            return _merge(gh, repo, pr, head_sha, state, dry, outcome=outcome)
         # The approval DID land; say so, and name the state it was still stuck in — never `None`.
         why = (f"the approval landed, but the PR did not become mergeable within the wait "
                f"(mergeStateStatus {state.get('mergeStateStatus') or 'UNKNOWN'}: {reason})")
         print(f"[auto-merge] PR #{pr}: {why}")
         # The approval landed and the pull request is still not CLEAN. That is a red or unfinished
         # pipeline (UNSTABLE on #1401 after the scope job failed). `--admin` would skip it. Defer.
-        defer(gh, repo, pr, head_sha, why, dry=dry)
+        defer(gh, repo, pr, head_sha, why, dry=dry, outcome=outcome)
         return 0
     print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
     red = failing_checks(gh, repo, head_sha)
     if red:
-        defer(gh, repo, pr, head_sha, red, dry=dry)
+        defer(gh, repo, pr, head_sha, red, dry=dry, outcome=outcome)
         return 0
     if dry:
         print(f"[auto-merge] would fall back to --admin for PR #{pr}")
@@ -794,15 +812,18 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
         # AFTER the merge returned: a refusal raises SystemExit and reaches the deferral below instead,
         # so a run that could not merge never announces one.
         announce_merge(gh, repo, pr, head_sha, admin=True)
+        _record(outcome, "merged", pr)
     except SystemExit as exc:
         # A refusal here is a policy deferral, not a broken gate: say so ON the PR (the #491 rule) and
         # never let a run that could not merge look like one that chose not to (#513).
-        defer(gh, repo, pr, head_sha, f"{why}; the admin merge was refused too: {exc}", dry=dry)
+        defer(gh, repo, pr, head_sha, f"{why}; the admin merge was refused too: {exc}", dry=dry,
+              outcome=outcome)
         return 0
     return verify_closure.verify(gh, repo, pr)
 
 
-def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -> int:
+def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
+                          outcome: "dict | None" = None) -> int:
     """Merge a review-blocked PR whose block was cleared by a BOT VERDICT at this head (issue #852).
 
     The verdict is the review, but GitHub's `reviewDecision` cannot be moved by it (an approval of a
@@ -812,11 +833,11 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
     """
     red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
     if red:
-        defer(gh, repo, pr, head_sha, red, dry=dry)
+        defer(gh, repo, pr, head_sha, red, dry=dry, outcome=outcome)
         return 0
     not_green = no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or ""))
     if not_green:
-        defer(gh, repo, pr, head_sha, not_green, dry=dry)
+        defer(gh, repo, pr, head_sha, not_green, dry=dry, outcome=outcome)
         return 0
     verdict = bot_verdict.verdict_for_head(state.get("comments") or [],
                                            (state.get("headRefOid") or ""))
@@ -834,14 +855,15 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
     except SystemExit as exc:
         defer(gh, repo, pr, head_sha,
               f"a bot verdict at {(head_sha or '')[:8]} from `{who}` cleared the review, but GitHub "
-              f"refused the merge: {exc}", dry=dry)
+              f"refused the merge: {exc}", dry=dry, outcome=outcome)
         return 0
+    _record(outcome, "merged", pr)
     return verify_closure.verify(gh, repo, pr)
 
 
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         approve_when_review_required: bool = False, actor: str = "",
-        settle: bool = True) -> int:
+        settle: bool = True, outcome: "dict | None" = None) -> int:
     state = pr_state(gh, repo, pr)
     if (state.get("mergeable") or "").upper() == "UNKNOWN" and not dry:
         state = settle_mergeable(gh, repo, pr)
@@ -850,11 +872,12 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     print(f"[auto-merge] PR #{pr}: " + json.dumps({k: state.get(k) for k in fields}))
     refused = author_may_merge(gh, repo, state, actor=actor)
     if refused:
-        defer(gh, repo, pr, head_sha, refused, dry=dry)
+        defer(gh, repo, pr, head_sha, refused, dry=dry, outcome=outcome)
         return 0
     red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
     if red:
-        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry)
+        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry,
+              outcome=outcome)
         return 0
     # A SINGLE-PR sweep (`merge`, one head) may wait out its own unfinished row (#2101). A MULTI-PR
     # sweep (`recheck`, up to MAX_RECHECK_PRS heads) must NOT: 50 heads x the 3-minute bound is 150
@@ -865,22 +888,23 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
                  if settle
                  else no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or "")))
     if not_green:
-        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), not_green, dry=dry)
+        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), not_green, dry=dry,
+              outcome=outcome)
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
-        return _clear_review(gh, repo, pr, head_sha, state, dry)
+        return _clear_review(gh, repo, pr, head_sha, state, dry, outcome=outcome)
     if reason:
-        defer(gh, repo, pr, head_sha, reason, dry=dry)
+        defer(gh, repo, pr, head_sha, reason, dry=dry, outcome=outcome)
         return 0
     checkbox_hold = commit_checkbox_hold(gh, repo, pr)
     if checkbox_hold:
-        defer(gh, repo, pr, head_sha, checkbox_hold, dry=dry)
+        defer(gh, repo, pr, head_sha, checkbox_hold, dry=dry, outcome=outcome)
         return 0
     if review_blocked(state):
         # decide() cleared the review block: only a bot verdict at this head can do that (#852).
-        return _merge_review_cleared(gh, repo, pr, head_sha, state, dry)
-    return _merge(gh, repo, pr, head_sha, state, dry)
+        return _merge_review_cleared(gh, repo, pr, head_sha, state, dry, outcome=outcome)
+    return _merge(gh, repo, pr, head_sha, state, dry, outcome=outcome)
 
 
 def deferred_for_head(gh: str, repo: str, pr: int, head_sha: str) -> bool:
@@ -903,7 +927,8 @@ def has_any_deferral_marker(gh: str, repo: str, pr: int) -> bool:
     return any("auto-merge: deferred" in body for body in pr_comments(gh, repo, pr))
 
 
-def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = False) -> int:
+def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = False,
+            record: "int | None" = None) -> int:
     """Re-evaluate open PRs the gate deferred, plus any green head no sweep ever decided (#545, #2101).
 
     A deferral is exit 0 by design, so nothing retries it: the blocker can clear (a secret added, a review
@@ -926,6 +951,9 @@ def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = Fals
     out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
                    "--json", "number,headRefOid"])
     prs = json.loads(out or "[]")
+    # `record` (issue #2652): the sweep tallies its OWN decisions and posts them as one
+    # comment on the named issue after the pass. Without it nothing changes.
+    sweep: dict = {"merged": [], "approved": [], "deferred": []}
     seen = 0
     for pr in prs:
         num = int(pr["number"])
@@ -951,7 +979,7 @@ def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = Fals
                 continue
             if red_why:
                 print(f"[recheck] #{num}: {red_why}")
-                defer(gh, repo, num, head, red_why, dry=dry)
+                defer(gh, repo, num, head, red_why, dry=dry, outcome=sweep)
                 continue
             if seen >= max_prs:
                 print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
@@ -968,7 +996,7 @@ def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = Fals
                 print(f"[recheck] #{num}: --dry, decision not run")
                 continue
             run(gh, repo, num, head, dry=False, approve_when_review_required=True,
-                actor=token_login(gh), settle=False)
+                actor=token_login(gh), settle=False, outcome=sweep)
             continue
         if seen >= max_prs:
             print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
@@ -981,7 +1009,20 @@ def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = Fals
         # The sweep runs as the repository's own scheduled job, so the token's account is its actor: that is
         # what authorises a bot-opened PR (a bot has no permission endpoint to ask).
         run(gh, repo, num, head, dry=False, approve_when_review_required=True,
-            actor=token_login(gh), settle=False)
+            actor=token_login(gh), settle=False, outcome=sweep)
+    if record:
+        # One greppable comment per sweep on the tracker issue (issue #2652). The counts are
+        # the decisions THIS sweep took, and every deferral this sweep decided names its reason.
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        first = (f"[sweep {stamp}] merged={len(sweep['merged'])} "
+                 f"approved={len(sweep['approved'])} deferred={len(sweep['deferred'])}")
+        lines = [f"- PR #{pr}: {why}" for pr, why in sweep["deferred"]]
+        if dry:
+            print(f"[recheck] --dry: the record for #{record} would read: {first}")
+        else:
+            _gh(gh, ["issue", "comment", str(record), "--repo", repo,
+                     "--body", "\n".join([first, *lines])])
+            print(f"[recheck] sweep record posted on #{record}: {first}")
     if seen == 0:
         print("[recheck] no deferred PR needs a retry")
     return 0
@@ -1150,6 +1191,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--max-prs", type=int, default=MAX_RECHECK_PRS)
     r.add_argument("--gh", default="gh")
     r.add_argument("--dry", action="store_true")
+    r.add_argument("--record", type=int, default=None,
+                   help="post the sweep's own record comment on this issue (issue #2652)")
 
     args = p.parse_args(argv)
     _require_token()
@@ -1167,7 +1210,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "stacked-merged":
         return stacked_merged(args.gh, args.repo, args.limit, args.dry)
     if args.cmd == "recheck":
-        return recheck(args.gh, args.repo, args.max_prs, args.dry)
+        return recheck(args.gh, args.repo, args.max_prs, args.dry, args.record)
     if args.cmd == "explain":
         return explain(args.gh, args.repo, args.pr, args.head_sha)
     return run(args.gh, args.repo, args.pr, args.head_sha, args.dry,

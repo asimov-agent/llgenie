@@ -248,7 +248,11 @@ jobs:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           APPROVER_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: make auto-merge-recheck REPO="$REPO" MAX=50
+        # RECORD=#2652 (issue #2652): the sweep writes its own record — one `[sweep <stamp>]
+        # merged=… approved=… deferred=…` comment on the tracker issue, counts of what THIS
+        # sweep merged/approved/deferred plus a line per deferral it decided. Hermes cron is
+        # banned on this host (2026-11-14), so the lane itself must carry the record.
+        run: make auto-merge-recheck REPO="$REPO" MAX=50 RECORD=2652
       - name: Alert when a merged PR's head pipeline was red (issue #1386)
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
