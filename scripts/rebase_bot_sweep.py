@@ -508,6 +508,11 @@ def main(argv=None) -> int:
                 a.unknown_attempts, a.unknown_delay, skip, a.pr)
     for r in res["reasons"]:
         print(f"[rebase-bot] pass-over: {r}")
+    # Structured deferral readout (#2950): the sweep already computed WHO it deferred; printing
+    # each as `deferred=#<n>` lets the lane count deferrals from stdout instead of parsing the
+    # prose pass-over lines above. Decision semantics are unchanged.
+    for n in res["deferred"]:
+        print(f"deferred=#{n}")
     print(f"[rebase-bot] {res['reason']}")
     if res["action"] == "rebase":
         # CLAIM it here, in the decision step, BEFORE the actor force-pushes this branch

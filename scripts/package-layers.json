@@ -180,6 +180,7 @@
       "queued_run_alarm",
       "trend_staleness_issue",
       "rebase_bot_sweep",
+      "rebase_sweep_record",
       "registry_change_issue",
       "registry_review",
       "require_env",
@@ -197,6 +198,11 @@
   "allowed_edges": [
     {
       "from": "acceptance_writeback",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "rebase_sweep_record",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },

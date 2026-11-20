@@ -4,6 +4,10 @@
 rebase-bot-sweep: ## Which ONE open PR needs rebasing (BEHIND/DIRTY against main): prints action/pr/head_* and the reason for every pass-over (TARGET_PR=<n> aims the decision at that PR only, #2446)
 	python3 scripts/rebase_bot_sweep.py --repo $(GH_REPO) $(if $(OWN_FORK),--own-fork $(OWN_FORK),) $(if $(SKIP),--skip "$(SKIP)",) $(if $(TARGET_PR),--pr $(TARGET_PR),)
 
+rebase-sweep-record: ## Record the rebase lane's own sweep summary as ONE comment on the tracker issue (issue #2950): needs DISPATCHED=/REBASED=/FAILED= (dispatched must equal rebased+failed), LINES=<file> names the '- PR #<n>: <reason>' deferral lines, RECORD=<issue> the target (DRY=1 prints instead of posting)
+	@test -n "$(RECORD)" || { echo "Usage: make rebase-sweep-record RECORD=<issue> DISPATCHED=<n> REBASED=<n> FAILED=<n> [LINES=<file>]"; exit 1; }
+	python3 scripts/rebase_sweep_record.py --repo $(GH_REPO) --record $(RECORD) --dispatched $(or $(DISPATCHED),0) --rebased $(or $(REBASED),0) --failed $(or $(FAILED),0) $(if $(LINES),--lines-file "$(LINES)",) $(if $(DRY),--dry,)
+
 bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792); when the working diff touches agents/<profile>/, surfaces the #1724 SYNC-line obligation (BODY=<prospective PR body> refuses a missing/mis-cited SYNC line, issue #1782) and prints the measured SYNC-BLOCKED line for a truncated tree copy (ISSUE=<n> names the tracking issue, issue #2097)
 	python3 scripts/bot_preflight.py $(if $(CHECK),--check,) $(if $(BODY),--body-file "$(BODY)",) $(if $(ISSUE),--issue "$(ISSUE)",)
 
