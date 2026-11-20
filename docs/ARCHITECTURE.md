@@ -733,15 +733,19 @@ trend matrix lives under `tests/fixtures/`:
   `FAIL: … is stale` and exiting 0. `tests/test_script_exit_codes.py` holds the whole class
   by parsing every `scripts/*.py`: a `__main__` that calls `main()` bare while `main()`
   returns a value is a finding, and a `main()` that returns nothing is not.
-- **What "differs" means is bounded by what a regeneration can honestly prove** (issue #736).
+- **What "differs" means is bounded by what a regeneration can honestly prove** (issues #736, #737).
   `scripts/gen_trending_quant_catalog.compare()` fails on a row the committed table HAS and
   the generator no longer produces — a plan gone, a plan whose repo/files/size/link changed,
-  an engine's arch list changed, or a table rendered for another registry — and only NOTES
-  what the live Hub re-reads: `mlx_repos()`/`tensorfold_repos()` query a `sort=downloads`
+  an engine's arch list changed, or a table rendered for another registry — and NOTES what
+  the live Hub re-reads: a plan the search dropped whose own link still answers, or a
+  conversion upstream newly published. What used to be churn is now checked: #736 left a
+  reorder a NOTE only because `mlx_repos()`/`tensorfold_repos()` query a `sort=downloads`
   search, so the same 14 plans came back in a different order for
   `qwen3.8-flash-next-125b`/MLX and the gate went red on `main` itself, blocking every PR for
-  a reason no PR caused. A reorder or a newly published conversion is recorded by the next
-  `make sync-quant-catalog`; the note says so and the exit code stays 0.
+  a reason no PR caused. `_model_catalog` now sorts every cell by `(size_gb, repo, path)` —
+  a repository decision, not the live download ranking — so a committed cell holding the
+  same set in a different order is out of step with a reproducible generation, and #737
+  makes that a FAILURE naming the cell; the remedy is `make sync-quant-catalog`.
 - `data/security-policy.json` is the scan's failure and issue policy (issues #715, #738):
   `fail_on` (`critical`, `high`), `pr_fail_on` (empty — a report-only run gates nothing),
   `enforce_events` (`schedule`, `workflow_dispatch`), `require_fix`, and

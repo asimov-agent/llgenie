@@ -366,9 +366,11 @@ def test_a_catalog_rendered_for_another_registry_still_fails():
     assert any("make sync-quant-catalog" in f for f in failures), failures
 
 
-def test_a_reordered_regeneration_is_a_note_not_a_failure():
-    # Given a committed table with two plans, regenerated as the SAME two in another order
-    # (`mlx_repos()` ranks the Hub search by downloads, and those move)
+def test_a_reordered_cell_is_a_failure_once_generation_is_reproducible():
+    # Given a committed table with two plans holding the SAME two plans in another order.
+    # The generator now owns the cell order (#737: size_gb, repo, path — what #736 could
+    # only NOTE while the order still followed the live search's download ranking), so a
+    # shuffled committed cell is out of step with a reproducible generation.
     second = {"repo": "org/m1-gguf-MLX-8bit", "revision": "main", "path": "",
               "files": ["config.json", "model.safetensors"], "size_gb": 8.0, "dir": True,
               "url": "https://huggingface.co/org/m1-gguf-MLX-8bit/resolve/main/config.json"}
@@ -380,6 +382,38 @@ def test_a_reordered_regeneration_is_a_note_not_a_failure():
     # When  it is compared with the committed table
     failures, notes = gen.compare(committed, fresh)
 
-    # Then  the reorder is reported rather than failing the gate on data upstream owns
-    assert failures == [], failures
-    assert any("different order" in n for n in notes), notes
+    # Then  the reorder fails the gate naming the cell: the fix is a regeneration, not a note
+    assert any("different order" in f for f in failures), failures
+    assert not any("different order" in n for n in notes), notes
+
+
+def test_two_replays_of_the_recorded_answers_are_byte_identical(tmp_path):
+    # Given the recorded Hub answers (the hermetic replay of make check-quant-catalog)
+    # for the first few models the generator itself sees, through the same
+    # mp.load_registry normalization main() uses, that the committed catalog covers
+    committed = catalog()
+    reg = mp.load_registry(str(REGISTRY))
+    models = [m for m in reg["models"] if m["id"] in committed["files"]][:3]
+    assert models
+    snap = json.loads((REPO / "tests" / "fixtures" /
+                       "quant-catalog-hub-snapshot.json").read_text())
+    a_path, b_path = tmp_path / "hub-a.json", tmp_path / "hub-b.json"
+    a_path.write_text(json.dumps(snap))
+    b_path.write_text(json.dumps(snap))
+
+    def replay(path):
+        with mp.hub_snapshot_file(path):
+            return json.dumps({m["id"]: gen._model_catalog(m) for m in models}, indent=2)
+
+    # When  the same recording is replayed twice, in two independent generator passes
+    a, b = replay(a_path), replay(b_path)
+
+    # Then  the two payloads are byte-identical, and every cell lists its plans in the
+    #   repository's (size_gb, repo, path) order: `make sync-quant-catalog` twice on an
+    #   unchanged Hub is byte-identical, and the row order is the repository's decision,
+    #   not the order a `sort=downloads` search returned repos in (issue #737)
+    assert a == b
+    for mid, engines in json.loads(a).items():
+        for eng, cell in engines.items():
+            keys = [(q["size_gb"], q["repo"], q["path"]) for q in cell["quants"]]
+            assert keys == sorted(keys), f"{mid}/{eng} is not in repository order"
