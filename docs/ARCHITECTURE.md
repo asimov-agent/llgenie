@@ -542,6 +542,18 @@ a real publish. A failed build or publish prints its exit code and a bounded tai
 captured streams (`FAILURE_TAIL_LINES = 25`, issue #2452) instead of the discarded one-liner of
 the old `publish failed: <scanner>`.
 
+The publish is push-checked BEFORE it builds (issue #2960): a package a credential cannot
+write was a permanent lockout once its tag was published by a different identity (measured:
+`llgenie/syft@1844da087d23` was created by the owner PAT, so the `security-images` lane's
+`GITHUB_TOKEN` was refused at push 403 every scheduled run 2026-11-16…19 — the build burned
+first, then the deny reddened the lane each day). `scripts/scanner_image.py ensure` therefore
+runs the same write-ownership pre-flight `ci_images.pushcheck` proved in issue #335 — token
+exchange scoped to `repository:<pkg>:push` plus the empty-blob upload — for each scanner it is
+about to publish, BEFORE issuing `docker buildx build --push`; on refusal it names the scanner,
+quotes the registry's own denial, skips the build, and fails the leg. The `security-images.yml`
+publish step is handed `GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}` so the check proves the exact
+identity the login step publishes with.
+
 `digests.json` also carries the **committed semgrep rules pack** the scan actually runs
 (issue #1284): `containers/scanners/semgrep/rules/default.yml` is baked into the pinned image,
 and `make scanner-digests` content-addresses it as `rules_sha = sha256(file)`, stamping

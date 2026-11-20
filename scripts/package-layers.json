@@ -472,6 +472,11 @@
       "reason": "the sweep enumerates the same package/tag namespace ci_images names: helper image and helper cache refs share registry(), the helper name set, and the retired fixed-name cache shape (issue #2914)."
     },
     {
+      "from": "scanner_image",
+      "to": "ci_images",
+      "reason": "the scanner publish reuses the ONE push-check seam proven in issue #335: prove the credential may write <owner>/llgenie/<scanner> before a buildx push can disturb a pinned tag (issue #2960)."
+    },
+    {
       "from": "registry_cache_orphans",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."

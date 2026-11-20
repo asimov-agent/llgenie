@@ -36,6 +36,11 @@ try:  # the subprocess policy seam (issue #797)
 except ImportError:  # pragma: no cover - script mode
     from proc import run_ok  # type: ignore
 
+try:  # the ONE push-check seam (issue #335), reused before any scanner buildx push (issue #2960)
+    from . import ci_images as _ci_images  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    import ci_images as _ci_images  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"
 DEFAULT_REGISTRY = "ghcr.io/asimov-agent"
@@ -392,6 +397,15 @@ def ensure(scanner: str = "all", force: bool | None = None) -> int:
         if not force and wanted and wanted <= _published_platforms(target):
             print(f"[scanner-image] present {target} (skipped)")
             continue
+        # Push-check BEFORE the build (issue #2960, the #335 seam): a credential the package
+        # denies must fail here, naming the refusal, instead of after a multi-arch build that
+        # can only end in `denied: permission_denied` and a pinned tag left half-published.
+        rc = _ci_images.pushcheck(sid)
+        if rc != 0:
+            print(f"[scanner-image] {sid}: the credential cannot push {target} — the build is "
+                  f"skipped so the pinned tag keeps its registry state (issue #2960)",
+                  file=sys.stderr)
+            return rc
         print(f"[scanner-image] publishing {target}")
         publish(sid, force=force)
     return 0

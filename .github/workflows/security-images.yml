@@ -129,6 +129,9 @@ jobs:
         env:
           SCANNER: ${{ github.event.inputs.scanner || 'all' }}
           FORCE: ${{ github.event.inputs.force == 'true' && '1' || '' }}
+          # The publish proves the credential may push each missing package BEFORE any build
+          # (the #335 push-check, inside ensure; issue #2960). Same credential as the login step.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           make ci-security-images SCANNER="$SCANNER"
