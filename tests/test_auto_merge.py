@@ -193,6 +193,9 @@ if args[:2] == ["pr", "comment"]:
 if args[:2] == ["issue", "comment"]:
     # issue #2652: the sweep's own record comment; captured for assertion as [issue, body]
     open({str(log)!r} + ".record", "a").write(json.dumps([args[2], args[args.index("--body") + 1]]) + "\\n")
+    # issue #2953: which TOKEN posted that issue comment (the record token override);
+    # captured as [issue, GH_TOKEN] so a test can pin the environment-only seam.
+    open({str(log)!r} + ".record.env", "a").write(json.dumps([args[2], os.environ.get("GH_TOKEN", "")]) + "\\n")
     print("commented"); sys.exit(0)
 print("unexpected: " + " ".join(args)); sys.exit(1)
 ''')
@@ -1589,6 +1592,65 @@ def test_record_counts_an_approval_and_a_refused_merge(tmp_path):
     assert re.fullmatch(r"\[sweep \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] merged=0 approved=1 deferred=1",
                         first), first
     assert len(rest) == 1 and rest[0].startswith("- PR #605:") and "refused" in rest[0], rec[0][1]
+
+
+def _record_comment_tokens(tmp_path: Path) -> list:
+    """The token environment of the `issue comment` calls the fake gh captured: [issue, GH_TOKEN]."""
+    p = tmp_path / "gh.log.record.env"
+    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
+
+
+def test_record_comment_uses_record_token(tmp_path, monkeypatch):
+    """#2953: the sweep's record comment is posted with RECORD_TOKEN, not the ambient merge PAT.
+
+    The owner PAT behind BUMP_TOKEN cannot create ISSUE comments — every main-head recheck
+    died on GraphQL addComment (`Resource not accessible by personal access token`). The
+    record call therefore takes its token from `RECORD_TOKEN`, through the environment-only
+    `_gh` seam; every other gh call of the sweep keeps the ambient token.
+    """
+
+    # Given  the ambient token is the merge PAT and RECORD_TOKEN a different, issue-capable identity
+    monkeypatch.setenv("GH_TOKEN", "pat-abc")
+    monkeypatch.setenv("RECORD_TOKEN", "bot-xyz")
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    perms = {"owner-pat-account": "admin", "andyholst": "admin", "asimov-agent": "admin"}
+    view = _deferred_view(_state(headRepository=trust), HEAD)
+    gh = _fake_gh(tmp_path, _state(headRepository=trust), permissions=perms,
+                  prs=[{"number": 606, "headRefOid": HEAD}], views={"606": view},
+                  checks=[{"name": "linux", "status": "completed", "conclusion": "failure"}],
+                  tokens={"pat-abc": "owner-pat-account"})
+
+    # When  the sweep runs with a record target
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", record=2652)
+
+    # Then  exactly the record comment ran with GH_TOKEN = RECORD_TOKEN ...
+    assert rc == 0, rc
+    assert _record_comment_tokens(tmp_path) == [["2652", "bot-xyz"]], _record_comment_tokens(tmp_path)
+    # ... and the sweep's identity read (api user) still ran on the ambient PAT token.
+    calls = _calls(tmp_path / "gh.log")
+    assert any(c[:3] == ["api", "user", "--jq"] for c in calls), calls
+
+
+def test_record_comment_without_record_token_keeps_the_ambient_token(tmp_path, monkeypatch):
+    """#2953 default: with no RECORD_TOKEN the record posts exactly as before, on the ambient GH_TOKEN."""
+
+    # Given  the ambient PAT and no RECORD_TOKEN anywhere in the environment
+    monkeypatch.setenv("GH_TOKEN", "pat-abc")
+    monkeypatch.delenv("RECORD_TOKEN", raising=False)
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    perms = {"owner-pat-account": "admin", "andyholst": "admin", "asimov-agent": "admin"}
+    view = _deferred_view(_state(headRepository=trust), HEAD)
+    gh = _fake_gh(tmp_path, _state(headRepository=trust), permissions=perms,
+                  prs=[{"number": 607, "headRefOid": HEAD}], views={"607": view},
+                  checks=[{"name": "linux", "status": "completed", "conclusion": "failure"}],
+                  tokens={"pat-abc": "owner-pat-account"})
+
+    # When  the sweep runs with a record target
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", record=2652)
+
+    # Then  the record comment ran on the ambient PAT token: byte-identical default behaviour
+    assert rc == 0, rc
+    assert _record_comment_tokens(tmp_path) == [["2652", "pat-abc"]], _record_comment_tokens(tmp_path)
 
 
 def test_dry_sweep_with_record_posts_nothing(tmp_path):

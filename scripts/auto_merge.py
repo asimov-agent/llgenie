@@ -1020,8 +1020,17 @@ def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = Fals
         if dry:
             print(f"[recheck] --dry: the record for #{record} would read: {first}")
         else:
+            # issue #2953: the record is an ISSUE comment, and the owner PAT behind the
+            # sweep's ambient GH_TOKEN cannot create issue comments — every such post died
+            # with `GraphQL: Resource not accessible by personal access token (addComment)`
+            # (auto-merge runs 44658425503…44664497025 on main f71e48e251). `RECORD_TOKEN`
+            # names a token whose account IS allowed (the lane sets it to `github.token`,
+            # whose workflow permissions carry `issues: write` — #874's two-identity
+            # doctrine, now applied to issue comments). Unset (host runs) keeps the ambient
+            # token: byte-identical to the pre-#2953 behaviour.
+            rec_token = (os.environ.get("RECORD_TOKEN") or "").strip()
             _gh(gh, ["issue", "comment", str(record), "--repo", repo,
-                     "--body", "\n".join([first, *lines])])
+                     "--body", "\n".join([first, *lines])], token=rec_token)
             print(f"[recheck] sweep record posted on #{record}: {first}")
     if seen == 0:
         print("[recheck] no deferred PR needs a retry")
