@@ -21,10 +21,15 @@ and no gate notices.
   names the regeneration target. No new ci-unit step is added.
 - `scripts/check_docs.py` gains two render modes: `bots-table` (print the table) and
   `bots-table-write` (rewrite the block in `docs/BOTS.md` in place). New host targets
-  `make bots-targets-report` and `make bots-targets-index` call them; both are recorded in
-  `tests/fixtures/host-only-wiring.json` as hand-run render helpers (the staleness verdict ships
-  through `check-docs`, which CI already runs).
+  `make bots-targets-report` and `make bots-targets-index` live in `mk/gates.mk`; neither claims
+  CI coverage, so neither enters `tests/fixtures/host-only-wiring.json` (that fixture is exactly
+  for targets whose help claims CI without a job — the staleness verdict ships through
+  `check-docs`, which CI already runs).
 - `docs/BOTS.md` gains the generated target-table section between the markers.
+- `scripts/check_architecture_census.py` strips the generated block before reading BOTS.md prose
+  claims: the table carries whole ## help sentences verbatim (some name long-removed scripts),
+  and the census gate reads PROSE claims only — the same strip check_docs applies to its own
+  prose scans.
 
 ## Out of scope
 

@@ -189,7 +189,11 @@ def test_an_automation_target_is_documented_in_a_docs_page_the_readme_links(tmp_
     root = _tree(tmp_path,
                  "fix-bot-sweep: ## Repair the PR the bot owns\n\t@true\n",
                  "# llgenie\n\n[changes](CHANGES.md)\n\nSee [the bots](docs/BOTS.md).\n",
-                 docs={"docs/BOTS.md": "# Bots\n\n`make fix-bot-sweep` repairs a PR.\n"})
+                 docs={"docs/BOTS.md": "# Bots\n\n`make fix-bot-sweep` repairs a PR.\n\n"
+                                      "<!-- bots-targets:begin -->\n"
+                                      "| target | what it does (the Makefile's `##` help line) |\n|---|---|\n"
+                                      "| `make fix-bot-sweep` | Repair the PR the bot owns |\n"
+                                      "<!-- bots-targets:end -->\n"})
 
     # When the documentation is checked
     assert cd.problems(cd.graph(root)) == []
@@ -571,3 +575,82 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     # And both targets are declared phony, so a file named `check-docs` cannot shadow them
     phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "check-docs" in phony and "docs-report" in phony
+
+
+# ---------------------------------------------------------------------------
+# the generated docs/BOTS.md target table (issue #681)
+# ---------------------------------------------------------------------------
+_MK_681 = (
+    "some-bot: ## Run the bot leg daily\n\t@true\n\n"
+    "bots-targets-index: ## Render the target table\n\t@true\n\n"
+    "hidden-internal: ## an internal switch\n\t@true\n"
+)
+_README_681 = "# llgenie\n\n[bots](docs/BOTS.md)\n[changes](CHANGES.md)\n"
+_BOTS_681 = (
+    "# Bots\n\n"
+    "The lane runs `make some-bot` and re-renders with `make bots-targets-index`.\n\n"
+    "<!-- bots-targets:begin -->\n<!-- bots-targets:end -->\n"
+)
+_EXC_681 = {"targets": {"hidden-internal": {
+    "reason": "internal switch", "decided": "2026-11-20", "issue": 681}}}
+
+
+def _root_681(tmp_path: Path, bots: str = _BOTS_681) -> Path:
+    return _tree(tmp_path, _MK_681, _README_681, docs={"docs/BOTS.md": bots},
+                 exceptions=_EXC_681)
+
+
+def test_a_bots_table_row_pairs_each_named_target_with_its_makefile_help_text(tmp_path):
+    """The table's whole point: the Makefile's own ## text, beside the name it documents."""
+    root = _root_681(tmp_path)
+    table = cd.bots_table(root)
+    assert "| `make some-bot` | Run the bot leg daily |" in table
+    assert "| `make bots-targets-index` | Render the target table |" in table
+    # a recorded exception is not automation prose: no row for it
+    assert "hidden-internal" not in table
+
+
+def test_the_written_block_is_the_checked_block(tmp_path):
+    """Render-then-check agrees byte for byte: the check compares the generated text."""
+    root = _root_681(tmp_path)
+    assert cd.main(["bots-table-write", "--root", str(root)]) == 0
+    block = (root / "docs/BOTS.md").read_text() \
+        .split(cd.BOTS_TABLE_BEGIN, 1)[1].split(cd.BOTS_TABLE_END, 1)[0].strip()
+    assert block == cd.bots_table(root).strip()
+    assert cd.main(["check", "--root", str(root), "--base", ""]) == 0
+
+
+def test_a_reworded_help_line_reddens_the_gate_naming_the_render_target(tmp_path):
+    """The exact drift #681 was filed for: a ## line reworded, the table left behind."""
+    root = _root_681(tmp_path)
+    assert cd.main(["bots-table-write", "--root", str(root)]) == 0
+    (root / "Makefile").write_text(_MK_681.replace(
+        "Run the bot leg daily", "Run the bot leg daily at 03:00"))
+    rc = cd.main(["check", "--root", str(root), "--base", ""])
+    assert rc == 1
+    # the finding itself names the regeneration target
+    problems = cd.problems(cd.graph(root))
+    stale = [p for p in problems if "target table is stale" in p]
+    assert stale and "make bots-targets-index" in stale[0]
+
+
+def test_a_bots_md_without_the_block_is_a_finding(tmp_path):
+    root = _root_681(tmp_path, bots="# Bots\n\n`make some-bot` runs the leg.\n")
+    problems = cd.problems(cd.graph(root))
+    assert any("bots-targets:begin" in p for p in problems)
+    assert cd.main(["check", "--root", str(root), "--base", ""]) == 1
+
+
+def test_the_generated_table_cannot_document_its_own_membership(tmp_path):
+    """A row only exists because the PROSE names the target; stale rows are dropped."""
+    bots = ("# Bots\n\n`make some-bot` runs the leg; `make bots-targets-index` re-renders.\n\n"
+            "<!-- bots-targets:begin -->\n"
+            "| target | what it does (the Makefile's `##` help line) |\n|---|---|\n"
+            "| `make some-bot` | Run the bot leg daily |\n"
+            "| `make ghost-target` | gone, but the table still claims it |\n"
+            "<!-- bots-targets:end -->\n")
+    root = _root_681(tmp_path, bots=bots)
+    assert cd.main(["bots-table-write", "--root", str(root)]) == 0
+    written = (root / "docs/BOTS.md").read_text()
+    assert "ghost-target" not in written  # no prose named it: the table no longer carries it
+    assert cd.main(["check", "--root", str(root), "--base", ""]) == 0

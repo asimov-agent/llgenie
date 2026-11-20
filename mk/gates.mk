@@ -109,6 +109,15 @@ changes-index: ## Render CHANGES.md from the one-row-per-change files in docs/ch
 changes-index-report: ## Show the docs/changes.d/ fragment census and how many rows CHANGES.md is behind them
 	python3 scripts/changes_index.py report
 
+bots-targets-report: ## Print the generated docs/BOTS.md target table (each named target paired with its Makefile ## help line — issue #681)
+	python3 scripts/check_docs.py bots-table
+
+bots-targets-index: ## Render the docs/BOTS.md target table between the bots-targets markers; check-docs reddens a stale one (the stale verdict itself ships inside check-docs, which CI already runs — issue #681)
+	python3 scripts/check_docs.py bots-table-write
+
+.PHONY: bots-targets-report
+.PHONY: bots-targets-index
+
 changes-resolve: ## Repair a CHANGES.md merge conflict: take BASE's file (default origin/main) and re-render from the merged fragments, then stage it (issue #1103; BASE=<ref>)
 	python3 scripts/changes_index.py resolve --base "$(if $(BASE),$(BASE),origin/main)"
 

@@ -1,77 +1,77 @@
 {
- "note": "Documents that a human runs by hand and that no CI job reaches, on purpose (issue #237), and targets whose `##` help line claims CI coverage that no CI job delivers (issue #239). `make check-wiring` fails when a document is named only by a target CI never calls and no entry here records why — an omission has to be a dated decision, not an accident. An entry that CI starts reaching is STALE and must be deleted, so this file cannot rot either. A target entry records a help line that was corrected instead of wired: it is stale the moment CI starts reaching it.",
- "decided_utc": "2026-10-15",
- "documents": {
-  "tests/test_health.py": {
-   "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) — hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead (make test-health).",
-   "target": "test-health-host",
-   "decided": "2026-10-14",
-   "issue": 237
+  "note": "Documents that a human runs by hand and that no CI job reaches, on purpose (issue #237), and targets whose `##` help line claims CI coverage that no CI job delivers (issue #239). `make check-wiring` fails when a document is named only by a target CI never calls and no entry here records why — an omission has to be a dated decision, not an accident. An entry that CI starts reaching is STALE and must be deleted, so this file cannot rot either. A target entry records a help line that was corrected instead of wired: it is stale the moment CI starts reaching it.",
+  "decided_utc": "2026-10-15",
+  "documents": {
+    "tests/test_health.py": {
+      "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) — hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead (make test-health).",
+      "target": "test-health-host",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_native_engine_real.py": {
+      "reason": "Native Metal engines (issue #114) run only on an Apple-Silicon host: a CI runner has no Metal GPU and every Linux engine is tested inside its own image. The macOS pipeline runs the non-Metal half.",
+      "target": "test-native-engine",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_native_engine_light.py": {
+      "reason": "Same Metal-only scope as test_native_engine_real.py: it serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it — both need real Metal.",
+      "target": "test-native-engine-light",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_interactive_tensorfold_real.py": {
+      "reason": "The interactive pty pick with a REAL native install and Metal serve (issue #114). Metal-only; the macOS runner variant (make test-interactive-tensorfold-ci, --dry) is the CI-adjacent form and the real serve stays a human-run check.",
+      "target": "test-interactive-tensorfold",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_install_published.py": {
+      "reason": "The published-install consumer test (pull a backend's published images, install + dl/uninstall). With issue #1027 the engine install/serve test lives in the engine-build producer (make test-engine-install per row on the just-published image) and ci.yml's install row is PRODUCT-ONLY, so no CI job reaches make test-install-published any more — it stays a human/host target.",
+      "target": "test-install-published",
+      "decided": "2026-10-29",
+      "issue": 1027
+    },
+    "tests/test_install_trend.py": {
+      "reason": "Host-only install-trend consumer test: `make test-install-trend` installs a trending top-tier model on a real host (network + disk); no CI job reaches it. Engine install/serve lives in the engine-build producer (#1027); this stays a human/host check.",
+      "target": "test-install-trend",
+      "decided": "2026-10-29",
+      "issue": 1027
+    },
+    "scripts/bind_proof.py": {
+      "reason": "Producer-side proof-binding gate (issue #1293): a lane runs `make bind-proof PR=<n> RUN=<id>` BEFORE handing a run id as current-head evidence, so a proof that went green at an older head can never be miscounted. It binds the RUN's head to the PR's CURRENT head at claim time — an act only the claiming lane performs — and is deliberately NOT a searchable CI gate over all runs; the engine-build workflow records the run's head_sha instead, which CI does consume.",
+      "target": "bind-proof",
+      "decided": "2026-11-01",
+      "issue": 1293
+    },
+    "scripts/fold-live-profile.py": {
+      "reason": "The tester lane's live->tree fold tool (issue #1079): it reads ~/.hermes/profiles/<profile> live on the host that owns the lane, enumerates the lane's tracked files from the TREE, and writes drifted files into the worktree — a CI runner has no live profile (it would report every lane as LIVE-MISSING), so the tool is deliberately not a CI gate. `make tester-fold-live PROFILE=<profile>` runs it (report only), COPY=1 writes live->tree.",
+      "target": "tester-fold-live",
+      "decided": "2026-11-01",
+      "issue": 1079
+    },
+    "tests/test_procedure_recall_step.py": {
+      "reason": "The orchestrator STEP 2 recall-fallback proof (issue #2186) POSTs to the LIVE hindsight daemon on 127.0.0.1:9177 (HINDSIGHT_API_PORT in ~/.hindsight/profiles/hermes.env). No CI runner has that daemon and this repo forbids skips (issue #1110), so the hermetic gate cannot carry it; make test-recall-step runs it on the tick host where the daemon lives, and a host without it fails loudly.",
+      "target": "test-recall-step",
+      "decided": "2026-11-08",
+      "issue": 2186
+    },
+    "tests/test_kanban_single_card_reassign.py": {
+      "reason": "The #2353 AC3 write-path proof runs the REAL hermes kanban CLI (create/reassign/read-back) against a throwaway HERMES_KANBAN_DB — host-only by nature; a CI runner has no live board to mutate and no hermes in the hermetic image.",
+      "target": "test-board-ownership-host",
+      "decided": "2026-11-09",
+      "issue": 2353
+    }
   },
-  "tests/test_native_engine_real.py": {
-   "reason": "Native Metal engines (issue #114) run only on an Apple-Silicon host: a CI runner has no Metal GPU and every Linux engine is tested inside its own image. The macOS pipeline runs the non-Metal half.",
-   "target": "test-native-engine",
-   "decided": "2026-10-14",
-   "issue": 237
-  },
-  "tests/test_native_engine_light.py": {
-   "reason": "Same Metal-only scope as test_native_engine_real.py: it serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it — both need real Metal.",
-   "target": "test-native-engine-light",
-   "decided": "2026-10-14",
-   "issue": 237
-  },
-  "tests/test_interactive_tensorfold_real.py": {
-   "reason": "The interactive pty pick with a REAL native install and Metal serve (issue #114). Metal-only; the macOS runner variant (make test-interactive-tensorfold-ci, --dry) is the CI-adjacent form and the real serve stays a human-run check.",
-   "target": "test-interactive-tensorfold",
-   "decided": "2026-10-14",
-   "issue": 237
-  },
-  "tests/test_install_published.py": {
-   "reason": "The published-install consumer test (pull a backend's published images, install + dl/uninstall). With issue #1027 the engine install/serve test lives in the engine-build producer (make test-engine-install per row on the just-published image) and ci.yml's install row is PRODUCT-ONLY, so no CI job reaches make test-install-published any more — it stays a human/host target.",
-   "target": "test-install-published",
-   "decided": "2026-10-29",
-   "issue": 1027
-  },
-  "tests/test_install_trend.py": {
-   "reason": "Host-only install-trend consumer test: `make test-install-trend` installs a trending top-tier model on a real host (network + disk); no CI job reaches it. Engine install/serve lives in the engine-build producer (#1027); this stays a human/host check.",
-   "target": "test-install-trend",
-   "decided": "2026-10-29",
-   "issue": 1027
-  },
-  "scripts/bind_proof.py": {
-   "reason": "Producer-side proof-binding gate (issue #1293): a lane runs `make bind-proof PR=<n> RUN=<id>` BEFORE handing a run id as current-head evidence, so a proof that went green at an older head can never be miscounted. It binds the RUN's head to the PR's CURRENT head at claim time — an act only the claiming lane performs — and is deliberately NOT a searchable CI gate over all runs; the engine-build workflow records the run's head_sha instead, which CI does consume.",
-   "target": "bind-proof",
-   "decided": "2026-11-01",
-   "issue": 1293
-  },
-  "scripts/fold-live-profile.py": {
-   "reason": "The tester lane's live->tree fold tool (issue #1079): it reads ~/.hermes/profiles/<profile> live on the host that owns the lane, enumerates the lane's tracked files from the TREE, and writes drifted files into the worktree — a CI runner has no live profile (it would report every lane as LIVE-MISSING), so the tool is deliberately not a CI gate. `make tester-fold-live PROFILE=<profile>` runs it (report only), COPY=1 writes live->tree.",
-   "target": "tester-fold-live",
-   "decided": "2026-11-01",
-   "issue": 1079
-  },
-  "tests/test_procedure_recall_step.py": {
-   "reason": "The orchestrator STEP 2 recall-fallback proof (issue #2186) POSTs to the LIVE hindsight daemon on 127.0.0.1:9177 (HINDSIGHT_API_PORT in ~/.hindsight/profiles/hermes.env). No CI runner has that daemon and this repo forbids skips (issue #1110), so the hermetic gate cannot carry it; make test-recall-step runs it on the tick host where the daemon lives, and a host without it fails loudly.",
-   "target": "test-recall-step",
-   "decided": "2026-11-08",
-   "issue": 2186
-  },
-  "tests/test_kanban_single_card_reassign.py": {
-   "reason": "The #2353 AC3 write-path proof runs the REAL hermes kanban CLI (create/reassign/read-back) against a throwaway HERMES_KANBAN_DB — host-only by nature; a CI runner has no live board to mutate and no hermes in the hermetic image.",
-   "target": "test-board-ownership-host",
-   "decided": "2026-11-09",
-   "issue": 2353
+  "targets": {
+    "agent-image-pull": {
+      "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it — publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly — and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",
+      "decided": "2026-10-15"
+    },
+    "check-strata-models-live": {
+      "reason": "Explicit upstream audit for the Strata model map: clone the pinned upstream and re-derive the map, needing the network. By design (issue #519) it is not a CI job — CI proves the map hermetically from the committed vendor tree (`make check-strata-models`), and this audit stays a human/host target so no CI clock clones upstream.",
+      "decided": "2026-11-19",
+      "issue": 519
+    }
   }
- },
- "targets": {
-  "agent-image-pull": {
-   "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it — publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly — and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",
-   "decided": "2026-10-15"
-  },
-  "check-strata-models-live": {
-   "reason": "Explicit upstream audit for the Strata model map: clone the pinned upstream and re-derive the map, needing the network. By design (issue #519) it is not a CI job — CI proves the map hermetically from the committed vendor tree (`make check-strata-models`), and this audit stays a human/host target so no CI clock clones upstream.",
-   "decided": "2026-11-19",
-   "issue": 519
-  }
- }
 }
