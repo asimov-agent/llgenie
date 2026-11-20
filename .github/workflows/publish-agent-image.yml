@@ -139,10 +139,12 @@ jobs:
       - name: make agent-image-profiles-check (issue #2934: the image the lane just published must boot as a standard agent leg and carry every agents/manifest.json profile where Hermes resolves -p <lane>)
         env:
           NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}  # #908: the leg forwards -e TYPESAFE_API_KEY, so the calling step must set it (#364 rule)
         run: make agent-image-profiles-check
       - name: make hermes-smoke (issue #2934: the image the lane just published must answer one real Hermes prompt; the model chain comes from the profile's own config, the credential is the one every agent lane already passes)
         env:
           NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}  # #908: the leg forwards -e TYPESAFE_API_KEY, so the calling step must set it (#364 rule)
         run: make hermes-smoke
       - name: Print the published ref
         run: make ci-image-refs
