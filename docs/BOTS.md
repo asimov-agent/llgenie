@@ -1579,7 +1579,7 @@ removal condition is abandonment, and a hold on a merged PR blocks nothing.
 ```bash
 make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
 make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or was not) merged — writes nothing
-make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1] [RECORD=<issue>]  # retry the PRs the gate deferred at their current head; RECORD posts the sweep's own `[sweep <stamp>] merged=… approved=… deferred=…` record comment on that issue (issue #2652)
+make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1] [RECORD=<issue>]  # retry the PRs the gate deferred at their current head; RECORD posts the sweep's own `[sweep <stamp>] merged=… approved=… deferred=…` record comment on that issue (issue #2652); in CI the record comment runs on `RECORD_TOKEN` (the job token, `issues: write`) because the owner PAT behind `BUMP_TOKEN` cannot post ISSUE comments (issue #2953)
 make check-merge-on-red PR=<n> REPO=asimov-agent/llgenie  # exit non-zero when the head has a red check (issue #1386)
 make alert-merged-red REPO=asimov-agent/llgenie [MAX=20] [DRY=1]  # comment once on a merged PR whose head was red
 make stacked-merge-detect REPO=asimov-agent/llgenie [MAX=20] [DRY=1]  # report PRs merged into a non-`main` base (issue #963)

@@ -247,6 +247,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           APPROVER_TOKEN: ${{ github.token }}
+          # issue #2953: the sweep record is an ISSUE comment and the owner PAT cannot post
+          # one (GraphQL addComment refuses: "Resource not accessible by personal access
+          # token"). The job token CAN — this workflow's permissions carry `issues: write`
+          # — so the record comment runs on the job identity while merge/approve/PR-comment
+          # legs keep the owner PAT (#874's two identities, extended to issue comments).
+          RECORD_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         # RECORD=#2652 (issue #2652): the sweep writes its own record — one `[sweep <stamp>]
         # merged=… approved=… deferred=…` comment on the tracker issue, counts of what THIS
