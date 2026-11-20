@@ -17,6 +17,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 from scripts import auto_merge as am  # noqa: E402
 from scripts import check_pr_hygiene as hy  # noqa: E402
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
 
 BOT = ("Asimov Agent", "support@docondee.com")
 
@@ -132,6 +133,7 @@ def test_the_merge_lane_defers_a_pr_whose_commits_lack_the_mirror(repo: Path, mo
     msgs = git(repo, "log", "--no-merges", "--format=%B%x00", "main..feature")
 
     def fake_gh(gh, args, token=""):
+        gh_fake.enforce(list(args))   # issue #2975: the shim answers only field names real gh has
         if args[0] == "api":                      # pulls/<n>/commits --paginate
             return msgs
         return BODY_WITH_CRITERIA                 # pr view --json body
@@ -144,3 +146,23 @@ def test_the_merge_lane_defers_a_pr_whose_commits_lack_the_mirror(repo: Path, mo
         "commit", "-q", "--amend", "-m", TICKED_MSG)
     msgs = git(repo, "log", "--no-merges", "--format=%B%x00", "main..feature")
     assert am.commit_checkbox_hold("gh", "o/r", 1) is None
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): the shim dies like real gh on the #513 field
+# ---------------------------------------------------------------------------
+def test_the_legs_gh_shim_refuses_the_513_author_association_request(repo: Path, monkeypatch):
+    commit(repo, "b.txt", UNTICKED_MSG)
+    msgs = git(repo, "log", "--no-merges", "--format=%B%x00", "main..feature")
+
+    def fake_gh(gh, args, token=""):
+        gh_fake.enforce(list(args))
+        if args[0] == "api":
+            return msgs
+        return BODY_WITH_CRITERIA
+
+    monkeypatch.setattr(am, "_gh", fake_gh)
+    with pytest.raises(SystemExit) as boom:
+        am._gh("gh", ["pr", "view", "1", "--repo", "o/r", "--json", "authorAssociation"])
+    assert boom.value.code == 1
+    assert am.commit_checkbox_hold("gh", "o/r", 1)  # the leg still sees its own reads refused

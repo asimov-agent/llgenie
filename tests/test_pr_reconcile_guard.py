@@ -16,10 +16,13 @@ host-only wiring registration that make it the fleet's one code path.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+import gh_fake
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import pr_reconcile_guard as guard
@@ -53,6 +56,7 @@ def _fake_gh(tmp_path: Path, name: str, view_stdout: str = "", view_exit: int = 
     gh = tmp_path / f"gh-{name}"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -161,3 +165,17 @@ def test_the_make_phony_roster_lists_the_target():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh = _fake_gh(tmp_path, "refused")
+    boom = subprocess.run(
+        [str(gh), "pr", "view", "1742", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

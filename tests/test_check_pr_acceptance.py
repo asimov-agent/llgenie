@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
 from scripts import check_pr_acceptance as g
 from scripts.check_pr_acceptance import main as run_cli
 
@@ -212,6 +213,7 @@ def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch, state: str = "OPEN",
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
+        + gh_fake.preamble(Path(__file__).resolve().parent) + "\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
         "if len(sys.argv) > 2 and sys.argv[1:2] == ['api'] and 'actions/runs/' in sys.argv[2]:\n"
         "    rid = sys.argv[2].rsplit('/', 1)[-1]\n"
@@ -489,6 +491,7 @@ def _fake_gh_map(tmp_path: Path, mapping: dict[str, dict], monkeypatch) -> None:
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
+        + gh_fake.preamble(Path(__file__).resolve().parent) + "\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
         "if len(sys.argv) > 2 and sys.argv[1:2] == ['api'] and 'actions/runs/' in sys.argv[2]:\n"
         "    rid = sys.argv[2].rsplit('/', 1)[-1]\n"
@@ -825,6 +828,7 @@ def _fake_gh_verdict(tmp_path: Path, issue_body: str, comments: list[dict], monk
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
+        + gh_fake.preamble(Path(__file__).resolve().parent) + "\n"
         "here = os.path.dirname(os.path.abspath(__file__))\n"
         "if sys.argv[1:2] == ['pr'] and sys.argv[2:3] == ['view']:\n"
         "    print(json.dumps({'comments': json.load(open(here + '/comments.json'))})); sys.exit(0)\n"
@@ -1073,3 +1077,17 @@ def test_cli_green_run_at_the_measured_head_is_green(tmp_path, monkeypatch):
     pr.write_text("closes #1000\n")
     rc, text = _cli_out(tmp_path, ["check", "--body-file", str(pr)])
     assert rc == 0, text
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path, monkeypatch):
+    _fake_gh(tmp_path, _issue(ticked=[1], total=1), monkeypatch)
+    boom = subprocess.run(
+        ["gh", "issue", "view", "1000", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

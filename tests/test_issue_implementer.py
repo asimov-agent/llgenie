@@ -28,6 +28,8 @@ import issue_implementer as ii  # noqa: E402
 import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
+
 OWNER = "asimov-agent"
 REPO_NAME = "llgenie"
 SLUG = "fix-the-thing"
@@ -76,6 +78,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 PRS = {json.dumps(prs)}
 LABELED = {json.dumps(labeled)}
@@ -1133,3 +1136,17 @@ def test_a_dry_dispatch_scaffolds_nothing(tmp_path, monkeypatch, capsys):
 
     # Then no skill file exists
     assert not skills.exists()
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh, _log = _fake_gh(tmp_path)
+    boom = subprocess.run(
+        [str(gh), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

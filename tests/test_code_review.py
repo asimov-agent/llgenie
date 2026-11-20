@@ -13,6 +13,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,6 +22,8 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 from scripts import code_review as cr
 from scripts import issue_body
+
+import gh_fake  # noqa: E402  (the shared fake-gh field guard, issue #2975)
 
 
 def _tree(tmp_path: Path, workflows: dict[str, str]) -> Path:
@@ -46,6 +49,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 args = sys.argv[1:]
 FILED = {json.dumps(opts.get("filed", []))}
 PR_FILES = {json.dumps(opts.get("pr_files", []))}
@@ -667,3 +671,22 @@ jobs:
 """})
     found = cr.findings(root, secrets=None, runs=None)
     assert [f["key"] for f in found] == ["workflow-inline-scripts/a.yml"]
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's own fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh, _log = _fake_gh(tmp_path)
+    boom = subprocess.run(
+        [str(gh), "pr", "view", "7", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr
+    ok = subprocess.run(
+        [str(gh), "pr", "list", "--state", "open", "--json", "number,title"],
+        capture_output=True, text=True,
+    )
+    assert ok.returncode == 0

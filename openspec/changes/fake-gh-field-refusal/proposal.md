@@ -5,7 +5,8 @@
 `make check-gh-json-fields` (the guard landed for issue #515) validates `gh … --json` field names
 statically at scan time, but the bot tests themselves still cannot catch the class: every fake
 `gh` in `tests/` answers `--json` requests with a canned blob without ever looking at the requested
-names (measured 2026-11-20: 17 test files pair a fake gh with `--json` handling;
+names (measured 2026-11-20: 15 test files pair a fake gh that ANSWERS `--json` requests
+(the three further files that only grep `--json` text out of scripts are not responders);
 `tests/test_auto_merge.py` is the lone fake that validates). A refactor that renames a requested
 field therefore passes the whole unit suite green while the real bot dies at the call with
 `Unknown JSON field` / exit 1 — exactly the #513 failure shape. This is the deferred end-to-end

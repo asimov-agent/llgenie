@@ -31,6 +31,8 @@ ALARM = REPO / "scripts" / "queued_run_alarm.py"
 from scripts import queued_run_alarm as alarm
 from scripts import issue_body
 
+import gh_fake  # the shared fake-gh field guard (issue #2975)
+
 OWNER = "asimov-agent"
 
 
@@ -54,6 +56,7 @@ def gh_stub(tmp_path: Path, runs, jobs: dict, existing_comments: dict | None = N
     gh = bin_dir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import json, pathlib, sys
+{gh_fake.preamble(Path(__file__).resolve().parent)}
 sc = json.loads(pathlib.Path("{scenario}").read_text())
 a = sys.argv[1:]
 with open("{log}", "a") as fh:
@@ -498,3 +501,17 @@ def test_a_mix_names_ghosts_and_counts_only_live_squat(tmp_path):
     assert episode_ids == {512}, (
         "the ghost/retired ids must not join the filed episode marker: " + raw
     )
+
+
+# ---------------------------------------------------------------------------
+# fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
+# ---------------------------------------------------------------------------
+def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path):
+    gh_stub(tmp_path, [], {})
+    boom = subprocess.run(
+        [str(tmp_path / "bin" / "gh"), "run", "view", "1", "--repo", "asimov-agent/llgenie",
+         "--json", "authorAssociation"],
+        capture_output=True, text=True,
+    )
+    assert boom.returncode == 1
+    assert 'Unknown JSON field: "authorAssociation"' in boom.stderr

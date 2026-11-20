@@ -107,8 +107,10 @@ MERGE_MARKER = "<!-- auto-merge: merged {} -->"
 #: Every `gh pr view --json` field name this module requests, in ONE place (issue #513).
 #: `authorAssociation` is deliberately absent: `gh pr view` has no such field, and asking for it made
 #: every run die with `Unknown JSON field: "authorAssociation"` before `decide()` was ever reached.
-#: `tests/test_auto_merge.py` asserts every name here is in `tests/fixtures/gh-pr-view-fields.json`,
-#: which is captured from gh's own `gh pr view --json __probe__` allowlist.
+#: `tests/test_auto_merge.py` asserts every name here is in the shared allowlist seam
+#: `tests/fixtures/gh-json-fields.json` (issue #2975; it absorbs the older
+#: `tests/fixtures/gh-pr-view-fields.json`), which is captured from gh's own
+#: `gh … --json __probe__` allowlists.
 PR_VIEW_STATE_FIELDS = ("state", "isDraft", "mergeable", "mergeStateStatus", "headRefOid", "labels",
                         "headRepository", "author", "reviewDecision", "baseRefName")
 #: Requested separately, only for the one-comment-per-head deferral dedupe.

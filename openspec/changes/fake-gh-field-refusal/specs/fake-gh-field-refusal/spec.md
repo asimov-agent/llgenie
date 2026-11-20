@@ -29,7 +29,7 @@ snippet that calls `enforce(sys.argv[1:])` for heredoc'd fake scripts.
 
 ### Requirement: every bot test whose fake gh answers a `--json` request routes through the seam
 
-Each of the 17 test files pairing a fake gh with `--json` handling MUST install the guard — the
+Each of the 15 test files pairing a fake gh that answers a `--json` request MUST install the guard — the
 embedded `preamble` line for heredoc'd fakes, a direct `gh_fake.enforce` call for function-shaped
 fakes — and MUST carry one red pin exercising the refusal at its own call site.
 `tests/test_auto_merge.py`'s existing inline validation MUST be re-homed onto the seam with its

@@ -1657,8 +1657,10 @@ trusted fork.
 decision — no PR was ever auto-merged. The requested names now live in one constant
 (`PR_VIEW_STATE_FIELDS` / `PR_VIEW_FIELDS` in `scripts/auto_merge.py`), the bot rule reads `author.login`
 alone (an `app/github-actions` or `…[bot]` opener is allowed only when the run's ACTOR is the owner, a write
-collaborator, or the bot), and `tests/fixtures/gh-pr-view-fields.json` records `gh pr view --json __probe__`'s
-own allowlist — a unit test fails on any name that is not in it, so the next invented field is a red
+collaborator, or the bot), and `tests/fixtures/gh-json-fields.json` (issue #2975, re-homed from the
+older `tests/fixtures/gh-pr-view-fields.json`) records each guarded `gh … --json __probe__`'s
+own allowlist — a unit test fails on any name that is not in it, and every fake-gh in the suite
+enforces the same roster via `tests/gh_fake.py`, so the next invented field is a red
 `make test-unit` instead of a silent exit 2 in the merge workflow.
 
 Two things make a deferral honest rather than silent (issue #491):
