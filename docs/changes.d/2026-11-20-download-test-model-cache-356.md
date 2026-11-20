@@ -1,0 +1,1 @@
+| 2026-11-20 | `make download-test-model` fetches the health model into the shared stage HOME `$(CI_HOME)/models` (uid-mapped run, checkout mounted at its own path), and `CI_HOME_CLEAN` now keeps the `models` subtree while wiping stage scratch, so `make loop` pays the 0.43 GB health download once | [note](agent-wiki/2026-11-20-download-test-model-cache-356.md) | #356 |
