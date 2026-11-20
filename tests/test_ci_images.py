@@ -34,7 +34,8 @@ def _copy_inputs(root: Path) -> Path:
 
 def _fake_docker(tmp: Path, published: bool, cache_published: bool = True,
                  build_denied: str | None = None,
-                 pull_rc: int | None = None) -> tuple[dict, Path]:
+                 pull_rc: int | None = None,
+                 inspect_out: str | None = None) -> tuple[dict, Path]:
     """`docker` that logs its args (and the build context's files) and answers the registry
     lookup / pull with `published`.
 
@@ -57,6 +58,10 @@ def _fake_docker(tmp: Path, published: bool, cache_published: bool = True,
     # yet, and buildx fails to configure the importer then (so publish omits --cache-from).
     cache_rc = 0 if cache_published else 1
     denied = f'echo "{build_denied}" >&2; exit 1' if build_denied else "exit 0"
+    # `inspect` answers with a fixed label value when asked (issue #2968 source-check tests);
+    # by default it stays the old silent exit 0.
+    inspect_case = (f'  inspect) echo "{inspect_out}" ;;\n'
+                    if inspect_out is not None else "")
     script = f'''#!/bin/sh
 echo "$*" >> "{log}"
 case "$1 $2" in
@@ -66,7 +71,7 @@ case "$1 $2" in
   "buildx build") for a in "$@"; do [ -d "$a" ] && ls "$a" | tr '\\n' ' ' | sed 's/^/CTX: /' >> "{log}" && echo >> "{log}"; done; {denied} ;;
 esac
 case "$1" in
-  pull) exit {prc} ;;
+{inspect_case}  pull) exit {prc} ;;
 esac
 exit 0
 '''
@@ -1146,3 +1151,100 @@ def test_the_agent_publish_logs_in_with_the_credential_its_push_check_proves():
     # And the job declares the permission that credential needs
     workflow = yaml.safe_load((WF / "publish-agent-image.yml").read_text())
     assert workflow["permissions"]["packages"] == "write"
+
+
+# ---------------------------------------------------------------------------
+# the agent source stamp (issue #2968)
+# ---------------------------------------------------------------------------
+def test_agent_publish_stamps_the_source_label(tmp_path):
+    """The agent's `buildx build` stamps the tree's content hash into the image as
+    `llgenie.agent.source` — the same 12 hex the image is tagged with — so a resolved
+    image can be PROVEN built from the checkout that pulled it (issue #2968)."""
+    import ci_images
+
+    env, log = _fake_docker(tmp_path, published=False)
+    expected = ci_images.tag("agent")
+
+    r = _ci_images(env, "publish", "agent")
+    assert r.returncode == 0, r.stdout + r.stderr
+    builds = [c for c in _calls(log) if c.startswith("buildx build")]
+    assert len(builds) == 1, _calls(log)
+    b = builds[0]
+    assert f"--label llgenie.agent.source={expected}" in b, b
+    assert f"-t ghcr.io/asimov-agent/llgenie/agent:{expected}" in b, b
+
+
+def test_agent_local_build_stamps_the_source_label(tmp_path):
+    """`ensure agent` falls back to a local build when the floating :latest cannot be
+    pulled — the fallback stamps the same label, so locally built images pass the same
+    source-check (issue #2968)."""
+    import ci_images
+
+    env, log = _fake_docker(tmp_path, published=False)
+    expected = ci_images.tag("agent")
+
+    r = _ci_images(env, "ensure", "agent")
+    assert r.returncode == 0, r.stdout + r.stderr
+    builds = [c for c in _calls(log) if c.startswith("build ")]
+    assert len(builds) == 1, _calls(log)
+    b = builds[0]
+    assert "-t llgenie/agent:latest" in b, b
+    assert f"--label llgenie.agent.source={expected}" in b, b
+
+
+def test_source_check_accepts_the_matching_stamp(tmp_path):
+    """The resolved image's label equals the tree's hash: the check passes, printing
+    the matching hash, and reads it with `docker inspect` (never a build)."""
+    import ci_images
+
+    expected = ci_images.tag("agent")
+    env, log = _fake_docker(tmp_path, published=True, inspect_out=expected)
+
+    r = _ci_images(env, "source-check", "agent")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "OK" in r.stdout and expected in r.stdout, r.stdout
+    assert any(c.startswith("inspect ") for c in _calls(log)), _calls(log)
+
+
+def test_source_check_names_an_unlabeled_image_as_stale(tmp_path):
+    """Every agent image published before the stamp carries no label — the check names
+    that stale state and the remedy dispatch (issue #2935), which is exactly the state
+    the 2026-11-20 issue-bot failures proved (issue #2968)."""
+    import ci_images
+
+    env, _ = _fake_docker(tmp_path, published=True, inspect_out="<no value>")
+
+    r = _ci_images(env, "source-check", "agent")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "STALE" in r.stderr and "2935" in r.stderr, r.stderr
+    assert ci_images.tag("agent") in r.stderr, r.stderr
+
+
+def test_source_check_names_a_stamp_from_a_different_tree(tmp_path):
+    """A label present but different from the tree's hash names BOTH hashes and the
+    remedy — the published :latest lags this checkout's agent wiring (issue #2968)."""
+    import ci_images
+
+    env, _ = _fake_docker(tmp_path, published=True, inspect_out="0123456789ab")
+
+    r = _ci_images(env, "source-check", "agent")
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "0123456789ab" in r.stderr and ci_images.tag("agent") in r.stderr, r.stderr
+    assert "2935" in r.stderr, r.stderr
+
+
+def test_agent_leg_source_check_precedes_the_routing_smoke():
+    """The composite agent-leg runs `make agent-image-source-check` in the preflight
+    BEFORE `make hermes-smoke`, under the same `routing_smoke` guard the smoke has:
+    a stale image now fails at job start and never reaches the smoke that used to die
+    cryptically (issue #2968)."""
+    action = yaml.safe_load((REPO / ".github" / "actions" / "agent-leg" / "action.yml").read_text())
+    runs = [(i, s.get("run", ""), s.get("if", "")) for i, s in enumerate(action["runs"]["steps"])]
+    sc = [x for x in runs if "agent-image-source-check" in x[1]]
+    smoke = [x for x in runs if re.search(r"\bmake hermes-smoke\b", x[1])]
+    assert len(sc) == 1, runs
+    assert len(smoke) == 1, runs
+    assert sc[0][0] < smoke[0][0], (sc, smoke)
+    assert sc[0][2] == "inputs.phase == 'preflight' && inputs.routing_smoke == 'true'", sc
+    # The target wraps the CLI verb
+    assert "python3 scripts/ci_images.py source-check agent" in (REPO / "mk" / "agents.mk").read_text()

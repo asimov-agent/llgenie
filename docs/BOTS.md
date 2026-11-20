@@ -633,6 +633,10 @@ make issue-bot-pr-body-check  # refuse a pr-body.md whose Issue:/Fix:/Benefit:/T
 make issue-bot-image      # build/pull the agent image the bot runs in (same image as the fix-bot)
 make hermes-smoke          # prove the alias can CALL A TOOL (a terminal call that prints a per-run nonce), die in seconds
 make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
+make agent-image-source-check # prove the resolved agent image was BUILT FROM THIS tree: read the
+                              # `llgenie.agent.source` stamp the build put in, compare it with the tree's
+                              # content hash; a stale published :latest names both hashes and the publish
+                              # dispatch instead of dying mid-hermes-smoke (issue #2968)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close | hold
                                   # (a close citing an OPEN PR that claims the issue converts to a hold, issue #2869)
