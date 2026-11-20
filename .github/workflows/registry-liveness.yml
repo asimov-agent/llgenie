@@ -204,7 +204,7 @@ jobs:
               echo "issue #$open already open for $tag"
               printf '%s %s\n' "$tag" "$open" >> tracking_issues.txt
             else
-              num=$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug --json number --jq .number 2>/dev/null) && echo "filed issue #$num for $engine ($tag)" && printf '%s %s\n' "$tag" "$num" >> tracking_issues.txt
+              num=$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug 2>/dev/null | sed -E 's#.*/issues/##') && echo "filed issue #$num for $engine ($tag)" && printf '%s %s\n' "$tag" "$num" >> tracking_issues.txt
             fi
           done < unnamed.txt
       - name: dispatch engine-build push=true for every missing committed tag (#2259)
