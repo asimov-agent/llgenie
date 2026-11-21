@@ -204,7 +204,14 @@ jobs:
           # Who triggered the CI run. A bot-authored PR is merged only when this is the owner, a write
           # collaborator, or the bot — the same gate ci.yml's guard already applied to the run.
           ACTOR: ${{ github.event.workflow_run.actor.login }}
-        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA" APPROVE=1 ACTOR="$ACTOR"
+        # TRIGGER_GREEN=1 is sound exactly because this step cannot run without the job gate above
+        # proving `workflow_run.conclusion == 'success'` at this head: the sweep was triggered by a
+        # GREEN completion, so a red `ci-verdict.yml` ARTIFACT row left by an earlier verdict attempt
+        # is a stale artifact this completion replaces, not a block (issue #2991 — PR #2990 deferred
+        # at 02:23:28Z on red row 136684722878 while its green row landed at 02:23:38Z). Every other
+        # red still defers: the per-attempt `ci-verdict` JOB row lives in ci.yml and keeps blocking,
+        # and the recheck half (no green trigger) keeps the strict reading.
+        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA" APPROVE=1 ACTOR="$ACTOR" TRIGGER_GREEN=1
 
   recheck:
     # THE RETRY MUST NOT BE CANCELLABLE BY THE THING IT RETRIES (issue #2101). This job gets its own

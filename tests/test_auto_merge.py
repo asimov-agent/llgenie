@@ -2794,6 +2794,126 @@ def test_an_unfinished_newer_row_does_not_clear_an_older_red(tmp_path):
     assert "5001" in body and "scope" in body, body
 
 
+# --- issue #2991: a trigger-green sweep clears the verdict lane's own stale artifact row ---------
+# The measured wedge (auto-merge run 44855608138, PR #2990 head `8d4892e674`): the sweep read the
+# head at 2026-11-21T02:23:28Z and deferred naming `ci-verdict (failure, run 136684722878)` — an
+# artifact row the verdict lane posted for a PREVIOUS attempt — while the fresh green artifact row
+# for the same head landed at 02:23:38Z. The sweep only ever runs under
+# `workflow_run.conclusion == 'success'` at this head, so that green completion IS the newest
+# verdict decision; the artifact of `ci-verdict.yml` is the one row it must not defer on.
+
+VERDICT_WFS = {
+    "7001": {"name": "CI verdict", "path": ".github/workflows/ci-verdict.yml"},
+    "7100": {"name": "CI", "path": ".github/workflows/ci.yml"},
+}
+VERDICT_JOBS = {"7101": "make ci-verdict", "7102": "make ci-verdict"}
+
+
+def _verdict_race_checks(job_row_of_ci: bool = False) -> list:
+    """The head read as the sweep saw it: green CI job rows plus a concluded-red `ci-verdict`
+    row posted by the verdict lane's own workflow file (run 7001). With `job_row_of_ci=True` the
+    red `ci-verdict` row instead belongs to `ci.yml` (run 7100) — the per-attempt verdict JOB
+    that must keep blocking."""
+    verdict = {"name": "ci-verdict", "conclusion": "failure", "status": "completed", "id": 8003,
+               "started_at": "2026-11-21T02:19:00Z",
+               "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/"
+                              + ("7100/job/7102" if job_row_of_ci else "7001/job/7101")}
+    return [
+        {"name": "guard", "conclusion": "success", "status": "completed", "id": 8001,
+         "started_at": "2026-11-21T02:20:00Z",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/7100/job/8100"},
+        {"name": "linux / unit", "conclusion": "success", "status": "completed", "id": 8002,
+         "started_at": "2026-11-21T02:21:00Z",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/7100/job/8101"},
+        verdict,
+    ]
+
+
+def test_a_trigger_green_sweep_merges_despite_a_stale_verdict_artifact_row(tmp_path, capsys):
+    """#2991 AC1/AC2: the measured wedge clears. Same fixture as run 44855608138; with the green
+    trigger the sweep merges and NAMES the cleared artifact row."""
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_verdict_race_checks(), wfs=VERDICT_WFS, jobs=VERDICT_JOBS)
+
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD,
+                approve_when_review_required=True, trigger_green=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    assert rc == 0, rc
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert len(merges) == 1, calls
+    assert "stale verdict artifact (not a block)" in out, out
+    assert "8003" in out and "7001" in out, out  # names the cleared row, never hides it
+
+
+def test_without_a_green_trigger_the_same_verdict_artifact_still_defers(tmp_path, capsys):
+    """#2991 AC3: the strict reading survives. The identical head with NO green trigger (the
+    recheck/red-check/explain shape) defers exactly as the measured sweep did."""
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_verdict_race_checks(), wfs=VERDICT_WFS, jobs=VERDICT_JOBS)
+
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    assert "stale verdict artifact" not in out, out
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "7001" in body and "ci-verdict" in body, body
+
+
+def test_a_verdict_job_red_of_ci_y_is_never_the_skipped_artifact(tmp_path, capsys):
+    """#2991 AC4: the skip is by workflow FILE, never by row name. A red `ci-verdict` JOB row of
+    `ci.yml` (the attempt that judged itself red) defers even with a green trigger."""
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=_verdict_race_checks(job_row_of_ci=True), wfs=VERDICT_WFS,
+                  jobs=VERDICT_JOBS)
+
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD,
+                approve_when_review_required=True, trigger_green=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    assert "stale verdict artifact" not in out, out
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "7100" in body and "ci-verdict" in body, body
+
+
+def test_a_foreign_red_defers_even_with_a_green_trigger(tmp_path, capsys):
+    """#2991 strictness: the skip names exactly ONE workflow file. A red foreign row — the
+    issue-bot `implement` failure that reddened main's verdict (issue #2993) — keeps deferring
+    the sweep even with a green trigger: a green trigger clears the verdict lane's own artifact,
+    never someone else's red."""
+    wfs = dict(VERDICT_WFS, **{"7201": {"name": "Issue bot",
+                                        "path": ".github/workflows/issue-bot.yml"}})
+    checks = _verdict_race_checks(job_row_of_ci=True)[:2] + [
+        {"name": "implement", "conclusion": "failure", "status": "completed", "id": 8004,
+         "started_at": "2026-11-21T02:18:00Z",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/7201/job/7201"},
+    ]
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"},
+                  checks=checks, wfs=wfs, jobs=VERDICT_JOBS)
+
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD,
+                approve_when_review_required=True, trigger_green=True)
+    calls = _calls(tmp_path / "gh.log")
+    out = capsys.readouterr().out
+
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    assert "stale verdict artifact" not in out, out
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "implement" in body and "7201" in body, body
+
+
 # ---------------------------------------------------------------------------
 # fake-gh field refusal (issue #2975): this leg's fake refuses the #513 shape
 # ---------------------------------------------------------------------------
