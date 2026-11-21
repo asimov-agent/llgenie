@@ -15,7 +15,7 @@
 ## 3. Verification (pre-push proofs)
 
 - [x] 3.1 `make openspec-validate NAME=latest-alias-digest-2988` exits 0.
-- [ ] 3.2 `make test-unit` exits 0.
+- [x] 3.2 `make test-unit` exits 0.
 - [x] 3.3 Live gate run `ENGINE_PINS_ALIAS=1 make check-engine-pins-published ALL=1` reports one `:latest` verdict per engine (a `LATEST OK` or `ALIAS LAG` line naming each engine repo exactly once).
 
 ## 4. Records (same commit as the change)
