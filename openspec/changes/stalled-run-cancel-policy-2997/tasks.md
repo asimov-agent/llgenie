@@ -3,7 +3,7 @@
 ## 1. Change and decision
 
 - [x] 1.1 Open the OpenSpec change (proposal, spec delta, tasks) referencing issue #2997 and its measured run `44863652918` / job `136722618230`, stating the DECISION (cancels allowed under four named proofs; cancel is not queue-pumping) in `Why`/`What Changes`. (proven: `make openspec-validate NAME=stalled-run-cancel-policy-2997` rc=0)
-- [ ] 1.2 Record the same decision in the issue #2997 body (AC1) so the issue, the change, and the code agree.
+- [x] 1.2 Record the same decision in the issue #2997 body (AC1) so the issue, the change, and the code agree. (proven: `gh issue edit 2997` rc=0 syncing the four-proof decision at head a609e7c10a1ed1a66a9417b1c217a489a119df5c)
 
 ## 2. Implementation (lands on top of the watchdog from PR #2992; rebase onto main once #2992 lands)
 
