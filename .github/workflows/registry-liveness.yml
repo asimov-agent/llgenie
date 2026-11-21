@@ -25,6 +25,9 @@ run-name: registry-liveness
 # Flow: make test-env
 #       -> make check-engine-launchers CHECK_REGISTRY=1 (the liveness gate) -> on non-zero, name every
 #       unpublished pin and open one tracking issue per engine (idempotent).
+#       -> #2996: gate-classified alias lag (resolved pin, stale alias) is healed in-lane by a
+#          registry-side manifest move (make engine-alias-move) BEFORE the fleet gate re-reads it;
+#          manifest-unknown cells still ride the coalesced engine-build push=true dispatch.
 # Never: never in a pull request, never gated by a PR, never merges, never pushes to main, never weakens the gate.
 on:
   schedule:
@@ -43,6 +46,12 @@ permissions:
   # gap). This does NOT grant engine-build's registry write (that stays in
   # engine-build.yml's `packages: write`, unchanged), and it does not touch the fork guard.
   actions: write
+  # Issue #2996: the alias-heal step (below) re-points a lagging `:<variant>` alias to the
+  # committed pin digest with `docker buildx imagetools create` — a registry-side manifest
+  # move that builds nothing. `packages: write` is the same same-repo job-token scope
+  # engine-build.yml:81 uses for its pushes; it authorizes tag writes for THIS repo's
+  # packages only, and no build or engine execution happens here.
+  packages: write
 
 concurrency:
   group: registry-liveness
@@ -133,6 +142,70 @@ jobs:
             echo "::warning::registry-liveness DEFERRED: no same-head ci.yml publisher concluded within ${WAIT_BUDGET_SECONDS}s at head $HEAD_SHA — this run verified nothing; the verdict is deferred to a non-racing run (#2596)"
             echo "NO same-head ci.yml run concluded within ${WAIT_BUDGET_SECONDS}s; publisher still in flight — deferring the verdict to a non-racing run (#2596)"
           fi
+      - name: heal alias-lagging cells with a registry-side manifest move before the gate (#2996)
+        id: aliasheal
+        env:
+          ENGINE_PINS_ALIAS: "1"  # same alias contract as the fleet gate (#2987)
+          GHCR_LOGIN_TOKEN: "${{ secrets.GITHUB_TOKEN }}"  # through env:, never run: text (#361)
+        run: |
+          # Issue #2996: the gate now routes a gap by gap class. A cell whose committed pin
+          # tag RESOLVES but whose :<variant> alias lags emits
+          #   [aliasmove] <engine> <variant> <tag-suffix> <pin-digest>
+          # and NO [select] line: the image is already in the registry, only the alias is
+          # stale, so the repair is a manifest re-point (make engine-alias-move), not a
+          # build. Dispatching a build for such a lag is what fired the #2996 loop:
+          # DEFAULT_CPU_ONLY engines (vllm) have their GPU variants structurally absent
+          # from every matrix/sweep, so every dispatched "repair" completed green having
+          # moved nothing (44868119305, 44881159100, 44884434390). Manifest-unknown cells
+          # keep their [select] line and still ride the coalesced push=true dispatch below.
+          # #2592/#2596 deferral: while a same-head publisher is in flight it may itself be
+          # mid-move — this step moves nothing on a racing run.
+          if [ "${{ steps.publisher.outputs.publisher_still_running }}" = "true" ]; then
+            echo "publisher still in flight (same head); alias heal deferred to a non-racing run (#2592)"
+            echo "heal_skipped=publisher-in-flight" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          make check-engine-pins-published ALL=1 > healprobe.out 2>&1
+          set -e
+          sed 's/^/  /' healprobe.out
+          grep -E '^\[aliasmove\] ' healprobe.out | sort -u > aliasmoves.txt
+          # Contract first (#2567 class): a line that violates
+          #   [aliasmove] <engine> <variant> <tag-suffix> sha256:<64hex>
+          # is reported and reddens this step; no tag is moved on a malformed contract.
+          bad_line=0
+          while read -r mv engine variant suffix digest extra; do
+            if [ "$mv" != "[aliasmove]" ] || [ -z "$engine" ] || [ -z "$variant" ] \
+               || [ -z "$suffix" ] || [ -z "$digest" ] || [ -n "$extra" ] \
+               || ! printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+              echo "UNRECOGNIZED aliasmove line (contract: '[aliasmove] <engine> <variant> <tag-suffix> <pin-digest>'): $mv $engine $variant $suffix $digest $extra"
+              bad_line=1
+            fi
+          done < aliasmoves.txt
+          if [ "$bad_line" -ne 0 ]; then
+            echo "::error::registry-liveness: an [aliasmove] line violated the contract; malformed heal refused (#2996)"
+            exit 1
+          fi
+          n=$(wc -l < aliasmoves.txt)
+          if [ "$n" -eq 0 ]; then
+            echo "no [aliasmove] cells; nothing to heal"
+            exit 0
+          fi
+          # Same-repo job token, engine-build.yml's login pattern: a manifest move is a
+          # tag write on THIS repo's packages, exactly what `packages: write` authorizes.
+          echo "$GHCR_LOGIN_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          heal_fails=0
+          while read -r _mv engine variant suffix digest; do
+            echo "healing $engine/$variant: move alias to $digest (no build)"
+            make engine-alias-move ENGINE="$engine" VARIANT="$variant" SUFFIX="$suffix" DIGEST="$digest" \
+              || heal_fails=$((heal_fails + 1))
+          done < aliasmoves.txt
+          if [ "$heal_fails" -ne 0 ]; then
+            echo "::error::$heal_fails alias heal(s) failed; the fleet gate stays red on the named cells"
+            exit 1
+          fi
+          echo "healed_cells=$n" >> "$GITHUB_OUTPUT"
+          echo "alias heal: manifest-moved $n cell(s); the fleet gate now re-probes with fresh digests"
       - name: full-fleet committed-tag pin-validity gate
         id: fleet
         env:
@@ -210,7 +283,7 @@ jobs:
               num=$(gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug 2>/dev/null | sed -E 's#.*/issues/##') && echo "filed issue #$num for $engine ($tag)" && printf '%s %s\n' "$tag" "$num" >> tracking_issues.txt
             fi
           done < unnamed.txt
-      - name: dispatch engine-build push=true for every missing or alias-lagging committed tag (#2259, #2987)
+      - name: dispatch engine-build push=true for every missing committed tag (#2259, #2987 → #2996: alias lag is manifest-moved in-lane, never dispatched)
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

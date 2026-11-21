@@ -67,6 +67,7 @@ make engine-build-pr-trigger              # CI "will" arm: dispatch engine-build
 make engine-build-pr-trigger-report       # print the repinned engines and the dispatch plan, without dispatching (issue #1633)
 make registry-cache-orphans               # report GHCR cache tags whose fixed-name namespace was superseded by the content-keyed refs (`:buildcache` / `:buildcache-<variant>`); candidates derived from ci_images.IMAGES + engine_skills.BACKENDS + engine_image.matrix() (issue #2914)
 make registry-cache-gc                    # human-side sweep ONLY after merge: delete exactly the reported fixed-name orphans (guarded so keyed/ordinary tags can never match) and verify zero remain — wired into NO workflow (issue #2914)
+make engine-alias-move ENGINE=<id> VARIANT=<backend> SUFFIX=<exact-tag-suffix> DIGEST=sha256:<hex>  # registry-side alias repair (issue #2996): re-point one cell's :<variant> GHCR alias to the committed pin digest with docker buildx imagetools — a manifest move, no build, no engine run; registry-liveness runs it on the gate's [aliasmove] lines before the fleet gate re-probes
 make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169);
                                           # a producer cell still QUEUED is waited on up to 75 min and reported as BLOCKED,
                                           # a producer that concluded is reported as NOT FOUND (issue #893)

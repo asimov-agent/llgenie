@@ -123,6 +123,7 @@
       "ci_slow_rows",
       "ci_unit",
       "ci_verdict",
+      "engine_alias_move",
       "engine_build_trigger",
       "engine_capability",
       "head_check_rows",
@@ -351,6 +352,16 @@
     },
     {
       "from": "detect_server",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "engine_alias_move",
+      "to": "engine_image",
+      "reason": "the alias mover spells the committed ref with engine_image.resolve's exact-tag formula and re-reads the post-move digest through engine_image._digest_http — the may-arm's manifest authority, not a second registry read path (issue #2996, issue #2892)."
+    },
+    {
+      "from": "engine_alias_move",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
