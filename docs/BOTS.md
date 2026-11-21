@@ -2540,6 +2540,14 @@ make check-zero-job-pending  # fail when a dispatched run has been pending/queue
                        # never completes, so the monitor never fired (#1442); it rode ci-requeue until
                        # issue #2702 retired that lane, and now rides ci-frozen-reaper (:19/:27,
                        # allow-listed) so the run-level sweep follows the frozen-run sweep
+make check-stalled-jobs  # name a run whose jobs DID instantiate but where one job hangs `in_progress` while its
+                       # siblings concluded, past a per-job-name budget (1.25x median wall time of that job name,
+                       # floor 15 min, 60-min fallback without history) — the shape queued-alarm (queued rows),
+                       # the zero-job sweep (zero rows) and the frozen reaper (90-min updated_at) all miss
+                       # (issue #2992: run 44863652918 idled 26 min on linux/unit and silenced the verdict +
+                       # merge sweep). FILE=1 posts ONE deduped comment on the run head's PR; it NEVER cancels
+                       # (cancel policy stays with the zero-job/frozen lanes). Run as the first step of
+                       # zero-job-pending.yml, so it names stalls while they are still actionable.
 # ---- Orphan-queued runs: the handling rule (issue #2656) ------------------------------------
 # A run that sits non-terminal far past the `--minutes` threshold with NO open pull request AND a head
 # branch GitHub answers 404 for (deleted) is an ORPHAN-queued run: the stale leftover of finished/past
