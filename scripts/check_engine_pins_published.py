@@ -237,14 +237,35 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
             ad, aerr = probe(alias_ref)
             if ad and ad == resolved[ref][2]:
                 print(f"[pins] ALIAS OK {alias_ref}")
-                continue
-            lagged.append(alias_ref)
-            if not ad:
-                reason = "alias resolves no manifest"
             else:
-                reason = f"alias {ad} != committed {resolved[ref][2]}"
-            print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
-            print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
+                lagged.append(alias_ref)
+                if not ad:
+                    reason = "alias resolves no manifest"
+                else:
+                    reason = f"alias {ad} != committed {resolved[ref][2]}"
+                print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
+                print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
+            # Issue #2988: the engine's `:latest` belongs to its CANONICAL variant
+            # cell only — `engine_image.engine_latest_variant` (issue #638), the
+            # exact rule `publish_refs` uses to append `:latest`, so publisher and
+            # gate never disagree about ownership. Probe `:latest` once per engine,
+            # from that cell's iteration; a lag or an absent manifest is an alias
+            # lag: the `[select]` line names the cell whose moving sweep republishes
+            # both `:<variant>` and `:latest`.
+            if variant != ei.engine_latest_variant(ei.resolve(engine, None, variant)):
+                continue  # a non-canonical cell never owns the engine's :latest
+            latest_ref = f"{ref.rpartition(':')[0]}:latest"
+            ld, lerr = probe(latest_ref)
+            if ld and ld == resolved[ref][2]:
+                print(f"[pins] LATEST OK {latest_ref}")
+            else:
+                lagged.append(latest_ref)
+                if not ld:
+                    reason = "latest resolves no manifest"
+                else:
+                    reason = f"latest {ld} != committed {resolved[ref][2]}"
+                print(f"[pins] ALIAS LAG {latest_ref} ({reason}) behind committed {ref}")
+                print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {len(tags)} checked): dispatch engine-build with push=true, "
@@ -253,10 +274,11 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
     if lagged:
         print(f"[pins] FAIL {len(lagged)} {what} alias(es) lag the committed pin tags "
               f"(of {len(tags)} checked): dispatch engine-build with push=true "
-              f"(moving tags), then re-run this check (issue #2987)", file=sys.stderr)
+              f"(moving tags), then re-run this check (issues #2987/#2988)", file=sys.stderr)
         return 1
     print(f"[pins] every {what} engine image ({len(tags)}) is published"
-          + (" and every arch alias matches its committed tag" if alias_check else ""))
+          + (" and every arch alias and engine :latest matches its committed tag"
+             if alias_check else ""))
     return 0
 
 
@@ -297,7 +319,9 @@ def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
     still points at an older digest selects the cell for the moving push; every
     other caller (PR lanes, `ci-hf-live`) leaves it unset and keeps the tag-only
     semantics. `1`/`true` turn it on, `0`/`false`/empty turn it off, anything else
-    warns on stderr and stays off.
+    warns on stderr and stays off. With the knob on the SAME check also gates the
+    engine-level `:latest` alias of each engine's canonical variant cell (issue
+    #2988, `engine_image.engine_latest_variant` ownership): no second knob exists.
     """
     registry = registry if registry is not None else ei.REGISTRY
     probe = digest if digest is not None else ei._digest_http
