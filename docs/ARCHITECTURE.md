@@ -1052,6 +1052,13 @@ exemption is granted per WORKFLOW FILE, never per conclusion class: only `auto-m
 silently skipped, so a `cancelled` engine-build-pr-trigger or holds row still blocks (issue
 #2237 — before it, #2231's conclusion-wide exemption made `UNJUDGED_RED_CONCLUSIONS` a strict
 subset of the merger's set and a green verdict could disagree with a refused merge).
+The forcing is a MERGE gate, so it applies only where a merge is gated: when the judged run's
+`event` is not `pull_request` — a `push` / `schedule` / `workflow_dispatch` run at the default
+branch — a GREEN judged run beside unjudged reds posts `neutral` (exit 0) with a
+`DEFAULT-BRANCH HEAD` line naming every red it is not reddening, because `auto_merge.py` merges
+PR heads only and `main` commits gate no merge (issue #2993, measured at `a4afb185e`: green CI push
+run `44819931621` posted a red verdict row `136591838065` over issue-bot `implement` failures); a
+judged RED keeps its `failure` at any event.
 `.github/workflows/review-verdict.yml`
 records a submitted review as the bot-verdict marker at the head it judged. The marker's
 `reviewer=` names the TRUE review author, and an ACCEPTING verdict authored by a merge-path

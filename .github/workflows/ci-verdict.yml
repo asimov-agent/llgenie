@@ -37,6 +37,13 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # never reds a head on its own footprint on `main`), and any unjudged row whose conclusion is
 # `cancelled`/`neutral` — that is a superseded / owed-nothing transient, never a block; only a
 # genuinely-red unjudged conclusion (`failure`/`timed_out`/`startup_failure`) reds the head.
+# DEFAULT-BRANCH HEADS (#2993): a judged run whose event is NOT `pull_request` (a `push`/`schedule`/
+# `workflow_dispatch` run at the default branch) gates NO merge — `auto_merge.py` merges PR heads only —
+# so a GREEN judged run at `main` beside unjudged bot rows (measured at `a4afb185e`: CI push run
+# `44819931621` green, issue-bot `implement` reds from runs `44822618375`/`44822619990`) posts
+# `neutral`, not `failure`: the head is not clean and nothing is held, and the `DEFAULT-BRANCH HEAD`
+# line names every red it is not reddening. A `pull_request` head keeps the #2116 forcing unchanged;
+# a judged RED keeps its red at any event.
 # SUPERSEDED ROWS (#2885): GitHub keeps a check-run row for EVERY run attached to a head, and
 # `filter=latest` collapses only re-run attempts of the same run id (measured at PR #2882 head
 # `585b03dd74`: three `scope` rows from three RUNS, all returned). So a red row that a NEWER

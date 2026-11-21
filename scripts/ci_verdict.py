@@ -516,6 +516,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--checks", default=os.environ.get("CI_VERDICT_CHECKS"),
                         help="read the head's check-runs from this file instead of the API "
                              "(a test, a replay)")
+    parser.add_argument("--run-event", default=os.environ.get("CI_VERDICT_RUN_EVENT"),
+                        help="the judged run's event (a test, a replay; a real judgment reads the "
+                             "event from the fetched run itself)")
     args = parser.parse_args(argv)
 
     if not args.run_id and not args.jobs:
@@ -583,6 +586,13 @@ def main(argv: list[str] | None = None) -> int:
     # drop the row named `CHECK_NAME` from the observed set before verifying.
     jobs = [j for j in jobs if ci_scope.normalise_job_name(j.get("name") or "") != CHECK_NAME]
     result = ci_scope.verify(decision_obj, jobs)
+    # The judged run's event decides WHERE this verdict gates a merge (issue #2993): a
+    # `pull_request` run judges a PR head the merger gates; a `push`/`schedule`/`workflow_dispatch`
+    # run judges the default branch, where no merge is EVER gated (auto_merge.py merges PR heads
+    # only). A replay has no fetched run and carries the event only via `--run-event`; an empty
+    # event is treated as the PR-head (strict) case, never as a default-branch pass.
+    run_event = str((run or {}).get("event") or args.run_event or "")
+    default_branch_head = run_event not in ("", "pull_request")
     lines = verdict_lines(result, run, superseding)
     if merged_pr is not None:
         lines.append(
@@ -601,6 +611,13 @@ def main(argv: list[str] | None = None) -> int:
             lines.append(
                 f"{TAG}   check {red['name']!r} conclusion={red['conclusion']} "
                 f"workflow={red['workflow']!r}{run_label} {red['details_url']}")
+    if default_branch_head and result["verdict"] == ci_scope.GREEN and unjudged:
+        lines.append(
+            f"{TAG} DEFAULT-BRANCH HEAD: the judged run's event is {run_event!r} — this verdict judges "
+            f"the default branch, where no merge is gated (`scripts/auto_merge.py` merges PR heads "
+            f"only), so the {len(unjudged)} unjudged red(s) named above block no merge and the verdict "
+            f"posts neutral: the head is NOT clean and nothing is held (issue #2993). A "
+            f"`pull_request` head keeps the #2116 forcing; a judged RED keeps its red.")
     for line in lines:
         print(line)
 
@@ -608,7 +625,8 @@ def main(argv: list[str] | None = None) -> int:
     if result["verdict"] == ci_scope.GREEN and not unjudged:
         conclusion, code = "success", EXIT_GREEN
         title_word = "green"
-    elif superseding is not None or merged_pr is not None:
+    elif (superseding is not None or merged_pr is not None
+          or (default_branch_head and result["verdict"] == ci_scope.GREEN and unjudged)):
         conclusion, code = "neutral", EXIT_GREEN
         title_word = "neutral"
     else:

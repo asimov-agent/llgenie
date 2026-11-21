@@ -1354,9 +1354,11 @@ def test_a_failure_conclusion_is_never_titled_green():
     assert ok["output"]["title"].startswith("ci-verdict: green"), ok["output"]["title"]
 
 
-def _cli_with_checks(tmp_path, checks) -> tuple[int, Path]:
-    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
-            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+def _cli_with_checks(tmp_path, checks, run_event=None, fail_job=None) -> tuple[int, Path]:
+    jobs = [{"name": "guard", "status": "completed",
+             "conclusion": "failure" if fail_job == "guard" else "success"},
+            {"name": "ci-images", "status": "completed",
+             "conclusion": "failure" if fail_job == "ci-images" else "success"},
             {"name": "linux / unit", "status": "completed", "conclusion": "success"},
             {"name": "linux / lint", "status": "completed", "conclusion": "success"},
             {"name": "linux / install", "status": "completed", "conclusion": "success"},
@@ -1372,9 +1374,12 @@ def _cli_with_checks(tmp_path, checks) -> tuple[int, Path]:
     checks_file.write_text(json.dumps({"check_runs": checks, "total_count": len(checks)}),
                            encoding="utf-8")
     out = tmp_path / "check-run.json"
-    return cv.main(["--jobs", str(jobs_file), "--decision", str(decision_file),
-                    "--checks", str(checks_file), "--head-sha", "aeac049f",
-                    "--check-run-out", str(out)]), out
+    argv = ["--jobs", str(jobs_file), "--decision", str(decision_file),
+            "--checks", str(checks_file), "--head-sha", "aeac049f",
+            "--check-run-out", str(out)]
+    if run_event is not None:
+        argv += ["--run-event", run_event]
+    return cv.main(argv), out
 
 
 def test_green_ci_beside_an_unjudged_red_is_not_posted_as_success(tmp_path, monkeypatch, capsys):
@@ -1415,6 +1420,99 @@ def test_the_same_head_with_that_check_green_returns_to_a_clean_verdict(tmp_path
     assert "UNJUDGED RED" not in out, out
     payload = json.loads(out_file.read_text(encoding="utf-8"))
     assert payload["conclusion"] == "success", payload
+
+
+# The main-head row set measured on 2026-11-20T21:51Z (issue #2993): main's CI push run
+# `44819931621` judged fully green, and the verdict posted `conclusion=failure` (artifact
+# `136591838065` at `a4afb185e23900412a5a7a337069daf08324e214`) solely because the head carried
+# issue-bot `implement` failures — run `44822618375` (row `136589325345`, superseded) and run
+# `44822619990` (row `136589328437`, the named blocker). The production log itself reads
+# `run 44819931621 CI head=a4afb18 event=push branch=main conclusion=success`.
+MAIN_HEAD_ROWS = [
+    {"id": 136589325345, "name": "implement", "conclusion": "failure", "status": "completed",
+     "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/44822618375/job/136587778247",
+     "app": {"slug": "github-actions"}},
+    {"id": 136589328437, "name": "implement", "conclusion": "failure", "status": "completed",
+     "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/44822619990/job/136587789021",
+     "app": {"slug": "github-actions"}},
+    {"id": 136591838065, "name": "ci-verdict", "conclusion": "failure", "status": "completed",
+     "details_url": "https://github.com/asimov-agent/llgenie/runs/136591838065"},
+]
+
+
+def _main_head_api(monkeypatch):
+    """The Actions `runs/<id>` reads `workflow_of()` makes for the measured issue-bot rows."""
+    def fake_api(path: str):
+        if "/actions/runs/44822618375" in path or "/actions/runs/44822619990" in path:
+            return {"name": "issue-bot — implements ONE issue per run as a reviewable PR (never merges)",
+                    "path": ".github/workflows/issue-bot.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+
+def test_measured_main_head_push_replay_posts_neutral_not_red(tmp_path, monkeypatch, capsys):
+    """A green push run at the default branch must not post a red verdict row (#2993)."""
+    _main_head_api(monkeypatch)
+
+    # Given  the exact 21:51Z row set, judged with the run's own recorded event: `push`
+    rc, out_file = _cli_with_checks(tmp_path, MAIN_HEAD_ROWS, run_event="push")
+    out = capsys.readouterr().out
+
+    # Then  the verdict is not red, and it is not called clean either
+    assert rc == 0, out
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "neutral", payload
+    assert "red" not in payload["output"]["title"], payload["output"]["title"]
+
+    # And  every unjudged red is still fully named, superseded collapse included
+    assert "UNJUDGED RED" in out, out
+    assert "run=44822619990" in out, out
+    assert "superseded red (not a block)" in out and "run=44822618375" in out, out
+
+    # And  the output states WHY a default-branch head is not reddened
+    assert "DEFAULT-BRANCH HEAD" in out, out
+    assert "event is 'push'" in out, out
+
+
+def test_the_same_rows_without_an_event_keep_the_forcing(tmp_path, monkeypatch, capsys):
+    """A replay that does not state the event keeps the strict (pull_request) semantics (#2993)."""
+    _main_head_api(monkeypatch)
+
+    rc, out_file = _cli_with_checks(tmp_path, MAIN_HEAD_ROWS)
+    out = capsys.readouterr().out
+
+    assert rc == 1, out
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
+    assert "DEFAULT-BRANCH HEAD" not in out, out
+
+
+def test_a_pull_request_event_beside_the_same_red_stays_red(tmp_path, monkeypatch, capsys):
+    """The arm never touches a PR head: event `pull_request` keeps the #2116 forcing."""
+    _main_head_api(monkeypatch)
+
+    rc, out_file = _cli_with_checks(tmp_path, MAIN_HEAD_ROWS, run_event="pull_request")
+    out = capsys.readouterr().out
+
+    assert rc == 1, out
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
+    assert "UNJUDGED RED" in out, out
+    assert "DEFAULT-BRANCH HEAD" not in out, out
+
+
+def test_a_push_run_whose_own_judged_job_failed_keeps_its_failure(tmp_path, monkeypatch, capsys):
+    """#2993 reddens nothing that was already red: a judged RED stays red at any event."""
+    _main_head_api(monkeypatch)
+
+    rc, out_file = _cli_with_checks(tmp_path, MAIN_HEAD_ROWS, run_event="push",
+                                    fail_job="ci-images")
+    out = capsys.readouterr().out
+
+    assert rc == 1, out
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
+    assert "DEFAULT-BRANCH HEAD" not in out, out
 
 
 def test_a_check_run_from_another_app_is_named_not_dropped(monkeypatch):
