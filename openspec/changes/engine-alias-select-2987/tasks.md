@@ -36,6 +36,6 @@
 ## 5. Verification (pre-push proofs)
 
 - [x] 5.1 `make openspec-validate NAME=engine-alias-select-2987` exits 0.
-- [ ] 5.2 `make test-unit` exits 0 with the new tests included (background run).
+- [x] 5.2 `make test-unit` exits 0 with the new tests included (4318 passed, 13638 deselected, rc=0 on the tree carrying the work record).
 - [x] 5.3 Live detection proof: `ENGINE_PINS_ALIAS=1 make check-engine-pins-published ALL=1` exits red (gate rc=1, make rc=2) naming exactly the three measured lagging aliases (`edge0:cuda`, `vllm:cuda`, `vllm:rocm`) with `ALIAS LAG` + `[select]` lines — a red sweep is the green outcome at this head (the aliases still lag on `main`; the moving push repairs them post-merge, tracked by #2989).
-- [ ] 5.4 `make check-docs` exits 0 on the tree that carries this change's note and index row.
+- [x] 5.4 `make check-docs` exits 0 on the tree that carries this change's note and index row.
