@@ -1649,3 +1649,34 @@ def test_an_unfinished_newer_row_does_not_clear_an_older_red(monkeypatch):
 
     assert len(reds) == 1, reds
     assert reds[0]["run_id"] == "5001", reds
+
+
+# ---- the stalled-job watchdog's cancel (#2997): the cancelled row is read classified, never silent ----
+
+#: The shape a watchdog cancel leaves on the fan-out (issue #2997): the run was
+#: `in_progress` with a stalled `linux/unit`; after `gh run cancel` the classified job row
+#: reports `cancelled` and the run's own conclusion is `cancelled` too.
+WATCHDOG_CANCELLED_FANOUT = [
+    {"name": "guard", "status": "completed", "conclusion": "success"},
+    {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
+    {"name": "linux", "status": "completed", "conclusion": "cancelled"},
+    {"name": "linux/unit", "status": "completed", "conclusion": "cancelled"},
+]
+
+
+def test_a_watchdog_cancelled_stalled_row_reads_through_the_blocking_conclusion_path():
+    """issue #2997 AC2 — the cancel ENDS the wedge, and the `cancelled` conclusion it leaves is
+    read through `ci_verdict.BLOCKING_CONCLUSIONS` (and the equal `auto_merge.RED_CONCLUSIONS`,
+    pinned at `test_the_blocking_conclusions_are_the_merger_s_rule`): the selected
+    cancelled row is accounted as unjudged, never as a legitimate skip — a classified answer, not
+    the silence #2992's 26-minute wedge produced."""
+    import scripts.auto_merge as am
+
+    assert "cancelled" in cv.BLOCKING_CONCLUSIONS, cv.BLOCKING_CONCLUSIONS
+    assert "cancelled" in am.RED_CONCLUSIONS, am.RED_CONCLUSIONS
+
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), WATCHDOG_CANCELLED_FANOUT)
+    joined = "\n".join(result["lines"])
+    assert result["counts"]["skipped_by_decision"] == 0, result["counts"]
+    assert "linux/unit cancelled" in joined, joined
+    assert result["verdict"] in (cs.NONE, cs.RED), result["lines"]  # never a green
