@@ -287,6 +287,13 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
 - **Move to the next issue immediately.** While a lane's CI runs in the
   background, the agent starts the next issue/PR on the board (fresh worktree,
   OpenSpec change first) instead of blocking on the previous pipeline.
+- **A pushed lane with CI in flight is DONE for scheduling (MANDATORY, durable;
+  issue #2999).** The moment a lane is pushed, the agent's next foreground
+  action is the next board issue — issue → OpenSpec change → worktree → gates →
+  PR — never an idle `sleep`/re-poll chain and never holding the board because
+  a CI verdict is pending. All CI re-polling lives in the background watcher
+  task; a turn that only polls a pending pipeline between two lane starts is a
+  pacing violation a reviewer can cite.
 - **Return to the board at the end.** Once all lanes are pushed, re-poll every
   PR until each is fully GREEN and armed (auto-merge/auto-approve; rebase onto
   the latest `origin/main` whenever `mergeStateStatus` is `BEHIND`/`DIRTY`).
