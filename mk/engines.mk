@@ -367,6 +367,9 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 published-engine-pull:
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS) $(MOVING_FLAG)
 
+engine-alias-move: ## Issue #2996: move one cell's :<VARIANT> GHCR alias to a committed pin digest by manifest re-point (docker buildx imagetools create — no build, no engine run). ENGINE=<id> VARIANT=<backend> SUFFIX=<exact-tag-suffix> DIGEST=sha256:<64hex>; prints [alias-move] MOVED only when the post-move alias digest equals the pin digest.
+	@python3 scripts/engine_alias_move.py --engine "$(ENGINE)" --variant "$(VARIANT)" --suffix "$(SUFFIX)" --digest "$(DIGEST)"
+
 check-engine-cache-namespace: ## Issue #2891: prove hermetically that the build seam's buildx registry cache refs track the content hashes the image tags carry — base refs `<basehash>-buildcache`, cell refs `<pin8>-<content-hash>-<variant>-buildcache`; a base/cell content change must start a NEW namespace, unchanged content must replay the same one.
 	$(TEST_RUN) python -m pytest tests/test_engine_cache_namespace.py -p no:cacheprovider -q
 

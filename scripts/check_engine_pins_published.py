@@ -228,8 +228,15 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
         # alias points at it. Issue #178 moves the alias on main only, and under
         # tag-existence semantics a merged pin/content change whose producer ran
         # moving_tags=false leaves the alias on an older digest forever. Compare
-        # the alias digest with the committed pin digest and emit the same
-        # [select] contract line, so liveness dispatches the moving push.
+        # the alias digest with the committed pin digest. Issue #2996 routes the
+        # gap by gap class: a lag whose committed tag RESOLVES needs no build —
+        # it needs a registry-side manifest move — so it emits
+        # [aliasmove] <engine> <variant> <tag-suffix> <pin-digest> and NO
+        # [select] line. [select] stays manifest-unknown-only, where the #2579
+        # coalesced push=true sweep is the right repair. (Dispatching a build for
+        # a resolved-pin lag is what fired the #2996 loop: DEFAULT_CPU_ONLY
+        # engines like vllm have GPU cells structurally absent from every
+        # matrix/sweep, so the dispatched repair was green-but-useless.)
         for ref, (engine, variant) in tags.items():
             if ref not in resolved:
                 continue  # already NOT PUBLISHED and selected above
@@ -244,14 +251,20 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
                 else:
                     reason = f"alias {ad} != committed {resolved[ref][2]}"
                 print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
-                print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
+                # Issue #2996 routing: a lag against a RESOLVED committed pin is a
+                # registry-side manifest move, not a build — emit the [aliasmove]
+                # heal line and never a [select] (dispatching a build for a lag is
+                # the #2996 fire-loop).
+                print(f"[aliasmove] {engine} {variant} "
+                      f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
             # Issue #2988: the engine's `:latest` belongs to its CANONICAL variant
             # cell only — `engine_image.engine_latest_variant` (issue #638), the
             # exact rule `publish_refs` uses to append `:latest`, so publisher and
             # gate never disagree about ownership. Probe `:latest` once per engine,
             # from that cell's iteration; a lag or an absent manifest is an alias
-            # lag: the `[select]` line names the cell whose moving sweep republishes
-            # both `:<variant>` and `:latest`.
+            # lag, and the #2996 routing applies to it too: the `[aliasmove]` line
+            # names the canonical cell whose manifest move heals both `:<variant>`
+            # and `:latest`.
             if variant != ei.engine_latest_variant(ei.resolve(engine, None, variant)):
                 continue  # a non-canonical cell never owns the engine's :latest
             latest_ref = f"{ref.rpartition(':')[0]}:latest"
@@ -265,7 +278,8 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
                 else:
                     reason = f"latest {ld} != committed {resolved[ref][2]}"
                 print(f"[pins] ALIAS LAG {latest_ref} ({reason}) behind committed {ref}")
-                print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
+                print(f"[aliasmove] {engine} {variant} "
+                      f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {len(tags)} checked): dispatch engine-build with push=true, "
@@ -273,8 +287,9 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
         return 1
     if lagged:
         print(f"[pins] FAIL {len(lagged)} {what} alias(es) lag the committed pin tags "
-              f"(of {len(tags)} checked): dispatch engine-build with push=true "
-              f"(moving tags), then re-run this check (issues #2987/#2988)", file=sys.stderr)
+              f"(of {len(tags)} checked): move each lagging cell's alias with the "
+              f"emitted [aliasmove] line (registry-side manifest move, no build — "
+              f"issues #2987/#2988/#2996), then re-run this check", file=sys.stderr)
         return 1
     print(f"[pins] every {what} engine image ({len(tags)}) is published"
           + (" and every arch alias and engine :latest matches its committed tag"

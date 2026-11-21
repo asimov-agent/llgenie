@@ -800,10 +800,12 @@ def test_alias_check_aligned_aliases_stay_green(tmp_path, capsys):
     assert calls.count(alias_ref) == 1, "the alias ref must be probed exactly once"
 
 
-def test_alias_digest_lag_reds_and_emits_the_select_contract(tmp_path, capsys):
-    """AC1 negative: a :<variant> alias on an older digest than the committed pin
-    reddens the gate AND emits the exact [select] contract line, so liveness
-    dispatches the moving push for that cell (#2561 contract)."""
+def test_alias_digest_lag_reds_and_emits_the_aliasmove_contract(tmp_path, capsys):
+    """AC1 negative (#2996 routing): a :<variant> alias on an older digest than the
+    committed pin reddens the gate AND emits the exact [aliasmove] contract line with
+    the pin digest — a resolved-pin lag needs a manifest move, NOT a build, so NO
+    [select] line is emitted for it (dispatching one is the #2996 fire-loop). The
+    engine :latest of the same cell stays aligned and prints LATEST OK."""
     engine, variant, pin_ref, alias_ref, latest_ref = _alias_cell()
     fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:stale",
                                 latest_ref: "sha256:pin"})
@@ -814,25 +816,27 @@ def test_alias_digest_lag_reds_and_emits_the_select_contract(tmp_path, capsys):
     assert rc == 1, "a lagging arch alias must red the committed sweep"
     assert f"ALIAS LAG {alias_ref}" in out and "sha256:stale != committed sha256:pin" in out
     suffix = cpp.exact_tags(engine, variant).split(":")[-1]
-    assert f"[select] {engine} {variant} {suffix}" in out, \
-        "the lag must emit the dispatch-contract [select] line"
+    assert f"[aliasmove] {engine} {variant} {suffix} sha256:pin" in out, \
+        "the lag must emit the heal-contract [aliasmove] line naming the pin digest"
+    assert "[select]" not in out, \
+        "a resolved-pin lag must NOT ride the build dispatch (#2996 gap-class routing)"
     assert "alias(es) lag" in err, "the FAIL line names alias lag"
     assert calls.count(alias_ref) == 1
 
 
 def test_an_alias_resolving_no_manifest_is_a_lag(tmp_path, capsys):
     """A committed cell whose exact tag published but whose :<variant> alias never
-    got created is the moving push never ran — same red, same [select]."""
+    got created is the alias move never ran — same red, same [aliasmove] heal line."""
     engine, variant, pin_ref, alias_ref, latest_ref = _alias_cell()
-    fake, calls = _fake_digest({pin_ref: "sha256:pin",
-                                latest_ref: "sha256:pin"})   # alias 404s
+    fake, calls = _fake_digest({pin_ref: "sha256:pin", latest_ref: "sha256:pin"})   # alias 404s
     rc = cpp.check_committed(digest=fake, registry=REGISTRY, root=tmp_path,
                              cells=[(engine, variant)], alias_check=True)
     out = capsys.readouterr().out
     assert rc == 1
     assert f"ALIAS LAG {alias_ref}" in out and "resolves no manifest" in out
     suffix = cpp.exact_tags(engine, variant).split(":")[-1]
-    assert f"[select] {engine} {variant} {suffix}" in out
+    assert f"[aliasmove] {engine} {variant} {suffix} sha256:pin" in out
+    assert "[select]" not in out
 
 
 def test_knob_unset_keeps_tag_only_semantics(tmp_path, monkeypatch):
@@ -872,14 +876,14 @@ def test_alias_knob_arrives_via_env_and_a_malformed_value_is_loud_and_off(
 
 
 def test_registry_liveness_turns_the_alias_check_on_and_nothing_else_does():
-    """The wiring spec: both ALL=1 invocations (fleet gate + dispatch gate) carry
-    ENGINE_PINS_ALIAS=1; no other workflow sets the knob (PR lanes stay strict)."""
+    """The wiring spec: all three ALL=1 invocations (heal probe #2996 + fleet gate +
+    dispatch gate) carry ENGINE_PINS_ALIAS=1; no other workflow sets the knob (PR lanes stay strict)."""
     from pathlib import Path as _P
     wf_dir = _P(__file__).resolve().parents[1] / ".github/workflows"
     wf = (wf_dir / "registry-liveness.yml").read_text()
     steps = re.split(r"^      - ", wf, flags=re.MULTILINE)[1:]
     gated = [s for s in steps if "check-engine-pins-published ALL=1" in s]
-    assert len(gated) == 2, "registry-liveness must have exactly the two ALL=1 gates"
+    assert len(gated) == 3, "registry-liveness must have exactly the three ALL=1 gates (#2996)"
     for s in gated:
         assert 'ENGINE_PINS_ALIAS: "1"' in s, \
             f"the ALL=1 gate step '{s.splitlines()[0]}' must carry the alias knob"
@@ -912,9 +916,10 @@ def test_latest_check_aligned_latest_stays_green(tmp_path, capsys):
     assert calls.count(latest_ref) == 1, "the engine :latest must be probed exactly once"
 
 
-def test_latest_digest_lag_alone_reds_and_selects_the_canonical_cell(tmp_path, capsys):
+def test_latest_digest_lag_alone_reds_and_aliasmoves_the_canonical_cell(tmp_path, capsys):
     """AC1 negative: `:<variant>` aligned but `:latest` on an older digest — a
-    half-moved publish — still reds and emits the canonical cell's [select] line."""
+    half-moved publish — still reds and emits the canonical cell's [aliasmove] heal
+    line (#2996 routing: a resolved-pin lag is a manifest move, not a build)."""
     engine, variant = "mlx", "cpu"
     pin_ref, alias_ref, latest_ref = _cell_refs(engine, variant)
     fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:pin",
@@ -926,15 +931,17 @@ def test_latest_digest_lag_alone_reds_and_selects_the_canonical_cell(tmp_path, c
     assert f"ALIAS LAG {latest_ref}" in captured.out
     assert "sha256:stale != committed sha256:pin" in captured.out
     suffix = cpp.exact_tags(engine, variant).split(":")[-1]
-    assert f"[select] {engine} {variant} {suffix}" in captured.out, \
-        "the latest lag must select the cell whose moving sweep republishes :latest"
+    assert f"[aliasmove] {engine} {variant} {suffix} sha256:pin" in captured.out, \
+        "the latest lag must name the canonical cell whose manifest move heals :latest"
+    assert "[select]" not in captured.out, \
+        "a resolved-pin latest lag must NOT ride the build dispatch (#2996 routing)"
     assert "alias(es) lag" in captured.err
     assert calls.count(latest_ref) == 1
 
 
 def test_absent_latest_is_a_lag(tmp_path, capsys):
     """A canonical cell whose exact tag and `:<variant>` published but whose engine
-    `:latest` never got created is the same red, same [select]."""
+    `:latest` never got created is the same red, same [aliasmove] heal line."""
     engine, variant = "mlx", "cpu"
     pin_ref, alias_ref, latest_ref = _cell_refs(engine, variant)
     fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:pin"})
@@ -944,7 +951,7 @@ def test_absent_latest_is_a_lag(tmp_path, capsys):
     assert rc == 1
     assert f"ALIAS LAG {latest_ref}" in out and "latest resolves no manifest" in out
     suffix = cpp.exact_tags(engine, variant).split(":")[-1]
-    assert f"[select] {engine} {variant} {suffix}" in out
+    assert f"[aliasmove] {engine} {variant} {suffix} sha256:pin" in out
 
 
 def test_only_the_canonical_variant_cell_probes_latest(tmp_path, capsys):
@@ -978,7 +985,7 @@ def test_latest_compares_the_canonical_digest_not_another_variants(tmp_path, cap
     assert rc == 1
     assert f"ALIAS LAG {latest} (latest sha256:g != committed sha256:c)" in out
     suffix = cpp.exact_tags("llama.cpp", "cpu").split(":")[-1]
-    assert f"[select] llama.cpp cpu {suffix}" in out
+    assert f"[aliasmove] llama.cpp cpu {suffix} sha256:c" in out
 
 
 def test_engine_without_cpu_owns_latest_via_first_sorted_variant(tmp_path, capsys):
