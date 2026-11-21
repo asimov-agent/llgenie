@@ -191,6 +191,7 @@
       "run_failure_reactor",
       "scrub_log",
       "stale_branch_cleanup",
+      "stalled_job_watchdog",
       "sweep_concurrency",
       "verify_closure",
       "web_evidence",
