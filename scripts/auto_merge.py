@@ -264,6 +264,12 @@ def review_blocked(state: dict) -> bool:
 # job, and `linux` on #1385 was skipped beside real failures — that is the one legitimate "no verdict".
 RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "cancelled", "neutral"})
 
+#: The workflow FILE that posts the head's verdict artifact row (issue #2991): the check-run the
+#: verdict lane POSTS for the head it judged. Mirrors `ci_verdict.OUR_WORKFLOW_FILE` (#2221) — the
+#: same row both lanes read, so a sweep triggered by a GREEN completion clears exactly the row that
+#: completion replaces, and nothing else.
+VERDICT_ARTIFACT_FILE = "ci-verdict.yml"
+
 #: How long a deferral waits for its OWN unfinished run to conclude before giving up (#2101).
 #: The scheduled recheck that used to cover this fires ~4-5x/day rather than 48x/day (measured
 #: 2026-11-08: median gap 5.01h, zero gaps under 1h, and the same under-fire on every scheduled
@@ -410,7 +416,7 @@ def settle_unfinished_head(gh: str, repo: str, sha: str, attempts: int = SETTLE_
     return reason
 
 
-def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
+def failing_checks(gh: str, repo: str, sha: str, trigger_green: bool = False) -> "str | None":
     """The first red check on this commit, or None when every concluded check passed.
 
     `mergeStateStatus` is not this. A failed `scope` job left #1401 `BLOCKED` on the review, and the
@@ -427,6 +433,17 @@ def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
     `head_check_rows.superseded_ids` — the same module `ci_verdict.unjudged_reds` uses, so the merger
     and the verdict clear exactly the same rows and name exactly the same ones. A red whose group's
     newest row has NOT concluded stays red: the absence of red is not a pass.
+
+    `trigger_green` is the sweep that a GREEN workflow-run completion triggered (auto-merge.yml's
+    `merge` job only runs under `workflow_run.conclusion == 'success'`). For that sweep — and only
+    for it — a concluded-red row posted by the verdict lane's own workflow FILE is a stale artifact
+    of a previous attempt, not this head's verdict: the green completion IS the newest verdict
+    decision for this head, and the fresh artifact row can land seconds AFTER the sweep read the
+    head (measured wedge, issue #2991: PR #2990 deferred at 02:23:28Z on red row `136684722878` while
+    its green row landed at 02:23:38Z). The skip is by workflow FILE, never by row name: the
+    per-attempt `ci-verdict` JOB row lives in `ci.yml` and still blocks when the attempt judged
+    itself red, and every red at a sweep with NO green trigger (recheck, red-check, explain) keeps
+    the strict #1386 reading.
     """
     if not sha:
         return None
@@ -452,6 +469,16 @@ def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
                   f"name={(r or {}).get('name')} conclusion={(r or {}).get('conclusion')} "
                   f"run={m.group(1) if m else '?'} row={rid} — a newer "
                   "concluded row of the same job name and workflow file owns this head (issue #2885)")
+            continue
+        if trigger_green and _workflow_file(
+                gh, repo, r if isinstance(r, dict) else {}, file_cache) == VERDICT_ARTIFACT_FILE:
+            m = _RUN_ONLY.search(str((r or {}).get("details_url") or ""))
+            print(f"[auto-merge] stale verdict artifact (not a block): head {sha[:8]} "
+                  f"name={(r or {}).get('name')} conclusion={(r or {}).get('conclusion')} "
+                  f"run={m.group(1) if m else '?'} row={rid} — this sweep was triggered by a run "
+                  "that concluded GREEN at this head, and the verdict lane re-posts this row every "
+                  "attempt; the red is a previous attempt's artifact, not this head's verdict "
+                  "(issue #2991)")
             continue
         live.append(r)
     if not live:
@@ -772,7 +799,7 @@ def wait_for_merge_state(gh: str, repo: str, pr: int, attempts: int = 0,
 
 
 def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
-                  outcome: "dict | None" = None) -> int:
+                  outcome: "dict | None" = None, trigger_green: bool = False) -> int:
     """Clear the one procedural block a bot may clear: a required review (issue #524).
 
     Order matters, and it is the order `trending-local-llms` gets for free: approve as the identity that is
@@ -800,7 +827,7 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
         defer(gh, repo, pr, head_sha, why, dry=dry, outcome=outcome)
         return 0
     print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
-    red = failing_checks(gh, repo, head_sha)
+    red = failing_checks(gh, repo, head_sha, trigger_green=trigger_green)
     if red:
         defer(gh, repo, pr, head_sha, red, dry=dry, outcome=outcome)
         return 0
@@ -825,7 +852,7 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
 
 
 def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
-                          outcome: "dict | None" = None) -> int:
+                          outcome: "dict | None" = None, trigger_green: bool = False) -> int:
     """Merge a review-blocked PR whose block was cleared by a BOT VERDICT at this head (issue #852).
 
     The verdict is the review, but GitHub's `reviewDecision` cannot be moved by it (an approval of a
@@ -833,7 +860,8 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
     merge is the `--admin` path that bypasses it. A refusal is a deferral with the reason ON the PR,
     never a red run: a repository that enforces the review rule for admins simply waits for a human.
     """
-    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""),
+                         trigger_green=trigger_green)
     if red:
         defer(gh, repo, pr, head_sha, red, dry=dry, outcome=outcome)
         return 0
@@ -865,7 +893,8 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
 
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         approve_when_review_required: bool = False, actor: str = "",
-        settle: bool = True, outcome: "dict | None" = None) -> int:
+        settle: bool = True, outcome: "dict | None" = None,
+        trigger_green: bool = False) -> int:
     state = pr_state(gh, repo, pr)
     if (state.get("mergeable") or "").upper() == "UNKNOWN" and not dry:
         state = settle_mergeable(gh, repo, pr)
@@ -876,7 +905,8 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     if refused:
         defer(gh, repo, pr, head_sha, refused, dry=dry, outcome=outcome)
         return 0
-    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""),
+                         trigger_green=trigger_green)
     if red:
         defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry,
               outcome=outcome)
@@ -895,7 +925,8 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
-        return _clear_review(gh, repo, pr, head_sha, state, dry, outcome=outcome)
+        return _clear_review(gh, repo, pr, head_sha, state, dry, outcome=outcome,
+                             trigger_green=trigger_green)
     if reason:
         defer(gh, repo, pr, head_sha, reason, dry=dry, outcome=outcome)
         return 0
@@ -905,7 +936,8 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         return 0
     if review_blocked(state):
         # decide() cleared the review block: only a bot verdict at this head can do that (#852).
-        return _merge_review_cleared(gh, repo, pr, head_sha, state, dry, outcome=outcome)
+        return _merge_review_cleared(gh, repo, pr, head_sha, state, dry, outcome=outcome,
+                                     trigger_green=trigger_green)
     return _merge(gh, repo, pr, head_sha, state, dry, outcome=outcome)
 
 
@@ -1176,6 +1208,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="approve a green, review-blocked PR with the other allowed identity, then merge")
     m.add_argument("--actor", default="",
                    help="who triggered the CI run; authorises a bot-authored PR (owner, write collaborator, or the bot)")
+    m.add_argument("--trigger-green", action="store_true",
+                   help="this sweep was triggered by a run that CONCLUDED GREEN at this head "
+                        "(auto-merge.yml's merge job gate); a red row posted by the verdict lane's "
+                        "own workflow file is then a stale artifact, not a block (issue #2991)")
     e = sub.add_parser("explain", help="print the merge verdict for a PR; writes nothing")
     e.add_argument("--repo", required=True)
     e.add_argument("--pr", type=int, required=True)
@@ -1225,7 +1261,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "explain":
         return explain(args.gh, args.repo, args.pr, args.head_sha)
     return run(args.gh, args.repo, args.pr, args.head_sha, args.dry,
-               args.approve_when_review_required, args.actor)
+               args.approve_when_review_required, args.actor, trigger_green=args.trigger_green)
 
 
 if __name__ == "__main__":

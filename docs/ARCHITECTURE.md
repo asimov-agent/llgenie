@@ -1029,6 +1029,18 @@ After the merge `scripts/verify_closure.py` (`make verify-closure`) proves the b
 `closes #n` actually closed. `make auto-merge-explain` prints the verdict and writes
 nothing.
 
+One row never defers a sweep: a red posted by the verdict lane's OWN workflow file,
+`ci-verdict.yml` (issue #2991). The `merge` job runs only on a `workflow_run.conclusion ==
+'success'` completion at this head, so a stale artifact red left by an earlier verdict attempt
+is already replaced by that green completion — the sweep deferred PR #2990 on exactly such a row
+at 02:23:28Z (run `136684722878`), ten seconds before a green verdict row for the same head
+arrived. `scripts/auto_merge.py` names `VERDICT_ARTIFACT_FILE` and clears only a
+concluded-red row of that FILE when `make auto-merge TRIGGER_GREEN=1` is passed (the workflow
+sets it on the merge step; `--trigger-green`), printing `stale verdict artifact (not a block)`.
+The skip keys on the workflow FILE, never the row name: the per-attempt `ci-verdict` JOB row of
+`ci.yml` still blocks, foreign reds still block, and the recheck half — which has no green
+trigger — keeps the strict reading above.
+
 A finished CI run is held to its published scope decision by `.github/workflows/ci-verdict.yml`
 (`scripts/ci_verdict.py`): it reads the only `scope` check (the `pull_request`-scoped docs/PR
 classification in `scripts/ci_scope.py`) and fails/passes the run's verdict against it, and
