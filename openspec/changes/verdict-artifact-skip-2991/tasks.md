@@ -15,4 +15,4 @@
 
 - [x] 3.1 `make openspec-validate NAME=verdict-artifact-skip-2991` exits 0.
 - [x] 3.2 The focused battery `tests/test_auto_merge.py` (in `llgenie/test:latest`) passes, replaying the #2990 wedge fixture.
-- [ ] 3.3 `make test-unit` exits 0 with the new tests included in the full hermetic battery.
+- [x] 3.3 `make test-unit` exits 0 with the new tests included in the full hermetic battery.
