@@ -168,7 +168,8 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
            registry: str, what: str, patience_seconds: float = 0.0,
            sleep: Callable[[float], None] = time.sleep,
            clock: Callable[[], float] = time.monotonic,
-           retry_seconds: float = 120.0) -> int:
+           retry_seconds: float = 120.0,
+           alias_check: bool = False) -> int:
     """Probe every (engine, variant) cell's exact tag; exit 1 when any is not published.
 
     `cells` is the scope being verified (the repin diff, or the full committed set);
@@ -186,12 +187,12 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
     """
     tags = {f"{registry}/{exact_tags(engine, variant)}": (engine, variant)
             for engine, variant in cells}
-    resolved: dict[str, tuple[str, str]] = {}
+    resolved: dict[str, tuple[str, str, str]] = {}  # ref -> (engine, variant, digest)
     unresolved: dict[str, str] = {}
     for ref, (engine, variant) in tags.items():
         d, err = probe(ref)
         if d:
-            resolved[ref] = (engine, variant)
+            resolved[ref] = (engine, variant, d)
         else:
             unresolved[ref] = err
     if unresolved and patience_seconds > 0:
@@ -204,7 +205,7 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
             for ref in list(unresolved):
                 d, err = probe(ref)
                 if d:
-                    resolved[ref] = tags[ref]
+                    resolved[ref] = (tags[ref][0], tags[ref][1], d)
                     del unresolved[ref]
                 else:
                     unresolved[ref] = err
@@ -221,12 +222,41 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
             # engine-build from exactly these lines; package names are a namespace
             # where dots are illegal and must never be reverse-parsed back into ids.
             print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
+    lagged: list[str] = []
+    if alias_check:
+        # Issue #2987: a published unique tag does NOT mean the cell's :<variant>
+        # alias points at it. Issue #178 moves the alias on main only, and under
+        # tag-existence semantics a merged pin/content change whose producer ran
+        # moving_tags=false leaves the alias on an older digest forever. Compare
+        # the alias digest with the committed pin digest and emit the same
+        # [select] contract line, so liveness dispatches the moving push.
+        for ref, (engine, variant) in tags.items():
+            if ref not in resolved:
+                continue  # already NOT PUBLISHED and selected above
+            alias_ref = f"{ref.rpartition(':')[0]}:{variant}"
+            ad, aerr = probe(alias_ref)
+            if ad and ad == resolved[ref][2]:
+                print(f"[pins] ALIAS OK {alias_ref}")
+                continue
+            lagged.append(alias_ref)
+            if not ad:
+                reason = "alias resolves no manifest"
+            else:
+                reason = f"alias {ad} != committed {resolved[ref][2]}"
+            print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
+            print(f"[select] {engine} {variant} {exact_tags(engine, variant).split(':')[-1]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {len(tags)} checked): dispatch engine-build with push=true, "
               f"then re-run this check (issue #1622)", file=sys.stderr)
         return 1
-    print(f"[pins] every {what} engine image ({len(tags)}) is published")
+    if lagged:
+        print(f"[pins] FAIL {len(lagged)} {what} alias(es) lag the committed pin tags "
+              f"(of {len(tags)} checked): dispatch engine-build with push=true "
+              f"(moving tags), then re-run this check (issue #2987)", file=sys.stderr)
+        return 1
+    print(f"[pins] every {what} engine image ({len(tags)}) is published"
+          + (" and every arch alias matches its committed tag" if alias_check else ""))
     return 0
 
 
@@ -248,6 +278,7 @@ def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
                     registry: str | None = None, root: Path | None = None,
                     cells: list[tuple[str, str]] | None = None,
                     patience_seconds: float | None = None,
+                    alias_check: bool | None = None,
                     sleep: Callable[[float], None] = time.sleep,
                     clock: Callable[[], float] = time.monotonic) -> int:
     """Exit 0 only when EVERY committed enabled engine cell's tag resolves a manifest.
@@ -260,6 +291,13 @@ def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
     (issue #2973): `ci-hf-live` sets it to the main CI image-push window so a pin
     whose image lands mid-battery resolves green; every other caller leaves the env
     unset and stays immediate-red. A non-numeric knob value warns and stays 0.
+
+    `alias_check=None` reads the knob from `ENGINE_PINS_ALIAS` (issue #2987):
+    `registry-liveness` sets `1` so a committed pin whose `:<variant>` arch alias
+    still points at an older digest selects the cell for the moving push; every
+    other caller (PR lanes, `ci-hf-live`) leaves it unset and keeps the tag-only
+    semantics. `1`/`true` turn it on, `0`/`false`/empty turn it off, anything else
+    warns on stderr and stays off.
     """
     registry = registry if registry is not None else ei.REGISTRY
     probe = digest if digest is not None else ei._digest_http
@@ -272,10 +310,22 @@ def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
             print(f"[pins] WARN ENGINE_PINS_PATIENCE_SECONDS={raw!r} is not a number; "
                   "staying impatient (issue #2973)", file=sys.stderr)
             patience_seconds = 0.0
+    if alias_check is None:
+        raw = os.environ.get("ENGINE_PINS_ALIAS", "0")
+        norm = raw.strip().lower()
+        if norm in ("1", "true"):
+            alias_check = True
+        elif norm in ("", "0", "false"):
+            alias_check = False
+        else:
+            print(f"[pins] WARN ENGINE_PINS_ALIAS={raw!r} is neither on nor off; "
+                  "staying without the alias check (issue #2987)", file=sys.stderr)
+            alias_check = False
     if not scope:
         print("[pins] no committed engine cells; nothing to check")
         return 0
-    return _probe(scope, probe, registry, "committed", patience_seconds, sleep, clock)
+    return _probe(scope, probe, registry, "committed", patience_seconds, sleep,
+                  clock, alias_check=alias_check)
 
 
 def _enabled_variants(engine: str) -> list[str]:

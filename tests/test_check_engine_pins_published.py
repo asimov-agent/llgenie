@@ -772,3 +772,111 @@ def test_the_workflow_knob_drives_the_window(tmp_path, monkeypatch, capsys):
                              cells=cells, sleep=sleep2)
     assert rc == 1
     assert "WARN" in capsys.readouterr().err, "a malformed knob is loud, not silent"
+
+
+# --- issue #2987: arch-alias digests (a published pin tag must repoint :<variant>) ---
+
+def _alias_cell():
+    """(engine, variant, pin-tag ref, arch-alias ref) for one hermetic committed cell."""
+    engine, variant = "mlx", "cpu"
+    tag = cpp.exact_tags(engine, variant)
+    return engine, variant, f"{REGISTRY}/{tag}", f"{REGISTRY}/{tag.split(':')[0]}:{variant}"
+
+
+def test_alias_check_aligned_aliases_stay_green(tmp_path, capsys):
+    """AC1 shape: with the alias check on and every :<variant> digest equal to its
+    committed pin digest, the sweep is green and names each aligned alias."""
+    engine, variant, pin_ref, alias_ref = _alias_cell()
+    fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:pin"})
+    rc = cpp.check_committed(digest=fake, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)], alias_check=True)
+    out = capsys.readouterr().out
+    assert rc == 0, "aliases matching their committed tags must pass"
+    assert f"ALIAS OK {alias_ref}" in out
+    assert calls.count(alias_ref) == 1, "the alias ref must be probed exactly once"
+
+
+def test_alias_digest_lag_reds_and_emits_the_select_contract(tmp_path, capsys):
+    """AC1 negative: a :<variant> alias on an older digest than the committed pin
+    reddens the gate AND emits the exact [select] contract line, so liveness
+    dispatches the moving push for that cell (#2561 contract)."""
+    engine, variant, pin_ref, alias_ref = _alias_cell()
+    fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:stale"})
+    rc = cpp.check_committed(digest=fake, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)], alias_check=True)
+    captured = capsys.readouterr()
+    out, err = captured.out, captured.err
+    assert rc == 1, "a lagging arch alias must red the committed sweep"
+    assert f"ALIAS LAG {alias_ref}" in out and "sha256:stale != committed sha256:pin" in out
+    suffix = cpp.exact_tags(engine, variant).split(":")[-1]
+    assert f"[select] {engine} {variant} {suffix}" in out, \
+        "the lag must emit the dispatch-contract [select] line"
+    assert "alias(es) lag" in err, "the FAIL line names alias lag"
+    assert calls.count(alias_ref) == 1
+
+
+def test_an_alias_resolving_no_manifest_is_a_lag(tmp_path, capsys):
+    """A committed cell whose exact tag published but whose :<variant> alias never
+    got created is the moving push never ran — same red, same [select]."""
+    engine, variant, pin_ref, alias_ref = _alias_cell()
+    fake, calls = _fake_digest({pin_ref: "sha256:pin"})   # alias 404s
+    rc = cpp.check_committed(digest=fake, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)], alias_check=True)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert f"ALIAS LAG {alias_ref}" in out and "resolves no manifest" in out
+    suffix = cpp.exact_tags(engine, variant).split(":")[-1]
+    assert f"[select] {engine} {variant} {suffix}" in out
+
+
+def test_knob_unset_keeps_tag_only_semantics(tmp_path, monkeypatch):
+    """The strict half: without ENGINE_PINS_ALIAS every lane keeps today's
+    semantics — a lagging alias is invisible and the alias ref is never probed."""
+    monkeypatch.delenv("ENGINE_PINS_ALIAS", raising=False)
+    engine, variant, pin_ref, alias_ref = _alias_cell()
+    fake, calls = _fake_digest({pin_ref: "sha256:pin", alias_ref: "sha256:stale"})
+    rc = cpp.check_committed(digest=fake, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)])
+    assert rc == 0, "PR lanes and ci-hf-live stay tag-existence checks"
+    assert calls == [pin_ref], "knob off probes exactly once per cell, never the alias"
+
+
+def test_alias_knob_arrives_via_env_and_a_malformed_value_is_loud_and_off(
+        tmp_path, monkeypatch, capsys):
+    """The liveness wiring is env-only: ENGINE_PINS_ALIAS=1 turns the lag check on;
+    a garbage value WARNs on stderr and stays off (same shape as #2973)."""
+    engine, variant, pin_ref, alias_ref = _alias_cell()
+
+    def stale(r):
+        if r == pin_ref:
+            return "sha256:pin", ""
+        return "sha256:stale", ""
+
+    monkeypatch.setenv("ENGINE_PINS_ALIAS", "1")
+    rc = cpp.check_committed(digest=stale, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)])
+    assert rc == 1, "the env knob must drive the alias check"
+
+    monkeypatch.setenv("ENGINE_PINS_ALIAS", "move-aliases")
+    rc = cpp.check_committed(digest=stale, registry=REGISTRY, root=tmp_path,
+                             cells=[(engine, variant)])
+    assert rc == 0, "a malformed knob must not change any lane's verdict"
+    err = capsys.readouterr().err
+    assert "WARN" in err and "ENGINE_PINS_ALIAS" in err, "a malformed knob is loud"
+
+
+def test_registry_liveness_turns_the_alias_check_on_and_nothing_else_does():
+    """The wiring spec: both ALL=1 invocations (fleet gate + dispatch gate) carry
+    ENGINE_PINS_ALIAS=1; no other workflow sets the knob (PR lanes stay strict)."""
+    from pathlib import Path as _P
+    wf_dir = _P(__file__).resolve().parents[1] / ".github/workflows"
+    wf = (wf_dir / "registry-liveness.yml").read_text()
+    steps = re.split(r"^      - ", wf, flags=re.MULTILINE)[1:]
+    gated = [s for s in steps if "check-engine-pins-published ALL=1" in s]
+    assert len(gated) == 2, "registry-liveness must have exactly the two ALL=1 gates"
+    for s in gated:
+        assert 'ENGINE_PINS_ALIAS: "1"' in s, \
+            f"the ALL=1 gate step '{s.splitlines()[0]}' must carry the alias knob"
+    others = [p.name for p in sorted(wf_dir.glob("*.yml"))
+              if p.name != "registry-liveness.yml" and "ENGINE_PINS_ALIAS" in p.read_text()]
+    assert not others, f"only registry-liveness may enable the alias check, found in {others}"
