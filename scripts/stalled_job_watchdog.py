@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import proc
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -56,8 +57,11 @@ def _minutes(a: datetime, b: datetime) -> float:
     return (b - a).total_seconds() / 60.0
 
 
-def _gh(args: list[str], timeout: int = 90) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh"] + args, capture_output=True, text=True, timeout=timeout)
+def _gh(args: list[str], timeout: int = 90) -> subprocess.CompletedProcess[str]:
+    # scripts/proc.py is the ONE subprocess policy seam (issue #797); the gh reads
+    # go through proc.run_ok because a failed gh call is a branch this monitor
+    # handles (it reports the read failure and exits 2), not a raise.
+    return proc.run_ok(["gh"] + args, timeout=timeout)
 
 
 def run_ok(args: list[str], repo: str, now: datetime, what: str, errors: list[str],

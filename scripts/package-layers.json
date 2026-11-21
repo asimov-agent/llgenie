@@ -540,6 +540,11 @@
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
     {
+      "from": "stalled_job_watchdog",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
       "from": "security_issues",
       "to": "issue_body",
       "reason": "a finding is filed through the ONE issue-body renderer (issue #745)."
