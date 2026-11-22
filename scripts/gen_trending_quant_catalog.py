@@ -168,17 +168,33 @@ def _model_catalog(m):
 #: not read it, which is a repository-access setting rather than a broken link (issue #418).
 PROBE_OK, PROBE_GATED, PROBE_DEAD = "ok", "gated", "dead"
 
+#: Issue #3007: the Hub 404'd live links transiently (battery run 45010151478 404'd
+#: Qwen3.8-27B-UD-IQ2_S.gguf while `curl -I` answered 302 seconds before and after), and ONE
+#: such blip reddened the post-merge live battery. A DEAD classification therefore requires a
+#: bounded retry budget: DEAD-candidate answers (404/410, 5xx, transport) are retried up to
+#: PROBE_ATTEMPTS total attempts and classified on the FINAL answer only. 200/206 and 401/403
+#: return on the FIRST attempt — gated is a stable access decision, not a blip, and a healthy
+#: link pays no retry cost. The budget never blesses an unverifiable link: all attempts failing
+#: is `dead` exactly as today.
+PROBE_ATTEMPTS = 3
+PROBE_RETRY_BACKOFF = (1.0, 2.0)
 
-def _probe_status(url, timeout=20.0) -> str:
+
+def _probe_status(url, timeout=20.0, attempts=PROBE_ATTEMPTS,
+                  backoff=PROBE_RETRY_BACKOFF) -> str:
     """Probe a link with a 1-byte ranged GET (never a download) and classify it.
 
-    ``ok``     — 200/206: the file is there and readable with the credential we have.
+    ``ok``     — 200/206 on any attempt (issue #3007: a link that answers on a bounded retry
+                 was flaky, not gone): the file is there and readable with the credential we have.
     ``gated``  — 401/403: the file is there and this credential may not read it. The repo already
                  treats this as REACHABLE, not dead (`make web-coverage`, OpenSpec agent-web-reach:
                  "a credential-gated URL is not a dead one"), and reading it as dead reds the whole
                  weekly sync on a file that exists (issue #418: `meta-models/Muse-Spark-Open-…`).
-    ``dead``   — anything else (404/410, a 5xx, a transport error): the link cannot be verified.
+                 Gated is answered on the first attempt — it is not retried.
+    ``dead``   — 404/410, a 5xx, or a transport error on EVERY attempt within PROBE_ATTEMPTS:
+                 the link cannot be verified after the bounded retry budget (issue #3007).
     """
+    import time
     import urllib.error
     import urllib.request
     try:
@@ -187,13 +203,18 @@ def _probe_status(url, timeout=20.0) -> str:
         from scripts.hf_auth import authorize  # type: ignore
     req = authorize(urllib.request.Request(
         url, method="GET", headers={"Range": "bytes=0-0", "User-Agent": "llgenie-catalog"}))
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return PROBE_OK if r.status in (200, 206) else PROBE_DEAD
-    except urllib.error.HTTPError as e:
-        return PROBE_GATED if e.code in (401, 403) else PROBE_DEAD
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return PROBE_DEAD
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return PROBE_OK if r.status in (200, 206) else PROBE_DEAD
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                return PROBE_GATED
+        except (urllib.error.URLError, TimeoutError, OSError):
+            pass
+        if attempt < attempts:
+            time.sleep(backoff[min(attempt, len(backoff)) - 1])
+    return PROBE_DEAD
 
 
 def _probe_exists(url, timeout=20.0) -> bool:

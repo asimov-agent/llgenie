@@ -228,21 +228,27 @@ def test_probe_status_classifies_gated_apart_from_dead(monkeypatch):
             return False
 
     def answer(code):
+        calls = []
+
         def urlopen(req, timeout=20.0):
+            calls.append(req)
             if code in (200, 206):
                 return Response(200)
             raise urllib.error.HTTPError(req.full_url, code, "no", {}, io.BytesIO(b""))
         monkeypatch.setattr("urllib.request.urlopen", urlopen)
         monkeypatch.setattr("urllib.request.Request", lambda *a, **k: type("R", (), {"full_url": "u"})())
-        return gen._probe_status("https://huggingface.co/x/resolve/main/y.gguf")
+        monkeypatch.setattr("time.sleep", lambda s: None)  # issue #3007: full budget, no wall-clock
+        return gen._probe_status("https://huggingface.co/x/resolve/main/y.gguf"), len(calls)
 
     # Given the statuses a Hub link can answer with
     # When  each is probed
-    # Then  only 404 is dead, and a gated file is reported as such
-    assert answer(200) == gen.PROBE_OK
-    assert answer(401) == gen.PROBE_GATED
-    assert answer(403) == gen.PROBE_GATED
-    assert answer(404) == gen.PROBE_DEAD
+    # Then  only 404 is dead, and a gated file is reported as such — and (issue #3007) the
+    #       DEAD candidate spent the whole retry budget while ok/gated answered once
+    assert answer(200) == (gen.PROBE_OK, 1)
+    assert answer(206) == (gen.PROBE_OK, 1)
+    assert answer(401) == (gen.PROBE_GATED, 1)
+    assert answer(403) == (gen.PROBE_GATED, 1)
+    assert answer(404) == (gen.PROBE_DEAD, gen.PROBE_ATTEMPTS)
 
 
 def test_a_gated_new_link_does_not_red_the_sync(monkeypatch, tmp_path, capsys):

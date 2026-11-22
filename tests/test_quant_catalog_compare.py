@@ -35,9 +35,34 @@ from scripts import gen_trending_quant_catalog as gen
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
-    """A real HTTP server: /ok answers 200, /gated 401, /dead 404 — the Hub's three answers."""
+    """A real HTTP server: /ok answers 200, /gated 401, /dead 404 — the Hub's three answers.
+
+    Issue #3007 adds SCRIPTS: `{path: [codes]}` scripted per-request answers (a code repeated
+    past the script's end, so "404 twice then 200" and "404 forever" are both expressible), and
+    HITS: `{path: n}` — how many requests the client actually made, which is how the retry
+    budget is measured over real sockets. A scripted code of 0 closes the connection without
+    answering: the transport-error class.
+    """
+
+    SCRIPTS: dict[str, list[int]] = {}
+    HITS: dict[str, int] = {}
 
     def do_GET(self):  # noqa: N802 — the stdlib's name
+        script = _Handler.SCRIPTS.get(self.path)
+        if script is not None:
+            n = _Handler.HITS[self.path] = _Handler.HITS.get(self.path, 0) + 1
+            code = script[min(n, len(script)) - 1]
+            if code == 0:  # transport error: answer nothing, hang up
+                self.close_connection = True
+                raise ConnectionResetError("scripted hang-up")
+            if code in (200, 206):
+                self.send_response(code)
+                self.send_header("Content-Length", "1")
+                self.end_headers()
+                self.wfile.write(b"x")
+            else:
+                self.send_error(code, "scripted")
+            return
         if self.path.startswith("/ok"):
             self.send_response(200)
             self.send_header("Content-Length", "1")
@@ -55,6 +80,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture()
 def server():
     """A live loopback server, so `_probe_status()` runs against real sockets, not a stub."""
+    _Handler.SCRIPTS = {}
+    _Handler.HITS = {}
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -79,8 +106,14 @@ def _catalog(urls: dict[str, str], *, utc: str = "2026-10-28T00:00:00Z") -> dict
 
 
 def _probe(url: str) -> str:
-    """The production classifier, unpatched."""
-    return gen._probe_status(url, timeout=10.0)
+    """The production classifier, unpatched — with the retry backoff zeroed so a full-budget
+    probe (issue #3007, PROBE_ATTEMPTS attempts) costs no wall-clock in the battery."""
+    return gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0))
+
+
+def _server_probe(url, _timeout=20.0):
+    """`probe=` seam for compare()/carry_over() that keeps the production classifier."""
+    return gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0))
 
 
 def test_a_plan_the_search_dropped_but_the_repo_still_serves_is_a_note_not_a_failure(server):
@@ -93,7 +126,8 @@ def test_a_plan_the_search_dropped_but_the_repo_still_serves_is_a_note_not_a_fai
     assert _probe(f"{server}/ok/ornith.gguf") == gen.PROBE_OK
 
     # When  compare() runs — the function `make check-quant-catalog` calls, with the real probe
-    failures, notes = gen.compare(committed, generated)
+    #   (issue #3007: the probe now spends its full retry budget on this link before calling it dead)
+    failures, notes = gen.compare(committed, generated, probe=_server_probe)
 
     # Then  nothing fails, and the note says the plan is reachable and kept
     assert failures == []
@@ -111,7 +145,7 @@ def test_a_gated_plan_the_search_dropped_is_also_kept(server):
     assert _probe(f"{server}/gated/nanbeige.gguf") == gen.PROBE_GATED
 
     # When  compare() runs
-    failures, notes = gen.compare(committed, generated)
+    failures, notes = gen.compare(committed, generated, probe=_server_probe)
 
     # Then  it is a note naming the gated status, not a failure
     assert failures == []
@@ -128,7 +162,7 @@ def test_a_plan_whose_repo_answers_404_is_still_a_failure(server):
     assert _probe(f"{server}/dead/gone.gguf") == gen.PROBE_DEAD
 
     # When  compare() runs
-    failures, notes = gen.compare(committed, generated)
+    failures, notes = gen.compare(committed, generated, probe=_server_probe)
 
     # Then  the gate is red, and the line says why the plan may be dropped
     assert len(failures) == 1, failures
@@ -146,7 +180,7 @@ def test_the_sync_carries_the_reachable_plan_over_and_leaves_the_dead_one_out(se
     generated = _catalog({"unsloth/live": f"{server}/ok/live.gguf"})
 
     # When  the sync's carry-over runs
-    payload, kept, dropped = gen.carry_over(committed, generated)
+    payload, kept, dropped = gen.carry_over(committed, generated, probe=_server_probe)
 
     # Then  the reachable plan is back in its own cell, the dead one is not, and both are reported
     urls = {q["url"] for q in payload["files"]["solstice-33b"]["mlx"]["quants"]}
@@ -221,3 +255,81 @@ def test_the_committed_catalog_the_gate_reads_is_a_real_table():
     cell = next(iter(model.values()))
     assert set(cell) >= {"arch", "quants"}
     assert set(cell["quants"][0]) >= {"repo", "revision", "path", "files", "size_gb", "url"}
+
+
+# ---- issue #3007: a DEAD classification is earned through the full retry budget ----
+def test_a_link_that_404s_then_answers_is_not_dead(server):
+    """The flake that reddened battery run 45010151478: 404 twice, then 200 — a retry budget
+    inside `_probe_status` classifies the FINAL answer, so the plan survives the check."""
+
+    # Given a link that answers 404, 404, then 200 to successive requests
+    path = "/flap/gone-then-ok.gguf"
+    _Handler.SCRIPTS[path] = [404, 404, 200]
+    url = f"{server}{path}"
+
+    # When  the production classifier probes it
+    status = gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0))
+
+    # Then  it is ok, and the server saw the whole budget of attempts, not the first 404
+    assert status == gen.PROBE_OK
+    assert _Handler.HITS[path] == 3, _Handler.HITS
+
+    # And compare() keeps it as a note, exactly like a 200-on-the-first-try plan
+    committed = _catalog({"flaky/flap": url, "unsloth/live": f"{server}/ok/live.gguf"})
+    generated = _catalog({"unsloth/live": f"{server}/ok/live.gguf"})
+    failures, notes = gen.compare(committed, generated, probe=_server_probe)
+    assert failures == [], failures
+    assert any("gone-then-ok.gguf" in n and "still reachable (ok)" in n for n in notes), notes
+
+
+def test_a_transport_error_that_clears_on_retry_is_not_dead(server):
+    """A hung-up connection (the transport-error class) is retried too: answer 404-blip shape
+    with a socket that closes once, then serves."""
+
+    path = "/blip/transport-then-ok.gguf"
+    _Handler.SCRIPTS[path] = [0, 200]  # first attempt: no answer at all; second: 200
+    url = f"{server}{path}"
+
+    assert gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0)) == gen.PROBE_OK
+    assert _Handler.HITS[path] == 2, _Handler.HITS
+
+
+def test_a_link_dead_across_the_full_budget_is_still_dead_loudly(server):
+    """The budget never blesses an unverifiable link: 404 on every attempt is `dead`, after
+    exactly PROBE_ATTEMPTS requests, and the gate's failure text is unchanged."""
+
+    path = "/budget/gone.gguf"
+    _Handler.SCRIPTS[path] = [404]  # every request, forever
+    url = f"{server}{path}"
+
+    assert gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0)) == gen.PROBE_DEAD
+    assert _Handler.HITS[path] == gen.PROBE_ATTEMPTS, _Handler.HITS
+
+    committed = _catalog({"dead/repo": url, "unsloth/live": f"{server}/ok/live.gguf"})
+    generated = _catalog({"unsloth/live": f"{server}/ok/live.gguf"})
+    failures, notes = gen.compare(committed, generated, probe=_server_probe)
+    assert len(failures) == 1, failures
+    assert "gone.gguf" in failures[0] and "404/410" in failures[0]
+
+
+def test_gated_is_answered_without_any_retry(server):
+    """401/403 is a stable access decision, not a blip (issue #418): gated returns on the FIRST
+    request — the classifier spends no budget re-asking for permission it was already refused."""
+
+    path = "/gated-once/nanbeige.gguf"
+    _Handler.SCRIPTS[path] = [401]
+    url = f"{server}{path}"
+
+    assert gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0)) == gen.PROBE_GATED
+    assert _Handler.HITS[path] == 1, _Handler.HITS
+
+
+def test_a_healthy_link_costs_exactly_one_request(server):
+    """The budget is only for DEAD candidates: a 200 answers on the first attempt."""
+
+    path = "/ok/first-try.gguf"
+    _Handler.SCRIPTS[path] = [200]
+    url = f"{server}{path}"
+
+    assert gen._probe_status(url, timeout=10.0, backoff=(0.0, 0.0)) == gen.PROBE_OK
+    assert _Handler.HITS[path] == 1, _Handler.HITS
