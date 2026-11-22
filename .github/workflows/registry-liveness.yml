@@ -147,6 +147,7 @@ jobs:
         env:
           ENGINE_PINS_ALIAS: "1"  # same alias contract as the fleet gate (#2987)
           GHCR_LOGIN_TOKEN: "${{ secrets.GITHUB_TOKEN }}"  # through env:, never run: text (#361)
+          GHCR_LOGIN_USER: "${{ github.actor }}"  # the mover's token exchange authenticates as the login principal (#3006)
         run: |
           # Issue #2996: the gate now routes a gap by gap class. A cell whose committed pin
           # tag RESOLVES but whose :<variant> alias lags emits
