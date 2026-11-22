@@ -130,7 +130,7 @@ def _put_manifest(name_path: str, tag: str, body: bytes, media_type: str,
 
 def move_alias(engine: str, variant: str, suffix: str, digest: str,
                registry: str | None = None,
-               run: Callable[..., subprocess.CompletedProcess[str]] = proc.run_live,
+               run: Callable[..., subprocess.CompletedProcess[str]] = proc.run_ok,
                probe: Callable[[str], tuple[str, str]] | None = None,
                put: Callable[[str, str, bytes, str, str], tuple[int, str]]
                = _put_manifest) -> int:
@@ -173,7 +173,16 @@ def move_alias(engine: str, variant: str, suffix: str, digest: str,
         print(f"[alias-move] FAIL {source}: imagetools inspect --raw exited "
               f"{r.returncode}; nothing was fetched and nothing was written")
         return 1
-    body = (r.stdout or "").encode()
+    if r.stdout is None or r.stdout == "":
+        # issue #3010: a non-capturing seam (proc.run_live) streams the manifest to
+        # the log but leaves `stdout` None; hashing it hashes the EMPTY string and the
+        # byte gate reddens with e3b0c442… masquerading as a digest mismatch. Refuse
+        # the seam by name instead.
+        print(f"[alias-move] FAIL {source}: the fetch seam captured nothing "
+              "(stdout is None/empty) — a capturing seam like proc.run_ok is "
+              "required; nothing was hashed and nothing was written")
+        return 1
+    body = r.stdout.encode()
     got = "sha256:" + hashlib.sha256(body).hexdigest()
     if got != digest:
         print(f"[alias-move] FAIL {source}: the fetched bytes hash to {got}, "
