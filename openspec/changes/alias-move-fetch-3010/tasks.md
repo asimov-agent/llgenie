@@ -14,4 +14,4 @@
 - [x] `make -s check-package-layers` exits 0. (rc=0)
 - [x] targeted pytest of `tests/test_engine_alias_move.py` and `tests/test_check_engine_pins_published.py` exits 0. (62 passed, rc=0)
 - [x] `make openspec-validate NAME=alias-move-fetch-3010` exits 0. (rc=0)
-- [ ] full unit battery `make test-unit` exits 0 at the final branch head. (rc=0)
+- [x] full unit battery `make test-unit` exits 0 at the final branch head. (proven: make test-unit rc=0 at head 6db162254, 4362 passed / 13638 deselected; the tick commit adds only this checklist line to the measured tree)
