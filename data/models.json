@@ -305,7 +305,7 @@
       ],
       "why": "Flagship local model. 384K views on release. 262K ctx (1M via YaRN).",
       "engagement": {
-        "likes": 4120,
+        "likes": 25069,
         "comments": 890,
         "views": 384000,
         "last_7d_likes": 10,
@@ -1467,7 +1467,8 @@
         "score_7d": 42.1,
         "buzz_7d": 42.1,
         "speed_bonus": 6.7,
-        "trend_score": 48.8
+        "trend_score": 48.8,
+        "reshares": 1186
       },
       "last_seen": "2026-11-17",
       "engine_aliases": {
@@ -1485,7 +1486,6 @@
       "measurement_model_aliases": [
         "bonsai-2-27b",
         "qwen3-8-27b",
-        "qwen3.5-0.8b",
         "qwen3.8-flash-next-125b",
         "thinkingcap-27b"
       ],
@@ -3389,9 +3389,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 545,
+        "comments": 24,
+        "views": 94859,
         "last_7d_likes": 2,
         "seen_posts": [
           {
@@ -3531,7 +3531,8 @@
         "buzz_7d": 8.9,
         "score_7d": 8.9,
         "speed_bonus": 2.6,
-        "trend_score": 11.5
+        "trend_score": 11.5,
+        "reshares": 30
       },
       "system_ram_min": "16GB",
       "context_tokens": "262K",
@@ -3646,9 +3647,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 4,
+        "comments": 1,
+        "views": 101,
         "last_7d_likes": 1,
         "seen_posts": [
           {
@@ -3680,7 +3681,8 @@
         "buzz_7d": 5.2,
         "score_7d": 5.2,
         "speed_bonus": 3.9,
-        "trend_score": 9.1
+        "trend_score": 9.1,
+        "reshares": 104
       },
       "weight_gb": "Q3_K_M",
       "system_ram_min": "32GB",
@@ -3774,8 +3776,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 517,
+        "comments": 8,
         "views": 0,
         "last_7d_likes": 1,
         "seen_posts": [
@@ -3820,7 +3822,8 @@
         "buzz_7d": 4.7,
         "score_7d": 4.7,
         "speed_bonus": 3.0,
-        "trend_score": 7.7
+        "trend_score": 7.7,
+        "reshares": 7
       },
       "engine_min_version": "stock llama.cpp (untouched upstream, submodule) + BigMoeOnEdge, experts streamed from flash",
       "engines": [
@@ -3911,8 +3914,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 1,
+        "comments": 1,
         "views": 0,
         "last_7d_likes": 1,
         "seen_posts": [
@@ -3933,7 +3936,8 @@
         "buzz_7d": 5.2,
         "score_7d": 5.2,
         "speed_bonus": 1.9,
-        "trend_score": 7.1
+        "trend_score": 7.1,
+        "reshares": 104
       },
       "engine_min_version": "llama.cpp with q4_0 KV cache, thinking mode on",
       "engines": [
@@ -4005,7 +4009,7 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 87,
         "comments": 0,
         "views": 0,
         "last_7d_likes": 1,
@@ -4027,7 +4031,8 @@
         "buzz_7d": 5.4,
         "score_7d": 5.4,
         "speed_bonus": 1.3,
-        "trend_score": 6.7
+        "trend_score": 6.7,
+        "reshares": 120
       },
       "engines": [
         {
@@ -4069,7 +4074,7 @@
       ],
       "why": "Google's compact Gemma 4 edge model runs on-device via LiteRT on a Raspberry Pi 5: 99 tok/s prefill and 9 tok/s decode at 1432 MB peak RAM, fully offline.",
       "engagement": {
-        "likes": 1,
+        "likes": 13,
         "comments": 2,
         "views": 528,
         "last_7d_likes": 1,
@@ -4103,7 +4108,8 @@
         "score_7d": 3.2,
         "buzz_7d": 3.2,
         "speed_bonus": 2.3,
-        "trend_score": 5.5
+        "trend_score": 5.5,
+        "reshares": 1
       },
       "last_seen": "2026-11-14",
       "supported_engines": [
@@ -4200,8 +4206,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 133,
+        "comments": 1,
         "views": 0,
         "last_7d_likes": 1,
         "seen_posts": [
@@ -4222,7 +4228,8 @@
         "buzz_7d": 4.6,
         "score_7d": 4.6,
         "speed_bonus": 0.6,
-        "trend_score": 5.2
+        "trend_score": 5.2,
+        "reshares": 5
       },
       "engines": [
         {
@@ -4268,9 +4275,9 @@
       ],
       "why": "DeepSeek-V4-Flash 284B — see source posts.",
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1,
+        "comments": 2,
+        "views": 93,
         "last_7d_likes": 1,
         "seen_posts": [
           {
@@ -4290,7 +4297,8 @@
         "buzz_7d": 3.3,
         "score_7d": 3.3,
         "speed_bonus": 1.8,
-        "trend_score": 5.1
+        "trend_score": 5.1,
+        "reshares": 2
       },
       "engines": [
         {
@@ -4346,9 +4354,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 5,
+        "comments": 4,
+        "views": 340,
         "last_7d_likes": 1,
         "seen_posts": [
           {
@@ -4368,7 +4376,8 @@
         "buzz_7d": 3.7,
         "score_7d": 3.7,
         "speed_bonus": 1.2,
-        "trend_score": 4.9
+        "trend_score": 4.9,
+        "reshares": 1
       },
       "last_seen": "2026-11-16",
       "engines": [
@@ -4414,8 +4423,8 @@
         }
       ],
       "engagement": {
-        "likes": 2,
-        "comments": 0,
+        "likes": 296,
+        "comments": 5,
         "views": 6322,
         "last_7d_likes": 0,
         "seen_posts": [
@@ -4592,7 +4601,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 11
       },
       "supported_engines": [
         "MLX"
@@ -4853,9 +4863,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 27,
+        "comments": 1,
+        "views": 15391,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -4887,7 +4897,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 127
       },
       "weight_gb": "Q4_K_S about 16-18GB",
       "context_tokens": "262144",
@@ -4989,9 +5000,9 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 11144,
+        "comments": 82,
+        "views": 19981,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -5191,7 +5202,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 138
       },
       "context_tokens": "131072",
       "system_ram_min": "4GB",
@@ -5423,7 +5435,7 @@
       "supported_engines": [
         "Strata"
       ],
-      "why": "Qwen3.8-Flash-Next-125B — see source posts.",
+      "why": "Qwen3.8-Flash-Next-125B — see source posts. Official HF card (huggingface.co/Qwen/Qwen3.8-Flash-Next, read 2026-11-21): 125B MoE with 6B activated; the ~180B safetensors total adds the 51B n-gram embedding and 4B MTP modules — 125B is the official naming (issue #1207).",
       "formats": [
         {
           "name": "GGUF",
@@ -5431,9 +5443,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 19516,
+        "comments": 319,
+        "views": 117971,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -6113,7 +6125,8 @@
         "score_7d": 0,
         "buzz_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 210
       },
       "system_ram_min": "32GB (est)",
       "weight_gb": "111GB (UD-Q4_K_XL, 4 GGUF shards)",
@@ -6121,10 +6134,8 @@
       "storage_offload": "MoE experts across GPU/RAM/SSD (~80GB free disk)",
       "engine_min_version": "Rapid-MLX 0.15.7; mlx-serve 26.9.5; TensorFold 0.15.7",
       "measurement_model_aliases": [
-        "cyber-frost-3.8-mlx",
         "qwen3-8-flash-next-125b",
-        "qwen3.8-27b",
-        "qwopus3.6-35b-a3b-coder-mtp"
+        "qwen3.8-27b"
       ],
       "engines": [
         {
@@ -7214,8 +7225,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 569,
+        "comments": 2,
         "views": 0,
         "last_7d_likes": 0,
         "seen_posts": [
@@ -7236,7 +7247,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 5
       },
       "engines": [
         {
@@ -7283,9 +7295,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 223,
+        "comments": 18,
+        "views": 5384,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -7329,7 +7341,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 184
       },
       "engines": [
         {
@@ -7435,7 +7448,7 @@
       "engagement": {
         "likes": 2750,
         "comments": 640,
-        "views": 84563,
+        "views": 157525,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -7707,7 +7720,8 @@
         "score_7d": 0,
         "buzz_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 477
       },
       "last_seen": "2026-10-30",
       "supported_engines": [
@@ -8273,9 +8287,9 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1529,
+        "comments": 11,
+        "views": 2065,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -8463,7 +8477,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 87
       },
       "system_ram_min": "1024GB",
       "engines": [
@@ -8607,9 +8622,9 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 211,
+        "comments": 6,
+        "views": 2650,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -8677,7 +8692,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 3
       },
       "engines": [
         {
@@ -8790,9 +8806,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 6494,
+        "comments": 40,
+        "views": 44935,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -8944,7 +8960,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 74
       },
       "measurement_model_aliases": [
         "qwen3.8-27b",
@@ -9109,9 +9126,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 3,
         "comments": 0,
-        "views": 0,
+        "views": 101,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -9193,9 +9210,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 637,
+        "comments": 12,
+        "views": 3667,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -9467,7 +9484,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 14
       },
       "system_ram_min": "32GB",
       "engine_min_version": "enable preserve_thinking to fix most tool-call format failures; Q6_K and Q8_0 quants run more stable tool calls than Q4_K_M",
@@ -10054,9 +10072,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 1,
         "comments": 0,
-        "views": 0,
+        "views": 73,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10120,9 +10138,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 3,
+        "comments": 2,
+        "views": 66,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10142,7 +10160,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 1
       },
       "measurement_model_aliases": [
         "bonsai-2-27b"
@@ -10204,9 +10223,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 2077,
+        "comments": 26,
+        "views": 20722,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10250,7 +10269,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 36
       },
       "measurement_model_aliases": [
         "qwen3.8-27b"
@@ -10369,7 +10389,7 @@
       "engagement": {
         "likes": 0,
         "comments": 0,
-        "views": 0,
+        "views": 980,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10460,9 +10480,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 7,
+        "comments": 1,
+        "views": 268,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10494,7 +10514,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 5
       },
       "engines": [
         {
@@ -10538,9 +10559,9 @@
       ],
       "why": "Qwen3.8-27B Coder390 — see source posts.",
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1,
+        "comments": 3,
+        "views": 958,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10560,7 +10581,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 12
       },
       "measurement_model_aliases": [
         "qwen3.8-27b-dflash2-teksedge3090"
@@ -10634,9 +10656,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 3,
+        "comments": 2,
+        "views": 933,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10656,7 +10678,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 4
       },
       "measurement_model_aliases": [
         "qwen3.8-27b"
@@ -10722,9 +10745,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1036,
+        "comments": 8,
+        "views": 1142,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10756,7 +10779,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 11
       },
       "system_ram_min": "48GB",
       "measurement_model_aliases": [
@@ -10880,9 +10904,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 17,
+        "comments": 5,
+        "views": 1142,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -10902,7 +10926,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 4
       },
       "measurement_model_aliases": [
         "qwen3.6-35b-a3b",
@@ -11012,9 +11037,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 8,
+        "comments": 6,
+        "views": 17245,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -11058,7 +11083,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 111
       },
       "measurement_model_aliases": [
         "qwen3.8-flash-next-125b"
@@ -11133,8 +11159,8 @@
       ],
       "engagement": {
         "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "comments": 1,
+        "views": 1640,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -11154,7 +11180,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 3
       },
       "measurement_model_aliases": [
         "qwen3-8-flash-next-125b"
@@ -11205,9 +11232,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 11,
+        "comments": 11,
+        "views": 612,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -11274,9 +11301,9 @@
       ],
       "why": "Qwen3.5-9B — see source posts.",
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 11,
+        "comments": 6,
+        "views": 686,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -11344,7 +11371,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 87
       },
       "weight_gb": "~6GB (MLX 4-bit)",
       "measurement_model_aliases": [
@@ -11660,7 +11688,7 @@
       "engagement": {
         "likes": 0,
         "comments": 0,
-        "views": 0,
+        "views": 53,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -11737,8 +11765,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 40,
+        "comments": 2,
         "views": 0,
         "last_7d_likes": 0,
         "seen_posts": [
@@ -11835,7 +11863,8 @@
         "score_7d": 0,
         "buzz_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 1
       },
       "last_seen": "2026-10-26",
       "supported_engines": [
@@ -12038,8 +12067,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 1058,
+        "comments": 2,
         "views": 0,
         "last_7d_likes": 0,
         "seen_posts": [
@@ -12060,7 +12089,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 6
       },
       "engines": [
         {
@@ -12176,9 +12206,9 @@
       ],
       "why": "Nemotron 3.5 Bolt E4B (NVFP4-compressed 4B-class, local on MacBook via Ollama) — see source posts.",
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 116,
+        "comments": 25,
+        "views": 20128,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12222,7 +12252,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 170
       },
       "engines": [
         {
@@ -12301,9 +12332,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 244,
+        "comments": 4,
+        "views": 671,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12359,7 +12390,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 8
       },
       "engines": [
         {
@@ -12526,9 +12558,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 2,
         "comments": 0,
-        "views": 0,
+        "views": 12,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12548,7 +12580,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 2
       },
       "engines": [
         {
@@ -12594,9 +12627,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 1,
         "comments": 0,
-        "views": 0,
+        "views": 150,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12754,9 +12787,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 7,
+        "comments": 2,
+        "views": 6091,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12800,7 +12833,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 34
       },
       "weight_gb": "105GB (4-bit)",
       "storage_offload": "105GB of weights streamed from SSD; 33GB memory budget",
@@ -12881,9 +12915,9 @@
         "TandemLLM"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 11,
+        "comments": 11,
+        "views": 612,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -12967,9 +13001,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 4602,
+        "comments": 3,
+        "views": 4573,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13001,7 +13035,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 3
       },
       "system_ram_min": "16GB",
       "context_tokens": "262144",
@@ -13066,9 +13101,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 1,
         "comments": 0,
-        "views": 0,
+        "views": 150,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13127,9 +13162,9 @@
       "last_seen": "2026-10-25",
       "why": "A 30B MoE from KRAFTON whose 262K context costs about 1GB of KV (only 7 of 25 layers keep a KV cache), so long context is nearly free: 23.6 tok/s decode on an 8GB RTX 3070 with experts on CPU, versus 19.1 tok/s for Qwen3.6-35B-A3B on the same box. Needs KRAFTON's llama.cpp fork for now.",
       "engagement": {
-        "likes": 5,
-        "comments": 1,
-        "views": 383,
+        "likes": 497,
+        "comments": 8,
+        "views": 766,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13173,7 +13208,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 3
       },
       "supported_engines": [
         "llama.cpp"
@@ -13260,9 +13296,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 11,
+        "comments": 2,
+        "views": 871,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13282,7 +13318,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 1
       },
       "measurement_model_aliases": [
         "qwen3.8-27b"
@@ -13347,9 +13384,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 934,
+        "comments": 8,
+        "views": 934,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13369,7 +13406,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 4
       },
       "engines": [
         {
@@ -13414,9 +13452,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 1,
         "comments": 0,
-        "views": 0,
+        "views": 150,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13499,9 +13537,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1839,
+        "comments": 8,
+        "views": 1741,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13533,7 +13571,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 14
       },
       "engines": [
         {
@@ -13599,8 +13638,8 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
+        "likes": 49,
+        "comments": 2,
         "views": 0,
         "last_7d_likes": 0,
         "seen_posts": [
@@ -13621,7 +13660,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 3
       },
       "engines": [
         {
@@ -13728,9 +13768,9 @@
       "context_tokens": "262144",
       "weight_gb": "UD-IQ1_S (1-bit GGUF, ~3.5GB smaller than NVIDIA's official 2-bit)",
       "engagement": {
-        "likes": 1,
+        "likes": 432,
         "comments": 1,
-        "views": 419,
+        "views": 644,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13762,7 +13802,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 6
       },
       "why": "A 74B MoE on a 12 GB RTX 3060: Unsloth's 1-bit UD-IQ1_S GGUF (~3.5GB smaller than NVIDIA's official 2-bit at the same perplexity), 57 MoE layers' experts on the CPU, ~30 tok/s decode and ~800 tok/s prefill over a 262K context.",
       "supported_engines": [
@@ -13836,9 +13877,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 1,
         "comments": 0,
-        "views": 0,
+        "views": 150,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13905,9 +13946,9 @@
         "llama.cpp"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 251,
+        "comments": 11,
+        "views": 2975,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -13963,7 +14004,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 21
       },
       "engines": [
         {
@@ -14023,9 +14065,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 168,
+        "comments": 17,
+        "views": 13928,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -14057,7 +14099,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 6
       },
       "engines": [
         {
@@ -14121,9 +14164,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 5,
+        "comments": 3,
+        "views": 605,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -14143,7 +14186,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 5
       },
       "weight_gb": "111.4GB Q4_K_XL",
       "engines": [
@@ -14269,7 +14313,7 @@
       "engagement": {
         "likes": 84,
         "comments": 0,
-        "views": 0,
+        "views": 68,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -14358,9 +14402,9 @@
       ],
       "why": "DeepSeek R1 1.5B served fully offline by Ollama on a 7-year-old Raspberry Pi 4B at 4 tok/s under 5 W, no network or API needed.",
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 47,
+        "comments": 5,
+        "views": 5484,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -14380,7 +14424,8 @@
         "score_7d": 0,
         "buzz_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 7
       },
       "last_seen": "2026-10-26",
       "supported_engines": [
@@ -15311,9 +15356,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 116,
+        "comments": 4,
+        "views": 167,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -15345,7 +15390,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 149
       },
       "engines": [
         {
@@ -15515,7 +15561,7 @@
       "engagement": {
         "likes": 0,
         "comments": 0,
-        "views": 0,
+        "views": 4038,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -16134,9 +16180,9 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 5,
+        "comments": 4,
+        "views": 2365,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -16156,7 +16202,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 13
       },
       "engine_min_version": "MLX, Apple Silicon only, macOS 14+",
       "engines": [
@@ -16454,9 +16501,9 @@
         "MLX"
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 10,
+        "comments": 1,
+        "views": 6660,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -16476,7 +16523,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 6
       },
       "system_ram_min": "48GB",
       "measurement_model_aliases": [
@@ -16564,7 +16612,7 @@
         "LM Studio"
       ],
       "engagement": {
-        "likes": 0,
+        "likes": 192,
         "comments": 0,
         "views": 0,
         "last_7d_likes": 0,
@@ -17312,9 +17360,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 1,
+        "comments": 1,
+        "views": 52,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -17346,7 +17394,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 52
       },
       "measurement_model_aliases": [
         "bonsai-2-9b"
@@ -17587,9 +17636,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 4,
+        "comments": 1,
+        "views": 193,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -17609,7 +17658,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 1
       },
       "measurement_model_aliases": [
         "qwen3.8-27b",
@@ -17676,9 +17726,9 @@
         }
       ],
       "engagement": {
-        "likes": 0,
-        "comments": 0,
-        "views": 0,
+        "likes": 4,
+        "comments": 1,
+        "views": 193,
         "last_7d_likes": 0,
         "seen_posts": [
           {
@@ -17698,7 +17748,8 @@
         "buzz_7d": 0,
         "score_7d": 0,
         "speed_bonus": 0.0,
-        "trend_score": 0.0
+        "trend_score": 0.0,
+        "reshares": 1
       },
       "weight_gb": "UD-IQ2_XXS (2-bit)",
       "system_ram_min": "about 6 GiB on a jailbroken PS5, CPU only (12 GiB with the GPU)",
