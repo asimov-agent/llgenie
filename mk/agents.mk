@@ -159,7 +159,7 @@ agent-image-profiles-check: ## CI (publish-agent-image, post-publish): boot the 
 _agent-image-profiles-check: # (internal) runs INSIDE the agent image: assert every agents/manifest.json
 # lane has its profile config at $HERMES_HOME/profiles/<lane>/config.yaml — the exact path Hermes
 # resolves `-p <lane>` from (issue #2934).
-	@python3 scripts/agent_image_profiles_check.py --manifest agents/manifest.json
+	@python3 scripts/agent_image_profiles_check.py --manifest agents/manifest.json --resolve
 
 nerve-profile-check: ## Probe the rule the agent image build enforces: a nerve setting whose module the selected profile does not register is inert, so the build fails (issue #611)
 	python3 scripts/nerve_profile_check.py --self-test

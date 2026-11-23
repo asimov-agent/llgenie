@@ -116,8 +116,9 @@ def test_the_leg_boots_the_image_through_the_standard_agent_leg_seams() -> None:
     assert "$(AGENT_IMAGE)" in leg
     assert "$(AGENT_SHELL_FORWARD)" in leg and "$(AGENT_BOT_MARKER)" in leg
     assert "bash -lc 'make _agent-image-profiles-check'" in leg
-    # And the internal target runs the ONE real seam script inside the image
-    assert "python3 scripts/agent_image_profiles_check.py --manifest agents/manifest.json" in internal
+    # And the internal target runs the ONE real seam script inside the image, asking it to
+    # resolve every declared lane through Hermes (issue #3015), not merely to see config files
+    assert "python3 scripts/agent_image_profiles_check.py --manifest agents/manifest.json --resolve" in internal
 
 
 def test_the_publish_lane_runs_the_seam_and_the_prompt_proof_after_the_push() -> None:
@@ -129,10 +130,83 @@ def test_the_publish_lane_runs_the_seam_and_the_prompt_proof_after_the_push() ->
     runs = [str(st.get("run", "")) for st in steps]
     # When its steps are ordered
     i_push = next(i for i, r in enumerate(runs) if "make publish-agent-image" in r)
+    i_pull = next(i for i, r in enumerate(runs) if "make agent-image-pull" in r)
+    i_source = next(i for i, r in enumerate(runs) if "make agent-image-source-check" in r)
     i_profiles = next(i for i, r in enumerate(runs) if "make agent-image-profiles-check" in r)
     i_smoke = next(i for i, r in enumerate(runs) if "make hermes-smoke" in r)
-    # Then verification happens AFTER the push, before the lane can exit green
-    assert i_push < i_profiles < i_smoke
+    # Then verification happens AFTER the push, before the lane can exit green, and the
+    # credential-free source proof precedes both bot-lane proofs (issue #3015). The pull is
+    # required because `buildx --push` never loads a local image on the runner.
+    assert i_push < i_pull < i_source < i_profiles < i_smoke
     # And both verification steps pass the same lane credential every other agent lane passes
     for i in (i_profiles, i_smoke):
         assert steps[i].get("env", {}).get("NOUS_API_KEY") == "${{ secrets.NOUS_PORTAL_API_TOKEN }}"
+
+
+def test_resolve_checks_every_lane_without_a_model_call(tmp_path: Path, capsys) -> None:
+    # Given a provisioned image-shaped home and a resolver that answers for every lane
+    home = tmp_path / "hermes-home"
+    lanes = ["llgenie-architect", "llgenie-status-keeper"]
+    _provision(home, lanes)
+    seen: list[str] = []
+
+    def resolver(name: str) -> str | None:
+        seen.append(name)
+        return None
+
+    # When the real seam is asked to resolve lanes
+    rc = check.main(["--manifest", str(_manifest(tmp_path, lanes)), "--home", str(home),
+                     "--resolve"], resolver=resolver)
+    # Then it exits green, resolves each lane exactly once and names each proof
+    assert rc == 0
+    assert seen == lanes
+    out = capsys.readouterr().out
+    assert "RESOLVE OK llgenie-architect" in out and "RESOLVE OK llgenie-status-keeper" in out
+
+
+def test_an_unresolvable_lane_is_named_and_reds_the_check(tmp_path: Path, capsys) -> None:
+    home = tmp_path / "hermes-home"
+    lanes = ["llgenie-architect", "llgenie-status-keeper"]
+    _provision(home, lanes)
+
+    def resolver(name: str) -> str | None:
+        return "exit 2: profile config is malformed" if name == "llgenie-status-keeper" else None
+
+    rc = check.main(["--manifest", str(_manifest(tmp_path, lanes)), "--home", str(home),
+                     "--resolve"], resolver=resolver)
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "RESOLVE FAIL llgenie-status-keeper: exit 2: profile config is malformed" in out
+    assert "FAILED" in out and "llgenie-status-keeper" in out
+
+
+def test_a_lane_without_a_config_is_not_reported_as_resolved(tmp_path: Path, capsys) -> None:
+    home = tmp_path / "hermes-home"
+    lanes = ["llgenie-architect", "llgenie-status-keeper"]
+    _provision(home, ["llgenie-architect"])
+
+    def resolver(name: str) -> str | None:
+        if name == "llgenie-status-keeper":
+            raise AssertionError("a lane with no config must not be sent to Hermes")
+        return None
+
+    rc = check.main(["--manifest", str(_manifest(tmp_path, lanes)), "--home", str(home),
+                     "--resolve"], resolver=resolver)
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "MISSING llgenie-status-keeper" in out
+    assert "RESOLVE FAIL llgenie-status-keeper: no profile config" in out
+
+
+def test_missing_hermes_cli_fails_loudly_instead_of_skipping(tmp_path: Path, capsys,
+                                                             monkeypatch) -> None:
+    home = tmp_path / "hermes-home"
+    lanes = ["llgenie-architect"]
+    _provision(home, lanes)
+    monkeypatch.setattr(check.shutil, "which", lambda _: None)
+
+    rc = check.main(["--manifest", str(_manifest(tmp_path, lanes)), "--home", str(home),
+                     "--resolve"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "RESOLVE FAIL llgenie-architect" in out and "hermes" in out

@@ -136,7 +136,11 @@ jobs:
       - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet; the dispatch force input rebuilds even a published hash, issue #990)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized actor, quoted, make-routed (issue #1595)
         run: make publish-agent-image ${{ inputs.force == 'true' && 'FORCE=--force' || '' }}
-      - name: make agent-image-profiles-check (issue #2934: the image the lane just published must boot as a standard agent leg and carry every agents/manifest.json profile where Hermes resolves -p <lane>)
+      - name: make agent-image-pull (materialise the just-published :latest on this runner; buildx --push does not load a local image)
+        run: make agent-image-pull
+      - name: make agent-image-source-check (the image just published must be built from THIS tree; issue #2968/#3015)
+        run: make agent-image-source-check
+      - name: make agent-image-profiles-check (issue #2934: the image the lane just published must boot as a standard agent leg and carry every agents/manifest.json profile where Hermes resolves -p <lane>; issue #3015 adds local resolution of every lane)
         env:
           NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}  # #908: the leg forwards -e TYPESAFE_API_KEY, so the calling step must set it (#364 rule)
