@@ -722,6 +722,12 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
     )
 
 
+#: Markers this PROCESS has already filed (issue #3019). GitHub issue search lags a new issue
+#: by seconds, so a batch (the monitor triage routes several runs in one tick) must remember its
+#: own filings in-tick; the search stays the memory across ticks.
+_TICK_FILED: set[str] = set()
+
+
 def filed_phrase(marker: str) -> str:
     """The `--search` phrase for a marker, safe for GitHub's issue search (issue #1990).
 
@@ -760,7 +766,16 @@ def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
     `agent:ci-pipelines-maintainer` instead of the product implementer's `agent:implement`, and an
     unclassified workflow (``lane is None``) is filed with NO implementation label — never the
     product implementer by default. The body names the lane and the failure class.
+
+    A process-local filed-marker set backs the search (issue #3019): the monitor triage routes
+    several runs through one process in one tick, and GitHub's issue search lags a just-filed
+    issue by seconds — so `filed()` cannot see a filing made moments earlier in the SAME tick and
+    the batch filed a duplicate (#3020/#3021, measured 2026-11-23). Within one process the marker
+    is the memory GitHub search cannot yet provide.
     """
+    if marker in _TICK_FILED:
+        print(f"[run-fixer] already filed this tick: {marker}", flush=True)
+        return None
     if filed(repo, marker):
         print(f"[run-fixer] already filed: {marker}", flush=True)
         return None
@@ -773,6 +788,7 @@ def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
     if lane and lane.label:
         cmd += ["--label", lane.label]
     out = _gh(cmd)
+    _TICK_FILED.add(marker)
     print(f"[run-fixer] filed: {out.strip()}", flush=True)
     return out.strip()
 

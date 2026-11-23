@@ -429,6 +429,12 @@ make ci-monitor               # host: print the CI monitor incident snapshot —
                               # reviews; MONITOR-OK clean, MONITOR-ERROR gh-fetch-failed on a read
                               # failure. Byte-stable stdout; the one sanctioned Hermes monitor cron
                               # wraps it (issue #3013)
+make ci-monitor-triage        # host: the same snapshot, then ROUTE it (issue #3019): every MAIN-RED
+                              # run and every PR-CHECKS incident's completed failed runs go to the
+                              # run-failure reactor in --file-only mode — one marker-deduped issue per
+                              # failure class, one TRIAGE-* verdict line per routing, dispatches
+                              # nothing; DRY=1 previews without filing. The monitor tick's FIRST
+                              # command
 ```
 
 Every check needs exactly one `make` path, and CI must be the one that runs it — so the

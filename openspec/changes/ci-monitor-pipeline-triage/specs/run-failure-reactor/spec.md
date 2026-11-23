@@ -26,3 +26,19 @@ Without the flag the existing routes are byte-identical.
 - **When** the reactor runs WITHOUT `--file-only`
 - **Then** the recorded fix-bot dispatch call happens as before
 - **Test:** `tests/test_run_failure_reactor.py` (existing tests keep passing unchanged)
+
+### Requirement: in-tick filing memory backs the lagged marker search
+
+The reactor MUST keep a process-local set of markers it has already filed this process. The marker
+search (`gh issue list --search`) is the memory ACROSS ticks, but GitHub's issue index lags a
+just-filed issue by seconds — so a batch that routes several runs through ONE process (the monitor
+triage) cannot see its own filing made moments earlier and would double-file one failure class
+(measured 2026-11-23: #3020 and #3021 from one marker). A repeat of a marker already filed in this
+process MUST print `already filed this tick` and file nothing.
+
+#### Scenario: two runs of one class in one process file one issue
+
+- **Given** two failed runs of the same marker class and a search that sees nothing filed (the lag)
+- **When** one process routes the class twice, file-only
+- **Then** exactly one `issue create` happens and the second routing prints the in-tick verdict
+- **Test:** `tests/test_run_failure_reactor.py::test_two_runs_of_one_failure_class_file_one_issue_per_tick`
