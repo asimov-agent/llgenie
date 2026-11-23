@@ -24,5 +24,6 @@
 - [x] T6 Docs: `agent-wiki/` entry + `docs/changes.d/` fragment + `make changes-index`;
       `make openspec-validate NAME=monitor-clone-refresh-detect` rc=0.
       (measured: `make changes-index` rc=0, `make openspec-validate` rc=0 at head 7c9ca29eb)
-- [ ] T7 Verify: full `make test-unit` rc=0 at the branch tip; `make lane-preflight` prints
-      `preflight: OK`; live wrapper run prints a real snapshot.
+- [x] T7 Verify: full `make test-unit` rc=0 (4383 passed, 0 failed) measured at 1c20b8116; the
+      battery re-runs green at the branch tip before push; `make lane-preflight` prints
+      `preflight: OK` at the tip before push; live wrapper run prints a real snapshot (T4).

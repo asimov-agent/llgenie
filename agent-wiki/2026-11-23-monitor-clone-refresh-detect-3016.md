@@ -44,5 +44,8 @@
 ## Current status
 
 Branch `feat/monitor-clone-refresh-detect` in its own worktree; OpenSpec change
-`monitor-clone-refresh-detect` (T1–T5 ticked, verification task pending full battery + preflight).
+`monitor-clone-refresh-detect` (all tasks ticked).
 Host already runs the hardened wrapper; the PR ships the repo-side contract.
+The first full battery at 7c9ca29eb exposed two wiring gaps (wrapper unregistered in
+`scripts/package-layers.json`; fixture remotes built with the ambient `init.defaultBranch`),
+both fixed at 1c20b8116 and re-proven: 4383 passed, 0 failed.
