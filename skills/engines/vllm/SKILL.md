@@ -4,11 +4,11 @@ description: "Use when building the vLLM engine image from source (clone at the 
 engine: "vLLM"
 id: vllm
 repo: https://github.com/vllm-project/vllm
-ref: v0.33.0
+ref: v0.34.0
 ref_kind: tag
-version: v0.33.0
-pinned: 3a4d82f569a9f57054ba81633e9b6c73b34b51fe
-verified: "2026-11-02"
+version: v0.34.0
+pinned: 0c57b4195da4a6b69a7725908e428053e51e51b8
+verified: "2026-11-23"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm, cpu]
@@ -82,13 +82,13 @@ container:
   # Dockerfile is only `FROM <official-image>` + the llgenie entrypoint wrap (base as-is, trimmed).
   # No source compile, no wheel-install chain, no poetry. The served version is the base's baked vllm.
   #  - rocm: FROM docker.io/rocm/vllm:<AMD-tag>   (issue #1558 / PR #2274)
-  #  - cuda: FROM docker.io/vllm/vllm-openai:v0.33.0  (issue #2386 / PR #2429, supersedes #937/#615 for cuda)
+  #  - cuda: FROM docker.io/vllm/vllm-openai:v0.34.0  (issue #2386 / PR #2429, supersedes #937/#615 for cuda)
   #  - cpu:  source-compiled (remains; no prebuilt cpu serving image today)
   cuda:
     # vLLM's official CUDA serving image, pinned to our vllm ref (v0.33.0). prebuilt: true runs
     # zero install steps; the image ships the baked vllm + CUDA runtime, and `detect` probes it
     # via `from vllm import __version__`. Entrypoint serves (see launch below).
-    base: docker.io/vllm/vllm-openai:v0.33.0
+    base: docker.io/vllm/vllm-openai:v0.34.0
     prebuilt: true
     binary: "vllm"
     binary_flags: ["--version"]
@@ -126,7 +126,7 @@ on the host).
 
 | Backend | Selection | Notes |
 |---|---|---|
-| cuda | prebuilt: `FROM docker.io/vllm/vllm-openai:v0.33.0` (zero install) | compute capability >= 7.5, fat arch list `75;80;86;89;90;120`; the official CUDA serving image ships vllm + CUDA runtime |
+| cuda | prebuilt: `FROM docker.io/vllm/vllm-openai:v0.34.0` (zero install) | compute capability >= 7.5, fat arch list `75;80;86;89;90;120`; the official CUDA serving image ships vllm + CUDA runtime |
 | rocm | prebuilt: `FROM docker.io/rocm/vllm:<AMD-tag>` (zero install) | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151; AMD's official rocm/vllm image ships the ROCm runtime |
 | cpu | compile at the pin: `VLLM_TARGET_DEVICE=cpu uv pip install --no-build-isolation -e .` | pure Python/C++ CPU build, AVX2/AVX512 or NEON |
 
