@@ -1,0 +1,1 @@
+| 2026-11-23 | engine bump: ollama re-pinned `d63b7026` -> `23b94a2d` (`v0.40.17`) — frozen per-arch Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only ollama's images) | [2026-11-23-ollama-bump.md](agent-wiki/2026-11-23-ollama-bump.md) | #107 |
