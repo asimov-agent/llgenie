@@ -205,10 +205,10 @@ audit-ticks-notes: ## Render the supersession note bodies for the roster's remai
 audit-ticks-post: ## Post each rendered supersession note once per issue; marker-idempotent, never edits an issue body (AUDIT_OUT=) — issue #2631
 	python3 scripts/audit_acceptance_ticks.py post --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json" --notes-dir "$(AUDIT_OUT)/notes"
 
-run-failure-reactor: ## Route a failed CI run to a remedy (issue #286): a PR this bot can push (this repo, or the owner's fork) -> dispatch the fix-bot with github.token (GH_TOKEN); else file ONE deduped issue labelled agent:implement (REPO=; RUN_ID=; DRY=1 previews)
+run-failure-reactor: ## Route a failed CI run to a remedy (issue #286): a PR this bot can push (this repo, or the owner's fork) -> dispatch the fix-bot with github.token (GH_TOKEN); else file ONE deduped issue labelled agent:implement (REPO=; RUN_ID=; DRY=1 previews; FILE_ONLY=1 overrides route A into filing — the host triage mode, issue #3019)
 	@test -n "$(REPO)" || { echo "Usage: make run-failure-reactor REPO=<owner/repo> RUN_ID=<run> [DRY=1]"; exit 1; }
 	@test -n "$(RUN_ID)" || { echo "Usage: make run-failure-reactor REPO=<owner/repo> RUN_ID=<run> [DRY=1]"; exit 1; }
-	python3 scripts/run_failure_reactor.py --repo "$(GH_REPO)" --run-id "$(RUN_ID)" $(if $(DRY),--dry,)
+	python3 scripts/run_failure_reactor.py --repo "$(GH_REPO)" --run-id "$(RUN_ID)" $(if $(DRY),--dry,) $(if $(filter 1,$(FILE_ONLY)),--file-only,)
 
 implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing); the transcript is REDACTED before it prints (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
@@ -258,6 +258,9 @@ CI_MONITOR_MAX_AGE_HOURS ?= 72
 
 ci-monitor: ## Print the host CI monitor incident snapshot (issue #3013): completed main runs that failed/cancelled/timed out (updated within CI_MONITOR_MAX_AGE_HOURS), open non-draft PRs with failing checks, DIRTY/BEHIND merge states, CHANGES_REQUESTED reviews; MONITOR-OK on a clean board. Byte-stable, read-only gh reads — the Hermes monitor cron's --monitor-script wraps this target; CI_MONITOR_MAIN_LIMIT/CI_MONITOR_MAX_AGE_HOURS override the windows
 	python3 scripts/ci_monitor.py --repo $(GH_REPO) --main-limit $(CI_MONITOR_MAIN_LIMIT) --max-age-hours $(CI_MONITOR_MAX_AGE_HOURS)
+
+ci-monitor-triage: ## The same snapshot, then ROUTE it (issue #3019): every MAIN-RED run and every PR-CHECKS incident's completed failed runs (resolved by head sha) go to the run-failure reactor in --file-only mode — one marker-deduped issue per failure, one TRIAGE-* verdict line per routing, dispatches nothing; DRY=1 previews without filing. The monitor tick's FIRST command
+	python3 scripts/ci_monitor.py --repo $(GH_REPO) --main-limit $(CI_MONITOR_MAIN_LIMIT) --max-age-hours $(CI_MONITOR_MAX_AGE_HOURS) --triage $(if $(DRY),--dry,)
 
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
