@@ -25,7 +25,10 @@ def _git(*args: str, cwd=None) -> subprocess.CompletedProcess:
 def _origin(tmp_path, makefile: str):
     origin = tmp_path / "origin"
     origin.mkdir()
-    _git("init", "-q", cwd=origin)
+    # Explicit branch: a container or host with init.defaultBranch=master would otherwise
+    # leave the remote without a `main` branch and the wrapper's `fetch origin main` would
+    # fail for fixture reasons, not wrapper reasons (issue #3016 battery).
+    _git("init", "-q", "-b", "main", cwd=origin)
     _git("config", "user.email", "test@example.invalid", cwd=origin)
     _git("config", "user.name", "fixture", cwd=origin)
     (origin / "Makefile").write_text(makefile)

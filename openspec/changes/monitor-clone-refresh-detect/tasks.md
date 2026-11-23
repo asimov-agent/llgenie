@@ -21,7 +21,8 @@
       `MONITOR-ERROR make-ci-monitor-failed` as "not landed" only when the clone is current.
       (proven: cron edit 857ee38c40ce rc=0 (new carve-out in job prompt, old sentence gone); mirror
       updated on PR #3023 branch at c4b2a391a)
-- [ ] T6 Docs: `agent-wiki/` entry + `docs/changes.d/` fragment + `make changes-index`;
+- [x] T6 Docs: `agent-wiki/` entry + `docs/changes.d/` fragment + `make changes-index`;
       `make openspec-validate NAME=monitor-clone-refresh-detect` rc=0.
+      (measured: `make changes-index` rc=0, `make openspec-validate` rc=0 at head 7c9ca29eb)
 - [ ] T7 Verify: full `make test-unit` rc=0 at the branch tip; `make lane-preflight` prints
       `preflight: OK`; live wrapper run prints a real snapshot.
