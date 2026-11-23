@@ -1,0 +1,1 @@
+| 2026-11-23 | engine bump: tensorfold re-pinned `539dc9d6` -> `950c50fe` (`v1.3.4`) — frozen per-arch Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only tensorfold's images) | [2026-11-23-tensorfold-bump.md](agent-wiki/2026-11-23-tensorfold-bump.md) | #107 |
