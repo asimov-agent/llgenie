@@ -1530,6 +1530,119 @@ def test_an_image_finding_is_gated_by_the_same_policy(tmp_path):
     assert ss.blocking(items, POLICY, "pr") == []
 
 
+def test_image_meta_survives_a_mid_scan_failure(tmp_path, monkeypatch):
+    """The record of WHICH image is being scanned exists before any scanner runs, so a stage that
+    dies mid-scan cannot leave its reports unattributed (issue #3036, measured on run 45190665275:
+    trivy wrote `image-agent.trivy.json`, Syft refused its digest, and the finding reached the
+    tracker as a Python dependency issue, #3025)."""
+
+    # Given a reports dir, and a container runner that dies at the SECOND stage after the first
+    # one wrote its report
+    reports = tmp_path / "reports"
+    monkeypatch.setattr(ss, "REPORTS", reports)
+    calls = []
+
+    def fake_run(argv, image, volumes=None):
+        calls.append(image)
+        if "syft" in image:
+            raise SystemExit("[security-scan] ghcr.io/asimov-agent/llgenie/syft:1844da087d23 "
+                             "names no digest the registry serves")  # the #2609 refusal shape
+        if "trivy" in image:
+            (reports / "image-agent.trivy.json").write_text(json.dumps(TRIVY_HIGH), encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(ss, "_run", fake_run)
+
+    # When  the published image is scanned
+    try:
+        ss.scan_image(IMAGE_REF, slug="agent")
+    except SystemExit as exc:
+        assert "syft" in str(exc), str(exc)
+    else:
+        raise AssertionError("the scan did not die at the Syft stage")
+
+    # Then  the image record is there anyway, naming the exact ref that was being scanned
+    meta = json.loads((reports / "image-agent.meta.json").read_text(encoding="utf-8"))
+    assert meta["ref"] == IMAGE_REF
+    assert len(calls) == 2, calls  # trivy ran, Syft is where it died
+    assert not any("grype" in c for c in calls), calls  # the third stage never ran
+
+    # And   the report the dead scan left behind is still attributed to that image
+    items = ss.findings(reports)
+    assert items, (reports / "image-agent.trivy.json").read_text()
+    for item in items:
+        assert item.get("image") == IMAGE_REF, item
+
+
+def test_an_image_report_without_its_meta_fails_the_run(tmp_path):
+    """An image report whose meta companion is gone is a hard failure, never an untagged finding:
+    unattributed is what made an agent-image Go module read as a Python dependency (issue #3036)."""
+
+    # Given an image trivy report with no `image-<slug>.meta.json` beside it
+    d = _reports(tmp_path, **{"image-agent.trivy": TRIVY_HIGH})
+
+    # When  the lane reads its reports
+    try:
+        items = ss.findings(d)
+    except SystemExit as exc:
+        # Then  the run refuses, naming the report and the missing record
+        assert "image-agent.meta.json" in str(exc) and "attributed" in str(exc), str(exc)
+        assert "#3036" in str(exc), str(exc)
+    else:
+        raise AssertionError(f"an unattributed image report was read as findings: {items}")
+
+
+def test_an_image_record_that_names_no_ref_fails_the_lane(tmp_path):
+    """A meta file that exists but names no ref attributes nothing (issue #3036)."""
+
+    # Given the report plus a meta companion with an empty ref
+    d = _reports(tmp_path, **{"image-agent.grype": GRYPE_ONE})
+    (d / "image-agent.meta.json").write_text(json.dumps({"ref": ""}), encoding="utf-8")
+
+    # When  the lane reads its reports
+    try:
+        ss.findings(d)
+    except SystemExit as exc:
+        assert "names no ref" in str(exc), str(exc)
+    else:
+        raise AssertionError("an image record without a ref was accepted")
+
+
+def test_image_owner_names_the_allow_list_entry_and_its_owner(monkeypatch):
+    """A finding inside a published image is fixed by the owner named in `containers/scanned-images
+    .json`, so the filing layer must be able to find that entry from the digest-pinned ref it
+    scanned — plain refs by name, engine entries through the same resolution the scan used
+    (issue #3036)."""
+
+    # Given an allow-list with one plain-ref entry and one engine+variant entry
+    manifest = {"images": [
+        {"name": "agent", "ref": "ghcr.io/asimov-agent/llgenie/agent:latest",
+         "owner": "containers/agent/Dockerfile"},
+        {"name": "llama-cpp-cuda", "engine": "llama.cpp", "variant": "cuda",
+         "owner": "containers/engines/params/llama.cpp.json"},
+    ]}
+    monkeypatch.setattr(ss, "_resolve_engine_ref",
+                        lambda engine, variant: f"ghcr.io/asimov-agent/llgenie/llama-cpp:20260101-{variant}")
+
+    # When  each scanned ref@digest is asked for its owner
+    agent = ss.image_owner("ghcr.io/asimov-agent/llgenie/agent:latest@sha256:" + "ab" * 32, manifest)
+    engine = ss.image_owner("ghcr.io/asimov-agent/llgenie/llama-cpp:20260101-cuda@sha256:"
+                            + "cd" * 32, manifest)
+
+    # Then  each maps to its entry (the digest is what the scan adds, not what the manifest names)
+    assert agent and agent["owner"] == "containers/agent/Dockerfile", agent
+    assert engine and engine["name"] == "llama-cpp-cuda", engine
+
+    # And   a ref the allow-list does not name has no owner, and neither has an empty ref
+    assert ss.image_owner("ghcr.io/example/other:1@sha256:" + "ef" * 32, manifest) is None
+    assert ss.image_owner("", manifest) is None
+
+    # And   against the shipped allow-list, the agent image names its Dockerfile
+    shipped = next(e for e in ss.scanned_images()["images"] if e.get("name") == "agent")
+    found = ss.image_owner(shipped["ref"] + "@sha256:" + "ab" * 32)
+    assert found and found["owner"].startswith("containers/agent/Dockerfile"), found
+
+
 def test_check_refuses_an_empty_or_ill_formed_allow_list(tmp_path, monkeypatch):
     """The gate that prevents the silent skip (issue #2706): no manifest, an empty allow-list, an
     engine entry without a variant, or a missing fixture declaration all red `check`."""
