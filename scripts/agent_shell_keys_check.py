@@ -73,13 +73,48 @@ print("AGENT_SHELL_LENGTHS=" + json.dumps(lengths))
 """
 
 
-def hermes_root() -> Path | None:
-    """The Hermes tree the CLI runs from (the agent image: /root/.hermes/hermes-agent)."""
-    cands = [os.environ.get("HERMES_AGENT_ROOT", ""), "/root/.hermes/hermes-agent",
-             str(Path.home() / ".hermes" / "hermes-agent")]
+#: The candidate Hermes trees, in the order the check tries them.
+HERMES_ROOT_CANDIDATES = ("/root/.hermes/hermes-agent",)
+
+
+def _hermes_candidate(c: str) -> tuple[bool, str]:
+    """(present-and-readable?, why-not) for one candidate Hermes tree.
+
+    A candidate is UNREADABLE when an ancestor cannot be traversed: `Path.is_file()` swallows
+    ENOENT/ENOTDIR/EBADF/ELOOP but RE-RAISES `PermissionError`, and in the agent image `/root` is
+    mode `0700 root` while the container runs as uid 999 `agent` (issue #3020). Such a candidate is
+    absent for our purposes — it must be skipped, never end the check.
+    """
+    try:
+        return (Path(c) / "tools" / "environments" / "local.py").is_file(), ""
+    except PermissionError as exc:
+        return False, f"unreadable ({exc})"
+
+
+def hermes_root(cands: list[str] | None = None) -> Path | None:
+    """The Hermes tree the CLI runs from, and the note of how it was chosen.
+
+    The agent image runs as the `agent` user and its Hermes lives at `~/.hermes/hermes-agent`;
+    `/root/.hermes/hermes-agent` is a candidate only where it is readable (issue #3020). Every
+    skipped candidate is reported, because the root the probe ran against is part of the verdict.
+    """
+    cands = list(cands) if cands is not None else [
+        os.environ.get("HERMES_AGENT_ROOT", ""),
+        *HERMES_ROOT_CANDIDATES,
+        str(Path.home() / ".hermes" / "hermes-agent"),
+    ]
+    skipped: list[str] = []
     for c in cands:
-        if c and (Path(c) / "tools" / "environments" / "local.py").is_file():
+        if not c:
+            continue
+        ok, why = _hermes_candidate(c)
+        if ok:
+            note = f" (skipped: {', '.join(skipped)})" if skipped else ""
+            print(f"[agent-shell-keys] hermes root: {c}{note}")
             return Path(c)
+        skipped.append(f"{c} {why}" if why else c)
+    print(f"[agent-shell-keys] no readable Hermes root among: {', '.join(skipped) or 'none offered'}",
+          file=sys.stderr)
     return None
 
 
@@ -99,8 +134,10 @@ def agent_shell_lengths(names: list[str]) -> dict[str, int]:
     """Run the probe through Hermes's terminal environment; return {name: length in the agent shell}."""
     root = hermes_root()
     if root is None:
-        raise RuntimeError("Hermes is not installed here (no tools/environments/local.py under "
-                           "/root/.hermes/hermes-agent or ~/.hermes/hermes-agent) — run it in the bot image")
+        raise RuntimeError("Hermes is not installed here, or its install root is not readable by this "
+                           "user (no readable tools/environments/local.py among $HERMES_AGENT_ROOT, "
+                           "/root/.hermes/hermes-agent, ~/.hermes/hermes-agent — the lines above name "
+                           "which were unreadable) — run it in the bot image")
     py = hermes_python(root)
     if py is None:
         raise RuntimeError(f"Hermes's own interpreter was not found next to {root}")

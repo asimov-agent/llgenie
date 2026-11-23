@@ -30,6 +30,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 from scripts import unit_tests as ut
+from scripts import agent_shell_keys_check as ask  # noqa: E402  (the install-root discovery)
 from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefile reader)
 SCRIPT = ROOT / "scripts" / "agent_shell_keys_check.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -513,3 +514,98 @@ def test_the_detector_actually_detects():
     job_env = ("  implement:\n    env:\n      GH_TOKEN: ${{ github.token }}\n    steps:\n"
                "      - run: make implement-issue\n")
     assert _step_sets_key(job_env, "make implement-issue", "GH_TOKEN")
+
+
+# ---------------------------------------------------------------------------
+# the Hermes install root: an unreadable candidate is SKIPPED, never fatal (#3020)
+# ---------------------------------------------------------------------------
+
+def _plant_hermes(root: Path) -> Path:
+    """A planted Hermes-shaped tree (`tools/environments/local.py`) — a fixture, not Hermes."""
+    (root / "tools" / "environments").mkdir(parents=True)
+    (root / "tools" / "environments" / "local.py").write_text("# planted fixture, no credential\n")
+    return root
+
+
+def _path_shim(boom_under: str = "", home: Path | None = None):
+    """A `pathlib.Path` stand-in: a probe path under `boom_under` raises PermissionError.
+
+    Needed because `Path.is_file()` behaves differently across Python versions for an unreadable
+    ancestor — it RE-RAISES `PermissionError` on the interpreter the agent image ships (that is how
+    #3020 died) and swallows EACCES on 3.14. The skip must be proven on the raising shape, so the
+    unreadable candidate is planted as a raise rather than as a directory mode.
+    """
+    class _Shim:
+        def __init__(self, p):
+            self._p = str(p)
+
+        def __truediv__(self, other):
+            return _Shim(f"{self._p}/{other}")
+
+        def __fspath__(self):
+            return self._p
+
+        def __str__(self):
+            return self._p
+
+        def is_file(self):
+            if boom_under and self._p.startswith(boom_under):
+                raise PermissionError(13, "Permission denied", self._p)
+            return Path(self._p).is_file()
+
+        @staticmethod
+        def home():
+            return home if home is not None else Path.home()
+
+    return _Shim
+
+
+def test_the_default_discovery_skips_the_unreadable_candidate(tmp_path, monkeypatch, capsys):
+    """The agent image's shape (#3020): `/root` is root-only, Hermes lives in the user's home."""
+    # Given a candidate under a root-only ancestor (PermissionError on its probe) and the readable
+    # install at `~/.hermes/hermes-agent` — the container user's own Hermes
+    locked = _plant_hermes(tmp_path / "root-only" / "hermes-agent")
+    home = tmp_path / "home"
+    good = _plant_hermes(home / ".hermes" / "hermes-agent")
+    monkeypatch.delenv("HERMES_AGENT_ROOT", raising=False)
+    monkeypatch.setattr(ask, "HERMES_ROOT_CANDIDATES", (str(locked),))
+    monkeypatch.setattr(ask, "Path", _path_shim(boom_under=str(locked), home=home))
+
+    # When  discovery runs through its DEFAULT candidate list
+    root = ask.hermes_root()
+
+    # Then  the unreadable candidate did not abort it and the readable install was chosen,
+    #         with the skip reported rather than silent
+    assert str(root) == str(good), root
+    out = capsys.readouterr().out
+    assert "hermes root" in out and str(locked) in out and "unreadable" in out, out
+
+
+def test_no_readable_candidate_is_still_a_loud_failure(tmp_path, monkeypatch, capsys):
+    # Given every candidate is unreadable or missing
+    locked = _plant_hermes(tmp_path / "locked")
+    monkeypatch.setattr(ask, "Path", _path_shim(boom_under=str(locked), home=tmp_path))
+
+    # When  discovery runs over them
+    root = ask.hermes_root([str(locked), str(tmp_path / "not-installed")])
+
+    # Then  it reports no root (the caller's failure stays loud) and names what was unreadable
+    assert root is None, root
+    err = capsys.readouterr().err
+    assert "no readable Hermes root" in err and str(locked) in err and "unreadable" in err, err
+
+
+def test_the_only_readable_candidate_is_the_one_chosen(tmp_path, capsys):
+    # Given exactly one readable Hermes install and nothing unreadable in play
+    good = _plant_hermes(tmp_path / ".hermes" / "hermes-agent")
+
+    # Then  it is returned, and nothing is reported as skipped
+    assert str(ask.hermes_root([str(good)])) == str(good)
+    assert "skipped" not in capsys.readouterr().out
+
+
+def test_the_root_discovery_keeps_the_container_home_and_the_eacces_guard():
+    """Drift guard: the candidate list must stay home-aware and EACCES-tolerant (#3020)."""
+    src = SCRIPT.read_text()
+    assert "Path.home()" in src, "the container user's ~/.hermes/hermes-agent must stay a candidate"
+    assert "PermissionError" in src, "an unreadable candidate must be skipped, never fatal"
