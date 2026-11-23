@@ -15,11 +15,12 @@ import scripts.ci_monitor as ci_monitor
 class FakeFetch:
     """Recorded payloads in; no gh subprocess is ever spawned."""
 
-    def __init__(self, main_runs, open_prs, checks_by_pr, raise_error=None):
+    def __init__(self, main_runs, open_prs, checks_by_pr, raise_error=None, head_runs=None):
         self._main_runs = main_runs
         self._open_prs = open_prs
         self._checks_by_pr = checks_by_pr
         self._raise_error = raise_error
+        self._head_runs = head_runs or {}
 
     def main_runs(self):
         if self._raise_error:
@@ -31,6 +32,9 @@ class FakeFetch:
 
     def pr_checks(self, pr_number):
         return self._checks_by_pr.get(pr_number, [])
+
+    def failed_runs_on_head(self, head_sha):
+        return self._head_runs.get(head_sha, [])
 
 
 MAIN_RUNS = [
@@ -143,3 +147,110 @@ def test_monitor_is_read_only_no_mutation_verbs():
     src = pathlib.Path(ci_monitor.__file__).read_text(encoding="utf-8")
     for forbidden in ("gh run rerun", "workflow_dispatch", "gh run cancel", "gh pr merge"):
         assert forbidden not in src
+
+
+# ---------------------------------------------------------------------------
+# --triage (issue #3019): the snapshot is routed to the reactor, file-only
+# ---------------------------------------------------------------------------
+HEAD_RUNS = {
+    # the recorded answer of the REAL seam (test_failed_runs_on_head_filters… proves its filter):
+    # only the completed incident-conclusion row at this head ever comes back
+    OPEN_PRS[0]["headRefOid"]: [
+        {"databaseId": 45019000001, "workflowName": "CI", "status": "completed", "conclusion": "failure"},
+    ],
+}
+
+
+def _fake_route(routed):
+    def fake_route(repo, run_id, check="make ci-unit", dry=False, file_only=False):
+        routed.append((repo, run_id, dry, file_only))
+        return 0
+    return fake_route
+
+
+def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    monkeypatch.setattr(
+        ci_monitor, "Fetch",
+        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS),
+    )
+    rc = ci_monitor.main(["--triage"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    # the snapshot prints first, byte-identical to the plain monitor output
+    assert "MAIN-RED run=45010151478 workflow=CI conclusion=failure" in out
+    assert "MAIN-RED run=45010200005 workflow=engine-bump conclusion=timed_out" in out
+    assert "PR-CHECKS pr=3012 head=8c1def4f8 failed=2" in out
+    # every MAIN-RED run routes, and the PR incident routes its completed FAILED head run only
+    assert "TRIAGE-MAIN run=45010151478 routed rc=0" in out
+    assert "TRIAGE-MAIN run=45010200005 routed rc=0" in out
+    assert "TRIAGE-PR pr=3012 run=45019000001 routed rc=0" in out
+    assert "run=45019000002" not in out  # in-flight: never routed
+    assert "run=45019000003" not in out  # green: never routed
+    # every routing is file-only, none is dry
+    assert routed and all(call[3] is True for call in routed), routed
+    assert all(call[2] is False for call in routed), routed
+    assert {c[1] for c in routed} == {45010151478, 45010200005, 45019000001}
+
+
+def test_triage_dry_previews_and_files_nothing(capsys, monkeypatch):
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    monkeypatch.setattr(
+        ci_monitor, "Fetch",
+        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS),
+    )
+    rc = ci_monitor.main(["--triage", "--dry"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "TRIAGE-MAIN run=45010151478 routed rc=0" in out
+    assert routed and all(call[2] is True for call in routed), routed
+
+
+def test_triage_clean_board_routes_nothing(capsys, monkeypatch):
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    clean_runs = [dict(r, conclusion="success", status="completed") for r in MAIN_RUNS]
+    clean_prs = [dict(p, mergeStateStatus="CLEAN", reviewDecision="APPROVED", isDraft=False)
+                 for p in OPEN_PRS]
+    clean_checks = {n: [{"name": "ci-unit", "bucket": "pass"}] for n in CHECKS_BY_PR}
+    monkeypatch.setattr(ci_monitor, "Fetch",
+                        lambda **kw: FakeFetch(clean_runs, clean_prs, clean_checks))
+    rc = ci_monitor.main(["--triage"])
+    assert rc == 0
+    assert capsys.readouterr().out.strip() == "MONITOR-OK"
+    assert routed == []
+
+
+def test_triage_pr_incident_without_a_completed_failed_run_says_so(capsys, monkeypatch):
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    monkeypatch.setattr(
+        ci_monitor, "Fetch",
+        lambda **kw: FakeFetch([], OPEN_PRS, CHECKS_BY_PR, head_runs={}),
+    )
+    rc = ci_monitor.main(["--triage"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PR-CHECKS pr=3012 head=8c1def4f8 failed=2" in out
+    assert "TRIAGE-PR pr=3012 head=8c1def4f8 no-completed-failed-run found" in out
+    assert routed == []
+
+
+def test_failed_runs_on_head_filters_completed_incident_conclusions(monkeypatch):
+    seen = {}
+    def fake_run_checked(argv, timeout=None):
+        seen["argv"] = list(argv)
+        return __import__("json").dumps([
+            {"databaseId": 1, "workflowName": "CI", "status": "completed", "conclusion": "failure"},
+            {"databaseId": 2, "workflowName": "CI", "status": "completed", "conclusion": "success"},
+            {"databaseId": 3, "workflowName": "CI", "status": "in_progress", "conclusion": ""},
+            {"databaseId": 4, "workflowName": "CI", "status": "completed", "conclusion": "timed_out"},
+        ])
+    monkeypatch.setattr(ci_monitor, "run_checked", fake_run_checked)
+    fetch = ci_monitor.Fetch(repo="asimov-agent/llgenie")
+    got = fetch.failed_runs_on_head("abcdef1234567890")
+    assert seen["argv"][:5] == ["gh", "run", "list", "--repo", "asimov-agent/llgenie"]
+    assert "-c" in seen["argv"] and "abcdef1234567890" in seen["argv"]
+    assert [r["databaseId"] for r in got] == [1, 4]

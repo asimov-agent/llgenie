@@ -52,6 +52,11 @@ It NEVER repairs, commits, pushes or merges in the Route B path — it only file
 owns implementation, fix-bot owns PR repair. One code path per resource; no second implementation
 of another bot's logic.
 
+`--file-only` (issue #3019) is the HOST triage mode, used by `make ci-monitor-triage`: the route
+decision is identical, but Route A's dispatch is overridden — a pushable PR head's failure is filed
+as the same marker-deduped Route-B issue. The host files tracked issues and dispatches nothing;
+dispatching the fix-bot stays a CI/human action.
+
 A run it cannot diagnose is reported LOUDLY, never silently dropped: a `gh` read that fails, or
 a run shape it does not recognise, goes to stderr and the exit code is non-zero.
 """
@@ -514,6 +519,11 @@ def _fork_pr(repo: str, rest: dict, run_id: int) -> dict | None:
     owner = ((rest.get("head_repository") or {}).get("owner") or {}).get("login") or ""
     if not branch or not owner:
         return None
+    if owner.lower() == repo.split("/")[0].lower():
+        # The head repo IS this repository and the REST PR array was empty: a same-repo run that
+        # reports no PR (a `main`-branch dispatch/schedule run). It is no fork at all - Route B's
+        # filing decides it (issue #3019).
+        return None
     if owner.lower() != TRUSTED_FORK:
         print(f"[run-fixer] run {run_id} is a FIFTH-PARTY fork PR (head owner {owner}): not ours "
               f"to push - leaving it to a human", flush=True)
@@ -789,8 +799,14 @@ def later_run_of_the_same_workflow(repo: str, run: dict) -> str | None:
     return max(later) if later else None
 
 
-def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False) -> int:
-    """Route one completed failed run to a remedy. Returns the exit code."""
+def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False,
+          file_only: bool = False) -> int:
+    """Route one completed failed run to a remedy. Returns the exit code.
+
+    `file_only` (issue #3019): override Route A — a pushable PR head's failure is FILED (Route B)
+    instead of dispatching the fix-bot. Used by the host CI monitor triage, which files tracked
+    issues and dispatches nothing.
+    """
     run = run_detail(repo, run_id)
     conclusion = (run.get("conclusion") or "").lower()
     # A `timed_out` run is a verdict, not a cancellation (#1465): its job blew a timeout cap and the
@@ -822,6 +838,10 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
         return 0
 
     # Route A: a pushable same-repo PR -> claim + dispatch the existing fix-bot.
+    # Under --file-only (issue #3019, the host monitor triage) Route A is overridden: the failure is
+    # FILED as the Route-B issue instead of dispatched. No claim is written (there is no dispatch
+    # subject to occupy) and no `gh workflow run` call is reachable from the host triage — filing a
+    # tracked issue is the host's whole remedy; dispatching stays a CI/human action.
     rest = run_rest(repo, run_id)
     pr = _pr_from_run(repo, run, run_id, rest)
     if pr is not None:
@@ -830,20 +850,25 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
             print(f"[run-fixer] run {run_id} PR #{pr['number']} is {why}: leaving it to that bot",
                   flush=True)
             return 0
-        if not dry:
-            claim_pr(repo, pr)
-            try:
-                dispatch_fix_bot(repo, pr, check)
-            except DispatchRefused as refused:
-                # A credential refusal is NOT this job's failure (#2086): posting it on the PR is
-                # what makes the board say "no repair", and staying green keeps the reactor's own
-                # reds meaning "the reactor broke". The claim written above is released in the same
-                # comment, so the PR is not left occupied for the whole TTL.
-                report_repair_unavailable(repo, pr, run_id, refused)
-                return 0
-        print(f"[run-fixer] run {run_id} -> dispatched the fix-bot for #{pr['number']}",
-              flush=True)
-        return 0
+        if file_only:
+            print(f"[run-fixer] file-only: run {run_id} PR #{pr['number']} would be the fix-bot's - "
+                  f"dispatch suppressed, filing the issue instead", flush=True)
+            # fall through to the Route-B filing below (same marker dedupe, same body renderer)
+        else:
+            if not dry:
+                claim_pr(repo, pr)
+                try:
+                    dispatch_fix_bot(repo, pr, check)
+                except DispatchRefused as refused:
+                    # A credential refusal is NOT this job's failure (#2086): posting it on the PR is
+                    # what makes the board say "no repair", and staying green keeps the reactor's own
+                    # reds meaning "the reactor broke". The claim written above is released in the same
+                    # comment, so the PR is not left occupied for the whole TTL.
+                    report_repair_unavailable(repo, pr, run_id, refused)
+                    return 0
+            print(f"[run-fixer] run {run_id} -> dispatched the fix-bot for #{pr['number']}",
+                  flush=True)
+            return 0
 
     # Route B: no pushable PR -> file ONE deduped issue, but only for a failure that is still work
     # (issue #565). A merged PR's run, or a push a later run already turned green, is history: filing
@@ -882,9 +907,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--run-id", required=True, type=int, help="the completed run to route")
     ap.add_argument("--check", default="make ci-unit", help="the check the fix-bot drives")
     ap.add_argument("--dry", action="store_true", help="decide and print; dispatch/file nothing")
+    ap.add_argument("--file-only", action="store_true",
+                    help="route A overridden: file the issue, never dispatch (host triage, issue #3019)")
     a = ap.parse_args(argv)
     try:
-        return route(a.repo, a.run_id, a.check, a.dry)
+        return route(a.repo, a.run_id, a.check, a.dry, file_only=a.file_only)
     except RuntimeError as err:
         # A crashed decision is never "nothing to do" (issue #312): report it loudly.
         print(f"[run-fixer] {err}", file=sys.stderr, flush=True)

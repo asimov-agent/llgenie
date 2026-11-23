@@ -375,6 +375,38 @@ def test_a_red_same_repo_pr_run_dispatches_the_fix_bot(tmp_path):
     assert claim < disp, f"the claim must precede the dispatch: {calls}"
 
 
+def test_file_only_files_a_pushable_pr_failure_instead_of_dispatching(tmp_path):
+    # Given the SAME Route-A shape (issue #3019): a failed run on an open, non-draft, same-repo PR
+    log = gh_stub(tmp_path, failed_run(), [pr(252)], checks={"252": RED})
+    # When the host monitor triage routes it with --file-only
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123", "--file-only"])
+    # Then the failure is FILED through the Route-B path exactly once, and nothing dispatches:
+    # no fix-bot dispatch, no claim comment (there is no dispatch subject to occupy)
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = log.read_text().splitlines()
+    assert not [l for l in calls if l.startswith("workflow run")], calls
+    assert not [l for l in calls if l.startswith("pr comment")], calls
+    creates = [l for l in calls if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    # the SAME marker dedupe and body renderer as Route B
+    assert reactor.marker("CI", "run tests") in _body_of(creates[0])
+    assert "--label" in creates[0]
+    assert "file-only" in r.stdout and "filing the issue instead" in r.stdout
+
+
+def test_a_main_branch_run_is_never_labelled_a_fifth_party_fork(tmp_path):
+    # Given a failed `main`-branch run: REST reports no PR and its head repo IS the repository
+    log = gh_stub(tmp_path, failed_run(), [])
+    # When the reactor routes it (default mode - the same decision the host triage makes)
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then it is never mislabelled "FIFTH-PARTY" (issue #3019): a same-repo head with an empty PR
+    # array is no fork at all - Route B files it
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "FIFTH-PARTY" not in r.stdout
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+
+
 def test_a_fork_pr_run_is_not_dispatched(tmp_path):
     # Given a completed failed run whose pull_requests names a PR whose head is in a fork
     log = gh_stub(tmp_path, failed_run(), [pr(1, owner="someone-else")])

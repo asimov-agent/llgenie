@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The host CI monitor snapshot (issue #3013).
+"""The host CI monitor snapshot and triage (issues #3013, #3019).
 
 `make ci-monitor` asks one question, every monitor tick: *what on this repo needs an agent right
 now?* It reads the pipelines through the `gh` CLI — read-only, never a rerun/dispatch (queue-pumping
@@ -18,6 +18,14 @@ timestamps, in-flight/pending states are deliberately NOT incidents (they are ex
 The Hermes monitor cron feeds exactly this stdout to its hash-gate: unchanged output suppresses the
 agent, a changed snapshot wakes it with the diff.
 
+`make ci-monitor-triage` (`--triage`, issue #3019) prints the SAME snapshot first, then routes each
+incident to the run-failure reactor in file-only mode: every `MAIN-RED` run id, and for every
+`PR-CHECKS` incident the completed failed runs on that PR's head sha, is handed to
+`run_failure_reactor.route(..., file_only=True)` — the reactor files its marker-deduped issue and
+dispatches NOTHING (fix-bot dispatch stays a CI/human action). Each routing prints one verdict line
+(`TRIAGE-MAIN run=<id> routed rc=<rc>` / `TRIAGE-PR pr=<n> run=<id> routed rc=<rc>`); `--dry`
+previews without filing. `MONITOR-OK`/`MONITOR-ERROR` route nothing.
+
 All `gh` traffic goes through an injectable `fetch` seam so the unit battery replays recorded
 payloads with zero network (the probe-replay precedent).
 """
@@ -29,6 +37,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
+import run_failure_reactor
 from proc import run_checked
 
 # Conclusions that are incidents once a run is COMPLETED. In-flight states (queued/in_progress/
@@ -81,20 +90,38 @@ class Fetch:
         )
         return json.loads(out)
 
+    def failed_runs_on_head(self, head_sha: str) -> list[dict[str, Any]]:
+        """Completed runs with an incident conclusion at this exact head commit (issue #3019).
 
-def snapshot_lines(
+        The read is `-c <sha>` (head-commit filter; `gh run list` has no `--pull` flag), and only
+        completed incident-conclusion rows come back — a PR-CHECKS incident is routed to the runs
+        that actually produced it, never to in-flight ones.
+        """
+        out = run_checked(
+            [
+                "gh", "run", "list", "--repo", self.repo, "-c", head_sha, "--limit", "50",
+                "--json", "databaseId,workflowName,status,conclusion",
+            ],
+            timeout=120,
+        )
+        runs = json.loads(out)
+        return [r for r in runs
+                if str(r.get("status")) == "completed"
+                and str(r.get("conclusion")) in MAIN_RED_CONCLUSIONS]
+
+
+def main_red_runs(
     main_runs: Sequence[dict[str, Any]],
-    open_prs: Sequence[dict[str, Any]],
-    checks_by_pr: Mapping[int, Sequence[Mapping[str, Any]]],
     now: datetime | None = None,
     max_age_hours: int | None = None,
-) -> list[str]:
-    """Pure snapshot: recorded payloads in, deterministic incident lines out.
+) -> list[dict[str, Any]]:
+    """Completed main runs whose conclusion is an incident, honoring the age window.
 
     `now` + `max_age_hours` age out old red runs; a payload without `updatedAt` (recorded probe
-    data) is never age-filtered, so replayed snapshots stay byte-stable.
+    data) is never age-filtered, so replayed snapshots stay byte-stable. One incident definition
+    for both the snapshot and the triage — the two can never disagree (issue #3019).
     """
-    lines: list[str] = []
+    incidents: list[dict[str, Any]] = []
     for run in main_runs:
         if (
             str(run.get("headBranch")) == "main"
@@ -109,31 +136,103 @@ def snapshot_lines(
                     stamp = None
                 if stamp is not None and (now - stamp).total_seconds() > max_age_hours * 3600:
                     continue
-            lines.append(
-                f"MAIN-RED run={run.get('databaseId')} "
-                f"workflow={run.get('workflowName')} conclusion={run.get('conclusion')}"
-            )
+            incidents.append(run)
+    return incidents
+
+
+def pr_check_failures(
+    open_prs: Sequence[dict[str, Any]],
+    checks_by_pr: Mapping[int, Sequence[Mapping[str, Any]]],
+) -> list[tuple[int, str, int]]:
+    """PR-CHECKS incidents as (number, FULL head sha, failing bucket count) — draft PRs ignored."""
+    out: list[tuple[int, str, int]] = []
     for pr in open_prs:
         if pr.get("isDraft"):
             continue
         number = int(pr["number"])
-        head = str(pr.get("headRefOid") or "")[:9]
+        head = str(pr.get("headRefOid") or "")
         failed = sum(1 for c in checks_by_pr.get(number, []) if str(c.get("bucket")) == "fail")
         if failed:
-            lines.append(f"PR-CHECKS pr={number} head={head} failed={failed}")
+            out.append((number, head, failed))
+    return out
+
+
+def snapshot_lines(
+    main_runs: Sequence[dict[str, Any]],
+    open_prs: Sequence[dict[str, Any]],
+    checks_by_pr: Mapping[int, Sequence[Mapping[str, Any]]],
+    now: datetime | None = None,
+    max_age_hours: int | None = None,
+) -> list[str]:
+    """Pure snapshot: recorded payloads in, deterministic incident lines out."""
+    lines: list[str] = []
+    for run in main_red_runs(main_runs, now=now, max_age_hours=max_age_hours):
+        lines.append(
+            f"MAIN-RED run={run.get('databaseId')} "
+            f"workflow={run.get('workflowName')} conclusion={run.get('conclusion')}"
+        )
+    for number, head, failed in pr_check_failures(open_prs, checks_by_pr):
+        lines.append(f"PR-CHECKS pr={number} head={head[:9]} failed={failed}")
+    for pr in open_prs:
+        if pr.get("isDraft"):
+            continue
+        head = str(pr.get("headRefOid") or "")[:9]
         merge_state = str(pr.get("mergeStateStatus") or "")
         if merge_state in PR_MERGE_INCIDENTS:
-            lines.append(f"PR-MERGE pr={number} head={head} merge={merge_state}")
+            lines.append(f"PR-MERGE pr={pr['number']} head={head} merge={merge_state}")
         if str(pr.get("reviewDecision") or "") in PR_REVIEW_INCIDENTS:
-            lines.append(f"PR-REVIEW pr={number} head={head} decision=CHANGES_REQUESTED")
+            lines.append(f"PR-REVIEW pr={pr['number']} head={head} decision=CHANGES_REQUESTED")
     return sorted(lines)
+
+
+def triage_incidents(
+    fetch: Any,
+    repo: str,
+    main_runs: Sequence[dict[str, Any]],
+    open_prs: Sequence[dict[str, Any]],
+    checks_by_pr: Mapping[int, Sequence[Mapping[str, Any]]],
+    dry: bool = False,
+    now: datetime | None = None,
+    max_age_hours: int | None = None,
+) -> list[str]:
+    """Route every snapshot incident through the reactor in file-only mode; verdict lines out.
+
+    MAIN-RED routes the incident run itself; PR-CHECKS routes the completed failed runs found on
+    the PR's full head sha. The reactor's own `[run-fixer]` verdicts print as it works; each
+    routing adds one `TRIAGE-*` line here. Nothing here dispatches or reruns (issue #3019).
+    """
+    verdicts: list[str] = []
+    for run in main_red_runs(main_runs, now=now, max_age_hours=max_age_hours):
+        run_id = int(run.get("databaseId") or 0)
+        rc = run_failure_reactor.route(repo, run_id, dry=dry, file_only=True)
+        verdicts.append(f"TRIAGE-MAIN run={run_id} routed rc={rc}")
+    for number, head, _failed in pr_check_failures(open_prs, checks_by_pr):
+        if not head:
+            verdicts.append(f"TRIAGE-PR pr={number} no-head-sha routed rc=1")
+            continue
+        head_runs = fetch.failed_runs_on_head(head)
+        if not head_runs:
+            verdicts.append(f"TRIAGE-PR pr={number} head={head[:9]} no-completed-failed-run found")
+            continue
+        for r in head_runs:
+            run_id = int(r.get("databaseId") or 0)
+            rc = run_failure_reactor.route(repo, run_id, dry=dry, file_only=True)
+            verdicts.append(f"TRIAGE-PR pr={number} run={run_id} routed rc={rc}")
+    return verdicts
+
+
+def fetch_incidents(fetch: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]],
+                                         dict[int, list[dict[str, Any]]]]:
+    """The three gh reads the snapshot and the triage share (one read path for both modes)."""
+    main_runs = fetch.main_runs()
+    open_prs = [pr for pr in fetch.open_prs() if not pr.get("isDraft")]
+    checks_by_pr = {int(pr["number"]): fetch.pr_checks(int(pr["number"])) for pr in open_prs}
+    return main_runs, open_prs, checks_by_pr
 
 
 def build_snapshot(fetch: Any, max_age_hours: int = MONITOR_MAX_AGE_HOURS) -> str:
     try:
-        main_runs = fetch.main_runs()
-        open_prs = [pr for pr in fetch.open_prs() if not pr.get("isDraft")]
-        checks_by_pr = {int(pr["number"]): fetch.pr_checks(int(pr["number"])) for pr in open_prs}
+        main_runs, open_prs, checks_by_pr = fetch_incidents(fetch)
     except Exception as exc:  # the snapshot stays byte-stable even when the reads fail
         print(f"{MONITOR_ERROR}: {exc}", file=sys.stderr)
         return MONITOR_ERROR
@@ -145,7 +244,10 @@ def build_snapshot(fetch: Any, max_age_hours: int = MONITOR_MAX_AGE_HOURS) -> st
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Print the gh-backed CI incident snapshot (issue #3013).")
+    parser = argparse.ArgumentParser(
+        description="Print the gh-backed CI incident snapshot; --triage also routes incidents "
+                    "(issues #3013/#3019)."
+    )
     parser.add_argument("--repo", default="asimov-agent/llgenie")
     parser.add_argument("--main-limit", type=int, default=100)
     parser.add_argument(
@@ -153,6 +255,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="A completed red main run counts as an incident only while updated within this window.",
     )
     parser.add_argument("--fetch", default=None, help="importable callable() -> Fetch (test seam)")
+    parser.add_argument(
+        "--triage", action="store_true",
+        help="after the snapshot, route each MAIN-RED/PR-CHECKS incident to the run-failure "
+             "reactor in file-only mode (files deduped issues, dispatches nothing)",
+    )
+    parser.add_argument("--dry", action="store_true",
+                        help="with --triage: print the routing plan, file nothing")
     args = parser.parse_args(argv)
     if args.fetch:
         import importlib
@@ -161,7 +270,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         fetch = getattr(importlib.import_module(module_name), func_name)()
     else:
         fetch = Fetch(repo=args.repo, main_limit=args.main_limit)
-    print(build_snapshot(fetch, max_age_hours=args.max_age_hours))
+    repo = str(getattr(fetch, "repo", args.repo))
+    if not args.triage:
+        print(build_snapshot(fetch, max_age_hours=args.max_age_hours))
+        return 0
+    try:
+        main_runs, open_prs, checks_by_pr = fetch_incidents(fetch)
+    except Exception as exc:
+        print(f"{MONITOR_ERROR}: {exc}", file=sys.stderr)
+        return 0
+    now = datetime.now(timezone.utc)
+    lines = snapshot_lines(
+        main_runs, open_prs, checks_by_pr, now=now, max_age_hours=args.max_age_hours,
+    )
+    print("\n".join(lines) if lines else MONITOR_OK)
+    if lines:
+        for verdict in triage_incidents(
+            fetch, repo, main_runs, open_prs, checks_by_pr,
+            dry=args.dry, now=now, max_age_hours=args.max_age_hours,
+        ):
+            print(verdict)
     return 0
 
 
