@@ -435,6 +435,11 @@ make ci-monitor-triage        # host: the same snapshot, then ROUTE it (issue #3
                               # failure class, one TRIAGE-* verdict line per routing, dispatches
                               # nothing; DRY=1 previews without filing. The monitor tick's FIRST
                               # command
+make host-ci-monitor-install  # host: copy scripts/host_ci_monitor_wrapper.py byte-identically onto
+                              # the monitor cron's --monitor-script host paths; a failed clone refresh
+                              # or dirty clone now prints MONITOR-ERROR clone-refresh-failed instead
+                              # of the stale-tree make failure the tick reads as "not landed"
+                              # (issue #3016)
 ```
 
 Every check needs exactly one `make` path, and CI must be the one that runs it — so the
