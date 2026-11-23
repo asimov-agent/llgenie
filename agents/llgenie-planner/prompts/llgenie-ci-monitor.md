@@ -18,6 +18,8 @@ clear a failure, leave draft PRs alone. While a pushed lane CI is in flight do N
 the wait lives only in a background watcher and your next action is the next open board issue
 end-to-end (issue -> OpenSpec change first -> worktree off origin/main -> make gates -> PR whose
 body closes it), one lane at a time. If MONITOR-OK and an open board issue has no PR yet and no
-lane is active: take the oldest such issue the same way. A `MONITOR-ERROR make-ci-monitor-failed`
-line while the ci-monitor target is not yet on main means the monitor is not landed: do nothing
-this tick.
+lane is active: take the oldest such issue the same way. A `MONITOR-ERROR clone-refresh-failed`
+line means the monitor clone cannot refresh itself: treat it as an alarm, not a quiet board -
+check `~/.hermes/checkouts/llgenie-main` (origin url, clean status, fetch) and restore the refresh
+path; do NOT idle this tick (issue #3016). A `MONITOR-ERROR make-ci-monitor-failed` line means
+"not landed" ONLY when the clone is current (its HEAD is origin/main); then do nothing this tick.
