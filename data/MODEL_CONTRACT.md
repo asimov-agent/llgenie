@@ -75,7 +75,7 @@ Each entry in `models` has exactly this shape:
 | `formats` | yes | Weight formats, **each `{ name, hf }` with its own Hugging Face link**. One entry per format. |
 | `license` | yes | License. |
 | `params` | yes | Parameter count (total / active for MoE). |
-| `hf` | yes | Primary Hugging Face repo id → `https://huggingface.co/<hf>`. |
+| `hf` | no | Primary Hugging Face repo id → `https://huggingface.co/<hf>`. **Not required by the schema** (it was before the split store): a model whose formats each carry their own `hf` link is valid without this row-level key. |
 | `vram_tier` | yes | VRAM category (8GB, 12GB, 16GB, 24GB, 32GB, 48GB). **A label, not a requirement**: the README publishes the least amount needed (`vram_min`), never this string — they disagreed for 20 of 46 models, and 9 values in the store (`CPU`, `48`, `8`, `6GB`, `9GB`, `18GB`, `2GB`, `128GB`, `512GB`) sit outside the documented list (issue #337). |
 | `vram_min` | yes | **LEAST required VRAM** needed to run the model (e.g. 8GB) — the number the README most-loved `VRAM` column publishes. Community-reported from the X measurement posts; cross-checked against the smallest usable quant file size on Hugging Face (HF does not expose a VRAM field — see note below). |
 | `system_ram_min` | no | **System RAM / unified-memory requirement**, only when a source post states it (e.g. `16GB`). The CPU and Metal tables are RAM-bound (Apple Silicon is unified memory) and partial offload keeps the un-offloaded layers + KV cache in system RAM. Never derived from `vram_min` and never invented — an absent value is a reported data gap. |
@@ -85,10 +85,12 @@ Each entry in `models` has exactly this shape:
 | `engine_min_version` | no | **Engine minimum version / required flags** as stated by the post (e.g. `llama.cpp b6xxx, --n-gpu-layers 99`); many figures only reproduce on a specific build. |
 | `backends` | yes | Backends it runs on (CUDA, Metal, CPU, ROCm = AMD GPUs). Must include every backend its measurements render in — ingest adds it (`sync_backends`); AMD hardware (Radeon / RX / Strix Halo / ROCm) is ROCm whatever the engine. |
 | `supported_engines` | yes | **List of engines the model is supported by.** Each must have a measurement in `engines`. |
-| `engines` | yes | **Per-engine t/s measurements** — the core data. One entry per (engine, date). A measurement may ALSO carry the footprint of that run — `weight_gb`, `context_tokens`, `system_ram_min`, `storage_offload` (all optional, same meanings as above) — because one model's quants fit different cards and the README's card-fit tables are built from the measurement that produced each figure (issue #337). State them only when the post gives them for THAT run. |
+| `engines` | no | **Per-engine t/s measurements** — the core data. One entry per (engine, date). A measurement may ALSO carry the footprint of that run — `weight_gb`, `context_tokens`, `system_ram_min`, `storage_offload` (all optional, same meanings as above) — because one model's quants fit different cards and the README's card-fit tables are built from the measurement that produced each figure (issue #337). State them only when the post gives them for THAT run. **Not required by the schema**: in the shipped `#689` split store these live in `data/measurements.json`, not inline on the model row. |
 | `why` | yes | Why people love it. |
 | `engagement` | yes | X engagement: likes, comments, views, last_7d_likes. |
 | `last_seen` | yes | Last date the model was seen trending (YYYY-MM-DD). |
+| `engine_aliases` | no | Optional `{posted engine name: registry engine name}` for a model that only runs on a fork of an engine (applied at ingest and every sort). Never `required` (rule 3b). |
+| `measurement_model_aliases` | no | Optional list of **store model ids** whose names a measurement on this row may legitimately mention — the documented exception to the measurement-attribution refusal (issue #652). Never `required` (rule 3b). |
 
 ### About VRAM / Hugging Face metadata
 
