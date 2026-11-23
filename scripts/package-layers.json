@@ -167,6 +167,7 @@
       "hermes_skills_register",
       "hermes_smoke",
       "host_bot_capabilities",
+      "host_ci_monitor_wrapper",
       "issue_body",
       "issue_cleaner",
       "issue_dedup",

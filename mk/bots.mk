@@ -261,6 +261,13 @@ ci-monitor: ## Print the host CI monitor incident snapshot (issue #3013): comple
 
 ci-monitor-triage: ## The same snapshot, then ROUTE it (issue #3019): every MAIN-RED run and every PR-CHECKS incident's completed failed runs (resolved by head sha) go to the run-failure reactor in --file-only mode — one marker-deduped issue per failure, one TRIAGE-* verdict line per routing, dispatches nothing; DRY=1 previews without filing. The monitor tick's FIRST command
 	python3 scripts/ci_monitor.py --repo $(GH_REPO) --main-limit $(CI_MONITOR_MAIN_LIMIT) --max-age-hours $(CI_MONITOR_MAX_AGE_HOURS) --triage $(if $(DRY),--dry,)
+host-ci-monitor-install: ## Install the canonical monitor wrapper scripts/host_ci_monitor_wrapper.py byte-identically onto the host monitor-script paths (~/.hermes/scripts plus the monitor-profile scripts dirs that already exist); the host copies are mirrors, never hand-edited (issue #3016)
+	@for d in $(HOME)/.hermes/scripts $(HOME)/.hermes/profiles/llgenie-planner/scripts $(HOME)/.hermes/profiles/llgenie-ci-pipelines-maintainer/scripts; do \
+	  [ -d "$$d" ] || continue; \
+	  cp scripts/host_ci_monitor_wrapper.py "$$d/llgenie_ci_monitor.py"; chmod +x "$$d/llgenie_ci_monitor.py"; \
+	  echo "installed $$d/llgenie_ci_monitor.py"; \
+	done
+	@sha256sum scripts/host_ci_monitor_wrapper.py $(HOME)/.hermes/scripts/llgenie_ci_monitor.py $(HOME)/.hermes/profiles/llgenie-planner/scripts/llgenie_ci_monitor.py 2>/dev/null | awk '{print $$1}' | sort | uniq -c
 
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
