@@ -26,6 +26,10 @@
       `docs/changes.d/` fragment + `make changes-index` + README `make ci-monitor-triage` target
       entry (docs census gate `tests/test_check_docs.py`). (proven: make changes-index rc=0,
       make check-docs rc=0)
-- [ ] T7 Verify: targeted pytest files rc=0; `make lint check-wiring check-docs` rc=0;
+- [x] T7 Verify: targeted pytest files rc=0; `make lint check-wiring check-docs` rc=0;
       `make openspec-validate NAME=ci-monitor-pipeline-triage` rc=0; full `make test-unit` rc=0;
       `make ci-monitor-triage DRY=1` rc=0 against live gh reads (prints plan, files nothing).
+      (proven at head 0c5be99c676832a0e0267ba68c252fe083e3c4b7: pytest 48 passed targeted;
+      lint/check-wiring/check-docs/changes-index/openspec-validate rc=0; make test-unit rc=0,
+      4386 passed / 13638 deselected; make -s ci-monitor-triage DRY=1 rc=0, and live non-dry
+      filed #3020)
