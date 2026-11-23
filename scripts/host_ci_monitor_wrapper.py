@@ -21,6 +21,11 @@ Issue #3016 hardened two blind spots measured on the host:
 - When make exited 0 the wrapper wrote only `proc.stdout`, so `scripts/ci_monitor.py`'s
   `MONITOR-ERROR gh-fetch-failed` detail (a stderr line by spec) never reached the cron's stderr.
   make's stderr is now passed through in every outcome.
+
+The two subprocess sites carry `# proc-allow:` deliberately (issue #797 census): `make
+host-ci-monitor-install` copies this file standalone onto the host monitor-script paths
+(`llgenie_ci_monitor.py` under ~/.hermes), outside every repo tree — the scripts/proc.py seam it
+would import is not importable at the installed path. The wrapper stays dependency-free by design.
 """
 import os
 import subprocess
@@ -36,7 +41,7 @@ UPSTREAM = os.environ.get("LLGENIE_MONITOR_UPSTREAM", "https://github.com/asimov
 
 
 def _git(*args: str, timeout: int = 120) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(["git", *args], capture_output=True, text=True, timeout=timeout)  # proc-allow: standalone host copy (mk/bots.mk host-ci-monitor-install); the seam is not importable at the installed path (issue #797 census)
 
 
 def _refresh_detail(refresh: subprocess.CompletedProcess) -> str:
@@ -74,7 +79,7 @@ def main() -> int:
             print(f"MONITOR-ERROR clone-refresh-failed: {detail}", file=sys.stderr)
             print("MONITOR-ERROR clone-refresh-failed")
             return 0
-        proc = subprocess.run(
+        proc = subprocess.run(  # proc-allow: standalone host copy (mk/bots.mk host-ci-monitor-install); the seam is not importable at the installed path (issue #797 census)
             ["make", "-s", "ci-monitor"],
             cwd=REPO,
             capture_output=True,
