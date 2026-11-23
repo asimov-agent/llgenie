@@ -16,4 +16,5 @@ Keep the real model prompt as the last proof, but put two deterministic, key-fre
 
 ## Current status
 
-Implementation + tests on branch `feat/agent-image-runtime-proof-3015` for issue #3015, PR #3018. The owner dispatch itself is complete and green (issue #2935), so no new dispatch is required to verify this change's pipeline wiring until the next publish.
+Issue/PR acceptance ticks carry replayable `(proven: …)` evidence at the checked head, as required by the
+`check-pr-acceptance` gate (#745/#2288). Implementation + tests on branch `feat/agent-image-runtime-proof-3015` for issue #3015, PR #3018. The owner dispatch itself is complete and green (issue #2935), so no new dispatch is required to verify this change's pipeline wiring until the next publish.
