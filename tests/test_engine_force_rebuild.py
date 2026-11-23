@@ -8,7 +8,11 @@ nothing — which is exactly what it did before this change.
 from __future__ import annotations
 
 import subprocess
+import types
+import urllib.error
+import urllib.request
 
+from email.message import Message
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -44,6 +48,24 @@ def _record(monkeypatch, rc: int = 0) -> list[list[str]]:
     # Both policies record into the ONE list (see `_patch_shell`), so `calls` is one ordered list.
     _patch_shell(monkeypatch, sh)
     return calls
+
+
+def _package_state(monkeypatch, published: bool) -> list[str]:
+    """Stub the PACKAGE-existence probe (`_package_published`, issue #3017) and record its calls.
+
+    The write side's ladder asks a second registry question when the cache ref is absent. A test
+    that does not stub it would ask the real GHCR API over the network, so every test that drives
+    the absent-cache path stubs it here — `published=False` keeps the #1842/#1880 tolerance intent
+    pinned (the engine's package is not on the registry yet), `published=True` pins the seeding case.
+    """
+    seen: list[str] = []
+
+    def probe(ref: str) -> bool:
+        seen.append(ref)
+        return published
+
+    monkeypatch.setattr(ei, "_package_published", probe)
+    return seen
 
 
 def test_a_forced_build_passes_no_cache_and_drops_cache_from(monkeypatch, tmp_path):
@@ -158,13 +180,15 @@ def test_a_cache_write_build_stays_on_the_container_builder(monkeypatch, tmp_pat
 
 
 def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
-    """A never-seeded registry cache must not red the cell (issues #1842, #1880).
+    """A never-seeded registry cache must not red the cell (issues #1842, #1880, #3017).
 
     `--cache-from type=registry,ref=<missing>` makes buildx fail the whole build with
     `manifest unknown`, and `--cache-to type=registry,ref=<missing-package>` fails with
     `not found` when the engine's package is not on the registry yet. The read AND the
-    write must tolerate the absence: when the probe finds no cache image the build
-    proceeds cold (no --cache-from, no --cache-to) — a time cost, never a red cell.
+    write must tolerate the absence: when the probe finds no cache image AND the package
+    is not published, the build proceeds cold (no --cache-from, no --cache-to) — a time
+    cost, never a red cell. The package probe is stubbed ABSENT here: that is the state
+    this tolerance pins (issue #3017 splits the absent-cache case in two).
     """
 
     calls: list[list[str]] = []
@@ -179,8 +203,9 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    _package_state(monkeypatch, published=False)
 
-    # When an unforced build runs against a never-seeded cache
+    # When an unforced build runs against a never-seeded cache whose package is unpublished
     ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
     # Then the build is COLD: no --cache-from and no --cache-to (no manifest-unknown /
@@ -191,12 +216,12 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
 
 
 def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
-    """A never-seeded cache must not red a PUSH build either (issue #1880).
+    """A never-seeded cache must not red a PUSH build either (issue #1880, #3017).
 
     The AC1 failing cell (`engine-build-tensorfold-cuda` in the default sweep, run
     `42280478755`) is a PUSH build: `_buildx(..., push=True)` runs the
     `if push and REGISTRY:` branch that appends `_cache_write_args`. The write-side
-    tolerance must hold there too — when the engine's package is absent from the
+    tolerance must hold there too — when the engine's PACKAGE is absent from the
     registry (`buildcache-cuda: not found`), the push build proceeds cold with no
     `--cache-to` and no `--cache-from`, never red.
     """
@@ -213,8 +238,9 @@ def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_pat
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    _package_state(monkeypatch, published=False)
 
-    # When an unforced PUSH build runs against a never-seeded cache
+    # When an unforced PUSH build runs against a never-seeded cache whose package is unpublished
     ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
     # Then the PUSH build is COLD: no --cache-from and no --cache-to — a missing
@@ -256,12 +282,13 @@ def test_push_build_present_cache_still_writes_when_privileged(monkeypatch, tmp_
 
 
 def test_cache_write_args_tolerates_missing_package(monkeypatch):
-    """`_cache_write_args` returns [] when the engine's package is absent (issue #1880).
+    """`_cache_write_args` returns [] when the engine's package is absent (issue #1880, #3017).
 
     The write-side tolerance is the whole point of #1881: a `--cache-to
     type=registry,ref=<missing-package>` fails the WHOLE build with `not found` when
     the engine's package is not on the registry yet. Direct unit test of the function
-    (the push-path tests exercise it through `_buildx`; this pins the contract).
+    (the push-path tests exercise it through `_buildx`; this pins the contract) with the
+    package probe stubbed ABSENT — the state the tolerance is for.
     """
 
     calls: list[list[str]] = []
@@ -273,19 +300,24 @@ def test_cache_write_args_tolerates_missing_package(monkeypatch):
 
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    seen = _package_state(monkeypatch, published=False)
 
     # When the engine's package is absent from the registry
     args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
-    # Then no --cache-to is emitted (a cold build, never a red cell)
+    # Then no --cache-to is emitted (a cold build, never a red cell), and the ladder asked
+    # the package question exactly once (issue #3017)
     assert args == [], args
+    assert seen == ["ghcr.io/asimov-agent/llgenie/demo:buildcache"], seen
 
 
 def test_cache_write_args_emits_cache_to_when_present(monkeypatch):
-    """`_cache_write_args` emits --cache-to when the cache ref exists (issue #1880).
+    """`_cache_write_args` emits --cache-to when the cache ref exists (issue #1880, #3017).
 
     The tolerance only suppresses the failure when the package is absent; a present
-    cache ref must still be written (mode=max) for the next run.
+    cache ref must still be written (mode=max) for the next run — and it is written
+    WITHOUT asking the package question at all: the probe budget (issue #3017) says a
+    present cache never consults `_package_published`.
     """
 
     calls: list[list[str]] = []
@@ -296,6 +328,11 @@ def test_cache_write_args_emits_cache_to_when_present(monkeypatch):
 
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+
+    def never_ask(ref: str) -> bool:
+        raise AssertionError(f"a present cache ref must not consult the package probe: {ref}")
+
+    monkeypatch.setattr(ei, "_package_published", never_ask)
 
     # When the engine's package IS on the registry
     args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
@@ -352,6 +389,283 @@ def test_cache_exists_probe_contract(monkeypatch):
     monkeypatch.setattr(ei, "REGISTRY", "")
     assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
     assert calls2 == []
+
+
+class _Resp:
+    """Minimal stand-in for a `urlopen` response (the shape `_tags_list_http` uses)."""
+
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
+def _fake_registry(monkeypatch, *, tags_responses=None, token_error=None,
+                   token_payload=b'{"token": "anon-pull-token"}') -> list[str]:
+    """Stub the GHCR transport `_tags_list_http` uses, and record every URL it asked.
+
+    The seam asks two things: an anonymous pull-token exchange, then
+    `GET /v2/<package>/tags/list`. `tags_responses` is consumed one entry per tags call — a
+    bytes payload is the response body, an Exception is raised (an `HTTPError` for a registry
+    status, a `URLError` for a transport failure). Nothing here touches the network.
+    """
+    seen: list[str] = []
+    queue: list = list(tags_responses or [])
+
+    def urlopen(req, timeout=None, *a, **kw):
+        url = req.full_url if hasattr(req, "full_url") else str(req)
+        seen.append(url)
+        if "/token" in url:
+            if token_error is not None:
+                raise token_error
+            return _Resp(token_payload)
+        item = queue.pop(0) if queue else b'{"tags": ["demo"]}'
+        if isinstance(item, Exception):
+            raise item
+        return _Resp(item)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    return seen
+
+
+def _sleeps(monkeypatch) -> list[int]:
+    """Capture `_package_published`'s retry backoff instead of sleeping in the suite."""
+    slept: list[int] = []
+    monkeypatch.setattr(ei, "time", types.SimpleNamespace(sleep=slept.append))
+    return slept
+
+
+def test_package_published_true_when_the_package_has_tags(monkeypatch):
+    """`_package_published` is the GHCR tag-list question, and a published package answers YES.
+
+    Contract (issue #3017): exchange an anonymous pull token for
+    `repository:<package>:pull`, then `GET /v2/<package>/tags/list`. The question is about the
+    PACKAGE the cache tag would live under — not about the cache tag itself.
+    """
+
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    seen = _fake_registry(monkeypatch, tags_responses=[b'{"tags": ["demo", "demo-buildcache"]}'])
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is True
+    assert seen == [
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:asimov-agent/llgenie/demo:pull",
+        "https://ghcr.io/v2/asimov-agent/llgenie/demo/tags/list?n=1",
+    ], seen
+
+
+def test_package_published_false_for_an_unpublished_package_without_retrying(monkeypatch):
+    """A 404 tag list is a VERDICT about the package, not a transport failure (issue #3017).
+
+    The unpublished case is exactly the #1880 hard `not found`: the package has no manifest, so
+    `--cache-to` would fail the build. `_package_published` returns False on the FIRST 404 — the
+    retries are for unreachable-registry noise, and re-asking a 404 three times per cell would
+    triple the seam's registry calls for no information.
+    """
+
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    not_found = urllib.error.HTTPError(
+        "https://ghcr.io/v2/asimov-agent/llgenie/demo/tags/list?n=1", 404, "Not Found", Message(), None)
+    seen = _fake_registry(monkeypatch, tags_responses=[not_found, not_found, not_found])
+    _sleeps(monkeypatch)
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+    assert [u for u in seen if "/tags/list" in u] == \
+        ["https://ghcr.io/v2/asimov-agent/llgenie/demo/tags/list?n=1"], seen
+
+
+def test_package_published_false_when_the_package_has_no_tags(monkeypatch):
+    """A package whose tag list is EMPTY is treated as unpublished (fail-closed, #3017).
+
+    A package with no tag has nothing for buildx to layer a new cache tag onto; answering
+    "published" here would re-create the #1880 hard failure this change is meant to avoid.
+    """
+
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    _fake_registry(monkeypatch, tags_responses=[b'{"tags": []}'])
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+
+
+def test_package_published_retries_a_transport_failure_then_answers(monkeypatch):
+    """An unreachable registry is retried with backoff, and a later answer is used (#3017).
+
+    The measured live failure of the tag list is `URLError: <urlopen error ...>` — a Hub blip, not
+    a statement about the package (the same discipline as issue #3007 for the DEAD-candidate
+    probe). One retry succeeds, so the seeding decision is not lost to a blip.
+    """
+
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    slept = _sleeps(monkeypatch)
+    seen = _fake_registry(monkeypatch, tags_responses=[
+        urllib.error.URLError("connection reset"),
+        b'{"tags": ["demo"]}',
+    ])
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is True
+    assert len([u for u in seen if "/tags/list" in u]) == 2, seen
+    assert slept == [5], slept
+
+
+def test_package_published_fail_closed_when_the_registry_stays_unreachable(monkeypatch):
+    """After the retries the seam FAILS CLOSED: no write, build cold, cell not red (#3017).
+
+    An unreadable registry is not evidence that the package is published; emitting `--cache-to`
+    on that guess is what turns a Hub blip into the #1880 hard failure. The verdict stays
+    "not published" (skip the write) and the note is printed, never a silent skip (#1796).
+    """
+
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    slept = _sleeps(monkeypatch)
+    unreachable = urllib.error.URLError("no route to host")
+    seen = _fake_registry(monkeypatch, tags_responses=[unreachable, unreachable, unreachable])
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+    assert len([u for u in seen if "/tags/list" in u]) == 3, seen
+    assert slept == [5, 10], slept
+
+
+def test_package_published_false_without_a_registry(monkeypatch):
+    """No REGISTRY means no package question at all (local build, #3017)."""
+
+    monkeypatch.setattr(ei, "REGISTRY", "")
+    seen = _fake_registry(monkeypatch)
+
+    assert ei._package_published("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+    assert seen == []
+
+
+def test_cache_write_args_seeds_the_cache_when_the_package_is_published(monkeypatch, capsys):
+    """Ladder state 2: absent cache ref + published package EMITS the write (issue #3017).
+
+    This is the bug the issue was filed for. `--cache-to type=registry,ref=<missing-cache-tag>`
+    only hard-fails when the ref's parent PACKAGE is absent; a published package takes the new
+    `-buildcache` tag. The old code asked only the cache-ref question, which a never-seeded
+    namespace answers NO forever, so it could never seed (measured: runs 44404039696 /
+    44925052309 print the skip line and `asimov-agent/llgenie/edge0` has no `-buildcache` tag).
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 1)  # the cache ref itself is absent
+
+    _patch_shell(monkeypatch, sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    seen = _package_state(monkeypatch, published=True)
+
+    args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    assert args == ["--cache-to", "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,mode=max"], args
+    assert seen == ["ghcr.io/asimov-agent/llgenie/demo:buildcache"], seen
+    out = capsys.readouterr().out
+    assert "seeding it (package published)" in out, out
+    assert "cache write skipped" not in out, out
+
+
+def test_a_push_build_seeds_a_never_seeded_cache_for_a_published_package(monkeypatch, tmp_path, capsys):
+    """The publish lane seeds the namespace on its first cold build (issue #3017).
+
+    Same shape as the #1880 tolerance test (imagetools probe rc 1) with the PACKAGE published:
+    the push build gets `--cache-to` back — no `--cache-from` (nothing to read), the write in
+    `mode=max`, and the seeding note printed once.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    _patch_shell(monkeypatch, sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    seen = _package_state(monkeypatch, published=True)
+
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    build = next(c for c in calls if "--push" in c)
+    assert "--cache-from" not in build, build
+    assert "--cache-to" in build, build
+    assert "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,mode=max" in build, build
+    # one cache-ref probe, one package question
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+    assert len(seen) == 1, seen
+    assert "seeding it (package published)" in capsys.readouterr().out
+
+
+def test_a_privileged_local_build_seeds_a_never_seeded_cache(monkeypatch, tmp_path):
+    """The CACHE_WRITE=1 owner-guarded local build seeds too (issue #3017).
+
+    The local branch reaches the same ladder through `if CACHE_WRITE:`. Absent cache ref +
+    published package -> `--cache-to mode=max` is emitted (and the read side still builds cold
+    with its own single printed note).
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        if "imagetools" in cmd:  # the _cache_exists probe -> absent
+            return subprocess.CompletedProcess(cmd, 1)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    _patch_shell(monkeypatch, sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    seen = _package_state(monkeypatch, published=True)
+
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    build = calls[-1]
+    assert "--cache-from" not in build, build
+    assert "--cache-to" in build, build
+    assert "mode=max" in " ".join(build), build
+    assert len(seen) == 1, seen
+
+
+def test_no_package_probe_for_a_forced_or_read_only_build(monkeypatch, tmp_path):
+    """Probe budget: a build that writes nothing never asks the package question (issue #3017).
+
+    A forced build consults neither cache side; a read-only local build (CACHE_WRITE unset) only
+    reads. `_package_published` must not be called on either path — the package question exists
+    only to decide a WRITE, so the sweep's normal cold reads stay one-probe builds.
+    """
+
+    def never_ask(ref: str) -> bool:
+        raise AssertionError(f"no write is being decided for {ref}: the package probe must not run")
+
+    for kwargs, label in (
+        ({"force": True, "push": False}, "forced local build"),
+        ({"force": False, "push": False}, "read-only local build"),
+    ):
+        calls: list[list[str]] = []
+
+        def sh(cmd, **kw):
+            calls.append(list(cmd))
+            probe = any("imagetools" in a for a in cmd)
+            return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+        _patch_shell(monkeypatch, sh)
+        monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+        monkeypatch.setattr(ei, "CACHE_WRITE", kwargs["force"])  # forced: CACHE_WRITE on, still no write
+        monkeypatch.setattr(ei, "_package_published", never_ask)
+
+        ei._buildx("llgenie/demo:t", str(tmp_path), kwargs["push"],
+                   "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=kwargs["force"])
+
+        build = calls[-1]
+        assert "--cache-to" not in build, (label, build)
+        assert "--cache-from" not in build, (label, build)
 
 
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
@@ -411,13 +725,14 @@ def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_pat
 
 
 def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_path, capsys):
-    """Non-push privileged build still tolerates a missing package (issue #1880).
+    """Non-push privileged build still tolerates a missing package (issue #1880, #3017).
 
     The write tolerance lives on `_cache_write_args`, reached on the non-push path at
-    `if CACHE_WRITE: cmd += _cache_write_args(cache_ref)` (line ~279-280). When the
-    engine's package is absent from the registry (probe rc 1), a CACHE_WRITE=1 local
-    build must build cold and skip the cache WRITE (no `--cache-to`) without red — this
-    is the verification-only owner-guarded dispatch reading a not-yet-published engine.
+    `if CACHE_WRITE: cmd += _cache_write_args(cache_ref)`. When the engine's package is
+    absent from the registry (cache probe rc 1 AND the package probe says unpublished), a
+    CACHE_WRITE=1 local build must build cold and skip the cache WRITE (no `--cache-to`)
+    without red — this is the verification-only owner-guarded dispatch reading a
+    not-yet-published engine.
     """
 
     calls: list[list[str]] = []
@@ -431,6 +746,7 @@ def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_p
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    seen = _package_state(monkeypatch, published=False)
 
     # When a privileged non-push build runs against a missing cache ref
     ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
@@ -442,10 +758,12 @@ def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_p
     assert "--no-cache" not in build  # unforced: it is a real build but not a force rebuild
     # and the cold-read decision is printed EXACTLY once — the local branch reuses the probe
     # computed once at the top of _buildx rather than re-invoking the read helper (a fix that
-    # previously double-printed the cold note on non-push builds).
+    # previously double-printed the cold note on non-push builds). The package question is asked
+    # once too, for the write decision only (issue #3017).
     err = capsys.readouterr()
     read_notes = [l for l in err.out.splitlines() if "cache read skipped" in l]
     assert len(read_notes) == 1, err.out
+    assert len(seen) == 1, seen
 
 
 def test_a_nonpush_privileged_build_probes_the_cache_once(monkeypatch, tmp_path):
@@ -500,11 +818,11 @@ def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
 
 
 def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
-    """A forced PUSH build with a missing package still writes cold, never red (#1880).
+    """A forced PUSH build with a missing package still writes cold, never red (#1880, #3017).
 
     On a force push build (`force=True, push=True`), `_cache_write_args` is still
     appended to the command (the write path is not skipped by force). When the engine's
-    package is absent from the registry (`buildcache-cuda: not found`), the write
+    PACKAGE is absent from the registry (`buildcache-cuda: not found`), the write
     tolerance must hold there too: no `--cache-to`, no `--cache-from` (force never reads),
     and the build proceeds — a time cost, never a red cell.
     """
@@ -520,8 +838,9 @@ def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
     _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
+    _package_state(monkeypatch, published=False)
 
-    # When a forced PUSH build runs against a never-seeded cache
+    # When a forced PUSH build runs against a never-seeded cache whose package is unpublished
     ei._buildx("llgenie/demo:t", str(tmp_path), True,
                "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=True)
 
