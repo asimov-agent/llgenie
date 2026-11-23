@@ -4,11 +4,11 @@ description: "Use when installing NVIDIA TensorRT-LLM (Linux, Ampere+ CUDA 13 wh
 engine: "TensorRT-LLM"
 id: tensorrt-llm
 repo: https://github.com/NVIDIA/TensorRT-LLM
-ref: v1.2.1
+ref: v1.3.0
 ref_kind: tag
-version: v1.2.1
-pinned: 376f7e1bd8ed543f75014309e3fd4b237e9b0e73
-verified: "2026-10-05"
+version: v1.3.0
+pinned: c66df86d8aab46949d25e072edce20a541f7aea6
+verified: "2026-11-23"
 license: Apache-2.0
 servable: true
 backends: [cuda]

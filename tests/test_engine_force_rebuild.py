@@ -1009,7 +1009,7 @@ def test_a_gpu_only_engine_still_gets_latest(monkeypatch):
 
     # Given a cuda-only engine
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
-    spec = {"id": "tensorrt-llm", "tag": "llgenie/tensorrt-llm:376f7e1b-114ad59a-cuda",
+    spec = {"id": "tensorrt-llm", "tag": "llgenie/tensorrt-llm:c66df86d-114ad59a-cuda",
             "variant": "cuda", "params_file": "containers/engines/params/tensorrt-llm.json"}
 
     # When  its refs are read
