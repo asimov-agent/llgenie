@@ -36,6 +36,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -211,6 +212,65 @@ def _cache_exists(cache_ref: str) -> bool:
     return _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
 
 
+def _tags_list_http(ref: str) -> tuple:
+    """The tag list of the PACKAGE `ref` lives under: (tags | None, verdict, reason).
+
+    `verdict` is `"ok"` (a list, possibly empty), `"absent"` (the package has no manifest: HTTP 404)
+    or `"error"` (registry unreachable). GHCR read pattern reused from `_digest_http`: an anonymous
+    pull-token exchange, then `GET /v2/<package>/tags/list?n=1` — measured live 2026-11-23 against
+    `asimov-agent/llgenie/edge0` (200 + tags) and an unpublished package name (404).
+    """
+    host, _, rest = ref.partition("/")
+    name, _, _tag = rest.rpartition(":")
+    try:
+        tok = urllib.request.urlopen(
+            f"https://{host}/token?service={host}&scope=repository:{name}:pull", timeout=30).read()
+        token = json.loads(tok)["token"]
+    except urllib.error.HTTPError as e:  # noqa: BLE001 - a rejected scope is not a published package
+        return None, "absent", str(e)[-200:]
+    except Exception as e:  # noqa: BLE001 - no token means the registry is unreachable
+        return None, "error", str(e)[-200:]
+    req = urllib.request.Request(f"https://{host}/v2/{name}/tags/list?n=1", headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read()).get("tags") or [], "ok", ""
+    except urllib.error.HTTPError as e:  # 404 = the package was never published
+        return None, ("absent" if e.code == 404 else "error"), str(e)[-200:]
+    except Exception as e:  # noqa: BLE001 - an unreachable registry is not a verdict about the package
+        return None, "error", str(e)[-200:]
+
+
+def _package_published(cache_ref: str, attempts: int = 3) -> bool:
+    """True when the image PACKAGE the cache ref lives under is published on the registry.
+
+    The write side's question is not "does the cache tag exist" (that is the read probe's question,
+    and a never-seeded cache answers it NO forever) but "does buildx have a package to create the
+    cache tag under". The #1880 hard `not found` fires only when the PACKAGE is absent; a package
+    that exists with any tag can take a new `-buildcache` tag. So the seeding decision reads the
+    package's tag list, not the cache ref's manifest (issue #3017).
+
+    Fail-closed: an absent package, an empty tag list, or a registry that stays unreachable after
+    the retries all mean "not published" — the same skip the seam performs today.
+    """
+    if not REGISTRY:
+        return False
+    reason = ""
+    for i in range(attempts):
+        tags, verdict, reason = _tags_list_http(cache_ref)
+        if verdict == "ok":
+            return bool(tags)
+        if verdict == "absent":
+            return False
+        if i + 1 < attempts:
+            print(f"[engine-image] package lookup for {cache_ref} failed "
+                  f"(attempt {i + 1}/{attempts}): {reason}; retrying", flush=True)
+            time.sleep(5 * (i + 1))
+    print(f"[engine-image] package lookup for {cache_ref} unreadable after {attempts} attempts: "
+          f"{reason}", flush=True)
+    return False
+
+
 def _cache_read_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     """`--cache-from type=registry` for the read, tolerating a never-seeded cache image.
 
@@ -236,29 +296,45 @@ def _cache_read_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     return ["--cache-from", f"type=registry,ref={cache_ref}"]
 
 
-def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
-    """`--cache-to type=registry` for the write, tolerating an engine whose package is not on GHCR.
+def _cache_write_args(cache_ref: str, exists: bool | None = None,
+                      package_exists: bool | None = None) -> list[str]:
+    """`--cache-to type=registry` for the write, decided by a ladder and not by the read probe.
 
-    The read side already builds COLD when the cache ref is absent (#1842). The write side has the
-    same hazard in reverse: `--cache-to type=registry,ref=<missing-package>` fails the WHOLE build
-    with `not found` when the engine's package does not exist on the registry yet (e.g. tensorfold's
-    `buildcache-cuda` before its first publish, issue #1880) — the ref's parent image namespace is
-    not there for buildx to create the cache under. We probe the ref with the same
-    `docker buildx imagetools inspect` the read uses; when the image is absent we build COLD and
-    skip the cache write (a printed note, not a silent skip, #1796). The cache is seeded as soon as
-    the engine's package exists on the registry (a later publish), so the write is only ever skipped
-    for an engine that has never been published at all.
+    Three states, one decision each (issue #3017):
 
-    `exists` threads a probe result already computed by the caller — `_buildx` probes the ref
-    ONCE at the top and passes the result to BOTH the read and the write, on the push and the
-    local branches alike, so the probe is never issued twice per build.
+    1. the cache image EXISTS -> the write is emitted unchanged (today's behaviour: the namespace is
+       replayed and re-exported for the next run);
+    2. the cache image is ABSENT and the engine's PACKAGE is published on the registry -> the write
+       IS emitted: this is the seeding build. `--cache-to type=registry,ref=<missing-cache-tag>`
+       only hard-fails when the ref's parent PACKAGE is not there for buildx to create the tag under
+       (#1880), so a published package takes the new tag and the namespace finally exists;
+    3. the cache image is ABSENT and the PACKAGE has never been published -> build COLD with no
+       write, the #1880 tolerance the note records.
+
+    The write side used to share the read side's single probe of the cache ref, which conflated
+    states 2 and 3: a namespace that has never been seeded answers that probe NO forever, so it can
+    never seed and every rebuild stays cold (measured: runs 44404039696 / 44925052309 print the skip
+    line and `asimov-agent/llgenie/edge0` carries no `-buildcache` tag). State 2 is now asked with
+    `_package_published`, the package's tag list.
+
+    `exists` threads a probe result already computed by the caller — `_buildx` probes the cache ref
+    ONCE at the top and passes the result to BOTH the read and the write, on the push and the local
+    branches alike, so the probe is never issued twice per build. `package_exists` follows the same
+    rule: when it is not threaded, this function asks the registry at most once, and only on the
+    absent-cache branch (a present cache never consults it).
     """
     if exists is None:
         exists = _cache_exists(cache_ref)
-    if not exists:
+    if exists:
+        return ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
+    if package_exists is None:
+        package_exists = _package_published(cache_ref)
+    if not package_exists:
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache write skipped; #1880)",
               flush=True)
         return []
+    print(f"[engine-image] registry cache {cache_ref} absent -> seeding it (package published)",
+          flush=True)
     return ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
 
 
@@ -290,6 +366,10 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False,
     # also short-circuits (no probe) when REGISTRY is unset. `cache_args` (the read side) is
     # computed only where it is used: the push branch appends it; the local branch builds its
     # own read args at the point of use, so computing it here would double-call the helper.
+    # The package-existence probe (issue #3017, the seeding case) is not threaded here on purpose:
+    # it is reached INSIDE `_cache_write_args` only when a write is actually being decided AND the
+    # cache ref is absent, so a build issues at most one cache-ref probe and one package probe, and
+    # a forced / read-only / present-cache build issues neither.
     cache_exists = _cache_exists(cache_ref) if ((push or not force) and not no_cache_export) else False
     cache_args = [] if (force or not push) else _cache_read_args(cache_ref, cache_exists)
     no_cache = ["--no-cache"] if force else []
