@@ -21,9 +21,11 @@ Covers scripts/engine_alias_move.py (make engine-alias-move):
     build dispatch for manifest-unknown ([select]) cells only.
 """
 import hashlib
+import inspect as pyinspect
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -298,3 +300,72 @@ def test_make_target_and_liveness_heal_are_wired():
     assert "packages: write" in wf, "manifest moves need the same-repo packages:write scope"
     dispatch_region = wf[dispatch:]
     assert "[select]" in dispatch_region, "manifest-unknown cells keep the build dispatch"
+
+
+# --- issue #3010: the LIVE fetch seam must capture, or the byte gate hashes b'' ---
+
+def test_the_default_fetch_seam_is_the_capturing_policy():
+    """The live heal hashed EMPTY bytes because move_alias's default fetch seam was
+    proc.run_live, whose own docstring states stdout/stderr on the returned process
+    are None (it streams, it never captures). The default seam must be the capturing
+    policy proc.run_ok."""
+    default_run = pyinspect.signature(am.move_alias).parameters["run"].default
+    assert default_run is am.proc.run_ok, \
+        "the default fetch seam must capture stdout (proc.run_ok); the streaming seam " \
+        "proc.run_live leaves stdout None and the byte gate then hashes b'' (#3010)"
+    src = (REPO / "scripts" / "engine_alias_move.py").read_text(encoding="utf-8")
+    assert "= proc.run_live" not in src, \
+        "no signature default may bind the streaming seam: the heal path must capture"
+
+
+def test_a_non_capturing_seam_is_refused_by_name_not_hashed(capsys):
+    """stdout=None (the run_live shape) is a named refusal — 'the fetch seam captured
+    nothing' — never a digest mismatch: #3010's live failure line read 'the fetched
+    bytes hash to sha256:e3b0c442…', the SHA-256 of the empty string."""
+    engine, variant, suffix, _target = _cell()
+    _ran, probes, puts, _run, probe, put = _recorder(PIN)
+
+    def streaming(cmd, **kw):
+        return subprocess.CompletedProcess(list(cmd), 0, None, None)
+
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=streaming, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "the fetch seam captured nothing" in out
+    assert "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" not in out, \
+        "an empty capture must never masquerade as a digest mismatch"
+    assert puts == [] and probes == [], "a refused seam hashes nothing and writes nothing"
+
+    def empty(cmd, **kw):
+        return subprocess.CompletedProcess(list(cmd), 0, "", "")
+
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=empty, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 1 and "the fetch seam captured nothing" in out
+    assert puts == [] and probes == []
+
+
+def test_the_real_capture_policy_passes_the_byte_gate_end_to_end(tmp_path, capsys):
+    """The capture policy is proven against a REAL subprocess: the fetch command is
+    swapped for a stub emitting the pin manifest's exact bytes, executed through the
+    actual proc.run_ok; the byte gate passes on captured bytes and the PUT body is
+    byte-identical (no docker, no registry)."""
+    engine, variant, suffix, target = _cell()
+    repo = target.rpartition(":")[0]
+    name_path = repo.partition("/")[2]
+    stub = tmp_path / "stub_inspect.py"
+    stub.write_text(f"import sys\nsys.stdout.buffer.write({MANIFEST_BYTES!r})\n",
+                    encoding="utf-8")
+    _ran, probes, puts, _r, probe, put = _recorder(PIN)
+
+    def seam(cmd, **kw):
+        return am.proc.run_ok([sys.executable, str(stub)])
+
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=seam, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 0 and f"[alias-move] MOVED {target} -> {PIN}" in out
+    assert puts == [(name_path, variant, MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io")], \
+        "the captured bytes pass the byte gate and reach the PUT byte-identically"
