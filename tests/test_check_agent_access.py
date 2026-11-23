@@ -62,7 +62,7 @@ def test_a_deleted_section_fails_the_gate(tmp_path):
 
     def cut(text: str) -> str:
         start = text.index(gate.HEADING_PREFIX)
-        end = text.index("## Hermes cron jobs never run on the host", start)
+        end = text.index("## Host cron: a blanket ban plus exactly one named exception (MANDATORY, durable)", start)
         return text[:start] + text[end:]
 
     _agents(root, cut)

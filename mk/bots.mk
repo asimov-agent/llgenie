@@ -253,6 +253,12 @@ check-zero-job-pending: ## Fail when a dispatched run has been pending/queued lo
 check-stalled-jobs: ## Name runs with an in_progress job past its budget while sibling jobs concluded (the #2992 hung-job wedge: run 44863652918 idled 26 min on linux/unit and silenced the verdict + merge sweep); budget = 1.25x median job wall time, floor 15 min, 60-min fallback without history; FILE=1 posts ONE deduped comment on the run head's PR; CANCEL=1 additionally CANCELS each classified stalled PR-head run (issue #2997 cancel policy: live re-read before every cancel, OPEN non-draft PR heads only, benign-race tolerant; off by default — without the knob the watchdog names only)
 	python3 scripts/stalled_job_watchdog.py --repo $(GH_REPO) $(if $(MINUTES),--fallback-minutes $(MINUTES),) $(if $(filter 1,$(FILE)),--file,) $(if $(filter 1,$(CANCEL)),--cancel-stalled,)
 
+CI_MONITOR_MAIN_LIMIT ?= 50
+CI_MONITOR_MAX_AGE_HOURS ?= 72
+
+ci-monitor: ## Print the host CI monitor incident snapshot (issue #3013): completed main runs that failed/cancelled/timed out (updated within CI_MONITOR_MAX_AGE_HOURS), open non-draft PRs with failing checks, DIRTY/BEHIND merge states, CHANGES_REQUESTED reviews; MONITOR-OK on a clean board. Byte-stable, read-only gh reads — the Hermes monitor cron's --monitor-script wraps this target; CI_MONITOR_MAIN_LIMIT/CI_MONITOR_MAX_AGE_HOURS override the windows
+	python3 scripts/ci_monitor.py --repo $(GH_REPO) --main-limit $(CI_MONITOR_MAIN_LIMIT) --max-age-hours $(CI_MONITOR_MAX_AGE_HOURS)
+
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
 	$(call scrubbed_run,img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py latest agent; fi); echo "agent image: $$img"; $(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) "$$img" bash -lc 'scripts/agent_jev_preflight.sh && FIX_REPORT_FILE="$(REPORT_FILE)" scripts/fix_loop.sh'; $(if $(LOG),cp -f $(HERMES_LOG_SCRUBBED) $(LOG),true))

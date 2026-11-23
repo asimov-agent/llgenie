@@ -1466,27 +1466,57 @@ An elevated run is an audited run:
   (`agents/llgenie-issse-implementer/skills/agent-github-access/SKILL.md`); runtime streams are
   covered by the transcript-redaction rule above. `make agent-access-report` prints what it reads.
 
-## Hermes cron jobs never run on the host (MANDATORY, durable)
+## Host cron: a blanket ban plus exactly one named exception (MANDATORY, durable)
 
-No Hermes profile cron job may dispatch on this host — not the planner's tick, not auto-approve,
-not auto-rebase, not any lane monitor. The host is where the agent works interactively, one
-issue/PR at a time; a cron-dispatched agent run races the interactive one, fans out into parallel
-sub-agent lanes, and feeds the kanban board the very parallelism this repo forbids (one task at a
-time). Measured on 2026-11-14: three active planner cron legs plus gateway-spawned kanban/cron
-workers were dispatching on the host while the interactive session worked the same board.
+Owner decision (2026-11-14; amended 2026-11-22 by issue #3013): Hermes profile cron machinery must
+not fan out on this host. The host is where the agent works interactively, one issue/PR at a time;
+a cron-dispatched agent run races the interactive one, fans out into parallel sub-agent lanes, and
+feeds the kanban board the very parallelism this repo forbids (one task at a time). Measured on
+2026-11-14: three active planner cron legs plus gateway-spawned kanban/cron workers were
+dispatching on the host while the interactive session worked the same board. The 2026-11-14 sweep
+removed the watchdog cron WITHOUT a replacement, which left red pipelines unnoticed until a human
+spotted them; issue #3013 restores monitoring as exactly ONE owner-sanctioned job under the
+contract below — every other cron stays banned.
 
-- **Scheduled bot legs live in CI** (`.github/workflows` `schedule:` lanes, the `scrubbed_run`
-  container legs) or are dispatched by the interactive agent itself one at a time — never by a
-  Hermes profile cron store on the host.
-- **Every Hermes profile cron store on this host stays empty or paused**: `~/.hermes/cron/` and
-  `~/.hermes/profiles/*/cron/` carry no `[active]` job. When sweeping, check
-  `hermes -p <profile> cron list` for every profile; a live job is stopped (`cron pause`) before
-  any other work proceeds, and its kanban cards are cancelled, never left queued for a worker.
+- **No Hermes cron job may dispatch on this host except the single CI monitor job** —
+  `llgenie-ci-monitor` on the `llgenie-ci-pipelines-maintainer` profile (issue #3013, contract in
+  the next section). Every other cron store stays empty or paused: `~/.hermes/cron/` and
+  `~/.hermes/profiles/*/cron/` carry no `[active]` job beyond it. When sweeping, check
+  `hermes -p <profile> cron list` for every profile; an unsanctioned live job is stopped (`cron
+  pause`) before any other work proceeds, and its kanban cards are cancelled, never left queued
+  for a worker. No scheduled planner, no auto-rebase cron, no auto-approve cron — none of them —
+  regardless of how a job was created.
+- **Scheduled bot legs still live in CI** (`.github/workflows` `schedule:` lanes, the `scrubbed_run`
+  container legs) or are dispatched by the interactive agent itself one at a time. The monitor
+  exception schedules only the triage loop defined below; it is not a bot leg and it never runs a
+  pipeline.
 - **No lane may be launched through the host kanban worker pool** (the gateway's
   `kanban_worker_client` / `agent.managed_worker` spawn loop): an empty, non-claimable board is
-  the steady state between tasks.
+  the steady state between tasks. The monitor exception dispatches at most ONE agent run per tick
+  and never touches the worker pool.
 - Hermes profile cron machinery is exercised ONLY in CI/test fixtures (e.g. the planner-cron ACs
-  run as bounded `cron run` proofs or containerised tests, never as a live host scheduler).
+  run as bounded `cron run` proofs or containerised tests); the one live host scheduler entry is
+  `llgenie-ci-monitor`.
+
+### The CI monitor job's contract (issue #3013)
+
+The single sanctioned host cron job watches the pipelines through the repo and wakes the agent only
+when something actually needs attention:
+
+- Its `--monitor-script` wraps `make ci-monitor` (`scripts/ci_monitor.py`): a read-only,
+  byte-stable incident snapshot — completed `main` runs that `failure`/`cancelled`/`timed_out`,
+  open non-draft PRs with failing check buckets, `DIRTY`/`BEHIND` merge states,
+  `CHANGES_REQUESTED` review decisions, and `MONITOR-OK` when nothing needs attention. In-flight
+  states are not incidents; the snapshot carries no timestamps.
+- An unchanged snapshot suppresses the agent run entirely; a changed snapshot dispatches exactly
+  ONE agent run — never fan-out, worker pools, or sub-agent lanes.
+- That run acts per this file: triage each incident (read failed job logs, find root causes, file
+  six-section issues for new defects, OpenSpec change first, own worktree, `make` gates locally,
+  arm the PR green + `CLEAN`); it never hand-merges and never pumps queues (no reruns, no
+  dispatches, no re-triggers); it leaves draft PRs alone.
+- When the snapshot is `MONITOR-OK` and an open board issue has no PR yet, the same single run
+  picks up the next open board issue end-to-end (issue → OpenSpec change → worktree → code → PR) —
+  still one lane at a time, the monitor exception never becomes a second concurrent lane.
 
 ## CI pipeline discipline: weekly engine/registry lane only, tests-only main pipeline, Hermes in agent-image lanes only (mandatory, durable)
 

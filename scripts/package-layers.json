@@ -156,6 +156,7 @@
       "bots_restore_health",
       "check_agent_model_catalog",
       "ci_frozen_reaper",
+      "ci_monitor",
       "code_review",
       "engine_skill_scaffold",
       "fetch_smoke",
@@ -344,6 +345,11 @@
       "from": "ci_images",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "ci_monitor",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the CI monitor reads GitHub through gh via it by design (issue #3013)."
     },
     {
       "from": "ci_verdict",

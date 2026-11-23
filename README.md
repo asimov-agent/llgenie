@@ -423,6 +423,12 @@ make check-file-hygiene       # CI: fail when a committed file matches a runtime
 make file-hygiene-report      # show every committed `*.log`/dot-scratch artifact and stale hygiene
                               # exception, plus the dated exception fixture (issue #2484)
 make wiring-report            # show how every test/script is wired (which target, whether CI runs it)
+make ci-monitor               # host: print the CI monitor incident snapshot — completed main runs
+                              # concluding failure/cancelled/timed_out (within the age window), open
+                              # PRs with failing checks, DIRTY/BEHIND merge states, CHANGES_REQUESTED
+                              # reviews; MONITOR-OK clean, MONITOR-ERROR gh-fetch-failed on a read
+                              # failure. Byte-stable stdout; the one sanctioned Hermes monitor cron
+                              # wraps it (issue #3013)
 ```
 
 Every check needs exactly one `make` path, and CI must be the one that runs it — so the
