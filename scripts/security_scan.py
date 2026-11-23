@@ -620,8 +620,11 @@ def scan_image(ref: str, slug: str = "target") -> int:
     committed secrets and IaC misconfigurations are the tree scans' domain), Syft writes the image
     SBOM, Grype matches exactly that SBOM — the same three-stage shape as the tree scan. The target
     is a registry ref, so the mount the containers need is the reports dir (`/reports`), not the
-    checkout. The exact ref scanned is recorded in `image-<slug>.meta.json` so `findings()` can
-    name the image.
+    checkout. The exact ref scanned is recorded in `image-<slug>.meta.json` BEFORE the scanners run,
+    so `findings()` can name the image even when a scanner stage dies mid-scan (issue #3036): the
+    record is written once the ref and slug are validated, never after the trivy/Syft/Grype chain,
+    because a stage that raises (issue #2609's registry refusal) would otherwise leave a report whose
+    image nobody can attribute.
     """
     if not re.search(r"@sha256:[0-9a-f]{64}$", ref or ""):
         raise SystemExit(f"[security-scan] image scan target {ref!r} is not digest-pinned — pass "
@@ -629,6 +632,9 @@ def scan_image(ref: str, slug: str = "target") -> int:
     if not IMAGE_SLUG_RE.fullmatch(slug):
         raise SystemExit(f"[security-scan] image slug {slug!r} is not a lowercase slug")
     REPORTS.mkdir(parents=True, exist_ok=True)
+    (REPORTS / f"image-{slug}.meta.json").write_text(
+        json.dumps({"ref": ref, "scanned_at": _dt.date.today().isoformat()}, indent=2) + "\n",
+        encoding="utf-8")
     volumes = [f"{REPORTS.resolve()}:/reports:rw"]
     rc = _run(["image", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln",
                "--timeout", "30m",  # CUDA-scale base layers exceed trivy's default 10m analysis
@@ -639,9 +645,6 @@ def scan_image(ref: str, slug: str = "target") -> int:
     rc |= _run([f"sbom:/reports/image-{slug}.cdx.json", "-o", "json",
                 "--file", f"/reports/image-{slug}.grype.json"], image_ref("grype"),
                volumes=volumes)
-    (REPORTS / f"image-{slug}.meta.json").write_text(
-        json.dumps({"ref": ref, "scanned_at": _dt.date.today().isoformat()}, indent=2) + "\n",
-        encoding="utf-8")
     return rc
 
 
@@ -655,6 +658,34 @@ def _resolve_engine_ref(engine: str, variant: str) -> str:
         import engine_image as _ei  # type: ignore
     spec = _ei.resolve(engine, None, variant)
     return f"{_ei.REGISTRY}/{spec['tag']}"
+
+
+def image_owner(ref: str, manifest: dict | None = None) -> dict | None:
+    """The `containers/scanned-images.json` entry that named this ref, or None (issue #3036).
+
+    A finding that lives inside a published image is fixed by whoever owns that image, not by a
+    dependency pin, so the issue body needs the entry and its `owner` (the Dockerfile or params file
+    that publishes it). Matching drops the `@sha256:` digest — the manifest names refs and the scan
+    addresses them by digest (issue #2706) — and an `engine`+`variant` entry is resolved through the
+    same `_resolve_engine_ref` the scan itself used, so the answer is the current pin, never a stale
+    literal.
+    """
+    named = (ref or "").split("@", 1)[0]
+    if not named:
+        return None
+    for entry in (manifest or scanned_images()).get("images") or []:
+        if entry.get("engine"):
+            variant = str(entry.get("variant") or "")
+            # An engine entry's tag is always `<hash>-<variant>`; skip the resolution for entries
+            # that cannot be this ref (the resolve reads the committed engine params each time).
+            if variant and not named.endswith(f"-{variant}"):
+                continue
+            candidate = _resolve_engine_ref(str(entry["engine"]), variant)
+        else:
+            candidate = str(entry.get("ref") or "")
+        if candidate and candidate.split("@", 1)[0] == named:
+            return entry
+    return None
 
 
 def resolve_scan_targets(manifest: dict | None = None) -> list[tuple[str, str]]:
@@ -852,16 +883,24 @@ def findings(reports: Path | None = None) -> list[dict]:
     for path in sorted(reports.glob("image-*.trivy.json")) + sorted(reports.glob("image-*.grype.json")):
         reader = _trivy_findings if path.name.endswith(".trivy.json") else _grype_findings
         meta = reports / f"{path.name.split('.')[0]}.meta.json"
-        image = ""
-        if meta.is_file():
-            try:
-                image = str(json.loads(meta.read_text(encoding="utf-8")).get("ref") or "")
-            except json.JSONDecodeError:
-                raise SystemExit(f"[security-scan] {meta} does not parse — the run is not green")
+        # An image report with no record of WHICH image it scanned is a broken run, never an
+        # untagged finding: untagged, it falls through `component_of` into its package family and is
+        # filed as a checkout dependency the repository cannot pin (issue #3036, measured on the
+        # agent-image finding filed as #3025 `component:python`).
+        if not meta.is_file():
+            raise SystemExit(f"[security-scan] {path} has no {meta.name} — an image report whose "
+                             "image is not recorded cannot be attributed, and an unattributed image "
+                             "finding is filed as a dependency issue (issue #3036)")
+        try:
+            image = str(json.loads(meta.read_text(encoding="utf-8")).get("ref") or "")
+        except json.JSONDecodeError:
+            raise SystemExit(f"[security-scan] {meta} does not parse — the run is not green")
+        if not image:
+            raise SystemExit(f"[security-scan] {meta} names no ref — {path} cannot be attributed "
+                             "to an image (issue #3036)")
         try:
             for item in reader(json.loads(path.read_text(encoding="utf-8"))):
-                if image:
-                    item["image"] = image
+                item["image"] = image
                 out.append(item)
         except json.JSONDecodeError:
             raise SystemExit(f"[security-scan] {path} does not parse — the run is not green")

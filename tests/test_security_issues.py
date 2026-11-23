@@ -16,10 +16,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 from scripts import security_issues as si
+from scripts import security_scan as ss
 
 POLICY = {"fail_on": ["critical", "high"], "pr_fail_on": ["critical"],
           "require_fix": True, "issue_severities": ["critical", "high"]}
-#: Every label a finding can carry: what the stub answers when a label read-back is requested.
+#: Every label a finding can carry: the roster the label tests seed an issue with.
 LOUD = ("security,vulnerability,severity:critical,severity:high,component:python,"
         "component:container,auto-fixable")
 TRIVY = {"Results": [{"Vulnerabilities": [
@@ -40,28 +41,81 @@ def _reports(tmp_path: Path, payload: dict = TRIVY) -> Path:
 
 
 def _gh_stub(tmp_path: Path, monkeypatch) -> Path:
-    """A real `gh` executable on PATH that appends its argv to a file."""
+    """A real `gh` executable on PATH that appends its argv to a file.
+
+    Its issue-label endpoint has STATE (issue #3036): what an issue carries starts as
+    `GH_STUB_LABELS` (empty by default — `gh issue create --label` is measured to drop labels, #724),
+    a `POST .../labels` merges the labels it names, `DELETE .../labels/<name>` removes one, and a GET
+    answers with what that issue then carries. `GH_STUB_LABEL_WRITE=ignore` makes both writes no-ops —
+    the shape of a label write that did not stick. Each `issue create` is handed the NEXT issue number,
+    so two findings filed in one run are two issues with two label sets, as on the real tracker.
+    """
     log = tmp_path / "gh-calls.log"
     stub = tmp_path / "gh"
     stub.write_text(
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         "open(os.environ['GH_STUB_LOG'], 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "ST = os.environ['GH_STUB_LABEL_STATE']\n"
+        "def issue_no():\n"
+        "    for a in sys.argv:\n"
+        "        if '/labels' in a:\n"
+        "            return a.split('/labels', 1)[0].rsplit('/', 1)[1]\n"
+        "    return '1'\n"
+        "def store():\n"
+        "    s = json.loads(open(ST).read()) if os.path.exists(ST) else {}\n"
+        "    if issue_no() not in s:\n"
+        "        s[issue_no()] = [x.strip() for x in os.environ.get('GH_STUB_LABELS', '').split(',') if x.strip()]\n"
+        "    return s\n"
+        "def carry():\n"
+        "    return store()[issue_no()]\n"
+        "def save(cur):\n"
+        "    s = json.loads(open(ST).read()) if os.path.exists(ST) else {}\n"
+        "    s[issue_no()] = cur\n"
+        "    open(ST, 'w').write(json.dumps(s))\n"
+        "def writes_stick():\n"
+        "    return os.environ.get('GH_STUB_LABEL_WRITE', 'stick') == 'stick'\n"
         "if sys.argv[1:2] == ['api'] and any('comments' in a for a in sys.argv):\n"
         "    print(os.environ.get('GH_STUB_COMMENTS', '[]'))\n"
         "elif '--state' in sys.argv and 'closed' in sys.argv and 'issue' in sys.argv:\n"
         "    print(os.environ.get('GH_STUB_CLOSED', '[]'))\n"
-        "elif sys.argv[1:2] == ['api'] and any('labels' in a for a in sys.argv):\n"
-        f"    print(os.environ.get('GH_STUB_LABELS', '{LOUD}'))\n"
+        "elif sys.argv[1:2] == ['api'] and any('/labels' in a for a in sys.argv):\n"
+        "    cur = carry()\n"
+        "    if '-X' in sys.argv and 'POST' in sys.argv and writes_stick():\n"
+        "        for a in sys.argv:\n"
+        "            if a.startswith('labels[]') and a.split('=', 1)[1] not in cur:\n"
+        "                cur.append(a.split('=', 1)[1])\n"
+        "        save(cur)\n"
+        "    elif '-X' in sys.argv and 'DELETE' in sys.argv and writes_stick():\n"
+        "        for a in sys.argv:\n"
+        "            if '/labels/' in a:\n"
+        "                gone = a.rsplit('/labels/', 1)[1]\n"
+        "                if gone in cur:\n"
+        "                    cur.remove(gone)\n"
+        "        save(cur)\n"
+        "    print('\\n'.join(cur))\n"
         "elif 'list' in sys.argv[1:3]:\n"
         "    print(os.environ.get('GH_STUB_LIST', '[]'))\n"
+        "elif sys.argv[1:2] == ['issue'] and 'create' in sys.argv:\n"
+        "    n, c = 1, ST + '.counter'\n"
+        "    if os.path.exists(c):\n"
+        "        n = int(open(c).read())\n"
+        "    open(c, 'w').write(str(n + 1))\n"
+        "    print(f'https://github.com/o/r/issues/{n}')\n"
         "else:\n"
         "    print('https://github.com/o/r/issues/1')\n",
         encoding="utf-8")
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
     monkeypatch.setenv("GH_STUB_LOG", str(log))
+    monkeypatch.setenv("GH_STUB_LABEL_STATE", str(tmp_path / "gh-label-state.json"))
     return log
+
+
+def _label_state(tmp_path: Path) -> dict[str, list[str]]:
+    """What the stub tracker says each issue actually carries, per issue number."""
+    p = tmp_path / "gh-label-state.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
 def test_only_policy_severities_become_issues(tmp_path):
@@ -303,10 +357,12 @@ def test_apply_creates_then_updates_the_same_issue(tmp_path, monkeypatch):
 def test_a_dropped_label_fails_the_step_instead_of_filing_an_invisible_issue(tmp_path, monkeypatch):
     """The label is probed, not assumed: create's `--label` is dropped on the runner path (#724)."""
 
-    # Given a gh whose label read-back answers with one label whatever was written
+    # Given a gh whose label writes do not stick: whatever is POSTed, the issue keeps carrying the
+    # one label it started with
     log = _gh_stub(tmp_path, monkeypatch)
     findings = si.issue_findings(_reports(tmp_path), POLICY)
     monkeypatch.setenv("GH_STUB_LABELS", "security")
+    monkeypatch.setenv("GH_STUB_LABEL_WRITE", "ignore")
 
     # When  apply files an issue whose labels did not stick
     try:
@@ -329,12 +385,107 @@ def test_the_label_read_back_is_what_the_issue_carries(tmp_path, monkeypatch):
     # When  apply files the findings
     si.apply(si.issue_findings(_reports(tmp_path), POLICY), "o/r")
 
-    # Then  every created issue was followed by a POST and a read-back
+    # Then  every created issue was followed by a POST and a read-back of ITS OWN labels
     calls = _calls(log)
     posts = [c for c in calls if c[:1] == ["api"] and "-X" in c and "POST" in c]
-    reads = [c for c in calls if c[:1] == ["api"] and "repos/o/r/issues/1/labels" in c
-             and "--jq" in c]
+    reads = [c for c in calls if c[:1] == ["api"] and "--jq" in c
+             and any(a.endswith("/labels") for a in c)]
     assert len(posts) == 2 and len(reads) == 2
+    assert sorted({c[3].split("/")[4] for c in posts}) == ["1", "2"]
+
+
+def test_a_relabelled_finding_loses_its_stale_component_label(tmp_path, monkeypatch, capsys):
+    """The label set is RECONCILED, not only added (issue #3036): an open issue first filed as
+    `component:python` for an advisory the published-image scan now reports must stop routing to the
+    dependency lane that has nothing to move (the measured #3025 shape)."""
+
+    # Given an open issue that carries a python component label, and the same advisory arriving as a
+    # container finding
+    log = _gh_stub(tmp_path, monkeypatch)
+    finding = next(f for f in si.issue_findings(_reports(tmp_path), POLICY) if f.advisory == "CVE-2")
+    assert finding.component == "component:container"
+    monkeypatch.setenv("GH_STUB_LIST", json.dumps(
+        [{"number": 42, "body": finding.marker, "labels": [], "title": "t"}]))
+    monkeypatch.setenv("GH_STUB_LABELS",
+                       "security,vulnerability,severity:high,component:python,auto-fixable")
+
+    # When  the run files the finding onto that issue
+    si.apply([finding], "o/r")
+
+    # Then  the label it no longer earns came off by an explicit DELETE
+    dels = [c for c in _calls(log) if c[:1] == ["api"] and "-X" in c and "DELETE" in c]
+    assert len(dels) == 1, dels
+    assert "repos/o/r/issues/42/labels/component:python" in " ".join(dels[0]), dels
+
+    # And   the removal is proven by a read-back: the issue carries the container label, no python
+    # one, and kept its severity and auto-fixable labels
+    carried = _label_state(tmp_path)["42"]
+    assert "component:container" in carried and "component:python" not in carried, carried
+    assert "severity:high" in carried and "auto-fixable" in carried, carried
+    assert "re-labelled #42: removed component:python" in capsys.readouterr().out
+
+
+def test_a_component_label_that_will_not_come_off_fails_the_step(tmp_path, monkeypatch):
+    """An unproven removal fails the step (issue #3036): a stale component label routes the issue to
+    an owner who has nothing to change, exactly like a missing label does."""
+
+    # Given an issue that carries every label in the roster, in a gh whose label writes do not stick
+    _gh_stub(tmp_path, monkeypatch)
+    monkeypatch.setenv("GH_STUB_LABELS", LOUD)
+    monkeypatch.setenv("GH_STUB_LABEL_WRITE", "ignore")
+
+    # When  the labels are reconciled onto it (python out, container in)
+    try:
+        si.set_labels("o/r", 42, ["security", "vulnerability", "severity:high",
+                                  "component:container", "auto-fixable"])
+    except SystemExit as exc:
+        assert "still carries component:python" in str(exc), str(exc)
+    else:                                        # pragma: no cover - the failure is the assertion
+        raise AssertionError("a stale component label survived the removal check")
+
+
+def test_an_image_finding_names_the_image_owner_not_the_pin_path():
+    """A finding inside a published image gets the *change-the-image* body: it names the artifact and
+    the `owner` file its allow-list entry points at, and never the generated requirements* pin path
+    (issue #3036 — #3025's acceptance criterion asked for a `requirements*.txt` entry for a Go module
+    no requirements file in this repository contains)."""
+
+    # Given a finding reported inside the agent image the shipped allow-list scans
+    shipped = next(e for e in ss.scanned_images()["images"] if e.get("name") == "agent")
+    image = shipped["ref"] + "@sha256:" + "ab" * 32
+    finding = si.Finding(advisory="GHSA-2c6x-4m7v-9q3d", package="github.com/gin-gonic/gin",
+                         current="v1.10.0", fixed="v1.10.1", severity="high", source="trivy",
+                         component="component:container", image=image)
+
+    # When  its issue body is rendered
+    body = si.body_for(finding, "https://github.com/o/r/actions/runs/1")
+
+    # Then  it names the exact image and the file that owns it
+    assert image in body
+    assert "containers/agent/Dockerfile" in body, body
+    assert "`make security-scan TOOL=trivy`" in body
+
+    # And   it sends the reader to NO dependency pin path anywhere in the body
+    assert "tools/requirements" not in body
+    assert "generated `tools/requirements*.in`" not in body
+    assert "requirements*.txt` entry" not in body
+
+    # And   the six-section shape and the marker (idempotency key) are unchanged
+    assert [h for h in si.issue_body.headings(body) if h in si.issue_body.SECTIONS] == \
+        list(si.issue_body.SECTIONS)
+    m = si.MARKER_RE.search(body)
+    assert m is not None and (m.group(1), m.group(2), m.group(3)) == (
+        "trivy", "GHSA-2c6x-4m7v-9q3d", "github.com/gin-gonic/gin")
+
+    # And   an image the allow-list has no entry for says so plainly instead of inventing an owner
+    stray = si.Finding(advisory="GHSA-0000-0000-0000", package="github.com/x/y", current="v1",
+                       fixed="v2", severity="high", source="trivy",
+                       component="component:container",
+                       image="ghcr.io/example/not-in-the-allow-list:1@sha256:" + "cd" * 32)
+    stray_body = si.body_for(stray, "")
+    assert "names no owner" in stray_body, stray_body
+    assert "containers/scanned-images.json" in stray_body
+    assert "tools/requirements" not in stray_body
 
 
 def test_a_vanished_finding_is_closed(tmp_path, monkeypatch):

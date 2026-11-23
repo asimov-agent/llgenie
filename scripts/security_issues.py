@@ -226,6 +226,86 @@ def _code_body(finding: Finding, run_url: str) -> str:
     )
 
 
+def _container_body(finding: Finding, run_url: str) -> str:
+    """The body for a finding seen INSIDE a published image — change the image, not a pin (#3036).
+
+    A tree finding is fixed by moving a dependency through the generated `tools/requirements*.in` ->
+    `requirements*.txt` path. A finding the image scan reported has no such pin: the package lives in
+    the built artifact, and the only file that can change it is the `owner` named by the
+    `containers/scanned-images.json` entry that put the image on the scan list. Naming the pin path
+    here is what made #3025 unsatisfiable — its acceptance criterion asked for a `requirements*.txt`
+    entry for a Go module that no requirements file in this repository contains.
+    """
+    entry = ss.image_owner(finding.image) or {}
+    owner = str(entry.get("owner") or "")
+    name = str(entry.get("name") or "")
+    named = finding.image.split("@", 1)[0]
+    if owner:
+        fix_first = (
+            f"Change the owner of the image this finding lives in — `{owner}` — so the build installs "
+            f"`{finding.package}` at `{finding.fixed or '(a version with no such advisory)'}` or "
+            "later, or drops it. That file, not a dependency pin, is what ships this package."
+        )
+        ac_first = (
+            f"`{owner}` no longer builds `{finding.package}` `{finding.current}` into "
+            f"`{named}` — the rebuilt image reports `{finding.fixed or 'no such package'}` or later"
+        )
+    else:
+        fix_first = (
+            f"The allow-list entry for `{named}` names no owner yet: add the `owner` (its Dockerfile "
+            "or params file) to `containers/scanned-images.json` so the image this finding lives in "
+            "has a file that can be changed."
+        )
+        ac_first = (
+            f"`containers/scanned-images.json` names an `owner` for `{named}`, and that owner no "
+            f"longer builds `{finding.package}` `{finding.current}` into the image"
+        )
+    return issue_body.render(
+        marker=finding.marker,
+        problem=(
+            f"`{finding.source}` reports `{finding.advisory}` against `{finding.package}` "
+            f"`{finding.current}` inside the published image `{finding.image}` — a "
+            f"{finding.component} finding in a built artifact, not a dependency pin this checkout "
+            f"compiles. Severity: {finding.severity}."
+        ),
+        why=(
+            "The advisory is in a package this repository publishes inside a container image, so every "
+            "run of that image carries a known-vulnerable component and the scan re-reports it on "
+            "every run until the image is rebuilt. No `requirements*.txt` in this repository contains "
+            "this package, so a dependency-bump lane has nothing to move: filed as a dependency issue "
+            "it is unsatisfiable and the owner who could change it is never named."
+        ),
+        how=[
+            fix_first,
+            "Rebuild and republish that image, then let the pipeline re-scan: the published-image "
+            "scan of the new digest reports whether the advisory is gone.",
+            "Close the loop without a human: when no scanner reports this advisory any more, the "
+            "next run comments the run that cleared it and closes this issue.",
+        ],
+        benefit=(
+            f"The vulnerability is identified as an image vulnerability: its issue names the artifact "
+            f"it lives in ({'the ' + name + ' entry, ' if name else ''}`{named}`) and the file that "
+            "can change it, so the owner of the image can act instead of a dependency bot that has "
+            "nothing to pin, and the next scan has a digest it can point at as the cleared one."
+        ),
+        acceptance=[
+            ac_first,
+            f"`make security-scan TOOL={finding.source}` no longer reports `{finding.advisory}` for "
+            f"`{finding.package}` in `{named}`",
+            "the next scan closes this issue with the run that cleared it",
+        ],
+        technical=_technical(finding, run_url),
+        not_covered=[
+            "Rebuilding and republishing the image is that image's own publish lane's action; this "
+            "issue records what the scan measured and which file owns it.",
+            "Other packages in the same image are separate findings: each gets its own issue with its "
+            "own advisory id.",
+            "A scanner that could not run (its report is absent) is not a clean result for this "
+            "image: `make security-verdict` refuses instead of passing.",
+        ],
+    )
+
+
 def body_for(finding: Finding, run_url: str = "") -> str:
     """The issue body: the shape every issue in this repository carries (issue #745).
 
@@ -235,12 +315,16 @@ def body_for(finding: Finding, run_url: str = "") -> str:
 
     The remediation narrative branches on the finding's component (issue #1560): a `component:code`
     finding (a SAST or committed-secret finding) gets the *edit-the-code* body — the matched source is
-    the defect and fixing it is the action; every other finding keeps the *bump-the-pin* template.
+    the defect and fixing it is the action; a finding the published-image scan reported gets the
+    *change-the-image* body, which names the artifact and its allow-list owner instead of a pin path
+    (issue #3036); every other finding keeps the *bump-the-pin* template.
     The branch reuses `component_of` (source not in the CVE scanners' vocabulary) so the body matches
     the component label and the verdict's `require_fix` classification.
     """
     if finding.component == "component:code":
         return _code_body(finding, run_url)
+    if finding.image:
+        return _container_body(finding, run_url)
     return issue_body.render(
         marker=finding.marker,
         problem=(
@@ -333,6 +417,25 @@ def set_labels(repo: str, number: int, labels: list[str]) -> None:
         raise SystemExit(
             f"[security-issues] #{number} is missing {', '.join(missing)} after the label write — "
             "an unlabelled security issue is invisible to the bot that fixes it, so the step fails")
+    # The label set is RECONCILED, not only added (issue #3036). A finding that arrives with a
+    # different component than the open issue already carries — the measured case is an agent-image
+    # finding first filed untagged as `component:python` (#3025) — must not keep routing to the lane
+    # that has nothing to move. `component:*` is the only family this removes; the marker, severity
+    # and `auto-fixable` labels are never stripped here.
+    stale = sorted(lab for lab in have if lab.startswith("component:") and lab not in labels)
+    for label in stale:
+        res = _gh_api(["-X", "DELETE", f"repos/{repo}/issues/{number}/labels/{label}"])
+        if res.returncode != 0:
+            raise SystemExit(f"[security-issues] could not remove the stale `{label}` from "
+                             f"#{number}: {res.stderr.strip()}")
+    if stale:
+        after = labels_of(repo, number)
+        still = [label for label in stale if label in after]
+        if still:
+            raise SystemExit(f"[security-issues] #{number} still carries {', '.join(still)} after the "
+                             "label removal — a stale component label routes the issue to the wrong "
+                             "owner, so the step fails (issue #3036)")
+        print(f"[security-issues] re-labelled #{number}: removed {', '.join(stale)}")
     print(f"[security-issues] labelled #{number}: {', '.join(labels)}")
 
 
