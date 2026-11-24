@@ -20,6 +20,9 @@ Findings:
   as `check_pr_authors` treats its own section);
 - `.hermes/skills/issue-triage/SKILL.md` or `.hermes/skills/issue-refiner/SKILL.md` no longer naming
   the five sections in their `REFINED:` / `RESTATED:` output block;
+- a producer whose `## Not covered` pointer survives the renderer as a bare `#<n>` cite: a bare cite is
+  the token `check_pr_acceptance.rollout_lane_findings` reads as a rollout lane, so an umbrella's own
+  deferral list is what blocks its `closes #<umbrella>` (issue #3055);
 - a renderer whose own output does not pass its own `missing()` (the renderer and the checker must
   agree, or the gate proves nothing).
 
@@ -85,6 +88,66 @@ def re_imports_issue_body(text: str) -> bool:
     return ("import issue_body" in text) or ("from issue_body import" in text)
 
 
+#: The argument a producer passes its deferred pointers in (issue #3055).
+NOT_COVERED_KW = "not_covered="
+#: A bare-cite spelling in a producer's `not_covered=` region: `(#669)` or an interpolated `#{n}`.
+BARE_CITE_SPELLING_RE = re.compile(r"#(?:\d+|\{[^}]*\})")
+#: The number a probe bullet cites. The probe sends the producer's pointer through the renderer, so the
+#: gate measures the producer+renderer pair instead of trusting either one's prose.
+PROBE_CITE = "3055"
+
+
+def _not_covered_regions(text: str) -> list[str]:
+    """Each `not_covered=` argument in a producer source, brackets matched."""
+    regions: list[str] = []
+    for m in re.finditer(re.escape(NOT_COVERED_KW), text):
+        i = m.end()
+        while i < len(text) and text[i] in " \n\t":
+            i += 1
+        if i >= len(text) or text[i] not in "[(":
+            continue
+        depth, j = 0, i
+        while j < len(text):
+            if text[j] in "([{":
+                depth += 1
+            elif text[j] in ")]}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        regions.append(text[i:j + 1])
+    return regions
+
+
+def _pointer_probe_body() -> str:
+    """A body whose only `## Not covered` pointer is a bare cite, rendered through the one seam."""
+    return issue_body.render(
+        problem="an umbrella defers side work and names it with a bare cite",
+        why="the bare cite is the token the acceptance rollout path reads as a lane, and it holds the "
+            "umbrella's own close",
+        how=["render the deferred pointer as its full issue URL through the one seam"],
+        benefit="the umbrella's PR carries its `closes` while the side issue stays open",
+        acceptance=["`make check-issue-bodies` re-renders the pointer and links it"],
+        technical=["`scripts/issue_body.py::link_issue_cites`"],
+        not_covered=[f"the deferred lane is its own issue #{PROBE_CITE}"],
+    )
+
+
+def check_pointer_shape(rel: str, root: Path) -> list[str]:
+    """A producer's deferred pointer must survive the renderer as a URL (issue #3055)."""
+    regions = _not_covered_regions(_read(rel, root))
+    if not any(BARE_CITE_SPELLING_RE.search(region) for region in regions):
+        return []
+    body = _pointer_probe_body()
+    section = issue_body.section_body(body, issue_body.OPTIONAL_SECTION)
+    out = [f"{rel}: its `Not covered` pointer survives the renderer — {p}"
+           for p in issue_body.pointer_findings(body)]
+    if not out and f"{issue_body.ISSUE_URL_BASE}/issues/{PROBE_CITE}" not in section:
+        out.append(f"{rel}: its `Not covered` pointer is not rendered as "
+                   f"{issue_body.ISSUE_URL_BASE}/issues/<n> (issue #3055)")
+    return out
+
+
 def check_agents(root: Path) -> list[str]:
     text = _read(AGENTS, root)
     if not text:
@@ -124,11 +187,16 @@ def check_renderer() -> list[str]:
         acceptance=["`make check-issue-bodies` names a hand-built body", "the six sections render "
                     "in order with `## Technical` last"],
         technical=["`scripts/issue_body.py`", "`make check-issue-bodies`"],
-        not_covered=["retro-fitting the open issues"],
+        not_covered=["retro-fitting the open issues", "the lane is its own issue #3055"],
         marker="<!-- test-marker -->",
     )
     out = [f"scripts/issue_body.py: renders a body its own checker refuses — {p}"
            for p in issue_body.missing(body)]
+    out += [f"scripts/issue_body.py: {p}" for p in issue_body.pointer_findings(body)]
+    if not out and f"{issue_body.ISSUE_URL_BASE}/issues/3055" not in issue_body.section_body(
+            body, issue_body.OPTIONAL_SECTION):
+        out.append("scripts/issue_body.py: a bare `#3055` pointer in `## Not covered` was not rendered "
+                   "as its full issue URL (issue #3055)")
     if not out and not body.startswith("<!-- test-marker -->"):
         out.append("scripts/issue_body.py: the marker is no longer the first line — every producer's "
                    "dedupe reads it back (issue #745)")
@@ -139,6 +207,7 @@ def check(root: Path = REPO) -> list[str]:
     findings: list[str] = []
     for rel, fn in issue_body.PRODUCERS:
         findings += check_producer(rel, fn, root)
+        findings += check_pointer_shape(rel, root)
     findings += check_agents(root)
     findings += check_skills(root)
     findings += check_renderer()
