@@ -82,7 +82,66 @@ def test_not_covered_precedes_technical():
     assert heads == ["Problem", "Why it matters", "How we fix it", "Benefit", "Acceptance criteria",
                      "Not covered", "Technical"]
     assert issue_body.missing(body) == []
-    assert "#746" in issue_body.section_body(body, "Not covered")
+    # And  the deferred pointer is a full issue URL, never a bare cite: a bare `#746` is the token
+    # `check_pr_acceptance.rollout_lane_findings` derives a rollout lane from, so an umbrella's own
+    # deferral list would hold its `closes` (issue #3055).
+    section = issue_body.section_body(body, "Not covered")
+    assert "https://github.com/asimov-agent/llgenie/issues/746" in section, section
+    assert issue_body.pointer_findings(body) == [], section
+
+
+def test_bare_not_covered_cite_renders_as_a_full_issue_url():
+    """Given  a producer that names its side issue the way AGENTS.md words it (`(#669)`)
+    When    the body is rendered through the one seam
+    Then    the pointer is the full issue URL and carries no bare cite (issue #3055)
+    """
+    body = issue_body.render(**FIELDS, not_covered=["the ranking rule is its own decision (#669)"])
+    section = issue_body.section_body(body, "Not covered")
+    assert "- the ranking rule is its own decision " \
+           "(https://github.com/asimov-agent/llgenie/issues/669)" in section, section
+    assert issue_body.pointer_findings(body) == [], section
+    assert issue_body.missing(body) == []
+
+
+def test_an_already_linked_pointer_is_not_rewritten_twice():
+    """Given  a producer that already spells the URL form
+    When    the body is rendered
+    Then    the bullet is unchanged and no nested link appears (issue #3055)
+    """
+    linked = "tracked as https://github.com/asimov-agent/llgenie/issues/3056 (issue #3056)"
+    body = issue_body.render(**FIELDS, not_covered=[linked])
+    section = issue_body.section_body(body, "Not covered")
+    assert section.count("https://github.com/asimov-agent/llgenie/issues/3056") == 1, section
+    assert "issues/issues" not in section, section
+
+
+def test_a_line_anchor_is_not_an_issue_cite():
+    """A `file.py#L105` anchor names a place in a file, not an issue: it stays exactly as written, and
+    so does a cite quoted inside inline `code` (issue #3055).
+    """
+    body = issue_body.render(
+        **FIELDS,
+        not_covered=["the gate wording lives at scripts/issue_body.py#L105",
+                     "the measured finding reads `scope: fail — cites #3050 which is still OPEN`"],
+    )
+    section = issue_body.section_body(body, "Not covered")
+    assert "scripts/issue_body.py#L105" in section, section
+    assert "`scope: fail — cites #3050 which is still OPEN`" in section, section
+    assert issue_body.pointer_findings(body) == [], section
+
+
+def test_pointer_findings_names_a_bare_cite_that_bypassed_the_renderer():
+    """Given  a body whose `Not covered` bullet was written without the renderer (a hand-edited
+    umbrella)
+    When    the seam inspects it
+    Then    it names the bare cite and the URL remedy (issue #3055)
+    """
+    body = issue_body.render(**FIELDS, not_covered=["the lane is its own issue (#3050)"])
+    hand_edited = body.replace(
+        "https://github.com/asimov-agent/llgenie/issues/3050", "#3050")
+    problems = issue_body.pointer_findings(hand_edited)
+    assert problems, problems
+    assert any("#3050" in p and "issues/<n>" in p for p in problems), problems
 
 
 def test_acceptance_criteria_must_be_tickable():

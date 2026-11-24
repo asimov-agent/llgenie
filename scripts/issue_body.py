@@ -53,12 +53,64 @@ PRODUCERS: tuple[tuple[str, str], ...] = (
     ("scripts/check_agent_model_catalog.py", "issue_text"),
 )
 HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
+#: The tracker every issue in this repository lives in (issue #3055).
+ISSUE_URL_BASE = "https://github.com/asimov-agent/llgenie"
+#: A BARE issue cite: `#123`. A letter after the `#` is a line/heading anchor (`file.py#L105`), and a
+#: `#` glued to a word, a dot or a slash is part of that token (`x.py#1`, `/issues#1`) — never a cite.
+BARE_CITE_RE = re.compile(r"(?<![\w/.])#(\d+)")
+
+
+def issue_url(number) -> str:
+    """The full URL of issue `number` (issue #3055): the shape a `## Not covered` pointer must carry."""
+    return f"{ISSUE_URL_BASE}/issues/{str(number).lstrip('#').strip()}"
+
+
+def link_issue_cites(text: str, base: str = ISSUE_URL_BASE) -> str:
+    """Rewrite every bare `#<n>` in `text` as its full issue URL (issue #3055).
+
+    Why the shape matters: `scripts/check_pr_acceptance.py::rollout_lane_findings` derives an
+    umbrella's rollout lanes from the bare `#<n>` cites in the umbrella's OWN body, and an OPEN issue
+    that cites the umbrella back holds the umbrella's `closes #<umbrella>` (`rollout-lane-open`).
+    AGENTS.md wants every `## Not covered` item to name its own side issue — spelled as a bare cite,
+    that deferral list is what blocks the umbrella's own close (#3053's PR was held by its pointer to
+    #3050). A full `.../issues/<n>` link renders the same pointer and never triggers the cite.
+
+    Preserved exactly: fenced blocks (```), inline `code` spans, line/heading anchors, and pointers
+    that are already links — so a quoted gate message or a `file.py#L105` reference is not rewritten.
+    """
+    out: list[str] = []
+    in_fence = False
+    #: Numbers the text already names as an issue URL: rewriting `… /issues/3056 (issue #3056)` again
+    #: would nest a link inside a link and leave the pointer unreadable (issue #3055).
+    already = {m.group(1) for m in re.finditer(r"/issues/(\d+)", str(text))}
+
+    def _link(m: re.Match, b: str = base) -> str:
+        return m.group(0) if m.group(1) in already else f"{b}/issues/{m.group(1)}"
+
+    for line in str(text).split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if in_fence:
+            out.append(line)
+            continue
+        parts = line.split("`")
+        for i in range(0, len(parts), 2):  # even segments are prose, odd segments are inline code
+            parts[i] = BARE_CITE_RE.sub(_link, parts[i])
+        out.append("`".join(parts))
+    return "\n".join(out)
 
 
 def _bullets(items) -> list[str]:
     if isinstance(items, str):
         items = [items]
     return [f"- {str(i).strip()}" for i in items]
+
+
+def _link_bullets(items) -> list[str]:
+    """`Not covered` bullets with every deferred pointer rendered as a full issue URL (issue #3055)."""
+    return [link_issue_cites(b) for b in _bullets(items)]
 
 
 def _numbered(items) -> list[str]:
@@ -109,8 +161,10 @@ def render(*, problem: str = "", why: str = "", how=None, benefit: str = "", acc
     steps/bullets. `acceptance` is required: one `- [ ]` criterion per provable outcome, so "done"
     is a list a reviewer ticks instead of an adjective. `not_covered` is optional: one bullet per
     deferred item, and each should name the issue it was filed as (AGENTS.md: out-of-scope work is
-    its own linked issue, never prose). `marker` is emitted unchanged as the first line, so a
-    producer's dedupe still finds its issue.
+    its own linked issue, never prose). Every bare `#<n>` in those bullets is rendered as its full
+    issue URL (issue #3055): a bare cite is the token the acceptance rollout path reads as a lane, so
+    a deferral list spelled with bare cites holds the umbrella's own `closes #<umbrella>`. `marker` is
+    emitted unchanged as the first line, so a producer's dedupe still finds its issue.
     """
     for name, value in (("problem", problem), ("why", why), ("benefit", benefit)):
         if not str(value or "").strip():
@@ -131,7 +185,7 @@ def render(*, problem: str = "", why: str = "", how=None, benefit: str = "", acc
         "## Acceptance criteria", "", *_criteria(acceptance), "",
     ]
     if not_covered:
-        lines += ["## " + OPTIONAL_SECTION, "", *_bullets(not_covered), ""]
+        lines += ["## " + OPTIONAL_SECTION, "", *_link_bullets(not_covered), ""]
     lines += ["## Technical", "", *_technical(technical)]
     return "\n".join(lines).rstrip("\n") + "\n"
 
@@ -155,6 +209,31 @@ def section_body(text: str, name: str) -> str:
     rest = lines[start + 1:]
     end = next((i for i, line in enumerate(rest) if HEADING_RE.match(line)), len(rest))
     return "\n".join(rest[:end]).strip()
+
+
+def pointer_findings(text: str) -> list[str]:
+    """Every `## Not covered` bullet that still carries a bare `#<n>` cite (issue #3055).
+
+    The renderer links pointers, so a body built through `render` never trips this. A body that
+    DIDN'T (a hand-written umbrella, a producer that splices its own bullets) holds its own close:
+    `scripts/check_pr_acceptance.py::rollout_lane_findings` reads a bare `#<n>` in the umbrella's body
+    as a rollout lane and blocks the umbrella's `closes #<umbrella>` while that issue is OPEN. Cites
+    inside fenced blocks or inline `code` (a quoted gate message) are not pointers and are not reported.
+    """
+    problems: list[str] = []
+    for line in section_body(text, OPTIONAL_SECTION).splitlines():
+        if not line.strip().startswith("- "):
+            continue
+        if line == link_issue_cites(line):
+            continue
+        cites = sorted({m.group(1) for m in BARE_CITE_RE.finditer(line)})
+        if cites:
+            problems.append(
+                f"`## {OPTIONAL_SECTION}` names {', '.join('#' + c for c in cites)} as a bare cite — "
+                f"a deferred pointer is its full issue URL ({ISSUE_URL_BASE}/issues/<n>); a bare cite "
+                "is the token the acceptance rollout path reads as a lane, and it holds the "
+                "umbrella's own `closes #<umbrella>` (issue #3055)")
+    return problems
 
 
 def missing(text: str) -> list[str]:

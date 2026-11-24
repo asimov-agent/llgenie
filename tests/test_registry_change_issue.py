@@ -86,7 +86,11 @@ def test_the_report_names_an_added_model_a_new_engine_and_an_added_contract_key(
     assert "['last_seen']" in body
     assert "'ROCm'" in body
     assert "#693, #677" in body and "#673/#686" in body
-    assert "## Not covered" in body and "#669" in body
+    assert "## Not covered" in body
+    # issue #3055: the deferred pointer is spelled as a full issue URL, so it is a link a reader
+    # follows and not the bare cite the acceptance rollout path would read as an open lane.
+    assert "https://github.com/asimov-agent/llgenie/issues/669" in body, body
+    assert issue_body.pointer_findings(body) == [], issue_body.pointer_findings(body)
     # And the body is the repository's issue shape: the goal first, the diff as `## Technical`
     assert issue_body.missing(body) == [], issue_body.missing(body)
     assert issue_body.headings(body)[-1] == "Technical"

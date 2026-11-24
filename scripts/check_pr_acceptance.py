@@ -768,6 +768,12 @@ def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str)
     answers `state: open` for a PR, so the PR that cites the umbrella it implements registered as
     that umbrella's own open lane and blocked its own close (#1696 → #1558/#1694). A PR is the
     vehicle for an umbrella, never a lane of it.
+
+    The lane population is bare `#<n>` tokens, so an umbrella that defers side work as a bare
+    `#<n>` pointer in its own `## Not covered` section is held by its own deferral list (#3053's PR
+    was held by its pointer to #3050). The finding therefore names the shape fix: render the pointer
+    as its full issue URL (`issue_body.link_issue_cites`), which leaves the side issue OPEN and
+    releases the hold on the closes keyword (issue #3055).
     """
     findings: list[dict] = []
     refs = sorted({int(n) for n in CITE.findall(umbrella_body or "")} - {umbrella})
@@ -790,7 +796,11 @@ def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str)
                 f"(`#{umbrella}`) back — a rollout lane in flight. A squash `closes #{umbrella}` would "
                 f"auto-close the umbrella while this lane is unfinished (measured class #1815/#1812, "
                 f"recurrence #1856→#1849). Land and close the lane, or move the close keyword off the "
-                f"umbrella until its lanes are done."
+                f"umbrella until its lanes are done. When `#{n}` is a `## Not covered` pointer and not "
+                f"a lane this close must wait for, rewrite that pointer as its full issue URL "
+                f"(https://github.com/asimov-agent/llgenie/issues/{n}): the side issue stays OPEN "
+                f"either way, and only the bare `#<n>` token — the token this gate derives lanes from "
+                f"— holds the closes keyword (issue #3055)."
             ),
             "where": f"#{umbrella} → lane #{n}",
         })

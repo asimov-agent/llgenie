@@ -1091,3 +1091,47 @@ def test_this_legs_fake_refuses_the_513_author_association_request(tmp_path, mon
     )
     assert boom.returncode == 1
     assert 'Unknown JSON field: "authorAssociation"' in boom.stderr
+
+
+def test_a_full_url_not_covered_pointer_does_not_hold_the_close(tmp_path, monkeypatch):
+    """issue #3055: an umbrella whose `## Not covered` pointer is a full issue URL derives no rollout
+    lane from it, so its `closes #<umbrella>` is not held by its own deferral list — even while the
+    side issue is OPEN and cites the umbrella back.
+
+    Measured basis: #3053's PR carried the same pointer as a bare `(#3050)` and WAS held (`scope:
+    fail`), with `#3050` OPEN and referencing #3053 back. Only the bare token is a lane candidate.
+    """
+    body = _issue(ticked=[1, 2, 3], total=3) + (
+        "## Not covered\n\n"
+        "- the engine-bump lane is its own issue "
+        "(https://github.com/asimov-agent/llgenie/issues/3050)\n\n"
+    )
+    mapping = {
+        "1000": {"body": body, "state": "OPEN"},
+        "3050": {"body": "chore(engine): the vllm bump, tracked by #1000", "state": "OPEN"},
+    }
+    _fake_gh_map(tmp_path, mapping, monkeypatch)
+    assert g.rollout_lane_findings(body, 1000, "gh", "asimov-agent/llgenie") == [], \
+        "a `## Not covered` pointer spelled as a full issue URL must not read as an open lane (#3055)"
+
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc = run_cli(["check", "--body-file", str(pr)])
+    assert rc == 0, rc
+
+
+def test_the_rollout_lane_finding_names_the_pointer_shape_remedy(tmp_path, monkeypatch):
+    """issue #3055: the hold is not the end of the story — the evidence tells the lane's author which
+    token carried the hold (the bare `#<n>`) and the shape that releases it (the full issue URL).
+    """
+    body = _umbrella_with_cited_lanes([101])
+    mapping = {
+        "1000": {"body": body, "state": "OPEN"},
+        "101": {"body": "an OPEN lane tracked by #1000", "state": "OPEN"},
+    }
+    _fake_gh_map(tmp_path, mapping, monkeypatch)
+    findings = g.rollout_lane_findings(body, 1000, "gh", "asimov-agent/llgenie")
+    assert findings, findings
+    text = " ".join(f["evidence"] for f in findings)
+    assert "Not covered" in text, text
+    assert "https://github.com/asimov-agent/llgenie/issues/101" in text, text
