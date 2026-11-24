@@ -29,6 +29,18 @@ Date: 2026-11-24. Issue: #3050. OpenSpec change: `engine-bump-pr-body`.
   inline composer banned). `tests/test_pr_hygiene_openspec_change.py` gained the three finding shapes
   (15 passed). The 12 adjacent engine-bump/PR-gate/workflow suites ran green together (265 passed).
 
+## Follow-up measured on the branch (PR #3058, head `290858fd7`)
+- The first pushed head (`23adce62c`) passed `guard`/`scope`/`openspec` but reddened `linux / unit` at
+  `make check-import-roots`: `tests/test_engine_bump_pr_body.py:40` registered a NEW import root
+  (`from scripts.acceptance_writeback import acceptance_items`) against the issue #1101 ratchet. The test
+  reaches the same symbol through the module it already imports (`acceptance_writeback.acceptance_items(body)`),
+  so the file keeps exactly one import root and `make check-import-roots` reports no new root (only the
+  allowed shrink rows).
+- Re-measured on the fixed branch heads: `pytest` on the six body/acceptance/gate files 138 passed rc=0,
+  `make check-import-roots` rc=0 (only the allowed shrink rows), `make openspec-validate
+  NAME=engine-bump-pr-body` rc=0, `make openspec-tasks-check` rc=0 (9 tasks, all ticked), and the full
+  `make test-unit` battery rc=0 with 4425 passed and 0 skipped.
+
 ## Key decisions
 - Name the ACTIVE change the lane implements against (`OPENSPEC: publish-changed-pin-images`) rather than mint
   a throwaway OpenSpec change per weekly pin bump: the gate accepts either an `openspec/changes/` file in the
