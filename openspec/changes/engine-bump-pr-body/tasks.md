@@ -29,3 +29,7 @@
       (proven: `make test-unit` rc=0, 4425 passed, 0 failed) and the fast lane gates `lint`,
       `check-workflows`, `check-wiring`, `check-docs`, `check-pr-hygiene` and `check-package-layers`
       print OK on that same tree (proven: `make lane-preflight` prints `preflight: OK`)
+- [x] 9. `tests/test_engine_bump_pr_body.py` keeps exactly ONE import root — it reaches the renderer's
+      acceptance items through the module it already imports, so `make check-import-roots` (issue #1101)
+      reports no new root for this change
+      (proven: `make check-import-roots` rc=0 at head 455b9f90d)
