@@ -128,12 +128,14 @@ def test_fetch_failure_line(capsys, monkeypatch):
 def test_old_red_runs_age_out_of_the_window():
     now = datetime(2026, 11, 22, 12, 0, 0, tzinfo=timezone.utc)
     red = MAIN_RUNS[0]
-    stale = dict(red, updatedAt="2026-11-15T00:00:00Z")   # 7 days old
-    fresh = dict(red, updatedAt="2026-11-22T11:00:00Z")   # 1 hour old
-    no_stamp = dict(red)                                   # recorded probe data: never aged
+    # three DIFFERENT workflows: the age window is its own rule, independent of supersession
+    stale = dict(red, workflowName="aged-lane", updatedAt="2026-11-15T00:00:00Z")   # 7 days old
+    fresh = dict(red, workflowName="fresh-lane", updatedAt="2026-11-22T11:00:00Z")   # 1 hour old
+    no_stamp = dict(red, workflowName="unstamped-lane")  # recorded probe data: never aged
     lines = ci_monitor.snapshot_lines([stale, fresh, no_stamp], [], {}, now=now, max_age_hours=72)
     assert len(lines) == 2
-    assert sum(f"run={red['databaseId']}" in line for line in lines) == 2
+    assert sum(f"workflow={r['workflowName']}" in line for r, line in zip([fresh, no_stamp], lines)) == 2
+    assert "workflow=aged-lane" not in " ".join(lines)
 
 
 def test_snapshot_lines_sorted_deterministically():
@@ -254,3 +256,90 @@ def test_failed_runs_on_head_filters_completed_incident_conclusions(monkeypatch)
     assert seen["argv"][:5] == ["gh", "run", "list", "--repo", "asimov-agent/llgenie"]
     assert "-c" in seen["argv"] and "abcdef1234567890" in seen["argv"]
     assert [r["databaseId"] for r in got] == [1, 4]
+
+
+# ---------------------------------------------------------------------------
+# supersession (issue #3048): only the newest completed main run of a workflow is an incident
+# ---------------------------------------------------------------------------
+SUPERSEDING_MAIN_RUNS = [
+    # red at run=1 …
+    {"databaseId": 45020000001, "workflowName": "ci-verdict", "headBranch": "main",
+     "event": "push", "status": "completed", "conclusion": "failure",
+     "updatedAt": "2026-11-23T10:00:00Z"},
+    # … and a newer completed main run of the SAME workflow turned green at run=2
+    {"databaseId": 45020000002, "workflowName": "ci-verdict", "headBranch": "main",
+     "event": "push", "status": "completed", "conclusion": "success",
+     "updatedAt": "2026-11-23T14:00:00Z"},
+    # a workflow that is red at its newest completed run: stays an incident, its older red is history
+    {"databaseId": 45020000003, "workflowName": "security-scan", "headBranch": "main",
+     "event": "schedule", "status": "completed", "conclusion": "failure",
+     "updatedAt": "2026-11-22T10:00:00Z"},
+    {"databaseId": 45020000004, "workflowName": "security-scan", "headBranch": "main",
+     "event": "schedule", "status": "completed", "conclusion": "cancelled",
+     "updatedAt": "2026-11-23T10:00:00Z"},
+    # a newer run that has not completed supersedes nothing
+    {"databaseId": 45020000005, "workflowName": "registry-sync", "headBranch": "main",
+     "event": "schedule", "status": "completed", "conclusion": "failure",
+     "updatedAt": "2026-11-23T09:00:00Z"},
+    {"databaseId": 45020000006, "workflowName": "registry-sync", "headBranch": "main",
+     "event": "schedule", "status": "in_progress", "conclusion": "",
+     "updatedAt": "2026-11-23T12:00:00Z"},
+    # a workflow that is red once, recently: an incident, nothing superseded in it
+    {"databaseId": 45020000007, "workflowName": "engine-bump", "headBranch": "main",
+     "event": "schedule", "status": "completed", "conclusion": "failure",
+     "updatedAt": "2026-11-24T00:30:00Z"},
+]
+
+
+def test_a_main_red_superseded_by_a_newer_green_run_is_not_an_incident():
+    incidents, superseded = ci_monitor.classify_main_runs(SUPERSEDING_MAIN_RUNS)
+    assert 45020000001 not in [r["databaseId"] for r in incidents]
+    assert {r["databaseId"]: r["supersededBy"] for r in superseded} == {
+        45020000001: 45020000002,  # green superseded the red
+        45020000003: 45020000004,  # the newest red supersedes its own workflow's older red
+    }
+    out = "\n".join(ci_monitor.snapshot_lines(SUPERSEDING_MAIN_RUNS, [], {}))
+    assert "MAIN-RED run=45020000001" not in out
+    assert "MAIN-RED run=45020000004 workflow=security-scan conclusion=cancelled" in out
+    assert "MAIN-RED run=45020000005 workflow=registry-sync conclusion=failure" in out
+
+
+def test_the_age_window_still_applies_to_the_newest_completed_run():
+    now = datetime(2026, 11, 25, 0, 0, 0, tzinfo=timezone.utc)
+    incidents, superseded = ci_monitor.classify_main_runs(
+        SUPERSEDING_MAIN_RUNS, now=now, max_age_hours=36
+    )
+    # the newest reds of security-scan/registry-sync are 38-39 h old at this instant: aged out
+    assert [r["databaseId"] for r in incidents] == [45020000007]  # engine-bump, 23.5 h old
+    assert {r["databaseId"]: r["supersededBy"] for r in superseded} == {
+        45020000001: 45020000002,
+        45020000003: 45020000004,
+    }
+    assert superseded and all("supersededBy" in r for r in superseded)
+
+
+def test_snapshot_is_incident_only_by_default_and_shows_history_on_request():
+    default = ci_monitor.snapshot_lines(SUPERSEDING_MAIN_RUNS, [], {})
+    with_history = ci_monitor.snapshot_lines(SUPERSEDING_MAIN_RUNS, [], {}, include_superseded=True)
+    assert not any("MAIN-SUPERSEDED" in line for line in default)
+    assert "MAIN-SUPERSEDED run=45020000001 workflow=ci-verdict conclusion=failure " \
+        "superseded_by=45020000002" in with_history
+    assert with_history == sorted(with_history)  # still deterministic and byte-stable
+    assert with_history != default  # the knob is opt-in, so the cron gate is unaffected by default
+
+
+def test_triage_never_routes_a_superseded_main_run(capsys, monkeypatch):
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    monkeypatch.setattr(
+        ci_monitor, "Fetch",
+        lambda **kw: FakeFetch(SUPERSEDING_MAIN_RUNS, [], {}),
+    )
+    rc = ci_monitor.main(["--triage", "--dry", "--include-superseded", "--max-age-hours", "1000000"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "MAIN-SUPERSEDED run=45020000001" in out  # shown for the human read
+    assert "TRIAGE-MAIN run=45020000001" not in out  # … and never routed
+    assert "TRIAGE-MAIN run=45020000002" not in out  # green: never an incident
+    assert {c[1] for c in routed} == {45020000004, 45020000005, 45020000007}, routed
+    assert all(call[3] is True for call in routed), routed  # file-only, as every routing is

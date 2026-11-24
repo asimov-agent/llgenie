@@ -6,7 +6,9 @@ now?* It reads the pipelines through the `gh` CLI — read-only, never a rerun/d
 is forbidden by AGENTS) — and prints the incident snapshot:
 
 - `MAIN-RED run=<id> workflow=<name> conclusion=<c>` — a completed main-branch run that failed,
-  was cancelled, or timed out;
+  was cancelled, or timed out AND is still its workflow's newest completed run on `main` (a red a
+  newer completed main run of the same workflow turned green is history, not an incident — issue
+  #3048: 20 of the 29 reds in the measured 72 h window were exactly that);
 - `PR-CHECKS pr=<n> head=<sha9> failed=<k>` — an open non-draft PR with `k` failing check buckets;
 - `PR-MERGE pr=<n> head=<sha9> merge=<DIRTY|BEHIND>` — an open PR that cannot auto-merge as-is;
 - `PR-REVIEW pr=<n> head=<sha9> decision=CHANGES_REQUESTED` — a reviewer holding the PR;
@@ -25,6 +27,12 @@ incident to the run-failure reactor in file-only mode: every `MAIN-RED` run id, 
 dispatches NOTHING (fix-bot dispatch stays a CI/human action). Each routing prints one verdict line
 (`TRIAGE-MAIN run=<id> routed rc=<rc>` / `TRIAGE-PR pr=<n> run=<id> routed rc=<rc>`); `--dry`
 previews without filing. `MONITOR-OK`/`MONITOR-ERROR` route nothing.
+
+`--include-superseded` (`make ci-monitor INCLUDE_SUPERSEDED=1`) additionally prints
+`MAIN-SUPERSEDED run=<id> workflow=<name> conclusion=<c> superseded_by=<id>` lines for the reds the
+newest completed main run of each workflow replaced — a human read of recent history. Those lines are
+never incidents and `--triage` never routes them, so the cron hash-gate stays incident-only by
+default (issue #3048).
 
 All `gh` traffic goes through an injectable `fetch` seam so the unit battery replays recorded
 payloads with zero network (the probe-replay precedent).
@@ -110,33 +118,69 @@ class Fetch:
                 and str(r.get("conclusion")) in MAIN_RED_CONCLUSIONS]
 
 
+def _aged_out(run: Mapping[str, Any], now: datetime | None, max_age_hours: int | None) -> bool:
+    """True when the run's `updatedAt` stamp is older than the age window. A payload without an
+    `updatedAt` (recorded probe data) is never age-filtered, so replayed snapshots stay byte-stable."""
+    updated = str(run.get("updatedAt") or "")
+    if now is None or max_age_hours is None or not updated:
+        return False
+    try:
+        stamp = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return (now - stamp).total_seconds() > max_age_hours * 3600
+
+
+def _run_order(run: Mapping[str, Any]) -> tuple[str, int]:
+    """Chronological order of recorded runs: the `updatedAt` stamp first, the monotonic run id as
+    tiebreak (recorded payloads may carry no stamp at all)."""
+    return (str(run.get("updatedAt") or ""), int(run.get("databaseId") or 0))
+
+
+def classify_main_runs(
+    main_runs: Sequence[dict[str, Any]],
+    now: datetime | None = None,
+    max_age_hours: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split completed `main` runs into (live incidents, superseded) per workflow (issue #3048).
+
+    A main workflow is incident-red only when its NEWEST completed run on `main` concluded
+    `failure`/`cancelled`/`timed_out` and sits inside the age window. An older completed red of the
+    same workflow was superseded by that newer run and is no longer an incident — this is what made
+    20 of the 29 reds in the measured 72 h window fake incidents. A newer run that has not completed
+    yet supersedes nothing: the workflow's outcome is still unknown, so the newest COMPLETED run
+    decides. Superseded runs carry `supersededBy` (the run id that replaced them).
+    """
+    by_workflow: dict[str, list[dict[str, Any]]] = {}
+    for run in main_runs:
+        if str(run.get("headBranch")) == "main" and str(run.get("status")) == "completed":
+            by_workflow.setdefault(str(run.get("workflowName")), []).append(dict(run))
+
+    incidents: list[dict[str, Any]] = []
+    superseded: list[dict[str, Any]] = []
+    for runs in by_workflow.values():
+        runs.sort(key=_run_order)
+        newest, older = runs[-1], runs[:-1]
+        if str(newest.get("conclusion")) in MAIN_RED_CONCLUSIONS and not _aged_out(
+            newest, now, max_age_hours
+        ):
+            incidents.append(newest)
+        for run in older:
+            if str(run.get("conclusion")) in MAIN_RED_CONCLUSIONS:
+                superseded.append({**run, "supersededBy": newest.get("databaseId")})
+    return incidents, superseded
+
+
 def main_red_runs(
     main_runs: Sequence[dict[str, Any]],
     now: datetime | None = None,
     max_age_hours: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Completed main runs whose conclusion is an incident, honoring the age window.
-
-    `now` + `max_age_hours` age out old red runs; a payload without `updatedAt` (recorded probe
-    data) is never age-filtered, so replayed snapshots stay byte-stable. One incident definition
-    for both the snapshot and the triage — the two can never disagree (issue #3019).
+    """The MAIN-RED incident set: the live reds from `classify_main_runs` — a completed main-branch
+    red that is its workflow's newest completed run on `main`. One incident definition for both the
+    snapshot and the triage, so the two can never disagree (issues #3019, #3048).
     """
-    incidents: list[dict[str, Any]] = []
-    for run in main_runs:
-        if (
-            str(run.get("headBranch")) == "main"
-            and str(run.get("status")) == "completed"
-            and str(run.get("conclusion")) in MAIN_RED_CONCLUSIONS
-        ):
-            updated = str(run.get("updatedAt") or "")
-            if now is not None and max_age_hours is not None and updated:
-                try:
-                    stamp = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-                except ValueError:
-                    stamp = None
-                if stamp is not None and (now - stamp).total_seconds() > max_age_hours * 3600:
-                    continue
-            incidents.append(run)
+    incidents, _superseded = classify_main_runs(main_runs, now=now, max_age_hours=max_age_hours)
     return incidents
 
 
@@ -163,14 +207,27 @@ def snapshot_lines(
     checks_by_pr: Mapping[int, Sequence[Mapping[str, Any]]],
     now: datetime | None = None,
     max_age_hours: int | None = None,
+    include_superseded: bool = False,
 ) -> list[str]:
-    """Pure snapshot: recorded payloads in, deterministic incident lines out."""
+    """Pure snapshot: recorded payloads in, deterministic incident lines out.
+
+    `include_superseded` adds the `MAIN-SUPERSEDED …` history lines (issue #3048); they are not
+    incidents and the triage never routes them.
+    """
     lines: list[str] = []
-    for run in main_red_runs(main_runs, now=now, max_age_hours=max_age_hours):
+    incidents, superseded = classify_main_runs(main_runs, now=now, max_age_hours=max_age_hours)
+    for run in incidents:
         lines.append(
             f"MAIN-RED run={run.get('databaseId')} "
             f"workflow={run.get('workflowName')} conclusion={run.get('conclusion')}"
         )
+    if include_superseded:
+        for run in superseded:
+            lines.append(
+                f"MAIN-SUPERSEDED run={run.get('databaseId')} "
+                f"workflow={run.get('workflowName')} conclusion={run.get('conclusion')} "
+                f"superseded_by={run.get('supersededBy')}"
+            )
     for number, head, failed in pr_check_failures(open_prs, checks_by_pr):
         lines.append(f"PR-CHECKS pr={number} head={head[:9]} failed={failed}")
     for pr in open_prs:
@@ -230,7 +287,9 @@ def fetch_incidents(fetch: Any) -> tuple[list[dict[str, Any]], list[dict[str, An
     return main_runs, open_prs, checks_by_pr
 
 
-def build_snapshot(fetch: Any, max_age_hours: int = MONITOR_MAX_AGE_HOURS) -> str:
+def build_snapshot(
+    fetch: Any, max_age_hours: int = MONITOR_MAX_AGE_HOURS, include_superseded: bool = False
+) -> str:
     try:
         main_runs, open_prs, checks_by_pr = fetch_incidents(fetch)
     except Exception as exc:  # the snapshot stays byte-stable even when the reads fail
@@ -239,6 +298,7 @@ def build_snapshot(fetch: Any, max_age_hours: int = MONITOR_MAX_AGE_HOURS) -> st
     lines = snapshot_lines(
         main_runs, open_prs, checks_by_pr,
         now=datetime.now(timezone.utc), max_age_hours=max_age_hours,
+        include_superseded=include_superseded,
     )
     return "\n".join(lines) if lines else MONITOR_OK
 
@@ -262,6 +322,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--dry", action="store_true",
                         help="with --triage: print the routing plan, file nothing")
+    parser.add_argument("--include-superseded", action="store_true",
+                        help="also print MAIN-SUPERSEDED history lines (never incidents, never "
+                             "routed; issue #3048)")
     args = parser.parse_args(argv)
     if args.fetch:
         import importlib
@@ -272,7 +335,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         fetch = Fetch(repo=args.repo, main_limit=args.main_limit)
     repo = str(getattr(fetch, "repo", args.repo))
     if not args.triage:
-        print(build_snapshot(fetch, max_age_hours=args.max_age_hours))
+        print(build_snapshot(fetch, max_age_hours=args.max_age_hours,
+                             include_superseded=args.include_superseded))
         return 0
     try:
         main_runs, open_prs, checks_by_pr = fetch_incidents(fetch)
@@ -282,6 +346,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     now = datetime.now(timezone.utc)
     lines = snapshot_lines(
         main_runs, open_prs, checks_by_pr, now=now, max_age_hours=args.max_age_hours,
+        include_superseded=args.include_superseded,
     )
     print("\n".join(lines) if lines else MONITOR_OK)
     if lines:
