@@ -175,6 +175,7 @@
       "issue_implementer",
       "issue_refiner",
       "jev_preflight_tracker",
+      "monitor_triage_sweep",
       "memory_bootstrap",
       "nerve_profile_check",
       "orchestrator_tick",
@@ -352,6 +353,11 @@
       "from": "ci_monitor",
       "to": "proc",
       "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the CI monitor reads GitHub through gh via it by design (issue #3013)."
+    },
+    {
+      "from": "monitor_triage_sweep",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the reactor-issue backfill sweep reads GitHub through gh via it by design (issue #3049)."
     },
     {
       "from": "ci_verdict",

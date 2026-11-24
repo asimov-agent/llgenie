@@ -4,8 +4,10 @@
 
 ### Requirement: the monitor sweep re-reads every reactor-filed main-red issue with the incident rule
 
-A make target MUST re-classify every OPEN issue carrying the run-failure reactor's filing marker and
-the `agent:ci-pipelines-maintainer` label against the same rule `scripts/ci_monitor.py` uses after
+A make target MUST re-classify every OPEN issue carrying the run-failure reactor's filing marker (the
+marker IS the filing — the reactor's own dedupe key; the `agent:ci-pipelines-maintainer` label is
+recorded on the verdict, never required, because a filing can carry no label at all: measured on #3044)
+against the same rule `scripts/ci_monitor.py` uses after
 issue #3048: a failure is live only when the filing workflow's NEWEST completed run on `main` is
 itself `failure`/`cancelled`/`timed_out`. The sweep MUST reuse `classify_main_runs()` rather than
 re-implement the ordering, so the printed incident set and the re-triage verdict cannot diverge. One
@@ -34,6 +36,9 @@ run after the filing MUST be reported `no-newer-run` and left open, never inferr
 The sweep's write half MUST be opt-in (`--apply`; the default is dry) and MUST act only through the
 issue side: a `scripts/bot_claims.py` claim comment before acting, a comment naming the superseder run
 on a superseded issue, `gh issue close` on that issue only, and a comment recording the current red run
+on a live filing — a filing whose current red run id already appears on the issue, in its body **or in a
+comment an earlier pass wrote**, gets no second comment, so re-running the sweep never stacks the same
+verdict on the same issue
 on a live issue. It MUST NOT rerun, re-dispatch, cancel or merge a pipeline, and MUST NOT dispatch a
 fix-bot (AGENTS.md: queue-pumping is forbidden; the host files tracked issues and dispatches nothing).
 

@@ -12,10 +12,10 @@ picks its next lane from carries fake work items whose evidence run is history.
 
 ## What Changes
 
-1. New leg `scripts/monitor_triage_sweep.py` (stdlib-only, unit-testable, no LLM): it lists the open
-   issues carrying the reactor's `agent:ci-pipelines-maintainer` label, keeps the reactor-filed
-   main-red ones (body marker `<!-- run-fixer: … -->` plus its `**workflow:**` / `**run:**` /
-   `**head sha:**` fields), and classifies each with the SAME rule `scripts/ci_monitor.py` uses after
+1. New leg `scripts/monitor_triage_sweep.py` (stdlib-only, unit-testable, no LLM): it pages the open
+   issues and keeps the reactor filings — the body marker `<!-- run-fixer: … -->` IS the filing (its
+   `agent:ci-pipelines-maintainer` label is recorded on the verdict, never required: #3044 is open with
+   the marker and zero labels), with its `**workflow:**` / `**run:**` fields parsed back — and classifies each with the SAME rule `scripts/ci_monitor.py` uses after
    #3048 — `classify_main_runs()` over that workflow's completed runs on `main`, ordered by
    `(updatedAt, databaseId)`.
 2. One verdict line per issue: `SWEEP issue=<n> workflow=<name> run=<id> superseded-by <run>` when
