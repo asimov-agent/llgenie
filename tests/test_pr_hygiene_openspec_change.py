@@ -143,6 +143,46 @@ def test_the_cli_exits_non_zero_for_a_missing_openspec_change(repo: Path, tmp_pa
                     "--body-file", str(f)]) == 0
 
 
+def test_openspec_change_finding_names_a_glued_reference(repo: Path):
+    """Issue #3050: the line was THERE, the newline around it was not — say THAT.
+
+    The engine-bump composer appended the params documentation review with
+    `body="$(printf '%b' "${body}" '\\n')$(cat params-review-section.md)"`; command substitution strips
+    trailing newlines, so the heading landed on the same line as the change name and `OPENSPEC_REF` read
+    nothing. Measured on PR #3030 (head `20b3f030`): `OPENSPEC: publish-changed-pin-images## Documentation
+    review`. The old generic hint told that producer to ADD a line it already had.
+    """
+    commit(repo, "scripts/impl.py", "def x():\n    pass\n")
+    body = ("Automated engine pin bump.\n\nOPENSPEC: publish-changed-pin-images## Documentation review\n"
+            "\n### docs/build.md\n")
+    items = hy.openspec_change_findings(repo, "feature", "main", body)
+    assert [i["key"] for i in items] == ["openspec-change"]
+    detail = items[0]["detail"]
+    assert "does not parse" in detail, detail
+    assert "OPENSPEC: publish-changed-pin-images## Documentation review" in detail, detail
+    assert "ENDS after the change name" in detail, detail
+
+
+def test_openspec_change_finding_names_an_inactive_change(repo: Path):
+    commit(repo, "scripts/impl.py", "def x():\n    pass\n")
+    body = "Closes #1807.\n\nOPENSPEC: does-not-exist\n\n"
+    items = hy.openspec_change_findings(repo, "feature", "main", body)
+    detail = items[0]["detail"]
+    assert "does-not-exist" in detail, detail
+    assert "is ACTIVE here" in detail, detail
+    assert "does not parse" not in detail, detail
+
+
+def test_openspec_change_finding_names_a_missing_reference(repo: Path):
+    commit(repo, "scripts/impl.py", "def x():\n    pass\n")
+    items = hy.openspec_change_findings(repo, "feature", "main", plain_body())
+    detail = items[0]["detail"]
+    assert "make openspec-new" in detail, detail
+    assert "names no" in detail, detail
+    assert "does not parse" not in detail, detail
+    assert "is ACTIVE here" not in detail, detail
+
+
 def test_the_openspec_gate_is_wired_into_both_guard_docs_and_full_ci():
     """The #1807 presence gate must actually RUN on a PR — not just exist as a subcommand."""
     for rel in (".github/workflows/ci.yml", ".github/workflows/scope.yml"):

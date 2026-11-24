@@ -275,6 +275,9 @@ make engine-bump-plan [ENGINE=<id>]   # which engines moved upstream (git ls-rem
 make engine-derive ENGINE=<id> [SHA=] # derive build params from the upstream tree (no LLM)
 make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
+make engine-bump-pr-body ENGINE=<id> REF=<ref> OLD=<old-sha> NEW=<new-sha> RUN=<gh run id> OUT=<path> \
+                                      # the bump lane's PR body AND its commit-text acceptance mirror, rendered
+                                      # from one seam so the PR gates can read them (issue #3050)
 make engine-params-review-brief ENGINE=<id>   # the engine's own docs at its pin + current params -> params-review-in.md
 make engine-params-review ENGINE=<id>         # Hermes reviews them against those docs (proposes only cited -D flags)
 make engine-params-review-apply ENGINE=<id>   # validate proposals (flag AND quote must be in the upstream file),

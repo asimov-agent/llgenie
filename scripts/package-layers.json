@@ -5,6 +5,7 @@
       "detect_server",
       "download_test_model",
       "engine_bump",
+      "engine_bump_pr_body",
       "engine_bump_rebase",
       "engine_bump_sync",
       "engine_deps",
