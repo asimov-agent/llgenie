@@ -22,11 +22,16 @@ agent, a changed snapshot wakes it with the diff.
 
 `make ci-monitor-triage` (`--triage`, issue #3019) prints the SAME snapshot first, then routes each
 incident to the run-failure reactor in file-only mode: every `MAIN-RED` run id, and for every
-`PR-CHECKS` incident the completed failed runs on that PR's head sha, is handed to
-`run_failure_reactor.route(..., file_only=True)` — the reactor files its marker-deduped issue and
-dispatches NOTHING (fix-bot dispatch stays a CI/human action). Each routing prints one verdict line
-(`TRIAGE-MAIN run=<id> routed rc=<rc>` / `TRIAGE-PR pr=<n> run=<id> routed rc=<rc>`); `--dry`
-previews without filing. `MONITOR-OK`/`MONITOR-ERROR` route nothing.
+`PR-CHECKS` incident the REPRESENTATIVE completed failed runs that `pr_head_routing_plan` picks on
+that PR's full head sha (issue #3047: a PR-CHECKS incident is a (PR, failing check bucket) pair, not
+a run — newest red first, at most three reads per workflow, one run per failing step class), is
+handed to `run_failure_reactor.route(..., file_only=True)` — the reactor files its marker-deduped
+issue and dispatches NOTHING (fix-bot dispatch stays a CI/human action). A head that is still
+queued/in_progress is named to the queued-alarm lane (`TRIAGE-QUEUED pr=<n> ... owner=queued-alarm`)
+and routes nothing, and each PR prints one `PR-ROUTE pr=<n> routed=<r> suppressed=<s> aged=<a>`
+summary. Each routing prints one verdict line (`TRIAGE-MAIN run=<id> routed rc=<rc>` /
+`TRIAGE-PR pr=<n> run=<id> workflow=<wf> classes=<c> routed rc=<rc>`); `--dry` previews without
+filing. `MONITOR-OK`/`MONITOR-ERROR` route nothing.
 
 `--include-superseded` (`make ci-monitor INCLUDE_SUPERSEDED=1`) additionally prints
 `MAIN-SUPERSEDED run=<id> workflow=<name> conclusion=<c> superseded_by=<id>` lines for the reds the
@@ -41,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
@@ -85,7 +91,7 @@ class Fetch:
         out = run_checked(
             [
                 "gh", "pr", "list", "--repo", self.repo, "--state", "open", "--limit", "100",
-                "--json", "number,headRefOid,mergeStateStatus,reviewDecision,isDraft",
+                "--json", "number,headRefOid,headRefName,mergeStateStatus,reviewDecision,isDraft",
             ],
             timeout=120,
         )
@@ -98,24 +104,43 @@ class Fetch:
         )
         return json.loads(out)
 
-    def failed_runs_on_head(self, head_sha: str) -> list[dict[str, Any]]:
-        """Completed runs with an incident conclusion at this exact head commit (issue #3019).
+    def runs_on_head(self, head_sha: str) -> list[dict[str, Any]]:
+        """Every run recorded at this exact head commit, with its `status` (issues #3019, #3047).
 
-        The read is `-c <sha>` (head-commit filter; `gh run list` has no `--pull` flag), and only
-        completed incident-conclusion rows come back — a PR-CHECKS incident is routed to the runs
-        that actually produced it, never to in-flight ones.
+        The read is `-c <sha>` (head-commit filter; `gh run list` has no `--pull` flag) and it is
+        the ONE head read the triage leg makes. `status` stays in the payload because the routing
+        plan must see a run that is still queued/in-progress and hand that PR to the queued-alarm
+        lane instead of routing it; which rows are incidents is decided by
+        `pr_head_routing_plan`, not by a second, filtered read of the same head (AGENTS.md: no
+        second command path).
         """
         out = run_checked(
             [
                 "gh", "run", "list", "--repo", self.repo, "-c", head_sha, "--limit", "50",
-                "--json", "databaseId,workflowName,status,conclusion",
+                "--json", "databaseId,workflowName,status,conclusion,updatedAt",
             ],
             timeout=120,
         )
-        runs = json.loads(out)
-        return [r for r in runs
-                if str(r.get("status")) == "completed"
-                and str(r.get("conclusion")) in MAIN_RED_CONCLUSIONS]
+        return [r for r in json.loads(out) if r.get("databaseId") is not None]
+
+    def failing_jobs_for_run(self, run_id: Any) -> list[str]:
+        """The failing job names of one run (issue #3047), read through the same gh seam.
+
+        A run's failing job names ARE the failing step classes it stands for, so the routing plan
+        can tell whether an older failed run adds a class a newer routed run already covers. A
+        cancelled run with no failed job yields an empty list, and its workflow name alone is then
+        the key it can be matched by.
+        """
+        out = run_checked(
+            [
+                "gh", "run", "view", str(run_id), "--repo", self.repo,
+                "--json", "jobs",
+            ],
+            timeout=120,
+        )
+        jobs = json.loads(out).get("jobs") or []
+        return [str(j.get("name") or "") for j in jobs
+                if str(j.get("conclusion")) in MAIN_RED_CONCLUSIONS]
 
 
 def _aged_out(run: Mapping[str, Any], now: datetime | None, max_age_hours: int | None) -> bool:
@@ -242,6 +267,116 @@ def snapshot_lines(
     return sorted(lines)
 
 
+PENDING_STATUSES = ("queued", "in_progress", "waiting")
+# How deep the plan may look inside one workflow: the candidate pool is bounded per workflow, so the
+# routing cost cannot grow with how much CI history a head happens to carry (issue #3047 measured 27
+# reactor routings for 7 PRs because every historical red run of every workflow on a head got routed).
+MAX_RUNS_PER_WORKFLOW = 3
+
+
+def _check_key(name: Any) -> str:
+    """The comparable part of a check or job name (issue #3047).
+
+    Lower-cased, whitespace-collapsed, the workflow's ` \u2014 <description>` suffix dropped, and a
+    `lane / job` pair reduced to its job part: the `gh pr checks` bucket `linux / unit` and that run's
+    failing job name `linux / unit` become the same key, while two different engine matrix jobs stay
+    different keys.
+    """
+    text = re.sub(r"\s+", " ", str(name or "").strip().lower())
+    text = text.split(" \u2014 ")[0].strip()
+    parts = [part.strip() for part in text.split("/")]
+    return parts[-1] if len(parts) > 1 else text
+
+
+def pr_head_routing_plan(
+    runs: Sequence[Mapping[str, Any]],
+    failing_buckets: Sequence[str],
+    classes_of: Any,
+    now: datetime | None = None,
+    max_age_hours: int | None = None,
+    max_runs_per_workflow: int = MAX_RUNS_PER_WORKFLOW,
+) -> dict[str, Any]:
+    """Which runs on ONE PR head the reactor should be handed (issue #3047).
+
+    A PR-CHECKS incident is a (PR, failing check bucket) pair, not a run. The head commit carries
+    every historical failed run of every workflow it triggered, and routing all of them spent 27
+    reactor calls in one tick for the seven engine-bump PRs — most of them runs that explained none
+    of the PR's failing buckets. So the plan covers the buckets instead of the history: newest red
+    first (at most `max_runs_per_workflow` deep per workflow), and a run is routed only while it
+    stands for a failing bucket no routed run stands for yet. A red run that explains no failing
+    bucket is `suppressed`, never routed.
+
+    A head that is still running belongs to the queued-alarm lane (issue #3047): a `queued`,
+    `in_progress` or `waiting` run on the head means the outcome is not known yet, so nothing is
+    routed for that PR and the plan names the lane that owns it.
+
+    Returns `{"plan": [{"run", "workflow", "classes"}], "queued": [run ids], "aged": n,
+    "suppressed": n, "uncovered": [bucket names]}`, where `classes` are the failing buckets the
+    routed run stands for, `suppressed` counts every fresh completed red run on the head the plan
+    declined to route, and `uncovered` are the buckets no completed failed run on the head explains.
+    """
+    wanted = sorted({str(b) for b in failing_buckets if str(b)})
+    queued = sorted(
+        (r for r in runs if str(r.get("status")) in PENDING_STATUSES),
+        key=lambda r: -int(r.get("databaseId") or 0),
+    )
+    if queued:
+        return {"plan": [], "queued": [int(r.get("databaseId") or 0) for r in queued],
+                "aged": 0, "suppressed": 0, "uncovered": wanted}
+
+    reds: dict[str, list[dict[str, Any]]] = {}
+    aged = 0
+    for run in runs:
+        if str(run.get("status")) != "completed":
+            continue
+        if str(run.get("conclusion")) not in MAIN_RED_CONCLUSIONS:
+            continue
+        if _aged_out(run, now, max_age_hours):
+            aged += 1
+            continue
+        reds.setdefault(str(run.get("workflowName")), []).append(dict(run))
+
+    # Newest red first, then round-robin across workflows: one workflow's deep history cannot be the
+    # only candidate pool, and no workflow is examined deeper than `max_runs_per_workflow`.
+    for rows in reds.values():
+        rows.sort(key=_run_order, reverse=True)
+    candidates: list[dict[str, Any]] = []
+    for rank in range(max_runs_per_workflow):
+        for workflow in sorted(reds):
+            if len(reds[workflow]) > rank:
+                candidates.append(reds[workflow][rank])
+
+    wanted_keys = {_check_key(b): b for b in wanted}
+    red_total = sum(len(rows) for rows in reds.values())
+    covered: dict[str, int] = {}
+    picked: dict[int, dict[str, Any]] = {}
+    order: list[int] = []
+    for row in candidates:
+        if len(covered) >= len(wanted_keys):
+            break  # every failing bucket already has a representative
+        workflow = str(row.get("workflowName"))
+        run_id = int(row.get("databaseId") or 0)
+        classes = [str(c) for c in classes_of(run_id) if str(c)]
+        keys = {_check_key(c) for c in classes} | {_check_key(workflow)}
+        fresh = [b for k, b in sorted(wanted_keys.items()) if k in keys and b not in covered]
+        if not fresh:
+            continue  # a red run that stands for no failing bucket
+        for bucket in fresh:
+            covered[bucket] = run_id
+        if run_id not in picked:
+            picked[run_id] = {"run": run_id, "workflow": workflow, "classes": []}
+            order.append(run_id)
+        picked[run_id]["classes"] = sorted(b for b, r in covered.items() if r == run_id)
+
+    return {
+        "plan": [picked[run_id] for run_id in order],
+        "queued": [],
+        "aged": aged,
+        "suppressed": red_total - len(order),
+        "uncovered": sorted(b for b in wanted if b not in covered),
+    }
+
+
 def triage_incidents(
     fetch: Any,
     repo: str,
@@ -254,27 +389,54 @@ def triage_incidents(
 ) -> list[str]:
     """Route every snapshot incident through the reactor in file-only mode; verdict lines out.
 
-    MAIN-RED routes the incident run itself; PR-CHECKS routes the completed failed runs found on
-    the PR's full head sha. The reactor's own `[run-fixer]` verdicts print as it works; each
-    routing adds one `TRIAGE-*` line here. Nothing here dispatches or reruns (issue #3019).
+    MAIN-RED routes the incident run itself; a PR-CHECKS incident routes the REPRESENTATIVE runs
+    `pr_head_routing_plan` picks on the PR's full head sha (issue #3047), and a head that is still
+    queued is handed to the queued-alarm lane with no routing at all. The reactor's own
+    `[run-fixer]` verdicts print as it works; each routing adds one `TRIAGE-*` line here, and each
+    PR adds one `PR-ROUTE` summary that names what the dedupe suppressed. Nothing here dispatches
+    or reruns (issue #3019).
     """
     verdicts: list[str] = []
     for run in main_red_runs(main_runs, now=now, max_age_hours=max_age_hours):
         run_id = int(run.get("databaseId") or 0)
         rc = run_failure_reactor.route(repo, run_id, dry=dry, file_only=True)
         verdicts.append(f"TRIAGE-MAIN run={run_id} routed rc={rc}")
+    # AGENTS.md: a failed PR pipeline is fixed ON ITS BRANCH, so every routing names that branch.
+    owners = {int(pr["number"]): str(pr.get("headRefName") or "") for pr in open_prs}
     for number, head, _failed in pr_check_failures(open_prs, checks_by_pr):
         if not head:
             verdicts.append(f"TRIAGE-PR pr={number} no-head-sha routed rc=1")
             continue
-        head_runs = fetch.failed_runs_on_head(head)
-        if not head_runs:
-            verdicts.append(f"TRIAGE-PR pr={number} head={head[:9]} no-completed-failed-run found")
+        buckets = [str(c.get("name") or "") for c in checks_by_pr.get(number, [])
+                   if str(c.get("bucket")) == "fail"]
+        plan = pr_head_routing_plan(
+            fetch.runs_on_head(head), buckets, fetch.failing_jobs_for_run,
+            now=now, max_age_hours=max_age_hours,
+        )
+        if plan["queued"]:
+            verdicts.append(
+                f"TRIAGE-QUEUED pr={number} head={head[:9]} owner=queued-alarm "
+                f"runs={','.join(str(r) for r in plan['queued'])}"
+            )
             continue
-        for r in head_runs:
-            run_id = int(r.get("databaseId") or 0)
-            rc = run_failure_reactor.route(repo, run_id, dry=dry, file_only=True)
-            verdicts.append(f"TRIAGE-PR pr={number} run={run_id} routed rc={rc}")
+        if not plan["plan"]:
+            verdicts.append(
+                f"TRIAGE-PR pr={number} head={head[:9]} no-completed-failed-run found"
+                + (f" aged={plan['aged']}" if plan["aged"] else "")
+            )
+            continue
+        for item in plan["plan"]:
+            rc = run_failure_reactor.route(repo, item["run"], dry=dry, file_only=True)
+            verdicts.append(
+                f"TRIAGE-PR pr={number} run={item['run']} workflow={item['workflow']} "
+                f"owner={owners.get(number, '')} classes={','.join(item['classes'])} "
+                f"routed rc={rc}"
+            )
+        uncovered = f" uncovered={','.join(plan['uncovered'])}" if plan["uncovered"] else ""
+        verdicts.append(
+            f"PR-ROUTE pr={number} head={head[:9]} routed={len(plan['plan'])} "
+            f"suppressed={plan['suppressed']} aged={plan['aged']}{uncovered}"
+        )
     return verdicts
 
 

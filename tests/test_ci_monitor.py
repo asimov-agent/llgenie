@@ -15,12 +15,14 @@ import scripts.ci_monitor as ci_monitor
 class FakeFetch:
     """Recorded payloads in; no gh subprocess is ever spawned."""
 
-    def __init__(self, main_runs, open_prs, checks_by_pr, raise_error=None, head_runs=None):
+    def __init__(self, main_runs, open_prs, checks_by_pr, raise_error=None, head_runs=None,
+                 jobs_by_run=None):
         self._main_runs = main_runs
         self._open_prs = open_prs
         self._checks_by_pr = checks_by_pr
         self._raise_error = raise_error
         self._head_runs = head_runs or {}
+        self._jobs_by_run = jobs_by_run or {}
 
     def main_runs(self):
         if self._raise_error:
@@ -33,8 +35,11 @@ class FakeFetch:
     def pr_checks(self, pr_number):
         return self._checks_by_pr.get(pr_number, [])
 
-    def failed_runs_on_head(self, head_sha):
+    def runs_on_head(self, head_sha):
         return self._head_runs.get(head_sha, [])
+
+    def failing_jobs_for_run(self, run_id):
+        return self._jobs_by_run.get(int(run_id), [])
 
 
 MAIN_RUNS = [
@@ -54,12 +59,16 @@ MAIN_RUNS = [
 
 OPEN_PRS = [
     {"number": 3012, "headRefOid": "8c1def4f8aaaa111111111111111111111111111",
+     "headRefName": "feat/demo-3012",
      "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "isDraft": False},
     {"number": 3011, "headRefOid": "901838c14bbbb222222222222222222222222222",
+     "headRefName": "chore/engine-bump-ollama",
      "mergeStateStatus": "BEHIND", "reviewDecision": "REVIEW_REQUIRED", "isDraft": False},
     {"number": 3013, "headRefOid": "11d99160fcccc333333333333333333333333333",
+     "headRefName": "feat/demo-3013",
      "mergeStateStatus": "DIRTY", "reviewDecision": "CHANGES_REQUESTED", "isDraft": False},
     {"number": 2999, "headRefOid": "786239627dddd444444444444444444444444444",
+     "headRefName": "feat/demo-2999",
      "mergeStateStatus": "CLEAN", "reviewDecision": "APPROVED", "isDraft": True},
 ]
 
@@ -155,11 +164,21 @@ def test_monitor_is_read_only_no_mutation_verbs():
 # --triage (issue #3019): the snapshot is routed to the reactor, file-only
 # ---------------------------------------------------------------------------
 HEAD_RUNS = {
-    # the recorded answer of the REAL seam (test_failed_runs_on_head_filters… proves its filter):
-    # only the completed incident-conclusion row at this head ever comes back
+    # the recorded answer of the REAL seam (test_runs_on_head_returns… proves it is UNFILTERED):
+    # the head accumulates its whole CI history, and the routing plan is what picks a representative
     OPEN_PRS[0]["headRefOid"]: [
-        {"databaseId": 45019000001, "workflowName": "CI", "status": "completed", "conclusion": "failure"},
+        {"databaseId": 45019000001, "workflowName": "CI", "status": "completed", "conclusion": "failure",
+         "updatedAt": "2026-11-24T10:00:00Z"},
+        # the same head, the same workflow, the same failing step class: history, not a second incident
+        {"databaseId": 45019000002, "workflowName": "CI", "status": "completed", "conclusion": "failure",
+         "updatedAt": "2026-11-23T10:00:00Z"},
+        {"databaseId": 45019000003, "workflowName": "CI", "status": "completed", "conclusion": "success",
+         "updatedAt": "2026-11-24T12:00:00Z"},
     ],
+}
+HEAD_JOBS = {
+    45019000001: ["lane A / step"],
+    45019000002: ["lane A / step"],
 }
 
 
@@ -175,7 +194,8 @@ def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
     monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
     monkeypatch.setattr(
         ci_monitor, "Fetch",
-        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS),
+        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS,
+                               jobs_by_run=HEAD_JOBS),
     )
     rc = ci_monitor.main(["--triage"])
     out = capsys.readouterr().out
@@ -184,12 +204,15 @@ def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
     assert "MAIN-RED run=45010151478 workflow=CI conclusion=failure" in out
     assert "MAIN-RED run=45010200005 workflow=engine-bump conclusion=timed_out" in out
     assert "PR-CHECKS pr=3012 head=8c1def4f8 failed=2" in out
-    # every MAIN-RED run routes, and the PR incident routes its completed FAILED head run only
+    # every MAIN-RED run routes; the PR incident routes the NEWEST representative only
     assert "TRIAGE-MAIN run=45010151478 routed rc=0" in out
     assert "TRIAGE-MAIN run=45010200005 routed rc=0" in out
-    assert "TRIAGE-PR pr=3012 run=45019000001 routed rc=0" in out
-    assert "run=45019000002" not in out  # in-flight: never routed
+    assert ("TRIAGE-PR pr=3012 run=45019000001 workflow=CI owner=feat/demo-3012 "
+            "classes=lane A / step routed rc=0") in out
+    assert "run=45019000002" not in out  # same failing bucket: deduped away (issue #3047)
     assert "run=45019000003" not in out  # green: never routed
+    # the dedupe is visible, not silent, and names the bucket nothing explained
+    assert "PR-ROUTE pr=3012 head=8c1def4f8 routed=1 suppressed=1 aged=0 uncovered=lane B" in out
     # every routing is file-only, none is dry
     assert routed and all(call[3] is True for call in routed), routed
     assert all(call[2] is False for call in routed), routed
@@ -240,7 +263,8 @@ def test_triage_pr_incident_without_a_completed_failed_run_says_so(capsys, monke
     assert routed == []
 
 
-def test_failed_runs_on_head_filters_completed_incident_conclusions(monkeypatch):
+def test_runs_on_head_returns_every_run_recorded_at_the_head(monkeypatch):
+    """One head read, no filter: which rows are incidents is the routing plan's job (issue #3047)."""
     seen = {}
     def fake_run_checked(argv, timeout=None):
         seen["argv"] = list(argv)
@@ -252,10 +276,136 @@ def test_failed_runs_on_head_filters_completed_incident_conclusions(monkeypatch)
         ])
     monkeypatch.setattr(ci_monitor, "run_checked", fake_run_checked)
     fetch = ci_monitor.Fetch(repo="asimov-agent/llgenie")
-    got = fetch.failed_runs_on_head("abcdef1234567890")
+    got = fetch.runs_on_head("abcdef1234567890")
     assert seen["argv"][:5] == ["gh", "run", "list", "--repo", "asimov-agent/llgenie"]
     assert "-c" in seen["argv"] and "abcdef1234567890" in seen["argv"]
-    assert [r["databaseId"] for r in got] == [1, 4]
+    # every row, with its status: the plan needs to see the in-flight run to hand the PR over
+    assert [r["databaseId"] for r in got] == [1, 2, 3, 4]
+    assert "status" in seen["argv"][-1].split(",")
+
+
+def test_the_queued_alarm_lane_own_run_is_never_routed(monkeypatch):
+    seen = {}
+    def fake_run_checked(argv, timeout=None):
+        seen.setdefault("calls", []).append(list(argv))
+        if argv[:3] == ["gh", "run", "list"]:
+            return __import__("json").dumps([
+                {"databaseId": 7, "workflowName": "CI", "status": "queued", "conclusion": ""},
+            ])
+        raise AssertionError(f"routing a queued head must not read jobs: {argv}")
+    monkeypatch.setattr(ci_monitor, "run_checked", fake_run_checked)
+    fetch = ci_monitor.Fetch(repo="asimov-agent/llgenie")
+    plan = ci_monitor.pr_head_routing_plan(
+        fetch.runs_on_head("f" * 40), ["ci-unit"], fetch.failing_jobs_for_run,
+    )
+    assert plan["queued"] == [7]
+    assert plan["plan"] == []
+
+
+# ---------------------------------------------------------------------------
+# routing cost (issue #3047): a representative per (PR, workflow, failing class)
+# ---------------------------------------------------------------------------
+NOW = datetime(2026, 11, 24, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _plan(runs, classes_by_run, buckets=("linux / unit",), **kw):
+    return ci_monitor.pr_head_routing_plan(
+        runs, list(buckets), lambda rid: classes_by_run.get(rid, []),
+        now=kw.get("now", NOW), max_age_hours=kw.get("max_age_hours", 72),
+        max_runs_per_workflow=kw.get("max_runs_per_workflow", 3),
+    )
+
+
+def _run(rid, workflow, conclusion="failure", status="completed", updated="2026-11-24T10:00:00Z"):
+    return {"databaseId": rid, "workflowName": workflow, "status": status,
+            "conclusion": conclusion, "updatedAt": updated}
+
+
+def test_two_history_runs_of_the_same_workflow_and_class_route_one_representative():
+    runs = [
+        _run(11, "CI", updated="2026-11-24T10:00:00Z"),
+        _run(12, "CI", updated="2026-11-23T10:00:00Z"),
+        _run(13, "CI", updated="2026-11-22T10:00:00Z"),
+    ]
+    plan = _plan(runs, {11: ["linux / unit"], 12: ["linux / unit"], 13: ["linux / unit"]})
+    assert [item["run"] for item in plan["plan"]] == [11]  # the NEWEST red stands for the bucket
+    assert plan["plan"][0]["classes"] == ["linux / unit"]
+    assert plan["suppressed"] == 2 and plan["aged"] == 0 and plan["queued"] == []
+    assert plan["uncovered"] == []
+
+
+def test_a_older_run_with_a_different_failing_class_still_routes():
+    runs = [
+        _run(11, "CI", updated="2026-11-24T10:00:00Z"),
+        _run(12, "CI", updated="2026-11-23T10:00:00Z"),
+    ]
+    plan = _plan(runs, {11: ["linux / unit"], 12: ["linux / lint"]},
+                 buckets=("linux / unit", "linux / lint"))
+    assert [item["run"] for item in plan["plan"]] == [11, 12]  # coverage, not history
+    assert plan["suppressed"] == 0 and plan["uncovered"] == []
+
+
+def test_a_head_with_two_red_workflows_routes_one_representative_each():
+    runs = [
+        _run(21, "CI", updated="2026-11-24T10:00:00Z"),
+        _run(22, "CI", updated="2026-11-23T09:00:00Z"),
+        _run(23, "Engine Build Trigger", updated="2026-11-24T11:00:00Z"),
+        _run(24, "Engine Build Trigger", updated="2026-11-23T08:00:00Z"),
+    ]
+    plan = _plan(runs, {21: ["unit"], 22: ["unit"], 23: ["docker build"], 24: ["docker build"]},
+                 buckets=("linux / unit", "engine build trigger"))
+    assert sorted((item["run"], item["workflow"]) for item in plan["plan"]) == [
+        (21, "CI"), (23, "Engine Build Trigger"),
+    ]
+    assert plan["suppressed"] == 2 and plan["uncovered"] == []
+
+
+def test_reads_per_workflow_are_capped_so_a_deep_history_cannot_grow_the_tick():
+    runs = [_run(30 + i, "CI", updated=f"2026-11-24T0{i}:00:00Z") for i in range(1, 6)]
+    # five reds of one workflow, each with its own failing class: the cap is three reads, newest first
+    plan = _plan(runs, {31: ["a"], 32: ["b"], 33: ["c"], 34: ["d"], 35: ["e"]},
+                 buckets=("a", "b", "c", "d", "e"))
+    assert [item["run"] for item in plan["plan"]] == [35, 34, 33]
+    assert plan["aged"] == 0
+    assert plan["suppressed"] == 2  # the two reds deeper than the cap were never read
+    assert plan["uncovered"] == ["a", "b"]  # named, not silently dropped
+    assert ci_monitor.MAX_RUNS_PER_WORKFLOW == 3
+
+
+def test_an_aged_out_failed_run_is_not_routed_and_is_counted_as_aged():
+    runs = [
+        _run(41, "CI", updated="2026-11-24T10:00:00Z"),
+        _run(42, "CI", updated="2026-11-10T10:00:00Z"),  # 14 days old at NOW
+    ]
+    plan = _plan(runs, {41: ["unit"], 42: ["lint"]}, buckets=("unit", "lint"))
+    assert [item["run"] for item in plan["plan"]] == [41]
+    assert plan["aged"] == 1 and plan["suppressed"] == 0
+    assert plan["uncovered"] == ["lint"]  # the bucket only an aged run explained
+
+
+def test_a_red_run_that_explains_no_failing_bucket_is_suppressed_not_routed():
+    """The measured #3047 shape: a head whose failing buckets are CI job names carried four
+    `engine-build` red runs that explained none of them. The plan routes the CI representative and
+    suppresses the rest instead of spending a reactor call on each."""
+    runs = [
+        _run(51, "CI", updated="2026-11-24T10:00:00Z"),
+        _run(52, "engine-build", updated="2026-11-24T11:00:00Z"),
+        _run(53, "engine-build", updated="2026-11-23T11:00:00Z"),
+    ]
+    plan = _plan(runs, {51: ["linux / unit"], 52: ["ollama / cuda"], 53: ["ollama / cuda"]},
+                 buckets=("ci-verdict", "linux / unit", "scope", "guard"))
+    assert [item["run"] for item in plan["plan"]] == [51]
+    assert plan["suppressed"] == 2 and 52 not in {i["run"] for i in plan["plan"]}
+    assert plan["uncovered"] == ["ci-verdict", "guard", "scope"]
+
+
+def test_a_check_bucket_and_a_job_name_compare_as_the_same_key():
+    """The dedupe key, not the label: `gh pr checks` buckets and the run's failing job names match
+    after the workflow description and the `lane / job` prefix are normalized away (issue #3047)."""
+    assert ci_monitor._check_key("linux / unit") == ci_monitor._check_key("Linux  /  Unit")
+    assert ci_monitor._check_key("engine-build — builds EVERY engine (never merges)") == \
+        ci_monitor._check_key("engine-build")
+    assert ci_monitor._check_key("ollama / cuda") != ci_monitor._check_key("ollama / rocm")
 
 
 # ---------------------------------------------------------------------------
