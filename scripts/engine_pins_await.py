@@ -83,9 +83,16 @@ def _dispatch_runs(runs: list[dict], head_sha: str, head_ref: str) -> list[dict]
     every recent dispatch of the workflow is treated as in-scope, which is the conservative read.
     """
     out = []
+    stem = PRODUCER_WORKFLOW.removesuffix(".yml")
     for run in runs:
+        path = str(run.get("path") or "")
         name = str(run.get("name") or "")
-        if name not in (PRODUCER_WORKFLOW, PRODUCER_WORKFLOW.removesuffix(".yml")):
+        # The runs API is already scoped to the workflow file, but the display NAME of a run is its
+        # `name:` line (truncated), NOT the file name — matching on `name` silently drops every real
+        # run. Match the file `path`, fall back to a name prefix only when the API omits it.
+        if path and path != PRODUCER_WORKFLOW and not path.endswith(f"/{PRODUCER_WORKFLOW}"):
+            continue
+        if not path and not name.startswith(stem):
             continue
         sha = str(run.get("head_sha") or "")
         ref = str(run.get("head_branch") or "")

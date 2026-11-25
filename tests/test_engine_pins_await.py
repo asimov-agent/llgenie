@@ -47,8 +47,14 @@ class FakeClock:
 
 def _run(run_id=7, status="in_progress", conclusion=None, head_branch="feat/x",
          head_sha="abc123"):
-    return {"id": run_id, "name": WORKFLOW.removesuffix(".yml"), "status": status,
-            "conclusion": conclusion, "head_branch": head_branch, "head_sha": head_sha}
+    """A row in the shape the Actions runs API actually returns (measured on the live API):
+    `name` is the workflow display title (truncated), and `path` is the workflow FILE. A fixture
+    whose `name` is the file stem hides the fact that matching on `name` finds nothing."""
+    return {"id": run_id,
+            "name": f"{WORKFLOW.removesuffix('.yml')} — a pin-bump PR starts the producer and wai",
+            "path": f".github/workflows/{WORKFLOW}",
+            "status": status, "conclusion": conclusion,
+            "head_branch": head_branch, "head_sha": head_sha}
 
 
 def _lookup(runs):
@@ -163,6 +169,44 @@ def test_a_missing_producer_run_is_not_a_failure(monkeypatch, capsys):
     assert rc == 0
     assert len(calls) == 1
     assert "no engine-build-pr-trigger.yml run for this head; nothing to await" in capsys.readouterr().out
+
+
+def test_a_live_api_row_matches_on_path_not_display_name(monkeypatch, capsys):
+    """The bug this case exists for (issue #3051): the runs API reports a run's display `name`, which
+    is the workflow's `name:` line truncated — never the file name. A seam that filters on `name`
+    finds no producer for any real head and prints "no run for this head" while a 2 h producer is
+    running. Matching is on the workflow FILE (`path`)."""
+    monkeypatch.setattr(apa, "repinned_engine_ids", lambda base: ["vllm"])
+    monkeypatch.setenv("GITHUB_REPOSITORY", "asimov-agent/llgenie")
+    row = _run(status="in_progress", head_branch="chore/engine-bump-vllm",
+               head_sha="20b3f0307f8ed18f990f7ad4702bd7c1840e74c0")
+    assert row["name"] not in (WORKFLOW, WORKFLOW.removesuffix(".yml")), \
+        "the fixture must carry the real API row, not a convenient name"
+    fake, calls = _lookup([row])
+    clock = FakeClock()
+    rc = apa.await_producer("origin/main", lookup=fake, sleep=clock.sleep, clock=clock.clock,
+                            seconds=120.0, poll_seconds=10.0,
+                            head_sha=row["head_sha"], head_ref=row["head_branch"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "no engine-build-pr-trigger.yml run for this head" not in out
+    assert "AWAIT 7 in_progress/None" in out
+
+
+def test_a_row_from_another_workflow_file_is_not_this_lane_s_producer(monkeypatch, capsys):
+    """The path match is what makes the filter real: a row from a different workflow file must not be
+    waited on, so the seam cannot be satisfied by any recent run of anything."""
+    monkeypatch.setattr(apa, "repinned_engine_ids", lambda base: ["vllm"])
+    monkeypatch.setenv("GITHUB_REPOSITORY", "asimov-agent/llgenie")
+    row = _run(status="in_progress")
+    row["path"] = ".github/workflows/engine-build.yml"
+    fake, calls = _lookup([row])
+    rc = apa.await_producer("origin/main", lookup=fake, sleep=lambda s: None,
+                            clock=FakeClock().clock, seconds=60.0,
+                            head_sha="abc123", head_ref="feat/x")
+    assert rc == 0
+    assert "no engine-build-pr-trigger.yml run for this head; nothing to await" \
+        in capsys.readouterr().out
 
 
 def test_a_lookup_failure_never_reddens_the_lane(monkeypatch, capsys):
