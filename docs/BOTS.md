@@ -421,6 +421,7 @@ generator function (`scripts/check_docs.py::bots_table`).
 | `make lane-preflight` | Run the FAST gates before a host lane pushes, printing one line per gate and a final verdict; imports FAST_GATES from issue_bot_gates.py (one list) and refuses a dirty tree so the verdict describes the would-be-pushed head (issue #1058) |
 | `make lint` | Lint: fail closed if any tracked text file lacks a trailing newline, or a markdown heading is not preceded by a blank line |
 | `make loop` | alias |
+| `make monitor-triage-sweep` | Re-read every OPEN run-failure-reactor issue against the live MAIN-RED set (issue #3049): one SWEEP line per filing — superseded-by <run> when a newer completed main run of the same workflow replaced the red (a replaced red is history, not an incident, issue #3048), live newest-red=<run> when the workflow's newest completed main run is still a red, no-newer-run when the read holds no completed main run of that workflow after the filing; a filing a live claim already holds is skipped and counted in skipped-claim. Final line is the SWEEP-TALLY. DRY by default — prints the argv it would run and sends nothing; APPLY=1 posts the claim comment, the superseder/current-red comment, the close, and the claim release. It never reruns, re-dispatches, cancels or merges a pipeline (AGENTS: queue-pumping is forbidden) |
 | `make nerve-profile-check` | Probe the rule the agent image build enforces: a nerve setting whose module the selected profile does not register is inert, so the build fails (issue #611) |
 | `make openspec-image` | The OpenSpec CLI image: pull the published hash of openspec/Dockerfile (GHCR), else build it here (issue #117) |
 | `make openspec-tasks-check` | Assert all ACTIVE OpenSpec changes have no unchecked task checkboxes (NAME=<change> to check one). Fails CI when a task is left `- [ ]`. Pure-python host-side (no container needed). |
@@ -2302,6 +2303,20 @@ no stated decision"* and *"stack on purpose"*:
   `false` **and state it in the file** as `# concurrency: stacking is intended — <reason>`, so the next reader
   knows it was decided rather than copied. `tests/test_ci_concurrency.py` refuses an unexplained
   `cancel-in-progress: true`; the marker is the escape, and it is reviewed in the same diff as the setting.
+
+### The board backfill: `make monitor-triage-sweep` re-reads the reactor's own filings (issue #3049)
+
+The reactor files an issue for a red it saw once, and the board then carries filings whose red a later
+completed `main` run already replaced (issue #3048's single-incident rule makes such a red history, not
+an incident). `make monitor-triage-sweep` (DRY by default, `APPLY=1` to act) re-reads every OPEN filing —
+the reactor filing marker alone (the label is recorded, not required — #3044 is a marker-bearing
+filing with no labels) — through `ci_monitor.classify_main_runs` with the
+age window off, so a sweep verdict and a monitor snapshot can never disagree: `superseded-by <run>` closes
+the filing (claim comment first, then a comment naming the superseder, then `gh issue close`, then the
+`bot-done` stamp), `live newest-red=<run>` records the current red on the issue, `no-newer-run` is left
+open with nothing sent, and a live `bot-claim` held by another bot skips the filing. One `SWEEP` line per
+filing plus the `SWEEP-TALLY` line. The leg never touches a pipeline (AGENTS: queue-pumping is forbidden)
+— its `gh` verbs are `issue list/view/comment/close` and `run list` reads only.
 
 ## Dispatching a bot by hand (issue #276)
 Every workflow a human can start by hand states **what work the run will do** — in its name, in its

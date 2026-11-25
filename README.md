@@ -435,6 +435,11 @@ make ci-monitor-triage        # host: the same snapshot, then ROUTE it (issue #3
                               # failure class, one TRIAGE-* verdict line per routing, dispatches
                               # nothing; DRY=1 previews without filing. The monitor tick's FIRST
                               # command
+make monitor-triage-sweep     # host: re-read every OPEN run-failure-reactor filing (issue #3049)
+                              # against the live main read — superseded-by <run>, live
+                              # newest-red=<run>, or no-newer-run — one SWEEP line per filing plus
+                              # SWEEP-TALLY; DRY by default (the argv it would run prints), APPLY=1
+                              # sends it. Issue writes only: never reruns, cancels or dispatches a run
 make host-ci-monitor-install  # host: copy scripts/host_ci_monitor_wrapper.py byte-identically onto
                               # the monitor cron's --monitor-script host paths; a failed clone refresh
                               # or dirty clone now prints MONITOR-ERROR clone-refresh-failed instead
