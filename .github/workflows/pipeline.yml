@@ -105,6 +105,11 @@ jobs:
     permissions:
       contents: read
       packages: read
+      # Issue #3051: `make engine-pins-await` (the step below) reads this repository's
+      # `engine-build-pr-trigger` run status before the pins gate inside `make ci-unit` reads GHCR.
+      # The Actions runs API needs `actions: read` on the job token — the same lesson issue #893
+      # measured for the `install` job's producer-state read (a missing grant is a 403, not a skip).
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -113,6 +118,30 @@ jobs:
         if: runner.os == 'Linux'  # unit tests are Python; macOS Colima would shadow python3
       - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
         run: make test-env
+      # Issue #3051 — the ordering `needs:` cannot express. `make ci-unit` below runs
+      # `make check-engine-pins-published` (step 15/54 of the battery), which asks GHCR for the tags
+      # THIS change repins; those tags are published by `engine-build-pr-trigger.yml`, a SEPARATE
+      # workflow the PR's own trigger step dispatches, so GitHub can never order the battery after it.
+      # Measured on PR #3030 (2026-11-24T06:20Z): the pins step failed at 19:08:53Z with
+      # `HTTP Error 404` for `tensorfold:cpu-2026-11-24-c1a4024c865f` and
+      # `tensorfold:cuda-2026-11-24-c1a4024c865f` while the producer job ran 18:53:30Z -> 20:50:34Z.
+      # This step gives the ordering directly: it waits (bounded, `ENGINE_PINS_AWAIT_SECONDS`) for the
+      # producer runs THIS lane started to conclude, then the battery reads the registry state the
+      # producer actually left. Read-only (it lists runs; it never dispatches, re-triggers or re-runs)
+      # and it never reddens the lane: if the window closes or the API is unreadable, it exits 0 and
+      # the pins gate reports the unresolved refs as PINS-PENDING instead of a 404 red run.
+      - name: make engine-pins-await (await this lane's engine image producer before the pins gate reads GHCR, issue #3051)
+        timeout-minutes: 50
+        env:
+          # The bounded window the lane may spend waiting for its own producer. The producer cell build
+          # was measured at 2771 s (`test-build-engine-image`, PR #3030) for the tensorfold CPU cell, so
+          # 2700 s covers the common case and a longer build simply ends the window — the pins gate then
+          # says PENDING rather than pretending. BASE mirrors the ci-unit step's PR_BASE so the repin
+          # diff is measured against the live base the PR was cut from.
+          ENGINE_PINS_AWAIT_SECONDS: "2700"
+          BASE: origin/main
+          GH_TOKEN: ${{ github.token }}
+        run: make engine-pins-await
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
         env:
           # PR_BODY is read LIVE from the PR record below (gh api), NOT from the run's event snapshot:

@@ -128,6 +128,7 @@
       "engine_alias_move",
       "engine_build_trigger",
       "engine_capability",
+      "engine_pins_await",
       "head_check_rows",
       "lane_preflight",
       "loop_harness",
@@ -373,7 +374,7 @@
     {
       "from": "engine_alias_move",
       "to": "engine_image",
-      "reason": "the alias mover spells the committed ref with engine_image.resolve's exact-tag formula and re-reads the post-move digest through engine_image._digest_http — the may-arm's manifest authority, not a second registry read path (issue #2996, issue #2892)."
+      "reason": "the alias mover spells the committed ref with engine_image.resolve's exact-tag formula and re-reads the post-move digest through engine_image._digest_http \u2014 the may-arm's manifest authority, not a second registry read path (issue #2996, issue #2892)."
     },
     {
       "from": "engine_alias_move",
@@ -394,6 +395,21 @@
       "from": "engine_build_trigger",
       "to": "engine_image",
       "reason": "the published-skip probe reuses the may-arm's manifest authority (exact tag -> engine_image._digest_http) instead of opening a second registry read path (issue #2892)."
+    },
+    {
+      "from": "engine_pins_await",
+      "to": "base_ref",
+      "reason": "base_ref is the ONE base-ref resolver (issue #925); the await seam reads the same base the pin gate compares against."
+    },
+    {
+      "from": "engine_pins_await",
+      "to": "check_engine_pins_published",
+      "reason": "the await seam asks the pin gate which cells a change repins instead of re-implementing the repin diff, so both seams agree on what to wait for (issue #3051)."
+    },
+    {
+      "from": "engine_pins_await",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
     },
     {
       "from": "engine_bump",

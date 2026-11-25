@@ -1015,3 +1015,114 @@ def test_knob_off_never_probes_latest(tmp_path, monkeypatch):
                              cells=[(engine, variant)])
     assert rc == 0
     assert calls == [pin_ref], "knob off probes exactly once per cell, never an alias"
+
+
+# ---------------------------------------------------------------------------
+# Issue #3051: a PR lane defers a ref its OWN producer has not published yet.
+# The finding this change answers (PR #3030, 2026-11-24T06:20Z unit lane):
+# `[pins] NOT PUBLISHED .../tensorfold:cpu-2026-11-24-c1a4024c865f (HTTP Error 404)` at
+# 19:08:53Z while `engine-build-pr-trigger.yml` ran 18:53:30Z -> 20:50:34Z — the gate read the
+# registry before the job that publishes the tag had finished, and `needs:` cannot express it
+# because the producer is a separate workflow. These tests pin both halves of the contract:
+# a PR lane DEFERS (green, named, no dispatch asked for), and a `push`/main lane keeps the
+# hard red issue #178 states.
+# ---------------------------------------------------------------------------
+
+
+def test_pr_lane_defers_a_repinned_ref_its_producer_has_not_published(monkeypatch, capsys):
+    """The PR-lane deferral: the same absent manifest that reddens main is `PINS-PENDING` in a
+    PR lane, and no `[select]` build is asked for a ref the lane is still producing itself."""
+    engine, variant = "tensorfold", "cuda"
+    monkeypatch.setattr(cpp, "repinned_engine_ids", lambda base, root=None: [engine])
+    pin_ref, _alias_ref, _latest_ref = _cell_refs(engine, variant)
+    fake, calls = _fake_digest({pin_ref: ""})
+    rc = cpp.check(_head(), digest=fake, registry=REGISTRY, pending_mode=True)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert f"PINS-PENDING {pin_ref}" in out
+    assert "PINS DEFERRED" in out
+    assert "await this lane's own producer" in out
+    assert "[select]" not in out, "a deferred pin must not dispatch a build for this lane's own cell"
+    assert pin_ref in calls, "the deferral must still be a measured registry read, not a skipped probe"
+
+
+def test_main_lane_keeps_the_hard_red_for_the_same_unpublished_ref(monkeypatch, capsys):
+    """The other half of #3051: outside a PR lane an unresolved repinned pin is a failure and
+    keeps the #2561 selection line issue #178's heals depend on."""
+    engine, variant = "tensorfold", "cuda"
+    monkeypatch.setattr(cpp, "repinned_engine_ids", lambda base, root=None: [engine])
+    pin_ref, _alias_ref, _latest_ref = _cell_refs(engine, variant)
+    suffix = pin_ref.split(":")[-1]
+    fake, calls = _fake_digest({pin_ref: ""})
+    rc = cpp.check(_head(), digest=fake, registry=REGISTRY, pending_mode=False)
+    out = capsys.readouterr().out
+    capsys.readouterr()
+    assert rc == 1
+    assert f"NOT PUBLISHED {pin_ref}" in out
+    assert f"[select] {engine} {variant} {suffix}" in out
+    assert "PINS-PENDING" not in out
+
+
+def test_pr_lane_defers_a_lagging_alias_its_producer_has_not_moved(monkeypatch, capsys):
+    """#2987/#2988 aliases under the PR lane: the producer moves `:<variant>` and `:latest` in the
+    SAME run that publishes the unique tag, so mid-lane a lag is the same race — ALIAS-PENDING,
+    no `[aliasmove]` asked for, and green."""
+    engine, variant = "tensorfold", "cuda"
+    monkeypatch.setattr(cpp, "repinned_engine_ids", lambda base, root=None: [engine])
+    pin_ref, alias_ref, latest_ref = _cell_refs(engine, variant)
+    fake, calls = _fake_digest({pin_ref: "sha256:t", alias_ref: "", latest_ref: ""})
+    rc = cpp.check(_head(), digest=fake, registry=REGISTRY, pending_mode=True,
+                   alias_check=True)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert f"PUBLISHED {pin_ref}" in out
+    assert f"ALIAS-PENDING {alias_ref}" in out
+    assert f"ALIAS-PENDING {latest_ref}" in out
+    assert "[aliasmove]" not in out
+    assert "ALIAS LAG" not in out
+
+
+def test_main_lane_alias_lag_still_reds_with_the_aliasmove_contract(monkeypatch, capsys):
+    """The same alias lag outside a PR lane is the #2996 routing: red, with `[aliasmove]` and no
+    `[select]` — the deferral must not soften main."""
+    engine, variant = "tensorfold", "cuda"
+    monkeypatch.setattr(cpp, "repinned_engine_ids", lambda base, root=None: [engine])
+    pin_ref, alias_ref, latest_ref = _cell_refs(engine, variant)
+    fake, calls = _fake_digest({pin_ref: "sha256:t", alias_ref: "", latest_ref: ""})
+    rc = cpp.check(_head(), digest=fake, registry=REGISTRY, pending_mode=False,
+                   alias_check=True)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert f"ALIAS LAG {alias_ref}" in out
+    suffix = cpp.exact_tags(engine, variant).split(":")[-1]
+    assert f"[aliasmove] {engine} {variant} {suffix} sha256:t" in out
+    assert "[select]" not in out
+
+
+def test_pending_mode_comes_from_the_pr_event_when_the_knob_is_unset(monkeypatch):
+    """Mode resolution: unset knob + `pull_request` event defers; a `push` run never does; an
+    explicit knob always beats the event."""
+    monkeypatch.delenv("ENGINE_PINS_PR_PENDING", raising=False)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    assert cpp.pr_pending_mode() is True
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    assert cpp.pr_pending_mode() is False
+    monkeypatch.setenv("ENGINE_PINS_PR_PENDING", "0")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    assert cpp.pr_pending_mode() is False, "an explicit knob off stays hard-red in a PR lane"
+    monkeypatch.setenv("ENGINE_PINS_PR_PENDING", "nonsense")
+    assert cpp.pr_pending_mode() is False, "a malformed knob warns and stays hard-red"
+
+
+def test_the_committed_sweep_never_defers_even_in_a_pr_lane(monkeypatch, capsys):
+    """Issue #178's main-side sweep is outside the deferral: `check_committed` publishes nothing
+    and awaits nothing, so an unpublished committed pin stays red even with the PR knob on."""
+    monkeypatch.setenv("ENGINE_PINS_PR_PENDING", "1")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    fake, calls = _fake_digest({})  # every committed pin resolves nothing
+    rc = cpp.check_committed(digest=fake, registry=REGISTRY)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "PINS-PENDING" not in out
+    assert "NOT PUBLISHED" in out
+    assert calls, "the committed sweep still probes every pinned cell"

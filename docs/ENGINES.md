@@ -65,6 +65,7 @@ make check-engine-cache-namespace         # CI: the build seam's buildx registry
 make engine-pins-published-report         # print the engines this change repins vs the base + their published-tag set (issue #1622)
 make engine-build-pr-trigger              # CI "will" arm: dispatch engine-build push=true for every engine THIS change repins and await each verdict (issue #1633; hermetic no-op when nothing repins)
 make engine-build-pr-trigger-report       # print the repinned engines and the dispatch plan, without dispatching (issue #1633)
+make engine-pins-await                    # CI seam: await THIS lane's own `engine-build-pr-trigger.yml` run(s) before `make ci-unit`'s pins gate reads GHCR — read-only (never dispatches/re-triggers), bounded by `ENGINE_PINS_AWAIT_SECONDS` (default 0: one lookup, no wait), always exit 0: the verdict belongs to the pins gate (issue #3051)
 make registry-cache-orphans               # report GHCR cache tags whose fixed-name namespace was superseded by the content-keyed refs (`:buildcache` / `:buildcache-<variant>`); candidates derived from ci_images.IMAGES + engine_skills.BACKENDS + engine_image.matrix() (issue #2914)
 make registry-cache-gc                    # human-side sweep ONLY after merge: delete exactly the reported fixed-name orphans (guarded so keyed/ordinary tags can never match) and verify zero remain — wired into NO workflow (issue #2914)
 make engine-alias-move ENGINE=<id> VARIANT=<backend> SUFFIX=<exact-tag-suffix> DIGEST=sha256:<hex>  # registry-side alias repair (issue #2996): re-point one cell's :<variant> GHCR alias to the committed pin digest with docker buildx imagetools — a manifest move, no build, no engine run; registry-liveness runs it on the gate's [aliasmove] lines before the fleet gate re-probes
@@ -123,6 +124,24 @@ is touched only for engines a bump actually moved. Red on a 404 / absent manifes
 the exact ref), green only when every repinned engine's tag resolves; `LLGENIE_REGISTRY`
 overrides the registry. It is a `ci-unit` step, so it runs in the PR pipeline. A bump thus
 waits for a `push=true` dispatch before it may merge — the acceptance of #1622.
+
+### Ordering — why the gate awaits the producer it started (issue #3051)
+
+A bump lane publishes inside its own run: `pipeline.yml`'s `unit` job starts
+`make engine-build-pr-trigger`, and `make ci-unit`'s pins step then reads GHCR. A producer
+dispatched at 18:50 that ends at 20:50 leaves the 19:08 read seeing `NOT PUBLISHED` for the tag
+the lane itself was busy building (PR #3030, job `137931122978`), and `needs:` cannot order a job
+across workflows because the producer is a separate workflow. `pipeline.yml`'s `unit` job therefore
+runs `make engine-pins-await` **before** `make ci-unit`: the seam lists this repository's
+`engine-build-pr-trigger.yml` runs for the head and prints `AWAIT <run_id> <status>` until each
+concludes or `ENGINE_PINS_AWAIT_SECONDS` (default 0) expires. It is read-only — never a dispatch,
+re-trigger, rerun or cancel — and never reddens: an expired window is a state the gate must
+describe, not a failure. The gate then splits its verdicts: for cells THIS change re-pins, a PR
+lane prints `PINS-PENDING <ref>` / `ALIAS-PENDING <ref>` plus `PINS DEFERRED <n>` and exits 0, while
+`main`/`push` semantics keep `NOT PUBLISHED` + exit 1, a gap in a pin the change did not move stays
+hard red whatever the event, and `make check-engine-pins-valid` (the committed `--all` sweep) never
+defers. Measured contrast: an unpublished re-pin reddens `main` semantics (`rc=2`, `[select]` rows)
+and defers in the PR-pending mode (`rc=0`, 4 × `PINS-PENDING`, `PINS DEFERRED 4`).
 
 The tag hashes FOUR inputs, not just the params: the variant's params, its committed Dockerfile,
 `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. A checkout that differs in any

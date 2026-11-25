@@ -326,6 +326,9 @@ check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is no
 check-engine-pins-valid:
 	python3 scripts/check_engine_pins_published.py check --all
 
+engine-pins-await: ## CI: await the engine image producer THIS lane started (engine-build-pr-trigger) before the pins gate reads GHCR — the ordering `needs:` cannot express across workflows (issue #3051). Bounded by ENGINE_PINS_AWAIT_SECONDS (default 0 = one lookup, no wait); read-only (never dispatches, re-triggers or re-runs); never reddens: the verdict belongs to make check-engine-pins-published, which reports PINS-PENDING for a ref the producer never published in the window (no engine repinned => green, no lookup)
+	python3 scripts/engine_pins_await.py $(if $(BASE),--base "$(BASE)",) $(if $(SECONDS),--seconds "$(SECONDS)",) $(if $(WORKFLOW),--workflow "$(WORKFLOW)",)
+
 engine-pins-published-report: ## Print the engines this change repins vs the base and their published-tag set (issue #1622)
 	python3 scripts/check_engine_pins_published.py report $(if $(BASE),--base "$(BASE)",)
 
