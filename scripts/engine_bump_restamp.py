@@ -44,7 +44,8 @@ if str(REPO_ROOT) not in sys.path:
 
 import proc  # the ONE subprocess policy (issue #797)
 from check_pr_hygiene import OPENSPEC_REF  # the gate this leg must satisfy (issue #3050)
-from engine_bump_pr_body import ACCEPTANCE_HEADING, DEFAULT_OPENSPEC, render_body
+from engine_bump_pr_body import (ACCEPTANCE_CLAIMS, ACCEPTANCE_HEADING, DEFAULT_OPENSPEC,
+                                 render_body)
 
 DEFAULT_REPO = "asimov-agent/llgenie"
 BUMP_BRANCH_PREFIX = "chore/engine-bump-"
@@ -310,16 +311,13 @@ def prove(repo: str, bump: BumpPr, ev: Evidence,
     refusals: list[str] = []
     head = bump.head_sha
     if not any(g.startswith("the skill at the head") for g in ev.gaps):
-        items.append(
-            f"- [x] the engine pin moved and the skill, params and per-arch Dockerfiles of "
-            f"{bump.engine} were re-derived at it (proven: gh api repos/{repo}/git/blobs/"
-            f"{ev.skill_blob} rc=0 {head})")
+        items.append(f"- [x] {ACCEPTANCE_CLAIMS[0]} "
+                     f"(proven: gh api repos/{repo}/git/blobs/{ev.skill_blob} rc=0 {head})")
     else:
         refusals.append("skill pin at the head does not match the bump")
     if ev.params_names_pin:
-        items.append(
-            f"- [x] the frozen per-image params were regenerated from the re-derived skill at the new "
-            f"pin (proven: gh api repos/{repo}/git/blobs/{ev.params_blob} rc=0 {head})")
+        items.append(f"- [x] {ACCEPTANCE_CLAIMS[1]} "
+                     f"(proven: gh api repos/{repo}/git/blobs/{ev.params_blob} rc=0 {head})")
     else:
         refusals.append("params file at the head does not name the new pin")
     green: list[str] = []
@@ -327,7 +325,7 @@ def prove(repo: str, bump: BumpPr, ev: Evidence,
         if concl == "success" and arch in ev.expected and run and run not in green:
             green.append(run)
     if ev.expected and len(green) == len(ev.expected):
-        items.append(f"- [x] the images of {bump.engine} build and run tests at the new pin "
+        items.append(f"- [x] {ACCEPTANCE_CLAIMS[2]} "
                      f"(proven: {' '.join(f'run={r}' for r in green)} {head})")
     else:
         issue = deferred.get(bump.engine, "")

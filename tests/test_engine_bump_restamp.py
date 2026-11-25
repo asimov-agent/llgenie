@@ -19,6 +19,7 @@ os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
 import scripts.engine_bump_restamp as eb  # noqa: E402
 from scripts.engine_bump_pr_body import ACCEPTANCE_HEADING, DEFAULT_OPENSPEC, render_body  # noqa: E402
+from scripts.pr_body_write import body_preserve_findings, claim_of  # noqa: E402
 
 OLD = "0123456789abcdef0123456789abcdef01234567"
 NEW = "89abcdef0123456789abcdef0123456789abcdef"
@@ -566,4 +567,31 @@ class TestHeadEvidence:
         flat = [" ".join(c) for c in fake.calls]
         assert not any("pr_body_write.py" in c for c in flat), flat
         assert not any("bot_preflight.py" in c for c in flat), flat
+
+    def test_the_stamp_items_carry_the_composer_claims_the_write_guard_compares(self, monkeypatch):
+        # Because: `make bot-body-write` compares a proven tick by its CLAIM (issue #2131 as sharpened
+        # by #3054), and the composer states the bump lane's claims exactly once. A leg that re-worded
+        # them could never re-stamp the body it is allowed to re-cite.
+        variants = {"ollama": {"cpu": ("success", "45242586633"), "cuda": ("success", "45245255181")}}
+        _fake = _install(monkeypatch, self._fake(variants=variants, matrix={"ollama": ["cpu", "cuda"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        assert refusals == [] and not_covered == [] and len(items) == 3
+        assert [claim_of(i).removeprefix("- [x] ") for i in items] == list(eb.ACCEPTANCE_CLAIMS), items
+        assert all(HEAD in i for i in items), items  # every clause names the head (#2288 head rule)
+
+    def test_a_restamp_survives_the_guard_against_the_body_it_replaces(self, monkeypatch):
+        # The measured refusal on PR #3030: the live body was stamped by the bump run with `make
+        # engine-bump … run=…` clauses, and the re-stamp re-cites the SAME claims at the head. The guard
+        # must read that as a carry — otherwise `apply: 0 written, 1 unproven` forever.
+        variants = {"ollama": {"cpu": ("success", "45242586633"), "cuda": ("success", "45245255181")}}
+        _fake = _install(monkeypatch, self._fake(variants=variants, matrix={"ollama": ["cpu", "cuda"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        assert refusals == []
+        live = eb.live_body(eb.DEFAULT_REPO, bump.number)
+        draft = eb.render_for(bump, items=items, not_covered=tuple(not_covered))
+        assert body_preserve_findings(live, draft) == [], body_preserve_findings(live, draft)
 

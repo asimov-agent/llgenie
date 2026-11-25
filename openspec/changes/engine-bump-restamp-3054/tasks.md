@@ -88,6 +88,12 @@
       `unproven=0`.
 - [x] Deferred targets exist as their own issues before any body carries the pointer. Proven:
       `gh issue view 3065 3066 --repo asimov-agent/llgenie --json number,state` rc=0 — both `OPEN`.
+- [x] The guard compares a proven tick by its CLAIM, not by its clause: the stamp items are the composer's
+      `ACCEPTANCE_CLAIMS` sentences with the evidence inside the `(proven: …)` parenthetical, so a re-cited
+      clause at the head is a carry and a re-worded claim is refused. Measured refusal: PR #3030's live body
+      carries `- [x] the new image is published for every architecture … (proven: make engine-bump …)` and the
+      seam skipped it. Proven: `pytest tests/test_pr_body_write.py tests/test_engine_bump_restamp.py -q` rc=0
+      (re-cited clause reaches `gh pr edit 2113`; re-worded claim refused; 3 claims == 3 stamp items).
 
 ## 9. Pre-push proof
 

@@ -84,6 +84,11 @@ blob for PR #3033's head), and every `engine-build-*` check run at that head thr
 check-suite id). The leg MUST NOT tick the image item unless EVERY variant the matrix expects reported
 `success` at that head.
 
+The items the stamp proposes MUST be the composer's own `ACCEPTANCE_CLAIMS` sentences (read from
+`scripts/engine_bump_pr_body.py`, never re-worded by the leg), each carrying its evidence inside its trailing
+`(proven: …)` parenthetical. The guarded write compares a live ticked item by its CLAIM, so a re-cited clause
+at the new head is a carry and a re-worded claim is a refusal.
+
 #### Scenario: an unmeasured gap refuses the write
 
 - **Given** a recorded bump whose head reports one `engine-build-*` variant with `conclusion=failure`
@@ -106,3 +111,13 @@ check-suite id). The leg MUST NOT tick the image item unless EVERY variant the m
 - **Then** the read appears as `git/trees/<head>` plus `git/blobs/<sha>`, and a `contents/…?ref=<sha>` call fails
   the test
 - **Test:** `pytest tests/test_engine_bump_restamp.py -q`
+
+#### Scenario: a re-cited proven clause for the same claim is a carry, not a drop
+
+- **Given** a live body whose ticked items were stamped with `make engine-bump skill=… params=… run=…`
+  clauses, and a stamp that re-states the SAME claims with head-flagged clauses
+- **When** the guarded write compares the two bodies
+- **Then** the comparison is on the claim under each tick (the `(proven: …)` parenthetical is folded out), the
+  write is issued, and the skip comment is not posted
+- **And** a leg whose item re-words the claim is refused, with the comment naming the live claim verbatim
+- **Test:** `pytest tests/test_pr_body_write.py tests/test_engine_bump_restamp.py -q`

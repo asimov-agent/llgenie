@@ -37,8 +37,24 @@
   issue #3051 / PR #3062 (`make engine-pins-await` + `PINS-PENDING` deferral). This lane fixes the
   body half (`guard`, `scope`) and does not pretend to fix the unit half.
 
+## Applied remediation (same day, head `7e6b070a0`)
+
+- The stamp guard was changed to compare a proven tick by its CLAIM (the composer's
+  `ACCEPTANCE_CLAIMS` sentence), not its whole line: a re-cited `(proven: …)` clause at the head is a
+  carry, a re-worded claim is still refused. Measured on PR #3030's live body: the claim-carry reaches
+  the write where the old line-equality seam skipped the item.
+- `make -s engine-bump-restamp APPLY=1 DEFERRED="ollama=3065 llama.cpp=3066"` ran through the guarded
+  seam: `tally pending=7 landed=0 superseded=0 written=5 refused=2 closed=0 unproven=0`. Five bodies
+  (#3030, #3031, #3032, #3034, #3035) were rewritten and re-read green
+  (`OPENSPEC=resolvable`, three `(proven: …)` ticks each). The seam REFUSED #3029 and #3033 because
+  their live bodies carry the images tick the composer cannot prove at those heads (ollama's four
+  variants build red — issue #3065; llama.cpp's vulkan build never ran — issue #3066); the refusals are
+  the guard doing its job (issue #2131), not a leg failure.
+- The wave's landing half is now its own tracking issue #3071 (each bump merged or closed with the
+  superseding pin named), gated on the await seam (#3051 / PR #3062) and the two image-gap issues.
+
 ## Current status
 
-Leg, 26 hermetic tests, target, docs and OpenSpec change are in the branch; fast gates and the
-OpenSpec validation are green at the branch head. The host-side remediation run
-(`make engine-bump-restamp APPLY=1`) and the per-PR verdict reads follow the landing of this leg.
+Leg, 44 hermetic tests (26 leg + 18 seam/guard), target, docs and OpenSpec change are in the branch at
+`7e6b070a0`; `lane-preflight` OK (7 gates), `check-docs` ok (382 targets), `openspec-validate` passes,
+and the applied re-stamp tally above is the live read. The wave's per-PR landings follow through #3071.

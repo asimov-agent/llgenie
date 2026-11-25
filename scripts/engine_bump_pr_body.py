@@ -57,6 +57,17 @@ COMMIT_ACCEPTANCE_HEADING = "## Acceptance:"
 OPENSPEC_REF_RE = re.compile(r"^OPENSPEC:\s+([A-Za-z0-9_-]+)\s*$", re.M)
 
 
+#: The bump lane's provable outcomes as CLAIMS (issue #3054). The composer attaches a `(proven: …)`
+#: clause to each; `make engine-bump-restamp` re-cites the SAME claims with the evidence it read at the
+#: live head. A claim is what the guarded write seam (`scripts/pr_body_write.py`, issue #2131) protects;
+#: a clause is what a restamp renews, because a clause recorded at another head is a finding (#2288).
+ACCEPTANCE_CLAIMS: tuple[str, ...] = (
+    "the engine's pin moved and its skill, params and per-arch Dockerfiles were re-derived at it",
+    "the frozen per-image params were regenerated from the re-derived skill at the new pin",
+    "the images of this engine build and run tests at the new pin",
+)
+
+
 def acceptance_items(engine: str, run_id: str, *, head_sha: str = "",
                      image_runs: tuple[str, ...] = ()) -> list[str]:
     """The bump lane's provable outcomes, one ticked box each, each with a proven clause.
@@ -74,14 +85,14 @@ def acceptance_items(engine: str, run_id: str, *, head_sha: str = "",
       clause names it.
     """
     at_head = f" {head_sha}" if head_sha else ""
-    return [
-        f"- [x] the engine's pin moved and its skill, params and per-arch Dockerfiles were "
-        f"re-derived at it (proven: make engine-bump ENGINE={engine} rc=0 run={run_id}{at_head})",
-        f"- [x] the frozen per-image params were regenerated from the re-derived skill at the new pin "
-        f"(proven: make generate-engine-params ENGINE={engine} rc=0 run={run_id}{at_head})",
-        f"- [x] the images of this engine build and run tests at the new pin "
-        f"(proven: {' '.join(f'run={r}' for r in image_runs) or f'run={run_id} rc=0'}{at_head})",
-    ]
+    images = " ".join(f"run={r}" for r in image_runs) or f"run={run_id} rc=0"
+    clauses = (
+        f"make engine-bump ENGINE={engine} rc=0 run={run_id}{at_head}",
+        f"make generate-engine-params ENGINE={engine} rc=0 run={run_id}{at_head}",
+        f"{images}{at_head}",
+    )
+    return [f"- [x] {claim} (proven: {clause})"
+            for claim, clause in zip(ACCEPTANCE_CLAIMS, clauses)]
 
 
 def acceptance_block(engine: str, run_id: str, *, heading: str = ACCEPTANCE_HEADING,
