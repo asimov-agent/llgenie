@@ -245,6 +245,70 @@ def test_the_inline_body_composer_is_gone():
         assert banned not in code, f"{banned!r} came back into the workflow"
 
 
+# ---------- measured evidence path (issue #3054) ----------
+#
+# The composer used to ASSUME the acceptance boxes were true: it always ticked three items naming
+# `run_id`. The restamp leg (#3054) measures the evidence at the PR head first and hands the composer
+# exactly the items it proved, so a box exists only when its proof was read.
+
+_MEASURED_HEAD = "4958f3953a01cc6da8893044842c3dec4b1fd2c2"
+_MEASURED = [
+    f"- [x] the bump commit changes only this engine's pinned paths "
+    f"(proven: git show --name-only {_MEASURED_HEAD} rc=0 at head {_MEASURED_HEAD})",
+    f"- [x] the engine skill file and the params file name the new pin at the head "
+    f"(proven: gh api repos/acme/llgenie/git/blobs/deadbeef rc=0 at head {_MEASURED_HEAD})",
+]
+_NOT_COVERED = (
+    f"the ollama image gap (engine-build-cpu conclusion=failure, head {_MEASURED_HEAD[:12]}) "
+    "— tracked in #3065"
+)
+
+
+def _measured_cli(tmp_path):
+    items = tmp_path / "items.md"
+    items.write_text("\n".join(_MEASURED) + "\n")
+    out, commit_out = tmp_path / "pr-body.md", tmp_path / "commit-acceptance.md"
+    rc = rend.main(
+        [
+            "--engine", _ENGINE, "--ref", "v0.40.15",
+            "--old", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+            "--new", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+            "--run", _RUN, "--author", _AUTHOR, "--repo-slug", _REPO,
+            "--head", _MEASURED_HEAD, "--image-run", "cpu=45242586633",
+            "--items-file", str(items), "--not-covered", _NOT_COVERED,
+            "--out", str(out), "--commit-out", str(commit_out),
+        ]
+    )
+    return rc, out.read_text(), commit_out.read_text().strip()
+
+
+def test_measured_items_replace_the_assumed_ones_and_stay_provable(tmp_path):
+    rc, body, _mirror = _measured_cli(tmp_path)
+    assert rc == 0
+    items = acceptance_writeback.acceptance_items(body)
+    assert items == _MEASURED, items
+    assert all(ca._is_provable_tick(line) for line in items), items
+    # every clause is head-flagged: a later commit cannot leave an earlier tick describing a stale head
+    assert all(_MEASURED_HEAD in line for line in items), items
+    assert "## Not covered" in body and "#3065" in body
+    assert body.endswith("OPENSPEC: publish-changed-pin-images\n")
+
+
+def test_the_commit_mirror_carries_the_same_measured_items(tmp_path):
+    _rc, body, mirror = _measured_cli(tmp_path)
+    assert mirror.splitlines()[0] == rend.COMMIT_ACCEPTANCE_HEADING
+    for line in _MEASURED:
+        assert line in mirror, mirror
+    assert hy.commit_text_findings(_messages()[:2] + [mirror], body) == []
+
+
+def test_an_items_file_leaves_no_assumed_image_box_behind(tmp_path):
+    _rc, body, _mirror = _measured_cli(tmp_path)
+    # the assumed third item ("CI builds and tests ... run=<id>") must not survive next to measured ones
+    assert "built and tested by CI run" not in body, body
+    assert body.count("## Acceptance criteria") == 1
+
+
 def test_composer_run_block_is_valid_bash(tmp_path):
     """REQ-3 of issue #144 still holds for the step: the run block parses as bash."""
     run = _step_run("bump", "Open / update the bump PR")

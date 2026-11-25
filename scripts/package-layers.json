@@ -7,6 +7,7 @@
       "engine_bump",
       "engine_bump_pr_body",
       "engine_bump_rebase",
+      "engine_bump_restamp",
       "engine_bump_sync",
       "engine_deps",
       "engine_host_test",
@@ -403,6 +404,16 @@
       "from": "engine_bump_rebase",
       "to": "bot_claims",
       "reason": "bot_claims is the shared claim protocol (issues #279/#285); a lane that moves a branch reads claims, it does not keep its own."
+    },
+    {
+      "from": "engine_bump_restamp",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+    },
+    {
+      "from": "engine_bump_restamp",
+      "to": "check_pr_hygiene",
+      "reason": "the re-read leg re-measures a lane's PR body with the SAME acceptance-item parser the PR gate uses (OPENSPEC_REF, issue #3050), so the restamp and the gate cannot disagree about what the body claims."
     },
     {
       "from": "engine_coverage",

@@ -147,6 +147,51 @@ def test_a_preserving_rewrite_reaches_the_write(tmp_path: Path) -> None:
     assert comments == ""  # no skip comment for a clean write
 
 
+#: Issue #3054: a re-stamp must RENEW a proven clause with evidence read at the LIVE head (a proof
+#: recorded at another head is the `tick-stale-head-unflagged` finding), while carrying every claim.
+#: Same claim + a clause the lane never wrote = a carry; a claim whose text changed = the #2131 drop.
+RECITED_BODY = LANE_BODY.replace(
+    "- [x] the precedence section names the thread-over-body rule  (proven: run=42448318954 reviewer=owner)",
+    "- [x] the precedence section names the thread-over-body rule (proven: gh api rc=0 "
+    "3333333333333333333333333333333333333333)",
+).replace(
+    "- [x] the recall rule is pinned by a test  (proven: run=42449007827 reviewer=owner)",
+    "- [x] the recall rule is pinned by a test (proven: gh api rc=0 "
+    "3333333333333333333333333333333333333333)",
+)
+
+#: The same three claims with one claim REWORDED — the box is still ticked and still cites something,
+#: but the item is no longer the claim the lane recorded.
+REWORDED_BODY = LANE_BODY.replace(
+    "- [x] the precedence section names the thread-over-body rule  (proven: run=42448318954 reviewer=owner)",
+    "- [x] the precedence section is documented (proven: run=42448318954 reviewer=owner)",
+)
+
+
+def test_a_re_cited_proven_clause_for_the_same_claim_reaches_the_write(tmp_path: Path) -> None:
+    """#3054: the guard compares the CLAIM underneath a proven tick, so a renewed clause is a carry."""
+    gh_stub(tmp_path)
+    p, calls, live_after, comments = run_seam(tmp_path, RECITED_BODY)
+    assert p.returncode == 0, p.stderr
+    assert "pr edit 2113" in calls  # every claim is carried, so the re-stamp may write
+    assert "3333333333333333333333333333333333333333" in live_after  # the renewed clause landed
+    assert "run=42449007827" not in live_after  # the stale clause it replaced is gone
+    assert "## Not covered" in live_after  # and the section is intact
+    assert comments == ""  # no skip comment for a clean write
+
+
+def test_a_reworded_claim_is_refused(tmp_path: Path) -> None:
+    """#2131 still bites when a tick keeps its box but changes its claim: the live body stands."""
+    gh_stub(tmp_path)
+    p, calls, live_after, comments = run_seam(tmp_path, REWORDED_BODY)
+    assert p.returncode == 0, p.stderr
+    assert "pr edit" not in calls
+    assert "skip" in p.stdout
+    assert "the precedence section names the thread-over-body rule" in p.stdout  # names the LIVE claim
+    assert "the precedence section names the thread-over-body rule" in live_after  # and it survives
+    assert "the precedence section names the thread-over-body rule" in comments
+
+
 def test_an_identical_body_writes_nothing(tmp_path: Path) -> None:
     gh_stub(tmp_path)
     p, calls, _live, comments = run_seam(tmp_path, LANE_BODY)

@@ -321,8 +321,19 @@ the SAME sync logic via the shared module
 `scripts/engine_bump_sync.py` (imported by `scripts/engine_bump_rebase.py`), so
 there is no duplicated implementation. Run it locally with
 `python3 scripts/engine_bump_rebase.py --dry` to preview without pushing.
-Its collaborator guard sends `Authorization: Bearer $TOKEN`, with `TOKEN`
+Its collaborator guard sends `Authorization: Bearer <token>` with `TOKEN`
 set to `secrets.GITHUB_TOKEN`, the same header `engine-bump` uses.
+
+`make engine-bump-restamp` is the HOST remediation leg for the bump PRs a wave already opened
+(issue #3054): it re-reads every open `chore/engine-bump-*` PR, re-renders each body through the
+`engine_bump_pr_body` composer, stamps it through the `make bot-stamp-body` authority and hands it to the
+guarded `make bot-body-write` seam — never a raw `gh pr edit`. Every bump is classified against the pin
+`main` carries today: `pending` (main still on the old pin) is the only one re-stamped, `landed` /
+`superseded` (main already holds or moved past that pin) closes with main's live pin as the comment
+evidence, and an engine whose pin cannot be read is reported as `unknown-pin` instead of guessed. It runs
+DRY and writes nothing until `APPLY=1`; closes additionally need `CLOSE_SUPERSEDED=1`, and drafts land in
+`OUT_DIR`. It carries no CI clock on purpose: rewriting an open PR body on a schedule is the host's act,
+and the #3050 composer already covers every future wave at render time (`tests/test_engine_bump_restamp.py`).
 
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
@@ -359,6 +370,7 @@ generator function (`scripts/check_docs.py::bots_table`).
 | `make auto-merge-resolve` | Resolve the open PR a finished CI run belongs to (REPO= RUN_ID= HEAD_OWNER= HEAD_BRANCH=): writes `number=<n>` to $GITHUB_OUTPUT, treats a 404/error body as no answer and falls back to the fork head search, and fails loudly when nothing resolves (issue #508) |
 | `make bot-body-write` | Write NEW=<pr body file> onto PR=<n> ONLY if it preserves every section/proven tick the LIVE body carries — the guarded bot body-write seam (issue #2131): reads the live body through gh, refuses a write that would drop a heading or a ticked `(proven: …)` item (logs the skip and comments the PR naming the section), writes nothing when equal, writes only a preserving rewrite; REPO= defaults to GH_REPO |
 | `make bot-preflight` | Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792); when the working diff touches agents/<profile>/, surfaces the #1724 SYNC-line obligation (BODY=<prospective PR body> refuses a missing/mis-cited SYNC line, issue #1782) and prints the measured SYNC-BLOCKED line for a truncated tree copy (ISSUE=<n> names the tracking issue, issue #2097) |
+| `make bot-stamp-body` | Stamp BODY=<pr body file> in place (or into OUT=) with the `AGENTS:`/`BASE:` pair measured at origin/main — the ONE stamp authority every bot PR producer calls before `gh pr create`/`gh pr edit`, so a bot PR never opens unstamped (issue #2050); BASE=/REFS= name the main ref a producer's checkout actually stands on |
 | `make bot-sync-branch` | Fetch upstream main and rebase the checked-out PR branch onto it before repairing (issue #303); exit 2 means the rebase conflicts and is left to the rebase-bot |
 | `make bot-sync-main` | Fetch upstream main and reset the working tree to it, so a NEW branch starts from latest main (issue #303); fails loudly when main cannot be reached |
 | `make bot-verdict` | Post a bot review verdict at one head on a PR (a marker comment, never an approval; deduped per head+verdict): VERDICT=approve\|changes HEAD=<sha> RUN=<run id> REPO= PR= [REVIEWER=] [NOTE=] [DRY=1] (issue #852); RUN is the Actions run id that measured that head (#1551) |
@@ -403,6 +415,7 @@ generator function (`scripts/check_docs.py::bots_table`).
 | `make dispatch-forms-report` | Print the dispatch table in docs/BOTS.md (generated from the workflow files; paste it between the dispatch-forms markers) |
 | `make docs-report` | Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ note's issue references + its docs/changes.d/ index row |
 | `make engine-bump` | Issue #107: pin ENGINE to its latest upstream commit + derive + apply + regen (no push) |
+| `make engine-bump-restamp` | Issue #3054: re-render every OPEN `chore/engine-bump-*` PR body through the #3050 composer, stamp it with make bot-stamp-body and write it through the guarded make bot-body-write seam — never a raw `gh pr edit`; classifies each bump against the pin main actually carries (pending/landed/superseded) and closes an overtaken bump with that pin as the evidence instead of re-stamping it. DRY unless APPLY=1; closes nothing unless CLOSE_SUPERSEDED=1 [REPO=<owner/name> APPLY=1 CLOSE_SUPERSEDED=1 OUT_DIR= DEFERRED="<engine>=<issue> ..."] |
 | `make engine-skill-gap` | Show the unskilled-engine gap: shipped / known-unsupported / new-and-unresolved, the models that can never be offered, and the per-engine list |
 | `make fix-loop-image` | Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359) |
 | `make generate-engine-params` | Regenerate containers/engines/params/*.json + binaries.json (binary file + documented flags per image) from the current engine skills (per engine x arch; ENGINE=<id> writes only that engine) |

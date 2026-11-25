@@ -57,27 +57,56 @@ COMMIT_ACCEPTANCE_HEADING = "## Acceptance:"
 OPENSPEC_REF_RE = re.compile(r"^OPENSPEC:\s+([A-Za-z0-9_-]+)\s*$", re.M)
 
 
-def acceptance_items(engine: str, run_id: str) -> list[str]:
+#: The bump lane's provable outcomes as CLAIMS (issue #3054). The composer attaches a `(proven: …)`
+#: clause to each; `make engine-bump-restamp` re-cites the SAME claims with the evidence it read at the
+#: live head. A claim is what the guarded write seam (`scripts/pr_body_write.py`, issue #2131) protects;
+#: a clause is what a restamp renews, because a clause recorded at another head is a finding (#2288).
+ACCEPTANCE_CLAIMS: tuple[str, ...] = (
+    "the engine's pin moved and its skill, params and per-arch Dockerfiles were re-derived at it",
+    "the frozen per-image params were regenerated from the re-derived skill at the new pin",
+    "the images of this engine build and run tests at the new pin",
+)
+
+
+def acceptance_items(engine: str, run_id: str, *, head_sha: str = "",
+                     image_runs: tuple[str, ...] = ()) -> list[str]:
     """The bump lane's provable outcomes, one ticked box each, each with a proven clause.
 
     The clauses cite what the lane ACTUALLY ran, in the forms `scripts/check_pr_acceptance.py`
-    accepts (`run=<digits>` alone is a proven clause; `rc=<n>` pairs with a command): the bump target
-    is live and replayable through `gh run view <run_id>` before any commit exists, which is what
-    lets the same block sit in the commit message and in the PR body without a sha that has not been
-    made yet.
+    accepts (`run=<digits>` alone is a proven clause; `rc=<n>` pairs with a command). Two measured
+    constraints shape them (issue #2288, `check_pr_acceptance.py:549-590`):
+
+    - the cited run must be readable through `gh api repos/<repo>/actions/runs/<id>`. A `gh pr
+      checks` id is a check SUITE id, not a workflow run id — the suite id #3029's clauses cited
+      (`137942170961`) 404s there, which the gate reports as `tick-run-unreadable`. Pass
+      `github.run_id` (or a check run's `html_url` run number) as `run_id`/`image_runs`.
+    - a green proof recorded at another head must flag the live head, or the gate reports
+      `tick-stale-head-unflagged`. Pass `head_sha` (the bump commit this PR carries) so every
+      clause names it.
     """
-    return [
-        f"- [x] the engine's pin moved and its skill, params and per-arch Dockerfiles were "
-        f"re-derived at it (proven: make engine-bump ENGINE={engine} rc=0 run={run_id})",
-        f"- [x] the frozen per-image params were regenerated from the re-derived skill at the new pin "
-        f"(proven: make generate-engine-params ENGINE={engine} rc=0 run={run_id})",
-        f"- [x] the images of this engine build and run tests at the new pin (proven: run={run_id} rc=0)",
-    ]
+    at_head = f" {head_sha}" if head_sha else ""
+    images = " ".join(f"run={r}" for r in image_runs) or f"run={run_id} rc=0"
+    clauses = (
+        f"make engine-bump ENGINE={engine} rc=0 run={run_id}{at_head}",
+        f"make generate-engine-params ENGINE={engine} rc=0 run={run_id}{at_head}",
+        f"{images}{at_head}",
+    )
+    return [f"- [x] {claim} (proven: {clause})"
+            for claim, clause in zip(ACCEPTANCE_CLAIMS, clauses)]
 
 
-def acceptance_block(engine: str, run_id: str, *, heading: str = ACCEPTANCE_HEADING) -> str:
-    """The ticked checklist, rendered the same way for the PR body and for the commit message."""
-    return "\n".join([heading, *acceptance_items(engine, run_id)])
+def acceptance_block(engine: str, run_id: str, *, heading: str = ACCEPTANCE_HEADING,
+                     items: list[str] | None = None, head_sha: str = "",
+                     image_runs: tuple[str, ...] = ()) -> str:
+    """The ticked checklist, rendered the same way for the PR body and for the commit message.
+
+    `items` lets a caller that MEASURED the evidence (the `make engine-bump-restamp` leg reads the
+    live head, the params/skill files and the image check runs) supply its own ticked boxes instead
+    of the lane's at-compose-time assumptions; the composer remains the only renderer.
+    """
+    return "\n".join([heading, *(items or acceptance_items(engine, run_id,
+                                                           head_sha=head_sha,
+                                                           image_runs=image_runs))])
 
 
 def render_body(
@@ -93,6 +122,10 @@ def render_body(
     hard_fail: str = "",
     deps: str = "",
     review_section: str = "",
+    head_sha: str = "",
+    image_runs: tuple[str, ...] = (),
+    acceptance_items: list[str] | None = None,
+    not_covered: tuple[str, ...] = (),
 ) -> str:
     """The engine-bump PR body: author line, the bump facts, the optional review/deps/hard-fail
     sections, the ticked acceptance checklist, and the `OPENSPEC:` reference LAST on its own line.
@@ -124,13 +157,21 @@ def render_body(
         sections.append(f"- **Dependencies:** {deps}")
     if review_section.strip():
         sections.append(review_section.strip())
-    sections.append(acceptance_block(engine, run_id))
+    sections.append(acceptance_block(engine, run_id, items=acceptance_items, head_sha=head_sha,
+                                     image_runs=image_runs))
+    if not_covered:
+        sections.append("\n".join(["## Not covered", "", *not_covered]))
     body = "\n\n".join(s for s in sections if s.strip())
     # The reference is the FINAL line of the composed body: nothing this function appends can glue
     # itself onto the change name, and `bot-stamp-body` adds its own lines on their own lines.
     body = f"{body}\n\nOPENSPEC: {openspec}\n"
     assert OPENSPEC_REF_RE.search(body), "the composed body must carry a resolvable OPENSPEC reference"
     return body
+
+
+def _read_lines_file(path: str) -> list[str]:
+    """One ticked item per non-blank line of a file (the restamp leg writes what it measured)."""
+    return [ln for ln in Path(path).read_text(encoding="utf-8").splitlines() if ln.strip()]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,6 +184,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--author", default="Asimov Agent <support@docondee.com>")
     p.add_argument("--repo-slug", default="asimov-agent/llgenie")
     p.add_argument("--openspec", default=DEFAULT_OPENSPEC)
+    p.add_argument("--head", default="", help="the bump commit this PR carries; every proven clause "
+                                              "names it (issue #2288 head rule)")
+    p.add_argument("--image-run", action="append", default=[],
+                   help="a READABLE green engine-build workflow run id (NOT a `gh pr checks` suite id)")
+    p.add_argument("--not-covered", action="append", default=[],
+                   help="an out-of-scope line; each one must name its own linked issue")
+    p.add_argument("--items-file", default="", help="file of measured ticked items; when given, the "
+                                                    "PR body AND the commit mirror render THESE items")
     p.add_argument("--hard-fail", default="", help="params the lane could not auto-derive")
     p.add_argument("--deps", default="", help="dependency line, if the bump touched deps")
     p.add_argument("--review-file", default="", help="params-review-section.md to embed verbatim")
@@ -167,11 +216,19 @@ def main(argv: list[str] | None = None) -> int:
         hard_fail=a.hard_fail,
         deps=a.deps,
         review_section=review,
+        head_sha=a.head,
+        image_runs=tuple(a.image_run),
+        acceptance_items=_read_lines_file(a.items_file) if a.items_file else None,
+        not_covered=tuple(a.not_covered),
     )
     Path(a.out).write_text(body, encoding="utf-8")
     print(f"[engine-bump-pr-body] body -> {a.out} ({len(body.splitlines())} lines)")
     if a.commit_out:
-        mirror = acceptance_block(a.engine, a.run, heading=COMMIT_ACCEPTANCE_HEADING)
+        # The commit mirror carries the SAME items the body carries, under the commit heading — the
+        # text mirror gate (#2908) compares the two, so a measured item set must appear in both.
+        mirror = acceptance_block(a.engine, a.run, heading=COMMIT_ACCEPTANCE_HEADING,
+                                  head_sha=a.head, image_runs=tuple(a.image_run),
+                                  items=_read_lines_file(a.items_file) if a.items_file else None)
         Path(a.commit_out).write_text(mirror + "\n", encoding="utf-8")
         print(f"[engine-bump-pr-body] commit mirror -> {a.commit_out}")
     return 0

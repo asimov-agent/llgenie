@@ -38,6 +38,16 @@ HEADING = r"^#{1,6}\s+\S"
 
 _PROVEN_TICK = re.compile(PROVEN_TICK)
 _HEADING = re.compile(HEADING)
+#: The proven clause a ticked item carries. Issue #3054: a re-stamp must RENEW it with evidence read at
+#: the live head (a proof recorded at another head is the `tick-stale-head-unflagged` finding), so the
+#: guard below compares the CLAIM underneath it — a clause may be re-cited, a claim may not be reworded,
+#: de-ticked or dropped.
+_PROVEN_CLAUSE = re.compile(r"\s*\((?:proven|claimed):.*\)\s*$")
+
+
+def claim_of(line: str) -> str:
+    """The acceptance claim a proven tick states: its text with the proven clause folded out."""
+    return re.sub(r"\s+", " ", _PROVEN_CLAUSE.sub("", line.strip())).strip()
 
 
 def _live_items(text: str) -> list[str]:
@@ -56,11 +66,17 @@ def _live_items(text: str) -> list[str]:
 def body_preserve_findings(live: str, proposed: str) -> list[str]:
     """What the proposed body would DROP from the live body, as printable names (empty = safe write).
 
-    Comparison is textual and cheap (the #2131 fix note's own metric): every heading line and every
-    ticked `- [x] … (proven: …)` line the live body carries must appear, stripped, in the proposal.
+    Comparison is textual and cheap (the #2131 fix note's own metric): every heading line must appear,
+    stripped, in the proposal. A proven tick is compared by its CLAIM (issue #3054): the re-stamp lane
+    must renew the `(proven: …)` clause with evidence read at the live head, so the clause may change
+    while the claim and its tick may not — a claim that is reworded, de-ticked or deleted is the drop.
+    A finding names the LIVE line verbatim, so the skip comment shows what the proposal failed to carry.
     """
     kept = {line.strip() for line in proposed.splitlines()}
-    return [item for item in _live_items(live) if item not in kept]
+    kept_claims = {claim_of(line) for line in proposed.splitlines() if _PROVEN_TICK.match(line)}
+    return [item for item in _live_items(live)
+            if item not in kept
+            and not (_PROVEN_TICK.match(item) and claim_of(item) in kept_claims)]
 
 
 def skip_log(findings: list[str]) -> str:
