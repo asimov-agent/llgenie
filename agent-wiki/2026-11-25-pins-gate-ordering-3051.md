@@ -69,8 +69,30 @@ rule so a later edit cannot put the direct call back. Measured: `make check-proc
 `make check-package-layers` rc=0 (190 modules, 82 stated edges, 0 cycles), the two named modules
 69 passed, the four-module line 108 passed.
 
+## Re-measure at the live PR head (tick-stale-head rule, issue #2288)
+
+A pushed follow-up head moved the proofs off their measured commits, so the acceptance criteria were
+re-measured at head `6150335ef` and both bodies rewritten: the named modules `pytest
+tests/test_engine_pins_await.py tests/test_check_engine_pins_published.py -q` 69 passed; the scratch
+re-pin contrast at this head — `ollama` cell to a never-published tag — gave `ENGINE_PINS_PR_PENDING=1
+make check-engine-pins-published` rc=0 with 4 `PINS-PENDING` + `PINS DEFERRED 4`, and main semantics
+rc=2 with `NOT PUBLISHED` + `[select]` rows. The live seam read at the head is the CI `linux / unit`
+job 139252415606: its `make engine-pins-await` step ran immediately before `make ci-unit` and printed
+the no-repin verdict (this lane repins no cell); the real-wave `AWAIT` lookup stays #3061. Battery:
+`make test-unit` rc=0, 4470 passed / 13638 deselected / 0 skipped in 26:12.
+
 ## Current status
 
 Branch `feat/pins-gate-ordering` (off `origin/main`), OpenSpec change `pins-gate-ordering`, issue
-#3051. Battery at head 1f32eaee5da91dad440551f6edd88c7387a255f5: `make test-unit` rc=0, 4460 passed /
-13638 deselected / 0 skipped. Issue body, OpenSpec change and code carry the same goal; the live-wave half is #3061.
+#3051. Battery at head `6150335ef`: `make test-unit` rc=0, 4470 passed / 13638 deselected / 0 skipped.
+Issue body, PR body, OpenSpec change and code carry the same goal; the live-wave half is #3061.
+
+## Re-measure at the rebased head 5e1f555d5
+
+The lane rebased onto the moved `origin/main` (`a5182756d`) so `mergeStateStatus` stops being
+`BEHIND`. At head `5e1f555d57488e8e86563ac4d42ddafa32cc6bdc`: `pytest tests/test_engine_pins_await.py
+tests/test_check_engine_pins_published.py -q` gives 69 passed; `make check-docs` /
+`make check-workflows` / `make check-wiring` / `make check-import-roots` /
+`make check-package-layers` all rc=0, and the full battery verdict at this head is the CI
+`linux / unit` job of the fresh PR run (45661219921 at the pre-rebase head) plus the local
+`make test-unit` re-run recorded in this batch.
