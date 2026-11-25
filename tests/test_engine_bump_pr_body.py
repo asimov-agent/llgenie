@@ -1,240 +1,257 @@
-"""Unit tests for the engine-bump workflow's PR-body rendering.
+"""The engine-bump lane's PR body comes from `make engine-bump-pr-body`, and it satisfies the PR gates (issue #3050).
 
-The bug (issue #144): the `.yml` `run: |` block handed bash a double-quoted
-string containing `\n` escape sequences; inside double quotes bash does NOT turn
-`\n` into a newline, so every bump PR body rendered literal `\n` text. These
-tests exercise the fixed step: the body is built with `printf` (whose format
-string *does* interpret `\n`), and the hard-fail warning is appended with
-`printf '%b'`.
+Two generations of defects live in this file.
 
-They are hermetic: they parse `engine-bump.yml`, extract the exact `run` block
-of the `Open / update the bump PR` step, validate it with `bash -n`, and run
-the body-assembly slice in a real bash subprocess so the assertion matches what
-CI actually executes (including the `if [ -n "$HARD_FAIL" ]` guard).
+Generation one (issues #144, #583): the body was composed in inline bash inside
+`.github/workflows/engine-bump.yml`, and the regression was `\\n` arriving in the body as literal text —
+every `printf` in the composition had to be single-quoted in the YAML so bash, not the YAML parser, read
+the escapes. Those tests extracted the run block's bash, ran the composition in `bash -c`, and compared the
+bytes.
 
-NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
+Generation two (issue #3050): the same composer appended the optional hard-fail / dependencies lines and the
+params documentation review (issue #583) with
+
+    body="$(printf '%b' "${body}" '\\n')$(cat params-review-section.md)"
+
+Command substitution strips TRAILING newlines, so the review glued onto the OpenSpec reference. Measured on
+the live body of PR #3030 (head `20b3f030`):
+
+    OPENSPEC: publish-changed-pin-images## Documentation review
+
+`scripts/check_pr_hygiene.py::OPENSPEC_REF` is `^OPENSPEC:\\s+([A-Za-z0-9_-]+)\\s*$` — a name with text glued
+after it matches nothing, so `make check-pr-openspec-change` (mk/gates.mk:139) reported "names no existing
+change" on 7/7 lanes of the 2026-11-23 wave although `openspec/changes/publish-changed-pin-images/` is ACTIVE
+on `main`. The same bodies carried no `## Acceptance criteria`, so `make check-pr-acceptance-form`
+(mk/gates.mk:142, issue #1796) redded `scope` on the same 7/7, and their commit messages carried no ticked
+mirror for `make check-pr-commit-checkboxes` (mk/gates.mk:135, issue #2519).
+
+The composition therefore moved into `scripts/engine_bump_pr_body.py` behind `make engine-bump-pr-body`. The
+regressions are asserted against the seams the workflow now runs: the renderer's bytes, the gate's own
+findings functions, and the workflow text that wires them (no inline composer may come back).
 """
+
 from __future__ import annotations
 
-import re
 import subprocess
-import sys
 from pathlib import Path
 
-import pytest
 import yaml
+
+from scripts import acceptance_writeback  # one import root, issue #1101; paths via tests/conftest.py
+
+from scripts import check_pr_acceptance as ca
+from scripts import check_pr_closing as cpc
+from scripts import check_pr_hygiene as hy
+from scripts import engine_bump_pr_body as rend
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO_ROOT / ".github/workflows/engine-bump.yml"
+MK_ENGINES = REPO_ROOT / "mk/engines.mk"
 
-# The env the step receives (mirrors `env:` on the step).
-_OS_ENV = {
-    "ID": "ollama",
-    "OLD": "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
-    "NEW": "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
-    "REF": "v0.40.15",
-}
-
+_OS_ENV = (
+    "ID=ollama\n"
+    "OLD=02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
+    "NEW=02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
+    "REF=v0.40.15\n"
+)
 _REPO = "acme/llgenie"
+_RUN = "45242589912"
+_AUTHOR = "Author: Asimov Agent <support@docondee.com>"  # the value `make -s git-identity-line` emits (issue #840)
+_ENGINE = "ollama"
 
-#: The author line the seam puts first in the body (issue #840) — the identity the commit carries.
-_AUTHOR = "Author: Asimov Agent <support@docondee.com>"
-
-_EXPECTED_BASE = (
-    _AUTHOR + "\n"
-    "\n"
-    "Automated engine pin bump (issue #107).\n"
-    "\n"
+#: The facts block, unchanged from the composer this seam replaces (issue #144's shape: real newlines,
+#: `**bold**` markers rendered for real).
+_EXPECTED_FACTS = (
+    f"{_AUTHOR}\n\n"
+    "Automated engine pin bump (issue #107).\n\n"
     "- **Engine:** `ollama`\n"
     "- **Pin:** `02480ca2` -> `02480ca2` (`v0.40.15`)\n"
     "- **Compare:** https://github.com/acme/llgenie/compare/"
-    "02480ca2a47153e1f9c31cbe1e05536da97ce1ba..."
-    "02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
-    "- CI builds and tests ONLY this engine's images. A red PR means the new "
-    "commit needs a manual skill fix.\n"
-    "\n"
-    # The hygiene gate reads a standalone `OPENSPEC: <name>` line from every PR
-    # body; a bump PR belongs to `publish-changed-pin-images` (issue #2865 — the
-    # 2026-11-16 bump wave was red on the guard precisely because this line was
-    # absent).
-    "OPENSPEC: publish-changed-pin-images"
+    "02480ca2a47153e1f9c31cbe1e05536da97ce1ba...02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
+    "- CI builds and tests ONLY this engine's images. A red PR means the new commit needs a manual skill fix."
 )
 
-
-def _run_block() -> str:
-    """Return the literal `run` block of the Open / update the bump PR step."""
-    with WORKFLOW.open() as fh:
-        wf = yaml.safe_load(fh)
-    for step in wf["jobs"]["bump"]["steps"]:
-        if step.get("name") == "Open / update the bump PR":
-            return step["run"]
-    raise AssertionError("Open / update the bump PR step not found in engine-bump.yml")
+_REVIEW_SECTION = "## Documentation review\n\n### docs/build.md\n\nflag table\n"
 
 
-def _body_slice() -> list[str]:
-    """Return the source lines that assemble `body` (the printf + guarded append).
-
-    Stops before the `gh pr view` / `gh pr edit|create` decision lines, which do
-    not affect body rendering and need network auth — and before the #2050 stamp
-    step (`printf > /tmp/pr-body.md` + `make bot-stamp-body`), which consumes the
-    assembled body rather than assembling it. That step is pinned by
-    `tests/test_bot_stamp_body.py`; here the subject is the rendering.
-    """
-    block = _run_block()
-    lines = block.splitlines()
-    start = next(i for i, l in enumerate(lines) if "body=" in l)
-    end = next(
-        (i for i, l in enumerate(lines)
-         if i > start and ("gh pr view" in l or "/tmp/pr-body.md" in l or "bot-stamp-body" in l)),
-        None)
-    assert end is not None, "the PR write/stamp step was not found after the body assembly"
-    return lines[start:end]
+def _render(**kw) -> str:
+    kw.setdefault("engine", _ENGINE)
+    kw.setdefault("ref", "v0.40.15")
+    kw.setdefault("old_sha", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba")
+    kw.setdefault("new_sha", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba")
+    kw.setdefault("run_id", _RUN)
+    kw.setdefault("author", _AUTHOR)
+    kw.setdefault("repo_slug", _REPO)
+    return rend.render_body(**kw)
 
 
-def _bash(body_slice: list[str], hard_fail: str, deps: str = "",
-          author: str = _AUTHOR) -> str:
-    """Run the body-assembly slice in bash and print `$body` on stdout.
-
-    `author` stands in for `$(make -s git-identity-line)`: the seam's own value is pinned by
-    `tests/test_git_identity.py`, and this module pins what the body does with it.
-    """
-    script = "set -eu\n"
-    script += f"author={_shell_quote(author)}\n"
-    for key, val in _OS_ENV.items():
-        script += f'{key}={_shell_quote(val)}\n'
-    script += f"HARD_FAIL={_shell_quote(hard_fail)}\n"
-    script += f"DEPS={_shell_quote(deps)}\n"
-    body_source = "\n".join(body_slice)
-    body_source = body_source.replace("${{ github.repository }}", _REPO)
-    script += body_source + "\n"
-    script += 'printf "%s" "$body"\n'
-    return subprocess.run(
-        ["bash", "-c", script], check=True, capture_output=True, text=True
-    ).stdout
-
-
-def _shell_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
-
-
-def test_pr_body_has_real_newlines():
-    """REQ-1: base body ends each line with a real newline, not literal \\n."""
-
-    # Given the workflow's body assembly runs in bash with no hard-fail
-    body = _bash(_body_slice(), hard_fail="")
-
-    # When  the body is rendered
-    # Then  it matches the expected rendering with real line breaks
-    assert body == _EXPECTED_BASE
-    assert "\\n" not in body  # no literal backslash+n anywhere
-
-
-def test_hard_fail_appended():
-    """REQ-2: the manual-review warning is appended on its own paragraph."""
-
-    # Given a derive hard-fail was recorded
-    hard_fail = "the 'LLAMA_CUBLAS' flag was removed"
-    body = _bash(_body_slice(), hard_fail=hard_fail)
-
-    # When  the guarded append runs
-    # Then  it lands after a blank line, with real newlines throughout
-    assert body.startswith(_EXPECTED_BASE)
-    expected_warn = (
-        "\n\n> ⚠️ **Manual review required:** a build parameter could not be "
-        f"auto-derived — {hard_fail}. The pin is bumped and the PR is open; CI "
-        "will go red on the build until the skill is fixed by hand."
+def _messages(body_made_of_newlines: bool = True) -> list[str]:
+    """The bump commit's own messages (issue #1588), plus the renderer's acceptance mirror."""
+    msg = (
+        "Automated engine pin bump (weekly rolling pin; closes no issue): found v0.40.15 at 02480ca2, "
+        "pinned at 02480ca2.\n\n"
+        "Fix: re-derived the install recipe at v0.40.15 and applied it to SKILL.md, the frozen per-arch "
+        "Dockerfiles, the params and the Strata model list.\n\n"
+        "Benefit: llgenie builds and serves this engine at the upstream release instead of a stale pin.\n\n"
+        "Technical: make engine-bump ENGINE=ollama (derive -> pin -> apply -> make generate-engine-params). "
+        "CI builds and tests the images of this engine only; a red PR means the new upstream commit needs a "
+        "manual skill fix."
     )
-    assert body.endswith(expected_warn)
-    assert "\\n" not in body
+    out = ["chore(engine): bump ollama to v0.40.15@02480ca2", msg]
+    if body_made_of_newlines:
+        out.append(rend.acceptance_block(_ENGINE, _RUN, heading=rend.COMMIT_ACCEPTANCE_HEADING))
+    return out
 
 
-def test_hard_fail_absent_does_not_append():
-    """The guard must not append the warning when HARD_FAIL is empty."""
+# ---------- generation one: the body's shape ----------
 
-    # Given no hard-fail (HARD_FAIL="")
-    body = _bash(_body_slice(), hard_fail="")
-
-    # When  the guarded append runs
-    # Then  the body is exactly the base (no warning)
-    assert body == _EXPECTED_BASE
-    assert "Manual review required" not in body
-
-
-def test_dependency_line_is_appended():
-    """A bump that found new packages names them on their own line."""
-
-    # Given the new pin added a python package and an apt package
-    deps = "python_added=newpkg apt_added=libnew1"
-    body = _bash(_body_slice(), hard_fail="", deps=deps)
-
-    # When the body is rendered
-    # Then the dependency line follows the base body
-    assert body == _EXPECTED_BASE + "\n- **Dependencies:** " + deps
-    assert "\\n" not in body
+def test_pr_body_has_real_newlines_not_literal_backslash_n():
+    body = _render()
+    assert body.startswith(_EXPECTED_FACTS), body[:600]
+    assert "\\n" not in body, "double-quoted YAML printf put a literal \\n in the body (issue #144)"
+    assert "\n\n- **Engine:** `ollama`\n" in body, "bold markers were not rendered"
+    assert "- **Pin:** `02480ca2` -> `02480ca2` (`v0.40.15`)" in body
+    assert "Automated engine pin bump (issue #107)." in body
+    assert body.endswith("OPENSPEC: publish-changed-pin-images\n")
 
 
-def test_run_block_is_valid_bash():
-    """REQ-3: the extracted run block passes bash -n."""
+def test_hard_fail_appends_a_warning_paragraph():
+    body = _render(hard_fail="cuda flag --x was not advertised")
+    assert body.startswith(_EXPECTED_FACTS)
+    assert (
+        "> ⚠️ **Manual review required:** a build parameter could not be auto-derived — "
+        "cuda flag --x was not advertised. The pin is bumped and the PR is open; CI will go red on the "
+        "build until the skill is fixed by hand."
+    ) in body
+    # the reference stays last, after the appended warning
+    assert body.endswith("OPENSPEC: publish-changed-pin-images\n")
 
-    # Given the workflow's Open/update step source
-    block = _run_block()
 
-    # When  we syntax-check it as a bash script
-    # Then  it parses without error
-    subprocess.run(["bash", "-n", "-c", block], check=True, capture_output=True, text=True)
-    for line in block.splitlines():
-        if "body=" in line or "printf" in line:
-            subprocess.run(
-                ["bash", "-n", "-c", line], check=True, capture_output=True, text=True
-            )
+def test_no_hard_fail_no_warning():
+    assert "Manual review required" not in _render()
+
+
+def test_dependency_line_appends():
+    body = _render(deps="llama.cpp moved to 0.13.0")
+    assert body.startswith(_EXPECTED_FACTS)
+    assert "- **Dependencies:** llama.cpp moved to 0.13.0" in body
+    assert body.endswith("OPENSPEC: publish-changed-pin-images\n")
 
 
 def test_generated_commit_message_does_not_trip_the_closing_gate():
-    """The engine-bump commit must not claim an issue the bump never closes.
+    """Issue #1588's rule, now including the acceptance mirror paragraph."""
+    title = "chore(engine): bump ollama to v0.13.0"
+    messages = _messages()
+    claims = cpc.claims_in(messages, None, title)
+    assert claims == set(), f"the generated commit claims issue(s) {sorted(claims)}"
+    findings = cpc.check_squash(messages, "", title)
+    assert findings == [], findings
 
-    #1588 regression: the commit message once began with `Issue: #107 — ...`, which
-    `check_pr_closing` reads as a claim (issue #1329/#1417) and demands an adjacent
-    `closes #107` in the squash text and body that a rolling engine-bump PR never
-    emits — red on every generated bump. #107 is a CLOSED meta-issue; a pin bump is
-    a rolling chore that should claim and close nothing. This asserts the workflow's
-    generated commit line carries no `Issue: #N` claim, so the gate stays green and
-    the false-red cannot return.
-    """
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
-    import check_pr_closing as cpc  # noqa: E402
 
-    block = _run_block()
-    msg_line = next(l for l in block.splitlines() if l.lstrip().startswith("msg=$(printf"))
-    # Rebuild the commit message as the workflow does (printf interpolates \n).
-    script = "set -eu\n"
-    for key, val in _OS_ENV.items():
-        script += f"{key}={_shell_quote(val)}\n"
-    script += msg_line + "\nprintf '%s' \"$msg\"\n"
-    rendered = subprocess.run(
-        ["bash", "-c", script], check=True, capture_output=True, text=True
-    ).stdout
-    # A rendered bump commit (subject + message) claims no issue.
-    title = "chore(engine): bump ollama to v0.40.15@02480ca2"
-    claims = cpc.claims_in([rendered], None, title)
-    assert claims == set(), (
-        "engine-bump commit must not claim an issue the rolling pin does not close. "
-        f"claiming {cpc._fmt(claims)} re-opens #1588."
+# ---------- generation two: the gate findings the inline composer produced ----------
+
+def test_the_openspec_reference_survives_the_documentation_review():
+    body = _render(review_section=_REVIEW_SECTION)
+    # the exact measured defect: the heading glued onto the change name
+    assert "publish-changed-pin-images##" not in body
+    assert "\n\n## Documentation review\n" in body
+    lines = [ln for ln in body.splitlines() if ln.startswith("OPENSPEC:")]
+    assert lines == ["OPENSPEC: publish-changed-pin-images"], lines
+    # and the gate's OWN regex reads the name back out of the composed body
+    assert hy.OPENSPEC_REF.findall(body) == ["publish-changed-pin-images"], body[-200:]
+
+
+def test_the_body_carries_the_acceptance_checklist_the_scope_gate_reads():
+    body = _render(review_section=_REVIEW_SECTION)
+    # `acceptance_writeback.acceptance_items` is the parser `pr_acceptance_form_findings` reuses (#1796)
+    items = acceptance_writeback.acceptance_items(body)
+    assert items, "the composed body has no tickable acceptance checklist (issue #1796)"
+    for line in items:  # `acceptance_items` returns the checkbox lines themselves
+        assert line.lstrip().startswith("- [x]"), line
+        assert ca._is_provable_tick(line), line
+    # every tick names a CI run or a command+rc+sha, or the self-tick audit (#745) reddens it
+    assert all(ca._is_provable_tick(ln) for ln in items), items
+
+
+def test_the_commit_text_mirrors_the_body_ticks():
+    body = _render(review_section=_REVIEW_SECTION)
+    assert hy.commit_text_findings(_messages(), body) == []
+
+
+def test_a_commit_without_the_mirror_is_refused():
+    body = _render()
+    findings = hy.commit_text_findings(_messages(body_made_of_newlines=False), body)
+    assert [i["key"] for i in findings] == ["commit-acceptance-unmirrored"], findings
+
+
+def test_the_cli_writes_the_body_and_the_commit_mirror(tmp_path):
+    out, commit_out = tmp_path / "pr-body.md", tmp_path / "commit-acceptance.md"
+    rc = rend.main(
+        [
+            "--engine", _ENGINE, "--ref", "v0.40.15",
+            "--old", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+            "--new", "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+            "--run", _RUN, "--author", _AUTHOR, "--repo-slug", _REPO,
+            "--review-file", str(tmp_path / "params-review-section.md"),
+            "--out", str(out), "--commit-out", str(commit_out),
+        ]
     )
-    # And the full squash check passes (commit claims nothing, body closes nothing).
-    items = cpc.check_squash([rendered], body=None, title=title)
-    assert items == [], [i["key"] for i in items]
+    assert rc == 0
+    body = out.read_text()
+    mirror = commit_out.read_text().strip()
+    assert body.endswith("OPENSPEC: publish-changed-pin-images\n")
+    assert mirror.splitlines()[0] == rend.COMMIT_ACCEPTANCE_HEADING
+    # a missing review file is not a failure: the lane's review step is optional
+    assert acceptance_writeback.acceptance_items(body)
+    assert hy.commit_text_findings(_messages()[:2] + [mirror], body) == []
 
 
-def test_printf_format_uses_single_backslash_n():
-    """Guard the fix: printf format args carry \\n, never literal double-\\n."""
+# ---------- the seams the workflow actually runs ----------
 
-    # Given the body-assembly source
-    src = "\n".join(_body_slice())
-    # Extract every single-quoted printf argument.
-    args = re.findall(r"'((?:[^'\\]|\\.)*)'", src)
+def _step_run(job_name: str, step_name: str) -> str:
+    wf = yaml.safe_load(WORKFLOW.read_text())
+    steps = wf["jobs"][job_name]["steps"]
+    try:
+        return next(s["run"] for s in steps if s.get("name") == step_name)
+    except StopIteration:
+        raise AssertionError(f"step {step_name!r} not found in job {job_name!r}") from None
 
-    # When  we inspect the format strings
-    # Then  the base format uses a single backslash-n (a printf escape) and
-    #       never a double backslash (which would render literal backslash+n)
-    assert any("\\n" in a for a in args)
-    assert all("\\\\n" not in a for a in args)
+
+def test_the_body_renderer_is_wired_through_make():
+    """AGENTS.md: a workflow runs a make target, never a raw script; every script is wired to a target."""
+    run = _step_run("bump", "Open / update the bump PR")
+    assert "make engine-bump-pr-body" in run, run[:800]
+    assert "OUT=/tmp/pr-body.md" in run
+    assert "COMMIT_OUT=/tmp/commit-acceptance.md" in run
+    target = MK_ENGINES.read_text()
+    assert "engine-bump-pr-body:" in target
+    assert "scripts/engine_bump_pr_body.py" in target
+
+
+def test_the_inline_body_composer_is_gone():
+    """The bug was in the composition, so the composition is not allowed back into the YAML.
+
+    Only executable lines are inspected: the step's own comment names the old composer so a reader
+    knows why the seam exists.
+    """
+    run = _step_run("bump", "Open / update the bump PR")
+    code = "\n".join(ln for ln in run.splitlines() if not ln.lstrip().startswith("#"))
+    for banned in (
+        "body=$(printf",
+        "body=\"$(printf",
+        "$(cat params-review-section.md)",
+        "scripts/engine_bump_pr_body.py",  # only through the make target
+    ):
+        assert banned not in code, f"{banned!r} came back into the workflow"
+
+
+def test_composer_run_block_is_valid_bash(tmp_path):
+    """REQ-3 of issue #144 still holds for the step: the run block parses as bash."""
+    run = _step_run("bump", "Open / update the bump PR")
+    script = _OS_ENV + "\n" + run.replace("${{ github.repository }}", _REPO).replace(
+        "${{ github.run_id }}", _RUN
+    ) + "\n"
+    path = tmp_path / "composer.sh"
+    path.write_text(script)
+    r = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr

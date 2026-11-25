@@ -740,14 +740,40 @@ def openspec_change_findings(root: Path, head: str, base: str, body: str) -> lis
     active = set(_active_change_names(root))
     if any(n in active for n in named):
         return []
-    return [{
-        "key": "openspec-change",
-        "where": "PR diff",
-        "detail": "this PR changes product code but adds no file under `openspec/changes/` and names no "
-                  "existing change — AGENTS.md requires every change to start as an OpenSpec change: "
-                  "run `make openspec-new NAME=<kebab-name>` before implementing, or add a "
-                  "`OPENSPEC: <name>` body line naming the active change this PR implements against",
-    }]
+    return [{"key": "openspec-change", "where": "PR diff", "detail": _openspec_detail(body or "", named, active)}]
+
+
+def _openspec_detail(body: str, named: list[str], active: set[str]) -> str:
+    """Name the mistake the gate actually saw (issue #3050).
+
+    Three producer shapes collapsed into one generic hint before #3050, and the hint sent the producer
+    down the wrong path: the engine-bump lanes already HAD an `OPENSPEC:` line, but bash command
+    substitution had glued the documentation-review heading onto the change name
+    (`OPENSPEC: publish-changed-pin-images## Documentation review`), so `OPENSPEC_REF` extracted
+    nothing and the finding said "names no existing change". A malformed line, a line naming an
+    inactive change, and no line at all are now reported as what they are.
+    """
+    raw = re.findall(r"^OPENSPEC:[^\n]*", body, re.M)
+    if raw and not named:
+        shown = "; ".join(line.strip()[:120] for line in raw[:3])
+        return (
+            f"the body HAS an OpenSpec line but it does not parse: `{shown}` — the reference must be a "
+            "line that ENDS after the change name (`OPENSPEC: <name>`); text glued onto the name names "
+            "nothing. End the line after the name and put a blank line before whatever follows "
+            "(issue #3050: `$(cat …)` appends ate the newline the composer relied on)"
+        )
+    if named:
+        listed = ", ".join(sorted(set(named)))
+        return (
+            f"the body names OpenSpec change `{listed}` and none of them is ACTIVE here (an ACTIVE "
+            "change is a non-archived `openspec/changes/<name>/` holding a `tasks.md`, on the branch or "
+            "on main) — create it with `make openspec-new NAME=<kebab>` or name the active change this "
+            "PR implements against"
+        )
+    return ("this PR changes product code but adds no file under `openspec/changes/` and names no "
+            "existing change — AGENTS.md requires every change to start as an OpenSpec change: "
+            "run `make openspec-new NAME=<kebab-name>` before implementing, or add a "
+            "`OPENSPEC: <name>` body line naming the active change this PR implements against")
 
 
 def _pr_files(root: Path, base: str, head: str) -> list[str]:

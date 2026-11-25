@@ -417,6 +417,10 @@ engine-bump: ## Issue #107: pin ENGINE to its latest upstream commit + derive + 
 engine-bump-daily: ## Issue #107: plan -> bump every moved engine (DRY=1 prints the plan, no writes)
 	@$(PY) scripts/engine_bump.py bump-daily $(if $(DRY),--dry,)
 
+engine-bump-pr-body: ## Issue #3050: render the engine-bump lane's PR body AND its commit-text acceptance mirror from one seam (ENGINE/REF/OLD/NEW/RUN/OUT required; COMMIT_OUT/AUTHOR/REPO_SLUG/REVIEW_FILE/HARD_FAIL/DEPS optional)
+	@test -n "$(ENGINE)" -a -n "$(REF)" -a -n "$(OLD)" -a -n "$(NEW)" -a -n "$(RUN)" -a -n "$(OUT)" || { echo "Usage: make engine-bump-pr-body ENGINE=<id> REF=<ref> OLD=<old-sha> NEW=<new-sha> RUN=<gh run id> OUT=<body path> [COMMIT_OUT=<path>] [AUTHOR=...] [REPO_SLUG=...] [REVIEW_FILE=...] [HARD_FAIL=...] [DEPS=...]"; exit 1; }
+	@$(PY) scripts/engine_bump_pr_body.py --engine "$(ENGINE)" --ref "$(REF)" --old "$(OLD)" --new "$(NEW)" --run "$(RUN)" --out "$(OUT)" $(if $(COMMIT_OUT),--commit-out "$(COMMIT_OUT)",) $(if $(AUTHOR),--author "$(AUTHOR)",) $(if $(REPO_SLUG),--repo-slug "$(REPO_SLUG)",) $(if $(REVIEW_FILE),--review-file "$(REVIEW_FILE)",) $(if $(HARD_FAIL),--hard-fail "$(HARD_FAIL)",) $(if $(DEPS),--deps "$(DEPS)",)
+
 list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON; CHANGED=<ref> keeps only images whose tag differs from it)
 	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
 
