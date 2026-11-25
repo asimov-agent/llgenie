@@ -204,6 +204,25 @@ class TestReadFacts:
         assert "BASE:" not in bump.review and "AGENTS:" not in bump.review
         assert bump.review.endswith("llama.cpp params kept.")
 
+    def test_a_heading_glued_onto_the_dependencies_line_is_re_homed(self):
+        # Given the measured #3031 shape: the review heading glued onto the END of the field line,
+        # so it is not a line start and REVIEW_START cannot see it
+        body = _body(deps="python_added=jinja2 apt_added= python_removed= apt_removed=## Documentation review")
+        bump = eb.BumpPr(number="3031", title="t", branch="chore/engine-bump-tensorrt-llm", head_sha=HEAD)
+        problems = eb.read_facts(bump, body)
+        # Then the fields end where the heading begins, and the heading is the review section
+        assert problems == []
+        assert bump.deps == "python_added=jinja2 apt_added= python_removed= apt_removed="
+        assert "##" not in bump.deps
+        assert bump.review == "## Documentation review"
+        # And re-rendered through the composer, no heading sits inside another line
+        out = render_body(engine="tensorrt-llm", ref="v1.3.0", old_sha=OLD, new_sha=NEW, run_id=RUN,
+                          author=eb.DEFAULT_AUTHOR, repo_slug=eb.DEFAULT_REPO,
+                          deps=bump.deps, review_section=bump.review)
+        assert "apt_removed=## Documentation review" not in out
+        assert all("##" not in ln for ln in out.splitlines() if not ln.startswith("#"))
+        assert "## Documentation review" in out
+
     def test_missing_openspec_reference_is_named(self):
         # Given a body with no OPENSPEC line at all
         bump = eb.BumpPr(number="3031", title="t", branch="chore/engine-bump-vllm", head_sha=HEAD)

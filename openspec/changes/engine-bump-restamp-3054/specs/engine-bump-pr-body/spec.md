@@ -22,6 +22,16 @@ never assumed, and the run id in the proven clause MUST come from that branch's 
   `## Acceptance criteria` section, and the documentation-review text the live body carried is preserved
 - **Test:** `pytest tests/test_engine_bump_restamp.py -q` (recorded body payload, no network)
 
+#### Scenario: a heading glued onto the dependency field line is re-homed, never carried
+
+- **Given** the recorded body shape of PR #3031 — the documentation-review heading glued onto the END of the
+  field line (`- **Dependencies:** python_added=… apt_removed=## Documentation review`), so the heading is not
+  a line start and a line-anchored reader cannot see it
+- **When** the leg reads the bump facts off that body and renders its replacement body
+- **Then** the `- **Dependencies:**` line ends where the heading begins (no `##` inside the fields), the heading
+  survives as its own `## Documentation review` section, and no rendered line carries a heading INSIDE it
+- **Test:** `pytest tests/test_engine_bump_restamp.py -q` (recorded body payload, no network)
+
 #### Scenario: dry mode writes nothing and names every bump it read
 
 - **Given** the recorded open-bump-PR payloads

@@ -23,6 +23,10 @@
       leg is repairing (glued `OPENSPEC:` heading, swallowed `## Documentation review`, missing
       acceptance section, compare shas disagreeing with the pin line). Proven:
       `pytest tests/test_engine_bump_restamp.py -q` rc=0 (composer round-trip + every defect case).
+- [x] A heading glued onto the END of the `- **Dependencies:**` field line (the measured PR #3031 residue
+      `…apt_removed=## Documentation review`) is cut out of the fields and re-homed as the composer's own
+      `## Documentation review` section — the leg never carries a heading inside a field line. Proven:
+      `pytest tests/test_engine_bump_restamp.py -q` rc=0 (`GLUED_HEADING` case, recorded body payload).
 
 ## 4. Write only through the guarded seam, and only after the stamp authority
 

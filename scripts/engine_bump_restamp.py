@@ -57,6 +57,8 @@ PIN_LINE = re.compile(r"^- \*\*Pin:\*\* `([0-9a-f]{7,40})` -> `([0-9a-f]{7,40})`
 COMPARE_LINE = re.compile(r"compare/([0-9a-f]{40})\.\.\.([0-9a-f]{40})", re.M)
 HARD_FAIL_LINE = re.compile(r"\*\*Manual review required:\*\* (.*)$", re.M)
 DEPS_LINE = re.compile(r"^- \*\*Dependencies:\*\* (.*)$", re.M)
+#: A heading that begins INSIDE a line (the #3031 shape: `…apt_removed=## Documentation review`).
+GLUED_HEADING = re.compile(r"##")
 #: The #3054 defect: the change name runs STRAIGHT INTO a heading (`…pin-images## Documentation review`).
 #: Anchored on the `#`, because a well-composed reference line ENDS after the name (`OPENSPEC_REF`):
 #: a trailing `\S.*` backtracks into the name and reports every clean composer body as defective.
@@ -138,15 +140,30 @@ def read_facts(bump: BumpPr, body: str) -> list[str]:
         problems.append("no full compare shas")
     if (m := HARD_FAIL_LINE.search(body)):
         bump.hard_fail = m.group(1).strip()
-    if (m := DEPS_LINE.search(body)):
-        bump.deps = m.group(1).strip()
+    review_at: int | None = None
+    scan_from: int = 0
     if (m := REVIEW_START.search(body)):
-        tail = body[m.start():]
+        review_at, scan_from = m.start(), m.end()
+    if (m := DEPS_LINE.search(body)):
+        fields = m.group(1)
+        # The measured #3031 residue: the producer glued the review heading onto the END of its own
+        # field line (`…apt_removed=## Documentation review`), so the heading is not a line start and
+        # REVIEW_START cannot see it. The dependency fields are four `key=value` pairs and can never
+        # contain a heading, so the first `##` ENDS the field line and starts the section the
+        # composer owns — cut there and re-home the heading instead of carrying it inside the fields.
+        if (g := GLUED_HEADING.search(fields)):
+            fields = fields[: g.start()]
+            glued_at = m.start(1) + g.start()
+            if review_at is None or glued_at < review_at:
+                review_at, scan_from = glued_at, m.end()
+        bump.deps = fields.strip()
+    if review_at is not None:
+        tail = body[review_at:]
         # Cut the review where the composer's NEXT section heading, the stamp pair or the reference line
         # begins: the acceptance checklist is never review text, and nothing gets embedded twice.
         cut = len(tail)
-        if (nxt := NEXT_SECTION.search(body, m.end())):
-            cut = min(cut, nxt.start() - m.start())
+        if (nxt := NEXT_SECTION.search(body, scan_from)):
+            cut = min(cut, nxt.start() - review_at)
         for pat in (STAMP_LINE, OPENSPEC_LINE):
             if (c := pat.search(tail)):
                 cut = min(cut, c.start())
