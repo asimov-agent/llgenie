@@ -15,16 +15,11 @@ from __future__ import annotations
 
 import ast
 import re
-import sys
-from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-import engine_pins_await as apa  # noqa: E402
-from conftest import REPO_ROOT, makefiles_text  # noqa: E402
+import scripts.engine_pins_await as apa  # noqa: E402  (the repo's ONE import root, issue #796)
+from conftest import REPO_ROOT, makefiles_text  # noqa: E402  (include-resolving reader, issue #2675)
 
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 WORKFLOW = apa.PRODUCER_WORKFLOW
