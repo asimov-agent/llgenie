@@ -262,6 +262,19 @@ def test_await_is_read_only_no_dispatch_rerun_or_requeue():
     assert "runs?per_page" in src, "the only Actions call is the bounded read of run status"
 
 
+def test_the_seam_reads_gh_through_the_subprocess_policy_module():
+    """`make check-proc-gate` (issue #797) confines `subprocess.run/check_output/Popen` to
+    `scripts/proc.py` or a `# proc-allow:` line. This seam is new code, so it goes through the
+    policy module rather than joining the tracked remainder: no direct `subprocess.*` call site,
+    and the read is capped by `GH_API_TIMEOUT_SECONDS` so a hung read cannot wedge the lane."""
+    src = (REPO_ROOT / "scripts/engine_pins_await.py").read_text()
+    assert not re.search(r"\bsubprocess\.(run|check_output|Popen)\s*\(", src), (
+        "the await seam must call scripts/proc.py, not subprocess directly (issue #797)"
+    )
+    assert "from proc import run_ok" in src, "the gh api read must use the proc.py run_ok policy"
+    assert "GH_API_TIMEOUT_SECONDS" in src, "a hung gh api read must be capped, not unbounded"
+
+
 # ---------------------------------------------------------------- the wiring into the lane
 
 def test_the_await_runs_before_the_gate_that_uses_it():

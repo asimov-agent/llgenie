@@ -37,7 +37,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -47,18 +46,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import base_ref  # noqa: E402
 from check_engine_pins_published import repinned_engine_ids  # noqa: E402
+from proc import run_ok  # noqa: E402  # the ONE subprocess policy seam (issue #797)
 
 REPO = Path(__file__).resolve().parent.parent
 PRODUCER_WORKFLOW = "engine-build-pr-trigger.yml"
 DEFAULT_WINDOW_SECONDS = 0.0
 POLL_SECONDS = 30.0
+#: One `gh api` GET is capped: a hung read is a `WARN` the pins gate decides past, never a wedge.
+GH_API_TIMEOUT_SECONDS = 60.0
 
 
 def _gh_api(path: str) -> dict:
-    """One read-only `gh api` GET. No verb argument is ever passed: reads only."""
-    proc = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    """One read-only `gh api` GET through `scripts/proc.py` (issue #797).
+
+    No verb argument is ever passed: reads only. `run_ok` never raises on a non-zero exit, so the
+    failure is reported by THIS seam with the command's stderr, not swallowed into an empty read.
+    """
+    proc = run_ok(["gh", "api", path], timeout=GH_API_TIMEOUT_SECONDS)
     if proc.returncode != 0:
-        raise RuntimeError(f"gh api {path} failed: {proc.stderr.strip()[:300]}")
+        raise RuntimeError(f"gh api {path} failed: {(proc.stderr or '').strip()[:300]}")
     return json.loads(proc.stdout or "{}")
 
 

@@ -21,8 +21,9 @@
   `main`/`push` semantics keep `NOT PUBLISHED` + `[select]` + exit 1, a gap in a pin the change did
   not move stays hard red, and `check_committed` (the `--all` sweep) never defers whatever the event.
   Mode comes from `ENGINE_PINS_PR_PENDING`, with a `GITHUB_EVENT_NAME == pull_request` fallback.
-- Tests: `tests/test_engine_pins_await.py` (15 cases, hermetic — injected `run_lookup`, no network,
-  including an AST read that the seam issues no `dispatches`/`reruns`/`cancel`/`POST` and a read of
+- Tests: `tests/test_engine_pins_await.py` (16 cases, hermetic — injected `run_lookup`, no network,
+  including an AST read that the seam issues no `dispatches`/`reruns`/`cancel`/`POST`, a read that
+  its `gh api` call goes through `scripts/proc.py`, and a read of
   `pipeline.yml`'s `unit` job step list that fails if the await moves after `make ci-unit`) and 4 new
   cases in `tests/test_check_engine_pins_published.py` (PR defers an unpublished repin / main control
   hard-reds the same ref / committed sweep never defers / event-derived mode when the knob is unset).
@@ -52,6 +53,21 @@
 - Out of scope, filed as its own issue: observing the next real bump wave green at its heads
   (#3061); the ~2 h `trigger` cost stays #2891; the bump lanes' missing PR-body/OpenSpec half stays
   #3050.
+
+## The first CI red: the seam had to join the subprocess policy module
+
+The pushed lane reddened `make ci-unit` at step 28/54, `make check-proc-gate`, on
+`scripts/engine_pins_await.py:59: proc = subprocess.run(["gh", "api", path], …)`. Issue #797 confines
+`subprocess.run/check_output/Popen` in `scripts/` to `scripts/proc.py` or a `# proc-allow:` line, and
+the tracked exemption list is a remainder, not a place for new code — so `_gh_api` now calls
+`proc.run_ok` (the policy's never-raises-on-non-zero shape, which is exactly what a seam that must
+never redden a lane needs; it reports the command's stderr itself) with `GH_API_TIMEOUT_SECONDS =
+60.0` so a hung `gh api` read becomes a `WARN` the pins gate decides past instead of a wedge. The new
+cross-group import (`CI entrypoints` -> `Structural gates`) is stated in `scripts/package-layers.json`
+with the issue #797 reason, and `test_the_seam_reads_gh_through_the_subprocess_policy_module` pins the
+rule so a later edit cannot put the direct call back. Measured: `make check-proc-gate` rc=0,
+`make check-package-layers` rc=0 (190 modules, 82 stated edges, 0 cycles), the two named modules
+69 passed, the four-module line 108 passed.
 
 ## Current status
 

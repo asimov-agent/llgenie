@@ -94,3 +94,19 @@ step is evaluated after the lane's producer has concluded or the window closed.
   `make ci-unit` step
 - **Test:** `tests/test_engine_pins_await.py::test_await_is_read_only_no_dispatch_rerun_or_requeue` and
   `tests/test_engine_pins_await.py::test_the_await_runs_before_the_gate_that_uses_it`
+
+### Requirement: the await seam reads GitHub through the subprocess policy seam with a bounded timeout
+
+`scripts/engine_pins_await.py` MUST read producer-run state through `scripts/proc.py` — the ONE
+subprocess policy seam (issue #797) — and never call `subprocess.run` / `check_output` / `Popen`
+directly. Every read MUST be bounded by `GH_API_TIMEOUT_SECONDS` (default 60 s), and a read that
+fails or times out MUST be reported as an `AWAIT WARN` outcome while the seam still exits zero: the
+await never reddens a lane, and a hung read is a warn rather than a wedge.
+
+#### Scenario: a hung or failed GitHub read is a warn and the pins gate still runs
+
+- **Given** the await seam's `gh api` read for a producer run fails or times out
+- **When** the await loop finishes that probe
+- **Then** the seam prints an `AWAIT WARN` line and exits zero
+- **And** the pins verdict gate runs after the await step regardless
+- **Test:** `tests/test_engine_pins_await.py::test_the_seam_reads_gh_through_the_subprocess_policy_module`
