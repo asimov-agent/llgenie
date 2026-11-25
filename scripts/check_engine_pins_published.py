@@ -164,12 +164,39 @@ def committed_cells(root: Path | None = None) -> list[tuple[str, str]]:
     return cells
 
 
+def pr_pending_mode(env: "dict | None" = None) -> bool:
+    """Whether an unresolved pin THIS change repins defers instead of reddening (issue #3051).
+
+    A bump PR's own producer job (`engine-build-pr-trigger`, a SEPARATE workflow, so GitHub
+    `needs:` can never order the unit battery after it) publishes the very tags this gate probes.
+    In a PR lane an unresolved repinned pin is therefore a RACE, not a defect: the gate reports it
+    pending and defers. Outside a PR lane the requirement is hard, exactly as issue #178 demands.
+
+    Mode comes from `ENGINE_PINS_PR_PENDING`: `1`/`true` on, `0`/`false`/empty off, anything else
+    warns on stderr and stays off (hard red). When the knob is UNSET the gate falls back to the CI
+    event, `GITHUB_EVENT_NAME == pull_request`, so a `push`/`main` run never defers.
+    """
+    env = dict(os.environ) if env is None else env
+    raw = env.get("ENGINE_PINS_PR_PENDING", "")
+    norm = raw.strip().lower()
+    if norm in ("1", "true"):
+        return True
+    if norm == "":
+        return env.get("GITHUB_EVENT_NAME", "") == "pull_request"
+    if norm in ("0", "false"):
+        return False
+    print(f"[pins] WARN ENGINE_PINS_PR_PENDING={raw!r} is neither on nor off; staying hard-red "
+          "(issue #3051)", file=sys.stderr)
+    return False
+
+
 def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]],
            registry: str, what: str, patience_seconds: float = 0.0,
            sleep: Callable[[float], None] = time.sleep,
            clock: Callable[[], float] = time.monotonic,
            retry_seconds: float = 120.0,
-           alias_check: bool = False) -> int:
+           alias_check: bool = False,
+           pending: bool = False) -> int:
     """Probe every (engine, variant) cell's exact tag; exit 1 when any is not published.
 
     `cells` is the scope being verified (the repin diff, or the full committed set);
@@ -210,9 +237,16 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
                 else:
                     unresolved[ref] = err
     missing: list[str] = []
+    deferred: list[str] = []
     for ref, (engine, variant) in tags.items():
         if ref in resolved:
             print(f"[pins] PUBLISHED {ref}")
+        elif pending:
+            # Issue #3051: this ref is a tag THIS change repins, and the lane's own producer job
+            # (`engine-build-pr-trigger`) is what publishes it. Until that job concludes the absent
+            # manifest is a race, so it is reported PINS-PENDING and NOT selected for a dispatch.
+            deferred.append(ref)
+            print(f"[pins] PINS-PENDING {ref} ({unresolved[ref]})")
         else:
             missing.append(ref)
             print(f"[pins] NOT PUBLISHED {ref} ({unresolved[ref]})")
@@ -245,18 +279,24 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
             if ad and ad == resolved[ref][2]:
                 print(f"[pins] ALIAS OK {alias_ref}")
             else:
-                lagged.append(alias_ref)
                 if not ad:
                     reason = "alias resolves no manifest"
                 else:
                     reason = f"alias {ad} != committed {resolved[ref][2]}"
-                print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
-                # Issue #2996 routing: a lag against a RESOLVED committed pin is a
-                # registry-side manifest move, not a build — emit the [aliasmove]
-                # heal line and never a [select] (dispatching a build for a lag is
-                # the #2996 fire-loop).
-                print(f"[aliasmove] {engine} {variant} "
-                      f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
+                if pending:
+                    # Issue #3051: the lane's producer moves the :<variant> alias in the SAME run
+                    # that publishes the unique tag, so mid-lane it lags by construction.
+                    deferred.append(alias_ref)
+                    print(f"[pins] ALIAS-PENDING {alias_ref} ({reason}) behind committed {ref}")
+                else:
+                    lagged.append(alias_ref)
+                    print(f"[pins] ALIAS LAG {alias_ref} ({reason}) behind committed {ref}")
+                    # Issue #2996 routing: a lag against a RESOLVED committed pin is a
+                    # registry-side manifest move, not a build — emit the [aliasmove]
+                    # heal line and never a [select] (dispatching a build for a lag is
+                    # the #2996 fire-loop).
+                    print(f"[aliasmove] {engine} {variant} "
+                          f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
             # Issue #2988: the engine's `:latest` belongs to its CANONICAL variant
             # cell only — `engine_image.engine_latest_variant` (issue #638), the
             # exact rule `publish_refs` uses to append `:latest`, so publisher and
@@ -272,14 +312,18 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
             if ld and ld == resolved[ref][2]:
                 print(f"[pins] LATEST OK {latest_ref}")
             else:
-                lagged.append(latest_ref)
                 if not ld:
                     reason = "latest resolves no manifest"
                 else:
                     reason = f"latest {ld} != committed {resolved[ref][2]}"
-                print(f"[pins] ALIAS LAG {latest_ref} ({reason}) behind committed {ref}")
-                print(f"[aliasmove] {engine} {variant} "
-                      f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
+                if pending:
+                    deferred.append(latest_ref)
+                    print(f"[pins] ALIAS-PENDING {latest_ref} ({reason}) behind committed {ref}")
+                else:
+                    lagged.append(latest_ref)
+                    print(f"[pins] ALIAS LAG {latest_ref} ({reason}) behind committed {ref}")
+                    print(f"[aliasmove] {engine} {variant} "
+                          f"{exact_tags(engine, variant).split(':')[-1]} {resolved[ref][2]}")
     if missing:
         print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
               f"(of {len(tags)} checked): dispatch engine-build with push=true, "
@@ -291,6 +335,15 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
               f"emitted [aliasmove] line (registry-side manifest move, no build — "
               f"issues #2987/#2988/#2996), then re-run this check", file=sys.stderr)
         return 1
+    if deferred:
+        # Issue #3051: DEFERRED is not green-by-accidence — the refs are named, the reason names
+        # the lane's own producer job, and the green exit means the battery ran after that
+        # producer had its window (see `make engine-pins-await` in the CI lane). On main the same
+        # finding is the hard failure issue #178 requires.
+        print(f"[pins] PINS DEFERRED {len(deferred)} {what} ref(s) await this lane's own "
+              f"producer (engine-build-pr-trigger); on main the same finding is a failure "
+              f"(issue #3051)")
+        return 0
     print(f"[pins] every {what} engine image ({len(tags)}) is published"
           + (" and every arch alias and engine :latest matches its committed tag"
              if alias_check else ""))
@@ -299,16 +352,34 @@ def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]]
 
 def check(base: str, root: Path | None = None,
           digest: Callable[[str], tuple[str, str]] | None = None,
-          registry: str | None = None) -> int:
-    """Exit 0 only when every repinned engine's exact tag resolves a manifest."""
+          registry: str | None = None,
+          pending_mode: bool | None = None,
+          alias_check: bool | None = None) -> int:
+    """Exit 0 when every repinned engine's exact tag resolves a manifest.
+
+    In a PR lane an unresolved tag THIS change repins is `PINS-PENDING`, not a failure: the
+    lane's own producer job (`engine-build-pr-trigger`, a separate workflow the unit battery
+    cannot order after) is what publishes it, so demanding its manifest mid-lane measures the
+    race instead of the code (issue #3051). `pending_mode=None` reads `ENGINE_PINS_PR_PENDING`
+    with a `GITHUB_EVENT_NAME == pull_request` fallback; a `push`/`main` run keeps the hard
+    requirement issue #178 states. `alias_check=None` reads the same `ENGINE_PINS_ALIAS` knob
+    `check_committed` reads (issue #2987) — unset keeps today's tag-only semantics, and with it
+    on a repinned cell's lagging `:<variant>` / `:latest` alias is `ALIAS-PENDING` in a PR lane
+    (the producer moves the alias in the same run that publishes the tag) instead of a failure.
+    `check_committed` (the `--all` sweep) never defers.
+    """
     registry = registry if registry is not None else ei.REGISTRY
     probe = digest if digest is not None else ei._digest_http
     ids = repinned_engine_ids(base, root)
     if not ids:
         print("[pins] no engine this change repins; nothing to check")
         return 0
+    pending = pr_pending_mode() if pending_mode is None else pending_mode
+    if alias_check is None:
+        alias_check = os.environ.get("ENGINE_PINS_ALIAS", "0").strip().lower() in ("1", "true")
     return _probe([(e, v) for e in ids
-                   for v in _enabled_variants(e)], probe, registry, "repinned")
+                   for v in _enabled_variants(e)], probe, registry, "repinned",
+                   alias_check=alias_check, pending=pending)
 
 
 def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
