@@ -21,7 +21,7 @@
   `main`/`push` semantics keep `NOT PUBLISHED` + `[select]` + exit 1, a gap in a pin the change did
   not move stays hard red, and `check_committed` (the `--all` sweep) never defers whatever the event.
   Mode comes from `ENGINE_PINS_PR_PENDING`, with a `GITHUB_EVENT_NAME == pull_request` fallback.
-- Tests: `tests/test_engine_pins_await.py` (13 cases, hermetic — injected `run_lookup`, no network,
+- Tests: `tests/test_engine_pins_await.py` (15 cases, hermetic — injected `run_lookup`, no network,
   including an AST read that the seam issues no `dispatches`/`reruns`/`cancel`/`POST` and a read of
   `pipeline.yml`'s `unit` job step list that fails if the await moves after `make ci-unit`) and 4 new
   cases in `tests/test_check_engine_pins_published.py` (PR defers an unpublished repin / main control
@@ -32,8 +32,8 @@
   await"). `make check-engine-pins-published` on the same base rc=0 in both modes with all 26
   repinned cells `PUBLISHED`, i.e. a settled wave no longer produces a false red.
 - Gates measured at the head: lint, `check-wiring`, `check-workflows` (actionlint),
-  `openspec-validate NAME=pins-gate-ordering` rc=0, the two named test modules (66 passed), and the
-  full `make test-unit` battery with zero skipped.
+  `openspec-validate NAME=pins-gate-ordering` rc=0, the named test modules (107 passed), and the
+   full `make test-unit` battery (4460 passed, 0 skipped) at head 1f32eaee5.
 
 ## Decisions
 
@@ -44,6 +44,11 @@
   in a PR lane" would have deleted the #178 discipline the committed sweep exists to enforce.
 - `GITHUB_REPOSITORY` is the seam's only repo source (CI sets it); with it unset the seam prints a
   WARN and exits 0 rather than guessing a repo, and the pins gate decides on its own.
+- A producer run is matched by its workflow **file** (`path` in the Actions runs API), never by `name`:
+  the API reports the workflow's display title truncated at 64 chars, so the first version filtered on
+  `name` and printed "no engine-build-pr-trigger.yml run for this head" while run 45242589764 for PR
+  #3030's head sat completed for that exact head. The hermetic fixture now carries the real row shape
+  (`name` = display title, `path` = `.github/workflows/…`) so a fixture cannot hide the API again.
 - Out of scope, filed as its own issue: observing the next real bump wave green at its heads
   (#3061); the ~2 h `trigger` cost stays #2891; the bump lanes' missing PR-body/OpenSpec half stays
   #3050.
@@ -51,4 +56,5 @@
 ## Current status
 
 Branch `feat/pins-gate-ordering` (off `origin/main`), OpenSpec change `pins-gate-ordering`, issue
-#3051. Issue body, OpenSpec change and code carry the same goal; the live-wave half is #3061.
+#3051. Battery at head 1f32eaee5da91dad440551f6edd88c7387a255f5: `make test-unit` rc=0, 4460 passed /
+13638 deselected / 0 skipped. Issue body, OpenSpec change and code carry the same goal; the live-wave half is #3061.
