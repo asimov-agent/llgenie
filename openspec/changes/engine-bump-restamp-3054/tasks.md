@@ -62,6 +62,29 @@
 - [x] Subprocess/import discipline. Proven: `make -s lint` rc=0, `make -s check-proc-gate` rc=0,
       `make -s check-import-roots` rc=0, `make -s check-workflows` rc=0.
 
-## 8. Pre-push proof
+## 8. Every acceptance tick is measured at the PR head before a body is proposed
+
+- [x] Head reads go through the git tree/blob API (`git/trees/<head>?recursive=1` then `git/blobs/<sha>`), never
+      `contents/<path>?ref=` — measured serving a stale blob for PR #3033's head, which produced a false
+      "skill pin at the head does not match the bump". Proven:
+      `pytest tests/test_engine_bump_restamp.py -q` rc=0 — `TestReadEvidenceAtHead` (the fake raises on a
+      `contents/…?ref=` head read) passes.
+- [x] `engine-build-*` check runs are harvested with `--paginate … | @tsv` and the expected variant set comes
+      from `make -s engine-build-matrix ENGINE=<engine>` (one page silently dropped `llama.cpp` `vulkan`).
+      Proven: `gh api --paginate repos/asimov-agent/llgenie/commits/cf5208ba2d3f3ca3fa07603d746eb1395f5b1011/check-runs?per_page=100`
+      rc=0 — 4 `engine-build-llama.cpp-*` entries (cuda/rocm/cpu success, no vulkan run at all).
+- [x] The image item is ticked only when EVERY expected variant reports `success` at the head, citing each run
+      id taken from that check run's own `html_url` (a `gh pr checks` suite id is not a readable workflow run).
+      Proven: `pytest tests/test_engine_bump_restamp.py -q` rc=0 — the green-matrix, red-variant and
+      matrix-gap cases pass.
+- [x] An unmeasured gap refuses the body; `--deferred <engine>=<issue>` (make `DEFERRED="ollama=3065
+      llama.cpp=3066"`) turns it into ONE `## Not covered` line naming every unresolved variant, the head and its
+      side issue. Proven: `make -s engine-bump-restamp DEFERRED="ollama=3065 llama.cpp=3066"` rc=0 —
+      `#3029 … proven=2 not-covered=1` (issue #3065), `#3033 … proven=2 not-covered=1` (issue #3066),
+      `unproven=0`.
+- [x] Deferred targets exist as their own issues before any body carries the pointer. Proven:
+      `gh issue view 3065 3066 --repo asimov-agent/llgenie --json number,state` rc=0 — both `OPEN`.
+
+## 9. Pre-push proof
 
 - [x] `make lane-preflight` prints `preflight: OK` for the fast gates at the branch head it pushes.

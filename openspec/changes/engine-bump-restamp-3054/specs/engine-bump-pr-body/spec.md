@@ -61,3 +61,38 @@ re-stamp it; it MUST NOT merge or arm anything itself.
 - **When** the classification runs
 - **Then** it reports `superseded` and no body is proposed for it
 - **Test:** `pytest tests/test_engine_bump_restamp.py -q`
+
+### Requirement: an acceptance box is written only when its evidence was read at the PR head
+
+Before proposing a body, the leg MUST read the evidence at the pull request's own head commit: the head's
+`skills/engines/<engine>/SKILL.md` and `containers/engines/params/<engine>.json` through the git tree/blob API
+(`git/trees/<head>?recursive=1` then `git/blobs/<sha>` — never `contents/<path>?ref=`, measured serving a stale
+blob for PR #3033's head), and every `engine-build-*` check run at that head through
+`gh api --paginate repos/<repo>/commits/<head>/check-runs`, against the variant list produced by
+`make -s engine-build-matrix ENGINE=<engine>`. Every ticked item MUST carry a proven clause that replays
+(`gh api … rc=0 <full head sha>`, or `run=<workflow run id>` taken from a check run's own `html_url`, never a
+check-suite id). The leg MUST NOT tick the image item unless EVERY variant the matrix expects reported
+`success` at that head.
+
+#### Scenario: an unmeasured gap refuses the write
+
+- **Given** a recorded bump whose head reports one `engine-build-*` variant with `conclusion=failure`
+- **When** the leg is asked to propose its body with no `--deferred` mapping for that engine
+- **Then** it records the gap as a refusal, tallies the bump as `unproven`, and issues no stamp and no write
+- **Test:** `pytest tests/test_engine_bump_restamp.py -q`
+
+#### Scenario: a deferred gap becomes a `## Not covered` line naming its own issue
+
+- **Given** the same bump and `--deferred <engine>=3065`
+- **When** the leg renders the body
+- **Then** the image item is absent, one `## Not covered` line names the engine and every unresolved variant
+  with the head sha and links `#3065`, and the pin/params items keep their head-flagged proven clauses
+- **Test:** `pytest tests/test_engine_bump_restamp.py -q`
+
+#### Scenario: a head file read never uses the contents endpoint
+
+- **Given** any head-file read the leg performs
+- **When** the tests inspect the commands issued
+- **Then** the read appears as `git/trees/<head>` plus `git/blobs/<sha>`, and a `contents/…?ref=<sha>` call fails
+  the test
+- **Test:** `pytest tests/test_engine_bump_restamp.py -q`

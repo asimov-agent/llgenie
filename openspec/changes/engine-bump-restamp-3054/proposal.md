@@ -36,6 +36,17 @@ carries 7 red pull requests whose redness is a composition artifact.
   `pending` (main still holds the PR's old pin) is re-stamped; `superseded` (main moved past the old pin, or
   already holds the new one) is closed with a comment naming main's live pin as the evidence — never merged,
   never re-stamped as if it were pending work.
+- **Every tick is measured at the PR head before it is written:** the leg reads the head commit's own
+  `skills/engines/<engine>/SKILL.md` and `containers/engines/params/<engine>.json` through the git blob API
+  (`git/trees/<head>` -> `git/blobs/<sha>`; the `contents/<path>?ref=` endpoint was measured serving a stale blob
+  for PR #3033's head), harvests every `engine-build-*` check run at that head through
+  `gh api --paginate repos/<repo>/commits/<head>/check-runs` (one page silently dropped `vulkan` for llama.cpp),
+  and derives the expected variants from `make -s engine-build-matrix ENGINE=<engine>` — the same matrix the CI
+  lane reads. An acceptance box is ticked only when its evidence was read (a `gh api … rc=0 <head-sha>` clause for
+  the pin/params items, one readable `run=<workflow run id>` per expected variant for the image item). A variant
+  that is red or never reported makes the leg REFUSE that body, unless `DEFERRED="<engine>=<issue>"` maps it, in
+  which case the body carries a `## Not covered` line naming the side issue instead of a tick (#3065 ollama,
+  #3066 llama.cpp vulkan).
 - **Dry by default:** the target prints one line per bump plus a tally and writes nothing; `APPLY=1` enables
   the guarded writes, `CLOSE_SUPERSEDED=1` additionally closes superseded bumps with the evidence comment.
   Every write is re-read from `gh pr view --json body` afterwards.

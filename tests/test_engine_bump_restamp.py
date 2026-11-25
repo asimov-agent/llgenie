@@ -8,6 +8,7 @@ against the pin `main` actually carries, and re-stamps only a `pending` bump thr
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -53,13 +54,20 @@ class FakeProc:
     class ProcError(Exception):
         pass
 
-    def __init__(self, prs, bodies, pins, checks=None, stamp_ok=True, write_ok=True):
+    def __init__(self, prs, bodies, pins, checks=None, stamp_ok=True, write_ok=True,
+                 head_pin=NEW, variants=None, matrix=None):
         self.prs = prs
         self.bodies = dict(bodies)
         self.pins = dict(pins)
         self.checks = checks or {}
         self.stamp_ok = stamp_ok
         self.write_ok = write_ok
+        # Evidence the leg reads at the PR HEAD: the pin the head's skill/params carry, the
+        # `engine-build-<engine>-<variant>` check-run rows, and the variants the matrix asks for.
+        self.head_pin = head_pin
+        self.variants = {k: dict(v) for k, v in (variants or {}).items()}
+        self.matrix = dict(matrix or {})
+        self.blobs: dict[str, str] = {}  # blob sha -> file text
         self.calls: list[list[str]] = []
 
     def _find(self, cmd, needle):
@@ -71,14 +79,58 @@ class FakeProc:
         if head.startswith("gh pr list"):
             return json.dumps(self.prs)
         if head.startswith("gh pr view"):
+            if "files" in cmd:  # pr_files(): the changed paths at the head
+                engines = sorted(self.pins)
+                paths = ["containers/engines/params/ollama.json", "skills/engines/ollama/SKILL.md"]
+                for e in engines:
+                    paths += [f"containers/engines/{e}/Dockerfile",
+                              f"containers/engines/params/{e}.json",
+                              f"skills/engines/{e}/SKILL.md"]
+                return "\n".join(paths)
             return self.bodies[cmd[3]]
         if head.startswith("gh pr checks"):
             return json.dumps(self.checks.get(cmd[3], []))
         if cmd[0] == "gh" and cmd[1] == "api":
+            url = cmd[self._find(cmd, "repos/") or 2]
+            if "/contents/" in url and "?ref=" in url:
+                # issue #3054: the contents endpoint with `?ref=<sha>` served main's older blob for
+                # #3033's head on one call and the head blob on the next. Head reads go by git object.
+                raise AssertionError(f"head file reads must go through the git blob API: {cmd}")
+            if "/git/trees/" in url:
+                ref = url.split("/git/trees/")[1].split("?")[0]
+                m = re.search(r'select\(\.path == "([^"]+)"\)', " ".join(cmd))
+                path = m.group(1) if m else ""
+                blob = hashlib.sha1(f"{path}@{ref}".encode()).hexdigest()
+                self.blobs[blob] = self._file_text(path)
+                return blob
+            if "/git/blobs/" in url:
+                sha = url.split("/git/blobs/")[1]
+                return base64.b64encode(self.blobs[sha].encode()).decode()
+            if "/check-runs" in url:
+                rows = []
+                for engine, variants in (self.variants or
+                                         {e: {"cpu": ("success", "45242586633")}
+                                          for e in sorted(self.pins)}).items():
+                    for variant, (conclusion, run_id) in variants.items():
+                        rows.append("\t".join([
+                            f"engine-build-{engine}-{variant}", conclusion,
+                            f"https://github.com/o/r/actions/runs/{run_id}/job/1"]))
+                return "\n".join(rows)
             engine = cmd[2].split("/engines/")[1].split("/")[0]
             md = f"---\nname: {engine}\npinned: {self.pins[engine]}\n---\n\n# {engine}\n"
             return base64.b64encode(md.encode()).decode()
+        if cmd[:3] == ["make", "-s", "engine-build-matrix"]:
+            engine = next(a.split("=", 1)[1] for a in cmd if a.startswith("ENGINE="))
+            variants = self.matrix.get(engine) or sorted(
+                self.variants.get(engine) or {"cpu": ()})
+            return json.dumps({"include": [{"engine": engine, "variant": v} for v in variants]})
         raise AssertionError(f"unexpected run_text call: {cmd}")
+
+    def _file_text(self, path: str) -> str:
+        engine = re.search(r"engines/(?:params/)?([^/.]+)", path).group(1)
+        if path.endswith("SKILL.md"):
+            return f"---\nname: {engine}\npinned: {self.head_pin}\n---\n\n# {engine}\n"
+        return json.dumps({"engine": engine, "pinned": self.head_pin})
 
     def run_checked(self, cmd, timeout=None):
         self.calls.append(list(cmd))
@@ -390,3 +442,109 @@ class TestHostOnlyWiring:
         assert ("engine_bump_restamp", "check_pr_hygiene") in edges, (
             "the leg reads the hygiene gate's own OPENSPEC_REF instead of spelling the reference again"
         )
+
+class TestHeadEvidence:
+    """A ticked box names evidence the leg read at the PR HEAD (issue #3054)."""
+
+    def _fake(self, **kw):
+        return FakeProc([_pr()], {"3030": _body(glue_defect=True)}, {"ollama": OLD},
+                        {"3030": _checks()}, **kw)
+
+    def _bump(self):
+        bump = eb.open_bump_prs(eb.DEFAULT_REPO)[0]
+        bump.problems = eb.read_facts(bump, eb.live_body(eb.DEFAULT_REPO, bump.number))
+        return bump
+
+    def test_head_file_reads_go_through_the_git_blob_api_not_a_contents_ref(self, monkeypatch):
+        fake = _install(monkeypatch, self._fake())
+        # Because: `contents/<path>?ref=<sha>` served main's older blob for #3033's head on one call
+        # and the head blob on the next, so a head read by ref is not a deterministic read.
+        ev = eb.read_evidence(eb.DEFAULT_REPO, self._bump())
+        flat = [" ".join(c) for c in fake.calls]
+        assert not any("/contents/" in c and "?ref=" in c for c in flat), flat
+        assert any("/git/trees/" in c for c in flat), flat
+        assert any("/git/blobs/" in c for c in flat), flat
+        assert ev.skill_pin == NEW and ev.params_names_pin
+        assert ev.skill_blob and ev.params_blob
+
+    def test_a_green_variant_proves_the_image_item_with_its_workflow_run_id(self, monkeypatch):
+        variants = {"ollama": {"cpu": ("success", "45242586633"), "cuda": ("success", "45245255181")}}
+        fake = _install(monkeypatch, self._fake(variants=variants, matrix={"ollama": ["cpu", "cuda"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        assert refusals == [] and not_covered == []
+        assert len(items) == 3 and all(i.startswith("- [x]") for i in items)
+        image = items[-1]
+        # Then the proof is the workflow run id from the check run's own url, flagged with the head
+        assert "run=45242586633" in image and "run=45245255181" in image
+        assert HEAD in image
+        # and never the `gh pr checks` suite id, which 404s at gh api actions/runs/<id>
+        assert RUN not in image
+
+    def test_a_variant_that_finished_red_is_refused_not_ticked(self, monkeypatch):
+        variants = {"ollama": {v: ("failure", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm", "vulkan"])}}
+        fake = _install(monkeypatch, self._fake(variants=variants,
+                               matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        # Then no image box is ticked and every red arch is named as a refusal
+        assert not any("build and run tests" in i for i in items), items
+        assert len(refusals) == 4
+        assert all("conclusion=failure" in r and "--deferred" in r for r in refusals), refusals
+        assert not_covered == []
+
+    def test_a_variant_the_matrix_asks_for_and_nobody_ran_is_a_gap(self, monkeypatch):
+        variants = {"ollama": {v: ("success", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm"])}}
+        fake = _install(monkeypatch, self._fake(variants=variants,
+                               matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        assert any("no engine-build-vulkan check run reported" in g for g in ev.gaps), ev.gaps
+        assert not any("build and run tests" in i for i in items), items
+        assert any("vulkan" in r for r in refusals), refusals
+
+    def test_a_deferred_gap_is_a_not_covered_line_naming_its_issue(self, monkeypatch):
+        variants = {"ollama": {v: ("failure", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm", "vulkan"])}}
+        fake = _install(monkeypatch, self._fake(variants=variants,
+                               matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {"ollama": "3065"})
+        # Then the gap moves to `## Not covered` naming the side issue, and stays unticked
+        assert len(not_covered) == 1 and "#3065" in not_covered[0], not_covered
+        assert all(g in not_covered[0] for g in ev.gaps if g.startswith("engine-build")), not_covered
+        assert refusals == []
+        assert len(items) == 2 and not any("build and run tests" in i for i in items), items
+
+    def test_a_deferred_bump_is_written_with_its_not_covered_section(self, monkeypatch, tmp_path):
+        variants = {"ollama": {v: ("failure", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm", "vulkan"])}}
+        fake = _install(monkeypatch, self._fake(variants=variants,
+                               matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        tally = eb.process(eb.DEFAULT_REPO, apply=True, close_superseded=False, out_dir=tmp_path,
+                           deferred={"ollama": "3065"})
+        assert tally["written"] == 1, tally
+        text = (tmp_path / "pr-3030-body.md").read_text()
+        assert "## Not covered" in text and "#3065" in text
+        assert "build and run tests at the new pin" not in text
+        flat = [" ".join(c) for c in fake.calls]
+        assert any("bot_preflight.py" in c and "--stamp" in c for c in flat), flat
+        assert any("pr_body_write.py" in c for c in flat), flat
+
+    def test_an_undeferred_gap_writes_nothing(self, monkeypatch, tmp_path):
+        variants = {"ollama": {v: ("failure", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm", "vulkan"])}}
+        fake = _install(monkeypatch, self._fake(variants=variants,
+                               matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        tally = eb.process(eb.DEFAULT_REPO, apply=True, close_superseded=False, out_dir=tmp_path)
+        assert tally["written"] == 0 and tally["unproven"] == 1, tally
+        flat = [" ".join(c) for c in fake.calls]
+        assert not any("pr_body_write.py" in c for c in flat), flat
+        assert not any("bot_preflight.py" in c for c in flat), flat
+
