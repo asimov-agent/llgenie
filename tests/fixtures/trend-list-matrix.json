@@ -30398,7 +30398,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 6 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 10 GB > 10 GB this host can hold"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -31037,7 +31037,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 6 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 10 GB > 10 GB this host can hold"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -31708,7 +31708,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 6 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 10 GB > 10 GB this host can hold"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -32395,7 +32395,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 6 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 10 GB > 10 GB this host can hold"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
