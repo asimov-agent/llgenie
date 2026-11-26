@@ -818,6 +818,13 @@ def _active_change_names(root: Path) -> list[str]:
 _COMMIT_ACCEPTANCE_HEADING = re.compile(r"^#{1,6}\s.*[Aa]cceptance", re.M)
 _COMMIT_UNTICKED = re.compile(r"^\s*[-*]\s+\[\s?\]", re.M)
 _COMMIT_TICKED = re.compile(r"^\s*[-*]\s+\[[xX]\]", re.M)
+#: A `(proven: …)` clause that still carries an un-replaced draft stub token. Measured shape: the
+#: #3035 squash `main@53a56da90` — `(proven: gh api …/blobs/<40-hex> rc=0 PLACEHOLDER)` x2 and
+#: `(proven: rc=0, engine-build run at head PLACEHOLDER)` — landed on `main` because the tick readers
+#: only asked for an `rc=` and a hex token, never what else the clause said (#3075). The scan is
+#: scoped to proven clauses so prose that merely NAMES the stub word is not this gate's business.
+_COMMIT_PROVEN_STUB = re.compile(
+    r"\(\s*proven:[^)]*\b(?:PLACEHOLDER|HEADSHA|MAINSHA)\b[^)]*\)", re.S)
 
 
 def commit_text_findings(messages: list[str], body: str) -> list[dict]:
@@ -833,7 +840,9 @@ def commit_text_findings(messages: list[str], body: str) -> list[dict]:
     * `commit-acceptance-unmirrored` — the PR body declares N acceptance items
       (`acceptance_writeback.acceptance_items`, reused not restated) while the range's commit text
       carries fewer than N ticked `- [x]` boxes: the tick happened somewhere but never reached the
-      permanent record.
+      permanent record;
+    * `commit-tick-draft-stub` — a `(proven: …)` clause in the range's commit text still carries a
+      draft stub token (the #3035 `PLACEHOLDER` residue, issue #3075).
 
     One tick, three mirrors: issue body, PR body, commit text. Closing stays the ONE automatic act
     (the `closes #N` keyword on merge) — this gate never closes and never ticks anything itself.
@@ -858,6 +867,17 @@ def commit_text_findings(messages: list[str], body: str) -> list[dict]:
                       "(measured shape: #2509 squash `49f0cc3be`, checked=0 unchecked=3). Tick every "
                       "criterion in the commit message too, or drop the checklist from the message "
                       "(issue #2519)",
+        })
+    stubs = sum(len(_COMMIT_PROVEN_STUB.findall(msg)) for msg in messages)
+    if stubs:
+        findings.append({
+            "key": "commit-tick-draft-stub",
+            "where": "commit text",
+            "detail": f"the range's commit text carries {stubs} `(proven: …)` clause(s) containing an "
+                      "un-replaced draft stub (PLACEHOLDER/HEADSHA/MAINSHA) — the squash lands the "
+                      "stub on main as the permanent record, and a clause that says PLACEHOLDER names "
+                      "no replayable proof (measured shape: #3035 squash `53a56da90`, 3 such clauses; "
+                      "issue #3075)",
         })
     if body:
         from acceptance_writeback import acceptance_items, BodyError  # noqa: PLC0415 reuse, never restate
