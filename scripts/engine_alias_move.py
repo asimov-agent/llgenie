@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move an engine's :<variant> GHCR alias to a committed pin digest (issue #2996).
+"""Move an engine's GHCR alias(es) to a committed pin digest (issues #2996, #3080).
 
 The registry-liveness gate (scripts/check_engine_pins_published.py, alias knob,
 issue #2987) classifies gaps by gap class. A cell whose committed pin tag RESOLVES
@@ -7,6 +7,11 @@ but whose `:<variant>` alias points at an older digest needs NO build: the image
 already in the registry under its exact tag, only the alias is stale. The repair is
 a registry-side manifest move that copies the manifest to the alias tag without
 building or running anything.
+
+Issue #3080: the gate also holds `:latest` to the engine's CANONICAL variant's pin.
+When the lagging cell IS that canonical variant (engine_image.engine_latest_variant,
+the same ownership rule the gate and publisher use), the byte-preserving move is
+repeated to `:latest` after the variant is verified. Other variants stay variant-only.
 That matters exactly for the cells a build can never heal: DEFAULT_CPU_ONLY engines
 (vllm) have their GPU variants structurally absent from every build matrix and
 dispatch sweep, so the #2996 fire-loop dispatched green-but-useless sweeps against
@@ -203,12 +208,36 @@ def move_alias(engine: str, variant: str, suffix: str, digest: str,
               f"{status}, {detail}) — the alias stays where it was")
         return 1
     ad, aerr = probe(target)
-    if ad == digest:
-        print(f"[alias-move] MOVED {target} -> {digest}")
-        return 0
-    print(f"[alias-move] FAIL {target}: post-move digest is {ad or aerr}, "
-          f"not the committed {digest}")
-    return 1
+    if ad != digest:
+        print(f"[alias-move] FAIL {target}: post-move digest is {ad or aerr}, "
+              f"not the committed {digest}")
+        return 1
+    print(f"[alias-move] MOVED {target} -> {digest}")
+
+    # Issue #3080: the fleet gate (PR #3003 / issue #2988) ALSO holds the engine's
+    # `:latest` tag to its canonical variant's committed pin. Healing only the
+    # variant tag made registry-liveness re-red on :latest on every re-probe.
+    # Ownership is the SAME one rule the gate and the publisher use — never a
+    # string guess, never a second variant: `engine_latest_variant` of the
+    # resolved spec. The :latest PUT happens ONLY after the variant was verified,
+    # with the SAME fetched bytes (byte-preserving) and the same probe check.
+    if variant != ei.engine_latest_variant(ei.resolve(engine, None, variant)):
+        return 0  # non-canonical cells stay variant-only — contract unchanged
+    latest = f"{repo}:latest"
+    print(f"[alias-move] canonical {engine}/{variant}: the gate also checks "
+          f"{latest} — re-publishing the same fetched bytes")
+    status, detail = put(name_path, "latest", body, media_type, host)
+    if status not in (200, 201):
+        print(f"[alias-move] FAIL {latest}: manifest PUT refused (status "
+              f"{status}, {detail}) — the :latest alias stays where it was")
+        return 1
+    ld, lerr = probe(latest)
+    if ld != digest:
+        print(f"[alias-move] FAIL {latest}: post-move digest is {ld or lerr}, "
+              f"not the committed {digest}")
+        return 1
+    print(f"[alias-move] MOVED {latest} -> {digest}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

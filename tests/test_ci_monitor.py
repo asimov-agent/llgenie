@@ -7,7 +7,9 @@ monitor cron hashes to decide whether an agent run is warranted.
 from __future__ import annotations
 
 import pathlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 import scripts.ci_monitor as ci_monitor
 
@@ -182,6 +184,24 @@ HEAD_JOBS = {
 }
 
 
+def _freeze_monitor_clock(monkeypatch, now: datetime) -> None:
+    """Pin the clock ci_monitor.main reads; production ageing stays wall-clock (#3081)."""
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now if tz is not None else now.replace(tzinfo=None)
+
+    monkeypatch.setattr(ci_monitor, "datetime", FrozenDatetime)
+
+
+def _head_runs_at(now: datetime) -> dict:
+    """Recorded head runs re-stamped relative to the frozen clock, ages intact (#3081)."""
+    head = OPEN_PRS[0]["headRefOid"]
+    stamp = lambda hours: (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    return {head: [dict(run, updatedAt=stamp(hours))
+                   for run, hours in zip(HEAD_RUNS[head], (24, 48, 22))]}
+
+
 def _fake_route(routed):
     def fake_route(repo, run_id, check="make ci-unit", dry=False, file_only=False):
         routed.append((repo, run_id, dry, file_only))
@@ -189,12 +209,18 @@ def _fake_route(routed):
     return fake_route
 
 
-def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
+@pytest.mark.parametrize("now", [
+    datetime(2026, 11, 26, 9, 0, 0, tzinfo=timezone.utc),   # before the original 72h fuse
+    datetime(2026, 11, 28, 12, 0, 0, tzinfo=timezone.utc),  # past 2026-11-27T10:00Z
+])
+def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch, now):
+    """The routing verdict is byte-identical on both sides of the old fixture fuse (#3081)."""
+    _freeze_monitor_clock(monkeypatch, now)
     routed = []
     monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
     monkeypatch.setattr(
         ci_monitor, "Fetch",
-        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS,
+        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=_head_runs_at(now),
                                jobs_by_run=HEAD_JOBS),
     )
     rc = ci_monitor.main(["--triage"])

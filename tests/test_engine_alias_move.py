@@ -54,12 +54,16 @@ MANIFEST_BYTES = json.dumps({
 PIN = "sha256:" + hashlib.sha256(MANIFEST_BYTES).hexdigest()
 
 
-def _cell():
+def _cell_for(engine: str, variant: str):
     """(engine, variant, suffix, alias target) spelled with the committed formula."""
-    engine, variant = "mlx", "cpu"
     tag = ei.resolve(engine, None, variant)["tag"]
     repo = f"{REGISTRY}/{tag.rpartition(':')[0]}"
     return engine, variant, tag.split(":")[-1], f"{repo}:{variant}"
+
+
+def _cell():
+    """mlx/cpu — the engine's canonical variant (moves both aliases, #3080)."""
+    return _cell_for("mlx", "cpu")
 
 
 def _recorder(post_digest: str | None, body: bytes = MANIFEST_BYTES):
@@ -99,11 +103,14 @@ def test_a_lagging_alias_is_moved_byte_preservingly_and_verified(capsys):
     assert all("create" not in cmd for cmd in ran), \
         "imagetools create re-wraps the manifest into a list (#3006); it is never used"
     name_path = repo.partition("/")[2]
-    assert puts == [(name_path, variant, MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io")], \
-        "the PUT carries the fetched bytes BYTE-IDENTICALLY, the variant tag, and " \
-        "the manifest's own mediaType as Content-Type"
+    assert puts == [(name_path, variant, MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io"),
+                    (name_path, "latest", MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io")], \
+        "a canonical cell PUTs the fetched bytes BYTE-IDENTICALLY to both the variant " \
+        "and :latest tags, each with the manifest's own mediaType (#3080)"
     assert f"[alias-move] MOVED {target} -> {PIN}" in out
-    assert probes == [target], "the moved alias is verified through the gate's probe"
+    assert f"[alias-move] MOVED {repo}:latest -> {PIN}" in out
+    assert probes == [target, f"{repo}:latest"], \
+        "both moved aliases are verified through the gate's probe"
 
 
 def test_fetch_that_is_not_the_pin_is_never_published(capsys):
@@ -241,11 +248,12 @@ def test_the_gates_aliasmove_line_feeds_the_mover_fields_unchanged(tmp_path, cap
     tag = ei.resolve(engine, None, variant)["tag"]
     pin_ref = f"{REGISTRY}/{tag}"
     alias_ref = f"{REGISTRY}/{tag.rpartition(':')[0]}:{variant}"
+    latest_ref = f"{REGISTRY}/{tag.rpartition(':')[0]}:latest"
 
     def fake(ref):
         if ref == pin_ref:
             return PIN, ""
-        if ref == alias_ref:
+        if ref in (alias_ref, latest_ref):
             return "sha256:" + "c" * 64, ""
         return "", "no manifest"
 
@@ -265,8 +273,10 @@ def test_the_gates_aliasmove_line_feeds_the_mover_fields_unchanged(tmp_path, cap
     rc2 = am.move_alias(mv_engine, mv_variant, mv_suffix, mv_digest,
                         registry=REGISTRY, run=run, probe=probe, put=put)
     assert rc2 == 0, "the gate's emitted fields must be mover-valid as printed"
-    assert probes == [alias_ref]
-    assert puts and puts[0][1] == variant and puts[0][2] == MANIFEST_BYTES
+    assert probes == [alias_ref, latest_ref], \
+        "the one deduped heal line covers BOTH aliases of the canonical cell"
+    assert len(puts) == 2 and all(p[2] == MANIFEST_BYTES for p in puts)
+    assert puts[0][1] == variant and puts[1][1] == "latest"
 
 
 def test_make_target_and_liveness_heal_are_wired():
@@ -300,6 +310,88 @@ def test_make_target_and_liveness_heal_are_wired():
     assert "packages: write" in wf, "manifest moves need the same-repo packages:write scope"
     dispatch_region = wf[dispatch:]
     assert "[select]" in dispatch_region, "manifest-unknown cells keep the build dispatch"
+
+
+def test_non_canonical_cell_moves_only_its_variant_alias(capsys):
+    """Issue #3080 step 2: a GPU variant that does NOT own :latest stays variant-only.
+
+    vllm's canonical variant is cpu; healing a lagging vllm/cuda cell must never
+    redirect the engine's :latest tag (one owner per engine, #638).
+    """
+    engine, variant, suffix, target = _cell_for("vllm", "cuda")
+    assert ei.engine_latest_variant(ei.resolve(engine, None, variant)) != variant
+    repo = target.rpartition(":")[0]
+    ran, probes, puts, run, probe, put = _recorder(PIN)
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=run, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert puts == [(repo.partition("/")[2], variant, MANIFEST_BYTES,
+                     MANIFEST_TYPE, "ghcr.io")], \
+        "non-canonical cells publish ONLY the variant tag"
+    assert probes == [target], "no :latest probe for a cell that does not own it"
+    assert ":latest" not in out
+
+
+def test_canonical_gpu_variant_moves_both_aliases_byte_for_byte(capsys):
+    """The measured tensorfold/cuda lag (#3080): canonical GPU variant heals both tags."""
+    engine, variant, suffix, target = _cell_for("tensorfold", "cuda")
+    assert ei.engine_latest_variant(ei.resolve(engine, None, variant)) == variant
+    repo = target.rpartition(":")[0]
+    ran, probes, puts, run, probe, put = _recorder(PIN)
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=run, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert [p[1] for p in puts] == [variant, "latest"]
+    assert puts[0][2] == puts[1][2] == MANIFEST_BYTES, \
+        "the SAME fetched bytes reach both tags — byte-for-byte, not re-wrapped"
+    assert puts[0][3] == puts[1][3] == MANIFEST_TYPE
+    assert probes == [target, f"{repo}:latest"]
+    assert f"[alias-move] MOVED {target} -> {PIN}" in out
+    assert f"[alias-move] MOVED {repo}:latest -> {PIN}" in out
+
+
+def test_failed_variant_verification_never_touches_latest(capsys):
+    """A canonical cell whose variant probe reds must not write or probe :latest."""
+    engine, variant, suffix, target = _cell()
+    repo = target.rpartition(":")[0]
+    probes: list[str] = []
+    puts: list[tuple] = []
+
+    def probe(ref):
+        probes.append(ref)
+        return ("sha256:" + "9" * 64, "") if ref == target else (PIN, "")
+
+    def put(name_path, tag, body, media_type, host):
+        puts.append((name_path, tag, body, media_type, host))
+        return 201, ""
+
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=_recorder(PIN)[3], probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert puts == [(repo.partition("/")[2], variant, MANIFEST_BYTES,
+                     MANIFEST_TYPE, "ghcr.io")]
+    assert probes == [target], "a failed variant verify never probes :latest"
+    assert f"{repo}:latest" not in out and "post-move digest" in out
+
+
+def test_latest_put_refusal_reds_without_latest_probe(capsys):
+    """A refused :latest PUT is loud; the tag is not re-probed as if it moved."""
+    engine, variant, suffix, target = _cell()
+    repo = target.rpartition(":")[0]
+    ran, probes, _puts, run, probe, _put = _recorder(PIN)
+
+    def put(name_path, tag, body, media_type, host):
+        return (403, "denied") if tag == "latest" else (201, "")
+
+    rc = am.move_alias(engine, variant, suffix, PIN, registry=REGISTRY,
+                       run=run, probe=probe, put=put)
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "manifest PUT refused" in out and "403" in out and "latest" in out
+    assert probes == [target], "no :latest probe after a refused :latest PUT"
 
 
 # --- issue #3010: the LIVE fetch seam must capture, or the byte gate hashes b'' ---
@@ -367,5 +459,7 @@ def test_the_real_capture_policy_passes_the_byte_gate_end_to_end(tmp_path, capsy
                        run=seam, probe=probe, put=put)
     out = capsys.readouterr().out
     assert rc == 0 and f"[alias-move] MOVED {target} -> {PIN}" in out
-    assert puts == [(name_path, variant, MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io")], \
-        "the captured bytes pass the byte gate and reach the PUT byte-identically"
+    assert puts == [(name_path, variant, MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io"),
+                    (name_path, "latest", MANIFEST_BYTES, MANIFEST_TYPE, "ghcr.io")], \
+        "the captured bytes pass the byte gate and reach BOTH PUTs byte-identically"
+    assert probes == [target, f"{repo}:latest"]
