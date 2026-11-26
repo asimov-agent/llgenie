@@ -52,15 +52,19 @@ class FakeGh:
 
 
 @pytest.fixture()
-def fake_drift(monkeypatch):
+def fake_drift(monkeypatch, tmp_path):
     """A drift is present; the live build itself is NOT what this module tests.
 
     The patch lands on `tsi.tlm` — the module object the PRODUCER imported. The
     #796 trap: a `from scripts import trend_list_matrix` test alias and the
     producer's own `import trend_list_matrix` can be two module objects, and a
     patch on the wrong one leaves the real live read in place.
+
+    #3057: these fixtures simulate a STANDALONE drift read — no handoff present —
+    so a leftover build/trend-staleness-drift.json in the tree can never steer them.
     """
     monkeypatch.setattr(tsi.tlm, "staleness_read", lambda: (1, list(DRIFT)))
+    monkeypatch.setattr(tsi.tlm, "DRIFT_REPORT", tmp_path / "no-drift-handoff.json")
 
 
 @pytest.fixture()
@@ -98,6 +102,55 @@ def test_one_issue_per_drift_and_the_dedupe_read_gates_it(monkeypatch, fake_drif
     monkeypatch.setattr(tsi.proc, "run_checked", fake3)
     rc = tsi.main(["open", "--repo", "asimov-agent/llgenie"])
     assert rc == 0 and len(fake3.posts()) == 1, "mentioning the marker words is not holding the marker"
+
+
+def test_filing_reuses_the_named_drift_handoff_without_a_second_live_read(monkeypatch, tmp_path, fake_repo):
+    """#3057 AC1: `make check-trend-list-fresh` ran first and named the drift; the filing
+    path consumes its cells from the handoff and must NOT reach the live trending build again
+    — the second read is what returned the unreadable exit 2 and erased the ticket."""
+    report = tmp_path / "trend-staleness-drift.json"
+    report.write_text(json.dumps({"written_by": "make check-trend-list-fresh", "cells": list(DRIFT)}),
+                      encoding="utf-8")
+    monkeypatch.setattr(tsi.tlm, "DRIFT_REPORT", report)
+
+    def _second_live_read_forbidden():
+        raise AssertionError("the filing path must not re-read the live trending (#3057)")
+    monkeypatch.setattr(tsi.tlm, "staleness_read", _second_live_read_forbidden)
+
+    rc = tsi.main(["open", "--repo", "asimov-agent/llgenie"])
+    assert rc == 0, f"filing from the handoff failed: {fake_repo.calls}"
+    posts = fake_repo.posts()
+    assert len(posts) == 1, f"expected exactly one filed issue: {fake_repo.calls}"
+    body = json.loads(posts[0][1]["input"])["body"]
+    first_line = body.splitlines()[0]
+    assert first_line.startswith(tsi.MARKER_PREFIX), "the dedupe marker must stay the body's first line"
+    assert tsi.drift_fingerprint(DRIFT) in first_line, "the marker must fingerprint the handed-off cells"
+
+
+def test_unreadable_standalone_read_is_named_before_the_exit_code(monkeypatch, tmp_path, fake_repo, capsys):
+    """#3057 AC3: with no named drift to file, the producer's own re-read failing prints
+    the failure BY NAME before returning 2 — a lost read is loud, never silent."""
+    monkeypatch.setattr(tsi.tlm, "DRIFT_REPORT", tmp_path / "no-drift-handoff.json")
+    monkeypatch.setattr(tsi.tlm, "staleness_read", lambda: (2, []))
+    rc = tsi.main(["open", "--repo", "asimov-agent/llgenie"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "[trend-staleness-issue] FAIL" in err, "the failure must carry the producer's FAIL line"
+    assert "staleness re-read could not run" in err, "the log must name WHICH leg failed"
+    assert not fake_repo.posts(), "a lost read must file nothing"
+
+
+def test_corrupt_handoff_is_named_and_falls_back_to_the_producer_read(monkeypatch, tmp_path, fake_repo, capsys):
+    """A handoff the producer cannot trust is reported by name, not silently skipped:
+    filing still happens via the producer's own read."""
+    bad = tmp_path / "trend-staleness-drift.json"
+    bad.write_text("{not json", encoding="utf-8")
+    monkeypatch.setattr(tsi.tlm, "DRIFT_REPORT", bad)
+    monkeypatch.setattr(tsi.tlm, "staleness_read", lambda: (1, list(DRIFT)))
+    rc = tsi.main(["open", "--repo", "asimov-agent/llgenie"])
+    err = capsys.readouterr().err
+    assert "[trend-staleness-issue] FAIL named-drift file" in err, "the corrupt handoff must be named"
+    assert rc == 0 and len(fake_repo.posts()) == 1, "a corrupt handoff must not silently skip filing"
 
 
 def test_body_is_rendered_through_the_one_renderer_with_the_marker_first(monkeypatch, fake_drift, fake_repo):

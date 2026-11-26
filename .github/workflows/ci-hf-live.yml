@@ -164,7 +164,16 @@ jobs:
             # battery may still legitimately hold against the recorded snapshot, while the
             # drift itself becomes a tracked refresh issue (the battery keeps failing loudly
             # on its own if the stale fixture really breaks a live assertion).
-            make trend-staleness-issue
+            # The check named its cells in build/trend-staleness-drift.json (#3057), so the
+            # filing path reuses them instead of re-reading the live trending — and a filing
+            # failure is named and re-raised as 3, so the step can no longer die with the
+            # unreadable-read code 2 after already naming the drift (run 45366360390).
+            rc=0
+            make trend-staleness-issue || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "trend-staleness-issue FAILED (exit $rc): the named drift has no refresh issue" >&2
+              exit 3
+            fi
           elif [ "$rc" -ne 0 ]; then
             # exit 2: the read could not run (fixture or live build unreadable) — loud, never green.
             exit "$rc"

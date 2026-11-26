@@ -45,6 +45,32 @@ def drift_fingerprint(cells: list[dict]) -> str:
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
+def named_drift() -> list[dict] | None:
+    """The drift `make check-trend-list-fresh` already named (the #3057 handoff), if present.
+
+    The check wrote its cell diffs to `build/trend-staleness-drift.json`; filing from them means
+    NO second live trending build — the second read is what returned the unreadable exit 2 and
+    erased the ticket on run 45366360390. A handoff that cannot be read is reported by name and
+    treated as absent (the standalone read then decides).
+    """
+    path = tlm.DRIFT_REPORT
+    if not path.exists():
+        return None
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        cells = doc["cells"]
+        if not isinstance(cells, list) or not all(
+            isinstance(c, dict) and {"case", "added", "dropped", "changed"} <= set(c) for c in cells
+        ):
+            raise ValueError(f"unexpected shape: {type(doc).__name__}")
+    except Exception as exc:
+        print(f"[trend-staleness-issue] FAIL named-drift file {tlm.shown_path(path)} "
+              f"unreadable: {exc}; falling back to the producer's own staleness read.",
+              file=sys.stderr)
+        return None
+    return cells
+
+
 def cells_summary(cells: list[dict]) -> list[str]:
     out = []
     for c in cells:
@@ -142,12 +168,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry", action="store_true", help="print the issue that would be filed; file nothing")
     ns = ap.parse_args(argv)
 
-    rc, cells = tlm.staleness_read()
-    if rc == 2:
-        return 2
-    if rc == 0:
-        print("[trend-staleness-issue] nothing to file: the fixture agrees with the live trending.")
-        return 0
+    handoff = named_drift()
+    if handoff is not None:
+        cells = handoff
+        print(f"[trend-staleness-issue] reusing the drift named by make check-trend-list-fresh "
+              f"({len(cells)} cell(s), {tlm.shown_path(tlm.DRIFT_REPORT)}); no second live read.")
+    else:
+        # Standalone invocation with no named drift: the producer's OWN live read — and when it
+        # cannot run, the failure is printed by name before the code, never silently (#3057).
+        rc, cells = tlm.staleness_read()
+        if rc == 2:
+            print("[trend-staleness-issue] FAIL no named drift to file and the producer's own "
+                  "staleness re-read could not run (see the [trend-staleness] FAIL lines above); "
+                  "nothing filed.", file=sys.stderr)
+            return 2
+        if rc == 0:
+            print("[trend-staleness-issue] nothing to file: the fixture agrees with the live trending.")
+            return 0
 
     fingerprint = drift_fingerprint(cells)
     body = render_issue(cells, fingerprint)

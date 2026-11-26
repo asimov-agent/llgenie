@@ -231,6 +231,46 @@ def test_staleness_names_the_disagreeing_cells_and_exits_nonzero():
         tlm.build = orig_build
 
 
+def test_staleness_drift_hands_its_named_cells_to_the_filing_path(tmp_path):
+    """#3057: the drift read records the cells it NAMED into build/trend-staleness-drift.json
+    so `make trend-staleness-issue` files from them without a second live build; a fresh read
+    (the re-render landed) clears the handoff; an unreadable read leaves it untouched — a Hub
+    blip must never erase a ticket a completed read already earned. Bounded: synthetic pair,
+    no Hub."""
+    fixture = {tlm.FINGERPRINT_KEY: "fp", "cases": [
+        {"arch": "cpu", "vram": 16.0, "ram": 32.0, "rows": [{"model": "kept-model", "tps": 40.0}]},
+    ]}
+    drifted = {tlm.FINGERPRINT_KEY: "fp", "cases": [
+        {"arch": "cpu", "vram": 16.0, "ram": 32.0, "rows": [{"model": "kept-model", "tps": 41.0}]},
+    ]}
+    fx_path = tmp_path / "trend-list-matrix.json"
+    fx_path.write_text(json.dumps(fixture), encoding="utf-8")
+    report = tmp_path / "build" / "trend-staleness-drift.json"
+    orig_fixture, orig_build, orig_report = tlm.FIXTURE, tlm.build, tlm.DRIFT_REPORT
+    try:
+        tlm.FIXTURE, tlm.DRIFT_REPORT = fx_path, report
+        tlm.build = lambda: drifted
+        rc, cells = tlm.staleness_read()
+        assert rc == 1 and cells, "the synthetic pair must disagree"
+        handed = json.loads(report.read_text(encoding="utf-8"))
+        assert handed["cells"] == cells, "the handoff must carry exactly the cells the read named"
+
+        tlm.build = lambda: json.loads(fx_path.read_text(encoding="utf-8"))
+        rc2, cells2 = tlm.staleness_read()
+        assert (rc2, cells2) == (0, []) and not report.exists(), \
+            "a fresh read must clear the handoff so a retired drift can never be filed from it"
+
+        report.write_text(json.dumps({"written_by": "x", "cells": cells}), encoding="utf-8")
+        def _boom() -> dict:
+            raise RuntimeError("live trending unreachable")
+        tlm.build = _boom
+        rc3, cells3 = tlm.staleness_read()
+        assert (rc3, cells3) == (2, []) and report.exists(), \
+            "an unreadable read must leave the named drift intact, never erase the ticket"
+    finally:
+        tlm.FIXTURE, tlm.build, tlm.DRIFT_REPORT = orig_fixture, orig_build, orig_report
+
+
 def test_staleness_refresh_issue_is_rendered_through_the_one_renderer():
     """#2901: the producer's issue carries the six-section shape and the dedupe marker
     on its first line — the body a reviewer reads and the producer remembers."""

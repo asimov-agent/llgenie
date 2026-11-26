@@ -145,3 +145,24 @@ def test_the_battery_step_carries_the_pin_patience_window_with_job_headroom():
     assert tm, "the hf-live job must keep its timeout ceiling (#2317)"
     assert int(tm.group(1)) * 60 >= window + 1800, \
         "the job timeout must exceed the window with battery headroom"
+
+
+def test_trend_staleness_step_files_from_the_named_drift_and_never_dies_with_exit_2():
+    """issue #3057: run 45366360390 named a 4-cell drift (exit 1, the ticketed path) and the
+    step still concluded with the unreadable-read code 2, filing nothing — the filing path
+    re-read the live trending. The step now guards the filing call: the check's named drift is
+    consumed from the handoff, and a filing failure is named and re-raised as 3. The check's
+    own unreadable exit-2 branch stays loud."""
+    step = _text().split("- name: Trend matrix staleness", 1)
+    assert len(step) == 2, "the trend staleness step is gone from ci-hf-live.yml"
+    body = step[1].split("\n      - name:", 1)[0]
+    assert "make check-trend-list-fresh || rc=$?" in body, "the check must land its code, not die mid-step"
+    assert 'if [ "$rc" -eq 1 ]; then' in body, "a named drift must take the ticketed branch"
+    assert "make trend-staleness-issue || rc=$?" in body, \
+        "the filing call must be guarded — an ungated make is what passed exit 2 through the step (#3057)"
+    assert "build/trend-staleness-drift.json" in body, \
+        "the step must name the handoff the check writes and the producer files from (#3057)"
+    assert "exit 3" in body and "trend-staleness-issue FAILED" in body, \
+        "a filing failure must be named and land as 3, never as 2"
+    assert 'elif [ "$rc" -ne 0 ]; then' in body and 'exit "$rc"' in body, \
+        "the check's own unreadable read (exit 2) stays loud, never green"
