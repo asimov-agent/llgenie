@@ -723,6 +723,37 @@ def _regen_guard(skill_id: str) -> list[str]:
     return changed
 
 
+def _final_generation_gate(skill_id: str) -> list[str]:
+    """Verify, after EVERY write of the bump, that the generated companions are
+    exactly what the skills generate — and regenerate once if they are not.
+
+    Why (issue #3065, the ollama bump 4958f3953): the bump's last test-literal
+    writes (`_rewrite_frozen_hashes`, `_write_companion_notes`) run AFTER
+    `_regen_guard`, and nothing re-verified the generated files at the final
+    tree. That bump committed params/skill/Dockerfiles at 0.40.17 while
+    `containers/engines/binaries.json` still named 0.40.16 — the image probe
+    (scripts/engine_image.py::binary_manifest) then failed "probed non-zero (1)"
+    on all four variants, and the PR's own unit gate failed
+    test_committed_engine_params_match_the_skills. `make check-engine-params`
+    names that drift in one call, so the gate runs it FIRST: if green, no regen
+    is issued; if stale, re-run generate-engine-params once (nag-at-most-once)
+    and re-check — a second stale verdict hard-fails the bump rather than
+    committing a manifest that lags its own skill.
+    """
+    check = _run(["make", "check-engine-params"], cwd=REPO_ROOT, timeout=300)
+    if check.returncode == 0:
+        return []
+    print(f"[engine-bump] {skill_id}: final check-engine-params is stale; re-regenerating once")
+    changed = _regen_guard(skill_id)
+    again = _run(["make", "check-engine-params"], cwd=REPO_ROOT, timeout=300)
+    if again.returncode != 0:
+        raise SystemExit(
+            f"[engine-bump] {skill_id}: check-engine-params still stale after the final regen:\n"
+            f"{(again.stdout + chr(10) + again.stderr).strip()}"
+        )
+    return changed
+
+
 def derive(skill_id: str, sha: str = "", old_sha: str = "", ref: str = "") -> dict:
     """Run the skill's extractors against the upstream tree at `sha`.
 
@@ -793,6 +824,11 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
     # The companion pair a bump owes its readers (issue #2865): the
     # agent-wiki/ note and its docs/changes.d/ row.
     notes = _write_companion_notes(skill_id, row)
+    # Issue #3065: the last writes run AFTER the mid-bump regen. Re-verify the
+    # generated companions at the FINAL tree and regenerate once if they lag,
+    # so no bump can commit a binaries manifest that names the old version.
+    final_changed = _final_generation_gate(skill_id)
+    changed = changed + [c for c in final_changed if c not in changed]
     print(f"[engine-bump] {skill_id}: {row['old_sha'][:8]} -> {row['new_sha'][:8]} "
           f"({row['new_ref']}); applied: {', '.join(applied) or 'none'}; "
           f"asserts: {', '.join(rewritten) or 'none'}; "
