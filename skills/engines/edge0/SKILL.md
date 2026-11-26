@@ -6,8 +6,8 @@ id: edge0
 repo: https://github.com/Edge0-AI/Edge0
 ref: main
 ref_kind: branch
-pinned: 4a7964de4b337532aad74b03714125deb7506e70
-verified: "2026-11-18"
+pinned: 2e5d284983e3f286a0ef8c94947e6c9db2c86eb3
+verified: "2026-11-23"
 license: MIT
 servable: true
 backends: [cuda]

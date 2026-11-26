@@ -4,7 +4,7 @@
   "id": "edge0",
   "repo": "https://github.com/Edge0-AI/Edge0",
   "ref": "main",
-  "pinned": "4a7964de4b337532aad74b03714125deb7506e70",
+  "pinned": "2e5d284983e3f286a0ef8c94947e6c9db2c86eb3",
   "native": {},
   "variants": {
     "cuda": {
@@ -32,7 +32,7 @@
       "install": [
         "test -d /opt/llgenie/engines/edge0/src/.git || git clone -b main https://github.com/Edge0-AI/Edge0.git /opt/llgenie/engines/edge0/src",
         "git -C /opt/llgenie/engines/edge0/src fetch origin main",
-        "git -C /opt/llgenie/engines/edge0/src checkout -B main 4a7964de4b337532aad74b03714125deb7506e70",
+        "git -C /opt/llgenie/engines/edge0/src checkout -B main 2e5d284983e3f286a0ef8c94947e6c9db2c86eb3",
         "test -d /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp/.git || git clone https://github.com/ggml-org/llama.cpp /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp",
         "git -C /opt/llgenie/engines/edge0/src/edge0-strata/third_party/llama.cpp checkout 3cf03257f219afbe7334045ff7c6a06ac68c627d",
         "python3 -m venv /opt/llgenie/engines/edge0/src/edge0-strata/.venv && /opt/llgenie/engines/edge0/src/edge0-strata/.venv/bin/pip install --no-cache-dir -r /opt/llgenie/engines/edge0/src/edge0-strata/requirements.txt",
