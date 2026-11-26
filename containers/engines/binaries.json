@@ -167,7 +167,7 @@
     },
     "ollama": {
       "cuda": {
-        "binary": "/opt/llgenie/engines/ollama/0.40.16/bin/ollama",
+        "binary": "/opt/llgenie/engines/ollama/0.40.17/bin/ollama",
         "flags": [
           "--version",
           "--help"
@@ -175,7 +175,7 @@
         "probe": "flags"
       },
       "rocm": {
-        "binary": "/opt/llgenie/engines/ollama/0.40.16/bin/ollama",
+        "binary": "/opt/llgenie/engines/ollama/0.40.17/bin/ollama",
         "flags": [
           "--version",
           "--help"
@@ -183,7 +183,7 @@
         "probe": "flags"
       },
       "vulkan": {
-        "binary": "/opt/llgenie/engines/ollama/0.40.16/bin/ollama",
+        "binary": "/opt/llgenie/engines/ollama/0.40.17/bin/ollama",
         "flags": [
           "--version",
           "--help"
@@ -191,7 +191,7 @@
         "probe": "flags"
       },
       "cpu": {
-        "binary": "/opt/llgenie/engines/ollama/0.40.16/bin/ollama",
+        "binary": "/opt/llgenie/engines/ollama/0.40.17/bin/ollama",
         "flags": [
           "--version",
           "--help"
