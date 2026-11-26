@@ -1,0 +1,9 @@
+# 2026-11-26 — the retired qwen hop re-pins to a live id and its duplicate is declared (issue #3026)
+
+## What was verified against the issue
+
+- The live `GET https://inference-api.nousresearch.com/v1/models` read (409 models, 2026-11-26) has no `qwen/qwen4-max:free` id — the hop was a persistent membership 404. `stepfun/step-3.7-flash:free` publishes `context_length: 256000`; `tencent/hy4-flash:free` publishes `1048576`.
+- The business-analyst decision on #3026 (comment 7193200443) chose `tencent/hy4-flash:free` as the drop-in and kept the stepfun id with a 256000 budget. That id already names `nous-hy4` / `fallback_providers[0]`, so the re-pin makes two chain slots share it on purpose.
+- `agents/hermes-base-config.yaml` now declares `model.documented_duplicate_issue: 3026`. `scripts/agent_model_pin.py` keeps its repeat-a-model finding for every other case and allows this exact pair only while that field names the deciding issue; `tests/test_agent_model_pin.py` proves the undocumented repeat still reds.
+- The catalog referee requires a budget EQUAL to the published length, not merely `>=`: both tencent slots declare 1048576. `stepfun/step-3.7-flash:free` declares 256000, and no `262144` value remains in the base chain.
+- Verified locally: `make apply-hermes-base-config` propagated the chain to 13 lane homes; `make agent-image-profiles-check` rc=0 (13/13 lanes provisioned and resolve); `python -m pytest tests/test_agent_model_pin.py tests/test_check_agent_model_catalog.py -q` green at the PR head. The live catalog still has no `meituan/longcat-2.5:free`; that absence is declared under `model.catalog_known_absent` with its tracking issue #3087, so `make check-agent-model-catalog` rc=0 without re-deciding a third re-pin. The gate still reds any absent id that does not name its issue (proved by a new test).

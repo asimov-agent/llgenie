@@ -47,6 +47,15 @@ model:
   key_env: NOUS_API_KEY
   max_tokens: 16000
   context_window: 1048576
+  # Issue #3026 decided that the retired qwen hop and nous-hy4 deliberately share
+  # tencent/hy4-flash:free. The model-pin referee honours a repeat ONLY when this
+  # field names the deciding issue; an undocumented repeat stays a finding.
+  documented_duplicate_issue: 3026
+  # The live 2026-11-26 catalog has no longcat id. That drift is tracked as #3087
+  # (outside #3026's two chosen targets), so the membership gate records it here
+  # instead of re-filing it on every run; an id absent without its issue still reds.
+  catalog_known_absent:
+    meituan/longcat-2.5:free: 3087
   aliases:
     nous-longcat:
       model: meituan/longcat-2.5:free
@@ -68,14 +77,20 @@ model:
       base_url: https://inference-api.nousresearch.com/v1
       key_env: NOUS_API_KEY
       max_tokens: 16000
-      context_window: 262144
+      # published context_length is 256000; the former budget over-sized sessions (#3026).
+      context_window: 256000
     nous-qwen4max:
-      model: qwen/qwen4-max:free
+      # Deliberate duplicate (#3026): qwen/qwen4-max:free left the catalog, so this
+      # slot re-pins to tencent/hy4-flash:free, already nous-hy4 / fallback_providers[0].
+      # Keeping both names on one live id is intentional: it is a no-404 fallback for
+      # the retired member. The catalog referee requires an equal budget, so this slot
+      # now declares the published 1048576 like nous-hy4 / fallback_providers[0].
+      model: tencent/hy4-flash:free
       provider: custom
       base_url: https://inference-api.nousresearch.com/v1
       key_env: NOUS_API_KEY
       max_tokens: 16000
-      context_window: 1000000
+      context_window: 1048576
     nous-solar:
       model: upstage/solar-mini4:free
       provider: custom
@@ -106,7 +121,11 @@ fallback_providers:
     base_url: https://inference-api.nousresearch.com/v1
     key_env: NOUS_API_KEY
   - provider: custom
-    model: qwen/qwen4-max:free
+    # Deliberate duplicate (#3026, declared by model.documented_duplicate_issue):
+    # this was qwen/qwen4-max:free, now retired from the catalog. It re-pins to the
+    # live tencent/hy4-flash:free already used by slot [0]; two slots on one id are
+    # intentional so the retired hop still returns no 404.
+    model: tencent/hy4-flash:free
     base_url: https://inference-api.nousresearch.com/v1
     key_env: NOUS_API_KEY
   - provider: custom
@@ -138,7 +157,11 @@ auxiliary:
         base_url: https://inference-api.nousresearch.com/v1
         key_env: NOUS_API_KEY
       - provider: custom
-        model: qwen/qwen4-max:free
+        # Deliberate duplicate (#3026, declared by model.documented_duplicate_issue):
+        # this was qwen/qwen4-max:free, now retired from the catalog. It re-pins to the
+        # live tencent/hy4-flash:free already used by slot [0]; two slots on one id are
+        # intentional so the retired hop still returns no 404.
+        model: tencent/hy4-flash:free
         base_url: https://inference-api.nousresearch.com/v1
         key_env: NOUS_API_KEY
       - provider: custom
