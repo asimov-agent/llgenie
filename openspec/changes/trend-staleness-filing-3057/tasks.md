@@ -11,7 +11,7 @@
       `tests/test_ci_hf_live_workflow.py` with the step-shape assertions (no exit-2 path through filing)
 - [x] `python3 -m pytest tests/test_trend_list_matrix.py tests/test_trend_staleness_issue.py
       tests/test_ci_hf_live_workflow.py` rc=0 (104 passed, 0 skipped, 2026-11-26)
-- [ ] `make test-unit` rc=0 and `make openspec-validate NAME=trend-staleness-filing-3057` rc=0
-      (pre-push proofs)
-- [ ] `make changes-index` rc=0 (agent-wiki entry + `docs/changes.d` fragment landed, issue #3057 named,
+- [x] `make test-unit` rc=0 (4544 passed, 13638 deselected, 2026-11-26) and
+      `make openspec-validate NAME=trend-staleness-filing-3057` rc=0 (pre-push proofs)
+- [x] `make changes-index` rc=0 (agent-wiki entry + `docs/changes.d` fragment landed, issue #3057 named,
       side issue #3056 linked)
