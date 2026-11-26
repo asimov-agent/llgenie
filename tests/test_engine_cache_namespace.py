@@ -133,7 +133,7 @@ def test_cell_cache_ref_carries_the_full_tag_suffix(tmp_path, monkeypatch):
 
 def test_cell_cache_namespace_changes_when_the_tag_hash_changes(tmp_path, monkeypatch):
     """A base or cell content change lands as a new tag hash — the cache namespace
-    follows it, which is exactly the issue's `539dc9d6-e82c9353` pin shape."""
+    follows it, which is exactly the issue's `950c50fe-e82c9353` pin shape."""
     repo = _repo(tmp_path)
     _point(monkeypatch, repo)
     (repo / "containers/engines/params/vllm.json").write_text(_params("abcd1234deadbeef"))
