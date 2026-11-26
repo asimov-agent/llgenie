@@ -502,6 +502,24 @@ class TestHeadEvidence:
         # and never the `gh pr checks` suite id, which 404s at gh api actions/runs/<id>
         assert RUN not in image
 
+    def test_a_green_wave_ticks_the_image_item_with_every_variant_run_id(self, monkeypatch):
+        """#3066's green shape: a head with cpu/cuda/rocm/vulkan producers all green ticks the image item
+        with four readable run ids and reports NO variant gap. The variant fan-out is what makes this the
+        usual case — and the reason a producer that never ran must stay a gap, not a silent half-tick."""
+        variants = {"ollama": {v: ("success", f"452425866{i}") for i, v in
+                               enumerate(["cpu", "cuda", "rocm", "vulkan"])}}
+        _install(monkeypatch, self._fake(variants=variants,
+                                         matrix={"ollama": ["cpu", "cuda", "rocm", "vulkan"]}))
+        bump = self._bump()
+        ev = eb.read_evidence(eb.DEFAULT_REPO, bump)
+        items, not_covered, refusals = eb.prove(eb.DEFAULT_REPO, bump, ev, {})
+        assert ev.gaps == [], ev.gaps
+        assert refusals == [] and not_covered == []
+        assert len(items) == 3 and all(i.startswith("- [x]") for i in items)
+        image = items[-1]
+        assert all(f"run=452425866{i}" in image for i in range(4)), image
+        assert HEAD in image
+
     def test_a_variant_that_finished_red_is_refused_not_ticked(self, monkeypatch):
         variants = {"ollama": {v: ("failure", f"452425866{i}") for i, v in
                                enumerate(["cpu", "cuda", "rocm", "vulkan"])}}

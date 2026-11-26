@@ -100,6 +100,12 @@ REPLACEMENT_MIN_WAIT = 10
 #: subprocess it performs; a timeout yields an empty response so the loop keeps
 #: polling until the deadline and then fails with the existing clear message.
 SUBPROCESS_TIMEOUT = 30  # seconds a single shell/gh call may take
+#: The ceiling of one fan-out wave's shared await bound (issue #3066). Dispatching every cell before
+#: awaiting any verdict only helps if the wave can still NAME its unfinished cells inside the
+#: dispatched trigger job's own window (engine-build-pr-trigger.yml gives the trigger job 250 min), so
+#: the bound sits below it: the script ends the wait and reports the stall instead of the job being
+#: cancelled mid-await with no verdict line at all.
+FANOUT_MAX_MINUTES = 240
 
 
 def _sh(args: list[str]) -> str:
@@ -211,11 +217,15 @@ def _workflow_run_args(gh: str, repo: str, branch: str, fields: list[str]) -> li
     return cmd
 
 
-def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
-                       wait_min: int, gh: str) -> dict:
-    """Dispatch engine-build push=true for ONE (engine, arch) cell, await the NEW run's own verdict (#964 discipline).
+def _dispatch_cell(repo: str, branch: str, engine: str, arch: str,
+                   gh: str) -> dict:
+    """Dispatch engine-build push=true for ONE (engine, arch) cell and name the NEW run (#964 discipline).
 
-    Returns {run_id, status, conclusion, guard_refused}. `gh workflow run` exit 0 is never a verdict.
+    The verdict is NOT awaited here (issue #3066): every `push=true` run joins the one global
+    `engine-build-push` FIFO, so a wave must get ALL of its cells queued before any cell is waited on,
+    and `_await_cells` owns the waiting. Returns {run_id} when a run appeared, or a failure dict
+    (`status: dispatch-failed` / `queued`, `run_id: ""`) when the dispatch never started one.
+    `gh workflow run` exit 0 is never a verdict.
     """
     before = _existing_run_ids(repo, gh)
     fields = [f"engine={engine}", "push=true", "moving_tags=false"]  # issue #178: a PR-scoped
@@ -249,68 +259,106 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
             wanted = min(new)  # earliest of the runs that appeared after our dispatch
         else:
             time.sleep(POLL_SECONDS)
-    # Await THAT run's verdict.
-    deadline = time.time() + wait_min * 60
-    stall_holder = ""  # an in_progress push run holding the global engine-build-push group, if any
-    while True:
-        run = _run_verdict(repo, wanted, gh)
-        # A 404 on the single-run endpoint is a POLL RACE, not a verdict (issue #2059): the run may
-        # already have SUCCEEDED while `/actions/runs/<id>` keeps answering 404. `_run_verdict` re-reads
-        # it from the run LIST, and if that still yields nothing this poll simply keeps watching — the
-        # wall-clock bound below still bounds the wait, and the failure names `404` so a reader can tell
-        # a poll race from a real conclusion.
-        # A push=true run sits `pending` with 0 jobs and NO heartbeat while it waits behind the
-        # global engine-build-push concurrency group (engine-build.yml:80, issue #917/#621). It will
-        # never materialise a job until the group holder concludes — a re-dispatch is futile and this
-        # trigger must name the holder rather than report a bare "queued/None" (measured stall:
-        # #1696 channel 42201352115 behind 42191808660's hung vllm-rocm, 3h+ 0-jobs, issue #1860).
-        if run.get("status") in ("pending", "queued") and not stall_holder:
-            stall_holder = _push_group_holder(repo, gh)
-        # A cancelled/skipped producer is TERMINAL, never something to wait out (issue #1931): a run
-        # cancelled mid-wait (concurrency cancel on a newer push) can report `conclusion: "cancelled"`
-        # while its `status` never flips to "completed", so concluding on the status field alone polls
-        # that corpse forever (measured: trigger run 42326516316 hung in_progress 3.5h on a producer
-        # cancelled 12 s after the trigger started, run 42326545643). Stop waiting and name the cause.
-        if run.get("conclusion") in ("cancelled", "skipped"):
-            return {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
-                    "cause": f"producer {run['conclusion']} — nothing to wait for"}
-        # A SUCCESS producer is TERMINAL — nothing left to wait for (issue #1994): a run's
-        # `conclusion` is only ever populated once the run has finished, so `conclusion:
-        # "success"` is the final verdict even when the `status` field the trigger polled is a
-        # stale/mid-flight snapshot that never reports "completed" (measured: trigger run
-        # 42352054921 hung 3h54m in_progress on producer 42352074711 `{status: completed,
-        # conclusion: success, completed_at: null}`). #1936 made `cancelled`/`skipped` terminal;
-        # `success` is the green mirror — without it a succeeded producer holds the trigger past
-        # its `wait_min` wall-clock bound instead of concluding promptly with a verdict.
-        if run.get("conclusion") == "success":
-            return {"run_id": wanted, "status": run.get("status"), "conclusion": "success",
-                    "cause": None}
-        if run.get("status") == "completed":
-            guard = ""
-            if run.get("conclusion") == "failure":
-                jobs = _gh(repo, f"{wanted}/jobs", "--jq",
-                           ".jobs[] | select(.name == \"guard\") | .conclusion")
-                guard = "Y" if "failure" in jobs else "N"
-            kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
-                      "guard_refused": guard == "Y"}
-            if stall_holder and not run.get("conclusion"):
-                kwargs["stalled_behind"] = stall_holder
-            return kwargs
-        # Wall-clock bound (issue #1931): a producer that NEVER reports a terminal verdict must not
-        # hold the trigger past `wait_min`. On expiry fail with the run id and its last known status —
-        # never a bare "concluded queued/None" that reads like a verdict that never happened.
-        if time.time() > deadline:
-            kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
-                      "expired": True}
+    return {"run_id": wanted}
+
+
+def _await_cells(repo: str, pending: list[dict], gh: str) -> dict[tuple[str, str], dict]:
+    """Await every dispatched cell's verdict in ONE shared poll loop (issue #3066).
+
+    Each entry of `pending` is {key: (engine, arch), run_id, bound_min}; all of them are polled in the
+    same loop, so a cell's wait is bounded by the wave's QUEUE rather than by the cells a serial
+    dispatch-and-await loop happened to wait on first. Every terminal rule of the old fused seam
+    carries here unchanged: a cancelled/skipped producer is terminal (#1931/#1936), `success` is
+    terminal even when `status` never reports `completed` (#1994), a 404 on either endpoint is a poll
+    race re-read from the run list (#2059), a `pending` run behind the global push group names its
+    holder (#917/#1860), and only a genuine wall-clock expiry ends the wait (#1931).
+    Returns {(engine, arch): outcome}.
+    """
+    started = time.time()
+    for p in pending:
+        p["deadline"] = started + p["bound_min"] * 60
+        p["stall_holder"] = ""
+        p["last"] = {}
+    live = list(pending)
+    outcomes: dict[tuple[str, str], dict] = {}
+    while live:
+        holder = None  # read at most once per sweep, not once per still-pending cell
+        for p in list(live):
+            run = _run_verdict(repo, p["run_id"], gh)
+            p["last"] = run
+            # A 404 on the single-run endpoint is a POLL RACE, not a verdict (issue #2059): the run may
+            # already have SUCCEEDED while `/actions/runs/<id>` keeps answering 404. `_run_verdict`
+            # re-reads it from the run LIST, and if that still yields nothing this poll simply keeps
+            # watching — the wall-clock bound below still bounds the wait, and the failure names `404`
+            # so a reader can tell a poll race from a real conclusion.
+            # A push=true run sits `pending` with 0 jobs and NO heartbeat while it waits behind the
+            # global engine-build-push concurrency group (engine-build.yml:80, issue #917/#621). It will
+            # never materialise a job until the group holder concludes — a re-dispatch is futile and
+            # this trigger must name the holder rather than report a bare "queued/None" (measured stall:
+            # #1696 channel 42201352115 behind 42191808660's hung vllm-rocm, 3h+ 0-jobs, issue #1860).
+            if run.get("status") in ("pending", "queued") and not p["stall_holder"]:
+                if holder is None:
+                    holder = _push_group_holder(repo, gh)
+                p["stall_holder"] = holder
+            # A cancelled/skipped producer is TERMINAL, never something to wait out (issue #1931): a run
+            # cancelled mid-wait (concurrency cancel on a newer push) can report `conclusion: "cancelled"`
+            # while its `status` never flips to "completed", so concluding on the status field alone polls
+            # that corpse forever (measured: trigger run 42326516316 hung in_progress 3.5h on a producer
+            # cancelled 12 s after the trigger started, run 42326545643). Stop waiting and name the cause.
+            if run.get("conclusion") in ("cancelled", "skipped"):
+                outcomes[p["key"]] = {"run_id": p["run_id"], "status": run.get("status"),
+                                      "conclusion": run.get("conclusion"),
+                                      "cause": f"producer {run['conclusion']} — nothing to wait for"}
+                live.remove(p)
+                continue
+            # A SUCCESS producer is TERMINAL — nothing left to wait for (issue #1994): a run's
+            # `conclusion` is only ever populated once the run has finished, so `conclusion:
+            # "success"` is the final verdict even when the `status` field the trigger polls is a
+            # stale/mid-flight snapshot that never reports "completed" (measured: trigger run
+            # 42352054921 hung 3h54m in_progress on producer 42352074711 `{status: completed,
+            # conclusion: success, completed_at: null}`). #1936 made `cancelled`/`skipped` terminal;
+            # `success` is the green mirror — without it a succeeded producer holds the wave past its
+            # wait bound instead of concluding promptly with a verdict.
+            if run.get("conclusion") == "success":
+                outcomes[p["key"]] = {"run_id": p["run_id"], "status": run.get("status"),
+                                      "conclusion": "success", "cause": None}
+                live.remove(p)
+                continue
+            if run.get("status") == "completed":
+                guard = ""
+                if run.get("conclusion") == "failure":
+                    jobs = _gh(repo, f"{p['run_id']}/jobs", "--jq",
+                               ".jobs[] | select(.name == \"guard\") | .conclusion")
+                    guard = "Y" if "failure" in jobs else "N"
+                kwargs = {"run_id": p["run_id"], "status": run.get("status"),
+                          "conclusion": run.get("conclusion"), "guard_refused": guard == "Y"}
+                if p["stall_holder"] and not run.get("conclusion"):
+                    kwargs["stalled_behind"] = p["stall_holder"]
+                outcomes[p["key"]] = kwargs
+                live.remove(p)
+                continue
+        # Wall-clock bound (issue #1931), evaluated per cell against ITS OWN deadline inside the shared
+        # loop: a producer that NEVER reports a terminal verdict must not hold the wave past its bound.
+        # On expiry fail with the run id and its last known status — never a bare "concluded queued/None"
+        # that reads like a verdict that never happened.
+        for p in [q for q in live if time.time() > q["deadline"]]:
+            run = p["last"]
+            kwargs = {"run_id": p["run_id"], "status": run.get("status"),
+                      "conclusion": run.get("conclusion"), "expired": True,
+                      "bound_min": p["bound_min"]}
             # A status of "404" at expiry is a POLL-VISIBILITY failure, not a build result (issue #2059):
             # the producer id never resolved on EITHER endpoint for the whole bound. Name it so a reader
             # can tell this apart from a producer that genuinely concluded and is worth re-reading.
             if run.get("status") == "404" or run.get("message") == "Not Found":
                 kwargs["unresolved_404"] = True
-            if stall_holder and not run.get("conclusion"):
-                kwargs["stalled_behind"] = stall_holder
-            return kwargs
+            if p["stall_holder"] and not run.get("conclusion"):
+                kwargs["stalled_behind"] = p["stall_holder"]
+            outcomes[p["key"]] = kwargs
+            live.remove(p)
+        if not live:
+            break
         time.sleep(POLL_SECONDS)
+    return outcomes
 
 
 def _push_group_holder(repo: str, gh: str) -> str:
@@ -350,6 +398,37 @@ def _wait_budget(arch: str, override: int | None) -> int:
     return WAIT_MIN_BY_ARCH.get(arch, DEFAULT_MAX_WAIT)
 
 
+def _fanout_bound(cell_budget: int, wave_budgets: list[int], override: int | None) -> int:
+    """The wait bound ONE cell gets inside a fan-out wave (issue #3066).
+
+    Every `push=true` run joins the same global `engine-build-push` FIFO, so a cell's real wait is the
+    queue in front of it, not its own build time: with more than one cell dispatching, each cell is
+    bounded by `min(FANOUT_MAX_MINUTES, max(cell budget, sum of the wave budgets))` — the wave's own
+    queue, capped below the trigger job's window so an unfinished cell is REPORTED (task 1.6) rather
+    than cut off by the job timeout. A single dispatching cell keeps its class bound, and an explicit
+    `--wait-min` keeps that exact bound for every cell (#2892 semantics unchanged).
+    """
+    if override is not None:
+        return override
+    if len(wave_budgets) <= 1:
+        return cell_budget
+    return min(FANOUT_MAX_MINUTES, max(cell_budget, sum(wave_budgets)))
+
+
+def _missing_variant(e: str, v: str, outcome: dict, bound: int) -> str:
+    """The `MISSING VARIANT` line for a dispatched cell that never reached a verdict (issue #3066).
+
+    The FAIL line says what the producer did; this line says what the REGISTRY does not have: the
+    variant this bump repins is unverified as published, and the bump PR body must carry that gap as
+    `## Not covered` pointing at its own issue lane rather than a tick the run cannot back.
+    """
+    run = outcome.get("run_id") or "no producer run"
+    return (f"[will] MISSING VARIANT engine={e} arch={v}: the image this bump repins is NOT verified as "
+            f"published ({run}, wait bound {bound} min, last status {outcome.get('status')}) — carry it "
+            f"as `## Not covered` in the bump PR body with its own issue lane (issue #3066), never as a "
+            f"tick this run cannot back")
+
+
 def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False, repo: str = "",
           branch: str = "", wait_min: int | None = None, *, digest=None, gh: str = "gh") -> int:
     """Dispatch + await a push=true engine-build for every repinned CELL; 0 when all succeeded.
@@ -359,9 +438,15 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
     the matrix default. No repin => print and return 0 with no dispatch (hermetic). `dry`
     prints the plan and never dispatches — and never probes the registry either. Published-skip
     (#2892): a cell whose exact tag already resolves a manifest is announced and NOT dispatched;
-    when every cell skipped, the pass is green with zero dispatches. The wait bound is per-arch
-    (`WAIT_MIN_BY_ARCH` over `DEFAULT_MAX_WAIT`; `wait_min` overrides every class), and a
-    cancelled/skipped producer gets at most ONE replacement dispatch on the carried budget.
+    when every cell skipped, the pass is green with zero dispatches. Fan-out (issue #3066): every
+    unpublished cell is DISPATCHED before any producer verdict is awaited, cheapest class first, and
+    the wave is awaited in ONE shared poll loop — a `push=true` run only ever joins the global
+    engine-build-push FIFO, so queuing the whole wave up front is what makes a multi-variant bump cost
+    less than the sum of its builds. The wait bound is per-arch (`WAIT_MIN_BY_ARCH` over
+    `DEFAULT_MAX_WAIT`; `wait_min` overrides every class) widened to the wave's own queue inside the
+    trigger job's window (`FANOUT_MAX_MINUTES`), and a cancelled/skipped producer gets at most ONE
+    replacement dispatch on the carried budget. A cell that never reaches a verdict is reported as a
+    MISSING VARIANT.
     """
     cells = repinned(base, engine_filter, arch)
     if not cells:
@@ -385,6 +470,7 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         return 0
     failures = 0
     published_skipped = 0
+    to_dispatch: list[tuple[str, str]] = []
     for e, v in sorted(cells):
         published, tag = _published(e, v, digest=digest)
         if published:
@@ -394,26 +480,79 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
                   f"registry manifest — no producer dispatch (issue #2892)")
             published_skipped += 1
             continue
+        to_dispatch.append((e, v))
+    if published_skipped == len(cells):
+        print(f"[will] every repinned cell ({published_skipped}) already published at its exact tag; "
+              f"nothing dispatched (issue #2892)")
+        return 0
+
+    # FAN-OUT (issue #3066): every unpublished cell is QUEUED before ANY verdict is awaited. A
+    # `push=true` run only ever joins the one global `engine-build-push` FIFO, so a wave that dispatches
+    # as it awaits pays that queue in series: its tail cell sits behind the builds in front of it and
+    # expires on a bound that never covered the wave. Dispatch the whole wave first, then await it in
+    # one shared poll loop. Ascending per-arch budget (#2590 keeps the explicit `arch=` per cell) puts
+    # the long class LAST in the FIFO, so the cell most likely to run out of time is the tail.
+    ordered = sorted(to_dispatch, key=lambda c: (_wait_budget(c[1], wait_min), c[0], c[1]))
+    wave = [_wait_budget(v, wait_min) for _, v in ordered]
+    if len(wave) > 1:
+        print(f"[will] fan-out: {len(wave)} producer dispatches queued before any verdict is awaited "
+              f"(issue #3066)")
+    pending: list[dict] = []
+    outcomes: dict[tuple[str, str], dict] = {}
+    bounds: dict[tuple[str, str], int] = {}
+    for e, v in ordered:
         budget = _wait_budget(v, wait_min)
-        cell_t0 = time.time()
-        print(f"[will] dispatching engine-build push=true engine={e} arch={v} @ {branch}")
-        outcome = _dispatch_and_wait(repo, branch, e, v, budget, gh)
-        replaced = False
+        bound = _fanout_bound(budget, wave, wait_min)
+        bounds[(e, v)] = bound
+        print(f"[will] dispatching engine-build push=true engine={e} arch={v} @ {branch} "
+              f"(await bound {bound} min, class budget {budget} min)")
+        started = _dispatch_cell(repo, branch, e, v, gh)
+        if started.get("run_id"):
+            pending.append({"key": (e, v), "run_id": started["run_id"], "bound_min": bound,
+                            "t0": time.time()})
+        else:
+            # A dispatch that never started a producer run has no verdict to await: name it now.
+            outcomes[(e, v)] = started
+    outcomes.update(_await_cells(repo, pending, gh))
+
+    replacements: list[dict] = []
+    replaced: set[tuple[str, str]] = set()
+    for entry in pending:
+        key = entry["key"]
+        outcome = outcomes[key]
         if outcome.get("cause") and outcome.get("conclusion") in ("cancelled", "skipped"):
             # One queue casualty is allowed to cost ONE replacement, never a reopen-driven storm:
-            # the cell's total bound is `budget * REPLACEMENT_FACTOR`, and the replacement is
-            # awaited on what remains of it (issue #2892). A `guard_refused` outcome has no cause
-            # and is never replaced: a policy refusal is not a queue casualty.
-            consumed_min = int((time.time() - cell_t0) // 60)
-            remaining = budget * REPLACEMENT_FACTOR - consumed_min
+            # the cell's total bound is `bound * REPLACEMENT_FACTOR`, and the replacement is awaited
+            # on what remains of it (issue #2892). A `guard_refused` outcome has no cause and is
+            # never replaced: a policy refusal is not a queue casualty.
+            consumed_min = int((time.time() - entry["t0"]) // 60)
+            remaining = entry["bound_min"] * REPLACEMENT_FACTOR - consumed_min
             if remaining >= REPLACEMENT_MIN_WAIT:
-                replaced = True
-                print(f"[will] engine={e} arch={v}: producer {outcome['conclusion']}; dispatching the "
-                      f"ONE replacement dispatch permitted per cell (issue #2892) with the carried "
-                      f"budget {remaining} min ({budget} x {REPLACEMENT_FACTOR} - {consumed_min} consumed)")
-                outcome = _dispatch_and_wait(repo, branch, e, v, remaining, gh)
+                replaced.add(key)
+                print(f"[will] engine={key[0]} arch={key[1]}: producer {outcome['conclusion']}; "
+                      f"dispatching the ONE replacement dispatch permitted per cell (issue #2892) "
+                      f"with the carried budget {remaining} min ({entry['bound_min']} x "
+                      f"{REPLACEMENT_FACTOR} - {consumed_min} consumed)")
+                started = _dispatch_cell(repo, branch, key[0], key[1], gh)
+                if started.get("run_id"):
+                    replacements.append({"key": key, "run_id": started["run_id"],
+                                         "bound_min": remaining, "t0": time.time()})
+                else:
+                    outcomes[key] = started
+    if replacements:
+        outcomes.update(_await_cells(repo, replacements, gh))
+
+    for e, v in sorted(to_dispatch):
+        key = (e, v)
+        outcome = outcomes[key]
+        bound = bounds[key]
+        # A dispatched cell that did not end `success` is a MISSING VARIANT — expired, stalled behind
+        # the holder, refused, cancelled or failed all mean the same thing for the REGISTRY: it does
+        # not have this bump's pinned image, so the gap is a `## Not covered` item, never a tick
+        # (issue #3066).
+        missing = outcome.get("conclusion") != "success"
         note = ""
-        if replaced and outcome.get("conclusion") != "success":
+        if key in replaced and outcome.get("conclusion") != "success":
             note = (f" — the replacement dispatch (issue #2892) also ended {outcome.get('conclusion')}; "
                     f"no further dispatch from this run")
         if outcome.get("guard_refused"):
@@ -424,8 +563,16 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             print(f"[will] FAIL engine={e} arch={v}: {outcome['cause']} (run {outcome.get('run_id')}){note}",
                   file=sys.stderr)
             failures += 1
+        elif outcome.get("error"):
+            # A dispatch that never started a producer run has no producer verdict at all. It carries
+            # its own reason (`HTTP 422: the workflow input 'arch' is not valid`, an unknown input, a
+            # permission refusal) — print it, so the log says which refusal this was instead of a bare
+            # `run  concluded queued/None` (issue #2089).
+            print(f"[will] FAIL engine={e} arch={v}: the dispatch never started a producer run — "
+                  f"{outcome['error']}{note}", file=sys.stderr)
+            failures += 1
         elif outcome.get("expired"):
-            msg = (f"[will] FAIL engine={e} arch={v}: wait bound ({budget} min) expired — producer run "
+            msg = (f"[will] FAIL engine={e} arch={v}: wait bound ({bound} min) expired — producer run "
                    f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
             if outcome.get("unresolved_404"):
                 msg += (" — the producer id never resolved on the run endpoint (404 for the whole bound): "
@@ -447,10 +594,9 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             failures += 1
         else:
             print(f"[will] OK engine={e} arch={v}: producer run {outcome.get('run_id')} success")
-    if published_skipped == len(cells):
-        print(f"[will] every repinned cell ({published_skipped}) already published at its exact tag; "
-              f"nothing dispatched (issue #2892)")
-        return 0
+        if missing:
+            # The FAIL line says what the producer did; this names what the REGISTRY does not have.
+            print(_missing_variant(e, v, outcome, bound), file=sys.stderr)
     if failures:
         print(f"[will] {failures} engine-build run(s) did not succeed — the producer must build+push these "
               f"cells before the bump may merge (issue #1633)", file=sys.stderr)

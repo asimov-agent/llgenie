@@ -45,24 +45,36 @@ def _stub_repin(monkeypatch, engine=None, variant="cpu") -> None:
 
 
 def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
-             single_run_404=False, list_missing=False, dispatch_rc=0, dispatch_err="", checkout_ref="HEAD"):
+             single_run_404=False, list_missing=False, dispatch_rc=0, dispatch_err="", checkout_ref="HEAD",
+             per_run=None):
     """A fake `gh`-API recorder. `_gh` is a module-level function (not the `gh` binary), so we stub the API
-    read path; the `gh workflow run` dispatch call is a subprocess we neutralize via `_dispatch_and_wait`'s
-    `--gh gh` default by replacing NOTHING there — instead we only stub `_gh` and give no branch/ref that
-    would need a real git read for the CODE path under test.
+    read path; the `gh workflow run` dispatch call is a subprocess we neutralize by replacing
+    `subprocess.run` below, and `_sh` (the fan-out seam, issue #3066) is left real so a wave's dispatch/
+    await order is observable in the recorded calls.
 
     `single_run_404=True` models the #2059 poll race: the SINGLE-run endpoint
     (`/actions/runs/<id>`) answers the API's real 404 body (`{"message":"Not Found","status":"404"}`)
     while the run LIST still carries the run's true verdict — so `_run_verdict`'s list fallback is what
     resolves it.
+
+    `per_run={"77": {...}}` (issue #3066) answers the single-run endpoint PER run id, which a fan-out
+    wave needs: one wave has one run per cell and their verdicts differ (a cpu cell succeeds while its
+    rocm tail is still queued behind the push group).
     """
     state = {"new_id": "77", "guard_conclusion": guard_conclusion, "dispatched": False,
-             "dispatch_ids": []}
+             "dispatch_ids": [], "api_calls": [], "seq": []}
+
+    def _verdict_for(run_id: str):
+        """Per-run verdict (issue #3066): a fan-out wave has one run per cell and their states differ."""
+        if per_run is not None:
+            return per_run.get(str(run_id))
+        return new_run
 
     def fake_gh_api(repo, *args, gh="gh"):
         # args: ("?per_page=100", "--jq", "<expr>")  OR  ("<runid>/jobs", "--jq", "<expr>")  OR  ("<runid>", "--jq", ...)
         target = args[0] if args else ""
         target_jq = args[2] if len(args) > 2 else ""
+        state["seq"].append(("api", target))
         in_progress_ids = {str(stall_holder)} if stall_holder else set()
         if "per_page=100" in target:
             # #2059 list fallback: `_run_verdict` re-reads a 404'd run from the LIST with the jq
@@ -72,8 +84,11 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             if "select((.id|tostring)" in target_jq:
                 if list_missing:
                     return ""  # the id is invisible on BOTH endpoints (a genuine unresolved 404)
-                if state["dispatch_ids"] and new_run is not None:
-                    return json.dumps(new_run if isinstance(new_run, dict) else {})
+                if state["dispatch_ids"]:
+                    _m_id = re.search(r'== "(\d+)"', target_jq)
+                    _v = _verdict_for(_m_id.group(1)) if _m_id else new_run
+                    if _v is not None:
+                        return json.dumps(_v if isinstance(_v, dict) else {})
                 return ""
             # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
             # leading-slash spelling in a source filter matches 0 runs and makes discovery
@@ -125,7 +140,8 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
                                "documentation_url":
                                    "https://docs.github.com/rest/actions/workflow-runs#get-a-workflow-run",
                                "status": "404"})
-        return json.dumps(new_run if new_run is not None else {"status": "queued", "conclusion": None})
+        _one = _verdict_for(target)
+        return json.dumps(_one if _one is not None else {"status": "queued", "conclusion": None})
 
     monkeypatch.setattr(ebt, "_gh", fake_gh_api)
 
@@ -140,6 +156,10 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         if len(arg0) >= 2 and arg0[:2] == ["gh", "workflow"]:
             state["dispatched"] = True
             state["dispatch_ids"].append(state["new_id"])
+            # The ORDER of the (engine, arch) fields is what the fan-out ordering rule is about
+            # (issue #3066), and its position in `state["seq"]` proves every cell of a wave was
+            # queued before the first read of a producer verdict.
+            state["seq"].append(("dispatch", [a for a in arg0 if "=" in a or a == "engine-build"]))
             state["new_id"] = str(int(state["new_id"]) + 1)
             return type("R", (), {"stdout": "", "stderr": dispatch_err,
                                   "returncode": dispatch_rc})()
@@ -586,70 +606,106 @@ def test_an_unpublished_cell_still_dispatches_and_awaits(monkeypatch, capsys):
     assert "producer run 77 success" in out
 
 
+def _stub_wave(monkeypatch, outcome_for, run_id="77"):
+    """Repoint the two fan-out seams (issue #3066): `_dispatch_cell` names the run a dispatch started,
+    `_await_cells` records every cell it was handed (engine, arch, awaited bound) and answers verdicts.
+    `outcome_for((engine, arch), wave_index)` scripts the first wave against the replacement wave."""
+    seen: list[tuple[str, str, float]] = []
+    waves: list[list[tuple[str, str]]] = []
+    dispatches: list[tuple[str, str]] = []
+
+    def fake_dispatch(repo, branch, engine, arch, gh):
+        dispatches.append((engine, arch))
+        return {"run_id": run_id}
+
+    def fake_await(repo, pending, gh):
+        wave = [p["key"] for p in pending]
+        for p in pending:
+            seen.append((p["key"][0], p["key"][1], p["bound_min"]))
+        waves.append(wave)
+        return {p["key"]: outcome_for(p["key"], len(waves) - 1) for p in pending}
+
+    monkeypatch.setattr(ebt, "_dispatch_cell", fake_dispatch)
+    monkeypatch.setattr(ebt, "_await_cells", fake_await)
+    return {"seen": seen, "waves": waves, "dispatches": dispatches}
+
+
 def test_rocm_cell_gets_the_extended_budget_and_cpu_keeps_the_default(monkeypatch):
-    """Per-arch bounds (#2892): the measured cold rocm build (61+ min unqueued, run 44143247189) does
-    not fit 60; cpu still gets 60. The bound handed to the await step is recorded per cell."""
+    """Per-arch bounds (#2892) survive the fan-out: cpu keeps 60 as its CLASS budget — the measured cold
+    rocm build (61+ min unqueued, run 44143247189) does not fit 60 — and every cell of a multi-cell wave
+    is awaited at least on its own class budget, with the short class queued first (#3066)."""
     _stub_base(monkeypatch)
     monkeypatch.setattr(ebt.cpp, "repinned_cells",
                         lambda base, root=None: [("llama.cpp", "rocm"), ("llama.cpp", "cpu")])
     monkeypatch.setattr(ebt, "_published",
                         lambda engine, variant, digest=None, registry="": (False, "fake"))
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
-    seen = []
+    assert ebt._wait_budget("cpu", None) == ebt.DEFAULT_MAX_WAIT
+    assert ebt._wait_budget("rocm", None) == ebt.WAIT_MIN_BY_ARCH["rocm"]
+    assert ebt.WAIT_MIN_BY_ARCH["rocm"] > ebt.DEFAULT_MAX_WAIT
 
-    def fake_await(repo, branch, engine, arch, wait_min, gh):
-        seen.append((arch, wait_min))
-        return {"run_id": "77", "status": "completed", "conclusion": "success"}
-
-    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    w = _stub_wave(monkeypatch, lambda key, wave: {"run_id": "77", "status": "completed",
+                                                   "conclusion": "success"})
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
     assert rc == 0
-    assert ("cpu", ebt.DEFAULT_MAX_WAIT) in seen
-    assert ("rocm", ebt.WAIT_MIN_BY_ARCH["rocm"]) in seen
-    assert ebt.WAIT_MIN_BY_ARCH["rocm"] > ebt.DEFAULT_MAX_WAIT
+    assert w["dispatches"] == [("llama.cpp", "cpu"), ("llama.cpp", "rocm")]
+    assert w["waves"] == [[("llama.cpp", "cpu"), ("llama.cpp", "rocm")]]
+    for _engine, arch, bound in w["seen"]:
+        assert bound >= ebt._wait_budget(arch, None)
+    assert {b for _, _, b in w["seen"]} == {ebt.DEFAULT_MAX_WAIT + ebt.WAIT_MIN_BY_ARCH["rocm"]}
+
+
+def test_a_single_cell_wave_keeps_its_class_budget_and_a_wide_wave_caps_at_the_job_window():
+    """The wave bound is `min(FANOUT_MAX_MINUTES, max(cell budget, sum of the wave's budgets))`: a lone
+    cell is still awaited on its own class budget, a wide wave never outlives the trigger job's
+    250-minute window — the script reports the stalls instead of being killed mid-await — and an
+    explicit `--wait-min` is never widened (#3066)."""
+    assert ebt._fanout_bound(150, [150], None) == 150
+    assert ebt._fanout_bound(60, [60], None) == 60
+    budgets = [60, 60, 150, 60]
+    assert [ebt._fanout_bound(b, budgets, None) for b in budgets] == [ebt.FANOUT_MAX_MINUTES] * 4
+    assert ebt._fanout_bound(90, budgets, 90) == 90
+    assert ebt.FANOUT_MAX_MINUTES < 250
 
 
 def test_wait_min_override_applies_to_every_arch(monkeypatch):
-    """An explicit `--wait-min` still overrides every class bound exactly as before (#2892)."""
+    """An explicit `--wait-min` still overrides every class bound exactly as before (#2892) — and the
+    fan-out bound never widens it: a multi-cell wave is awaited on the override, not on a sum (#3066)."""
     _stub_base(monkeypatch)
-    monkeypatch.setattr(ebt.cpp, "repinned_cells", lambda base, root=None: [("llama.cpp", "rocm")])
+    monkeypatch.setattr(ebt.cpp, "repinned_cells",
+                        lambda base, root=None: [("llama.cpp", "rocm"), ("llama.cpp", "cpu")])
     monkeypatch.setattr(ebt, "_published",
                         lambda engine, variant, digest=None, registry="": (False, "fake"))
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
-    seen = []
-
-    def fake_await(repo, branch, engine, arch, wait_min, gh):
-        seen.append(wait_min)
-        return {"run_id": "77", "status": "completed", "conclusion": "success"}
-
-    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    w = _stub_wave(monkeypatch, lambda key, wave: {"run_id": "77", "status": "completed",
+                                                   "conclusion": "success"})
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
                "--wait-min", "90", "--gh", "gh"])
     assert rc == 0
-    assert seen == [90]
+    assert [b for _e, _a, b in w["seen"]] == [90, 90]
 
 
 def test_a_cancelled_producer_gets_exactly_one_replacement_then_stops(monkeypatch, capsys):
     """A cancelled producer costs ONE replacement dispatch per cell per run, never a storm (#2892).
 
     The reopen-driven re-dispatch loop was the other half of the 28-dispatch episode: every reopen
-    re-fired the full matrix. Here BOTH attempts end cancelled: exactly 2 awaits for the cell, a FAIL
-    naming the replacement, and the trigger stops rather than queueing a third producer.
+    re-fired the full matrix. Here BOTH waves end cancelled: exactly 2 dispatches for the cell (the
+    fan-out wave and the replacement wave), a FAIL naming the replacement, and the trigger stops
+    rather than queueing a third producer.
     """
     _stub_base(monkeypatch)
     _stub_repin(monkeypatch, engine="llama.cpp")
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
-    seen = []
 
-    def fake_await(repo, branch, engine, arch, wait_min, gh):
-        seen.append(wait_min)
+    def cancelled(key, wave):
         return {"run_id": "77", "status": "in_progress", "conclusion": "cancelled",
                 "cause": "producer cancelled — nothing to wait for"}
 
-    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    w = _stub_wave(monkeypatch, cancelled)
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
     assert rc == 1
-    assert len(seen) == 2, "exactly one replacement dispatch per cell per trigger run"
+    assert len(w["dispatches"]) == 2, "exactly one replacement dispatch per cell per trigger run"
+    assert [len(wave) for wave in w["waves"]] == [1, 1]
     out = capsys.readouterr()
     assert "ONE replacement dispatch permitted per cell" in out.out
     assert "producer cancelled — nothing to wait for" in out.err
@@ -661,16 +717,12 @@ def test_a_guard_refused_producer_is_never_replaced(monkeypatch, capsys):
     _stub_base(monkeypatch)
     _stub_repin(monkeypatch, engine="llama.cpp")
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
-    seen = []
-
-    def fake_await(repo, branch, engine, arch, wait_min, gh):
-        seen.append(wait_min)
-        return {"run_id": "77", "status": "completed", "conclusion": "failure", "guard_refused": True}
-
-    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
+    w = _stub_wave(monkeypatch, lambda key, wave: {"run_id": "77", "status": "completed",
+                                                   "conclusion": "failure", "guard_refused": True})
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
     assert rc == 1
-    assert len(seen) == 1, "a guard-refused producer must not be re-dispatched"
+    assert len(w["dispatches"]) == 1, "a guard-refused producer must not be re-dispatched"
+    assert len(w["waves"]) == 1
     assert "replacement dispatch" not in capsys.readouterr().out
 
 
@@ -682,18 +734,130 @@ def test_the_replacement_carries_the_consumed_budget(monkeypatch):
     monkeypatch.setattr(ebt, "_published",
                         lambda engine, variant, digest=None, registry="": (False, "fake"))
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
-    seen = []
     clock = iter([0.0, 30 * 60.0] + [30 * 60.0] * 10)  # t0, then 30 min consumed by attempt one
+    monkeypatch.setattr(ebt.time, "time", lambda: next(clock))
 
-    def fake_await(repo, branch, engine, arch, wait_min, gh):
-        seen.append(wait_min)
+    def cancelled(key, wave):
         return {"run_id": "77", "status": "in_progress", "conclusion": "cancelled",
                 "cause": "producer cancelled — nothing to wait for"}
 
-    monkeypatch.setattr(ebt, "_dispatch_and_wait", fake_await)
-    monkeypatch.setattr(ebt.time, "time", lambda: next(clock))
+    w = _stub_wave(monkeypatch, cancelled)
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
     assert rc == 1
     budget = ebt.WAIT_MIN_BY_ARCH["rocm"]
+    seen = [b for _e, _a, b in w["seen"]]
     assert seen == [budget, budget * ebt.REPLACEMENT_FACTOR - 30], \
         "the replacement must carry the remaining total bound, not a fresh one"
+
+
+# ---------------------------------------------------------------------------
+# fan-out wave: dispatch every cell first, then await them all on one shared
+# bound (issue #3066)
+# ---------------------------------------------------------------------------
+def _stub_variants(monkeypatch, variants) -> None:
+    monkeypatch.setattr(ebt.cpp, "repinned_cells",
+                        lambda base, root=None: [("llama.cpp", v) for v in variants])
+    monkeypatch.setattr(ebt, "_published",
+                        lambda engine, variant, digest=None, registry="": (False, f"fake/{engine}:{variant}"))
+
+
+def _dispatch_arch_order(state: dict) -> list[str]:
+    return [f.split("=", 1)[1] for argv in _dispatch_argvs(state) for f in argv if f.startswith("arch=")]
+
+
+def _printed(capsys) -> str:
+    """Everything the trigger wrote, stdout and stderr together: FAIL and MISSING VARIANT lines go to
+    stderr, the OK lines to stdout, and a verdict check must read both."""
+    res = capsys.readouterr()
+    return res.out + res.err
+
+
+def test_a_multi_variant_wave_queues_every_producer_before_awaiting_any_verdict(monkeypatch, capsys):
+    """One global push FIFO (engine-build.yml:80) makes a cell-by-cell wave cost the sum of the cells
+    queued before it: a four-variant wave must queue all four producers -- cheapest class budget first,
+    the rocm tail last -- BEFORE its first read of a producer verdict."""
+    _stub_base(monkeypatch)
+    _stub_variants(monkeypatch, ["rocm", "vulkan", "cpu", "cuda"])  # unsorted input on purpose
+    st = _fake_gh(monkeypatch, before_ids=[1],
+                  per_run={rid: {"status": "completed", "conclusion": "success",
+                                 "completed_at": "2026-11-17T00:00:00Z"}
+                           for rid in ("77", "78", "79", "80")})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 0
+    assert _dispatch_arch_order(st) == ["cpu", "cuda", "vulkan", "rocm"], \
+        "the wave must dispatch cheapest-budget cells first with the rocm tail last"
+    seq = st["seq"]
+    last_dispatch = max(i for i, (kind, _) in enumerate(seq) if kind == "dispatch")
+    first_verdict = min(i for i, (kind, target) in enumerate(seq) if kind == "api" and target.isdigit())
+    assert last_dispatch < first_verdict, \
+        "a wave that awaits a producer before dispatching the next one re-serializes the queue"
+    out = capsys.readouterr().out
+    bound = ebt.FANOUT_MAX_MINUTES
+    assert out.count(f"await bound {bound} min") == 4, \
+        "every cell of a wide wave is awaited on the same fan-out bound, not its own serial slice"
+
+
+def test_the_arch_filter_narrows_the_wave_without_widening_its_bound(monkeypatch, capsys):
+    """`--arch` narrows WHICH cells a wave dispatches; a one-cell wave keeps its own class bound (#2892)
+    instead of inheriting a fan-out sum (#3066)."""
+    _stub_base(monkeypatch)
+    _stub_variants(monkeypatch, ["rocm", "vulkan", "cpu", "cuda"])
+    st = _fake_gh(monkeypatch, before_ids=[1],
+                  per_run={"77": {"status": "completed", "conclusion": "success",
+                                  "completed_at": "2026-11-17T00:00:00Z"}})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--gh", "gh", "--arch", "rocm"])
+    assert rc == 0
+    assert _dispatch_arch_order(st) == ["rocm"], "the filter dispatches only the variant it names"
+    printed = _printed(capsys)
+    assert f"await bound {ebt.WAIT_MIN_BY_ARCH['rocm']} min" in printed, \
+        "a filtered single cell is awaited on its class bound, not on a wave sum"
+    assert f"await bound {ebt.FANOUT_MAX_MINUTES} min" not in printed
+
+
+def test_a_stalled_rocm_tail_expiry_names_the_push_group_holder_and_files_a_missing_variant(monkeypatch, capsys):
+    """#3066's measured tail: the cell queued last in the wave is the one the global group starves. Its
+    expiry must name the holder that starved it and file the VARIANT as missing -- not claim a tick."""
+    _stub_base(monkeypatch)
+    _stub_variants(monkeypatch, ["cpu", "rocm"])
+    _fake_gh(monkeypatch, before_ids=[1], stall_holder=55,
+             per_run={"77": {"status": "completed", "conclusion": "success",
+                             "completed_at": "2026-11-17T00:00:00Z"},
+                      "78": {"status": "queued", "conclusion": None}})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--gh", "gh", "--wait-min", "0"])
+    assert rc == 1
+    printed = _printed(capsys)
+    assert "OK engine=llama.cpp arch=cpu" in printed, "the cheap cell concluded inside the shared bound"
+    assert "FAIL engine=llama.cpp arch=rocm" in printed
+    assert "wait bound (0 min) expired" in printed
+    assert "run 78" in printed and "last status queued" in printed
+    assert "STALLED behind engine-build-push group holder run 55" in printed
+    assert "MISSING VARIANT engine=llama.cpp arch=rocm" in printed
+    assert "`## Not covered`" in printed
+
+
+def test_the_missing_variant_report_is_not_a_tick_even_when_the_other_cells_are_green(monkeypatch, capsys):
+    """A wave that finishes green EXCEPT the starved tail reds the trigger: a build that never produced
+    the pinned tag cannot be counted as a tick (#2892 acceptance: "the rocm variant build")."""
+    _stub_base(monkeypatch)
+    _stub_variants(monkeypatch, ["cpu", "cuda", "rocm"])
+    st = _fake_gh(monkeypatch, before_ids=[1],
+                  per_run={"77": {"status": "completed", "conclusion": "success",
+                                  "completed_at": "2026-11-17T00:00:00Z"},
+                           "78": {"status": "completed", "conclusion": "success",
+                                  "completed_at": "2026-11-17T00:00:00Z"},
+                           "79": {"status": "cancelled", "conclusion": "cancelled",
+                                  "completed_at": "2026-11-17T00:00:00Z"},
+                           "80": {"status": "cancelled", "conclusion": "cancelled",
+                                  "completed_at": "2026-11-17T00:00:01Z"}})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
+    assert rc == 1
+    printed = _printed(capsys)
+    assert "OK engine=llama.cpp arch=cpu" in printed and "OK engine=llama.cpp arch=cuda" in printed
+    assert "FAIL engine=llama.cpp arch=rocm" in printed
+    assert "the replacement dispatch (issue #2892) also ended cancelled" in printed
+    assert "MISSING VARIANT engine=llama.cpp arch=rocm" in printed
+    assert "NOT verified as published" in printed
+    rocm = [a for a in _dispatch_argvs(st) if "arch=rocm" in a]
+    assert len(rocm) == 2, "one replacement per cell, never a re-queue loop (#2892)"
