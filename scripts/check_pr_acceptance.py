@@ -154,6 +154,12 @@ RUN_ID = re.compile(r"\brun\s*=\s*(\d+)\b")
 #: with no `rc=` (or no sha) is not re-measurable from the issue thread alone (#1784/#1819 class).
 RC_SHA = re.compile(r"\brc(?:\s*=\s*|[\s(])\s*\S+\b")
 GIT_SHA = re.compile(r"\b([0-9a-f]{7,40})\b")
+#: Draft stub tokens a lane stamps into a proof clause before the measured proof exists, then
+#: forgets to replace. Measured on `main@53a56da90` (PR #3035 squash): a `(proven: gh api
+#: repos/…/blobs/<40-hex> rc=0 PLACEHOLDER)` clause x2 and a `(proven: rc=0, engine-build run at head
+#: PLACEHOLDER)` one — the blob sha satisfied GIT_SHA and the stub rode the squash onto `main`. Such a
+#: clause is an unfinished stamp, never evidence, whatever run token or sha sits inside it (#3075).
+DRAFT_STUB = re.compile(r"\b(?:PLACEHOLDER|HEADSHA|MAINSHA)\b")
 #: Run conclusions that prove NOTHING (issue #2288): a cited run is evidence only when it concluded
 #: `success`. Measured roster: 11 ticks on closed issues cited 4 runs that ended failure/cancelled —
 #: the old rule accepted a run token without ever asking how the run ended.
@@ -227,6 +233,8 @@ def _is_provable_tick(text: str) -> bool:
     if not m:
         return False  # a ticked box with no evidence is exactly the #745 self-tick class
     ref = m.group(1).strip()
+    if DRAFT_STUB.search(ref):
+        return False  # an un-replaced draft stub is not evidence, whatever run token or sha it carries (#3075)
     if RUN_ID.search(ref):
         return True  # a live named run is reproducible from the issue thread
     return bool(RC_SHA.search(ref) and GIT_SHA.search(ref))

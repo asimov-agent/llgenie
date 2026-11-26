@@ -166,3 +166,66 @@ def test_the_legs_gh_shim_refuses_the_513_author_association_request(repo: Path,
         am._gh("gh", ["pr", "view", "1", "--repo", "o/r", "--json", "authorAssociation"])
     assert boom.value.code == 1
     assert am.commit_checkbox_hold("gh", "o/r", 1)  # the leg still sees its own reads refused
+
+
+# ---------------------------------------------------------------------------
+# commit-tick-draft-stub: a `(proven: …)` clause with an un-replaced draft stub is refused (#3075)
+# ---------------------------------------------------------------------------
+# The measured #3035 residue that LANDED (`main@53a56da90`): three proven clauses carrying an
+# un-replaced draft stub — two blob-sha clauses whose 40-hex blob token satisfied the rc+sha rule
+# and one engine-build clause — all rode the squash onto main as the permanent record.
+
+STUB_MSG = (
+    "feat(engine-sync): pins (issue #3075)\n\n"
+    "Acceptance:\n"
+    "- [x] the pins moved (proven: gh api repos/asimov-agent/llgenie/git/blobs/"
+    "fe0022448ccf022359c20805f02d58ad10fbb130 rc=0 PLACEHOLDER)\n"
+    "- [x] the images retagged (proven: gh api repos/asimov-agent/llgenie/git/blobs/"
+    "a11ce75b2c955f5c077f8935588010187295199d rc=0 PLACEHOLDER)\n"
+    "- [x] engine-build proved it (proven: rc=0, engine-build run at head PLACEHOLDER)\n"
+)
+
+CLEAN_MSG = (
+    "feat(engine-sync): pins (issue #3075)\n\n"
+    "Acceptance:\n"
+    "- [x] the pins moved (proven: make check-engine-pins rc=0 at head 53a56da9)\n"
+    "- [x] the images retagged (proven: make test-published-engine rc=0 at head 53a56da9)\n"
+    "- [x] engine-build proved it (proven: run=45750923126 at head 53a56da9)\n"
+)
+
+
+def test_draft_stub_proven_clauses_in_commit_text_are_refused(repo: Path):
+    """The exact #3035 squash shape, caught before merge instead of inside `53a56da90` on main."""
+    commit(repo, "b.txt", STUB_MSG)
+    items = hy.commit_checkboxes_findings(repo, "feature", "main", "")
+    assert [i["key"] for i in items] == ["commit-tick-draft-stub"], [i["key"] for i in items]
+    assert "3 `(proven: …)` clause(s)" in items[0]["detail"]
+
+
+def test_the_same_commit_text_with_real_proof_passes(repo: Path):
+    """The refusal is stub-specific: identical checklist shape, clauses naming real proof, stays green."""
+    commit(repo, "b.txt", CLEAN_MSG)
+    assert hy.commit_checkboxes_findings(repo, "feature", "main", "") == []
+
+
+def test_prose_naming_the_stub_word_without_a_proven_clause_is_not_flagged(repo: Path):
+    """Scope: a `(proven: …)` clause carrying the stub, not any mention of the word (#3075)."""
+    commit(repo, "b.txt", "docs(x): note\n\nAcceptance:\n"
+           "- [x] gate refuses the stub (proven: pytest tests rc=0 at head 53a56da9)\n\n"
+           "the residue this gate hunts is the word PLACEHOLDER inside a proof clause.\n")
+    assert hy.commit_checkboxes_findings(repo, "feature", "main", "") == []
+
+
+def test_the_merge_lane_defers_commits_whose_proofs_carry_the_stub(repo: Path, monkeypatch):
+    """`auto_merge.decide()` treats a stub-carrying tick as a deferral reason (exit 0), never a merge."""
+    commit(repo, "b.txt", STUB_MSG)
+
+    def fake_gh(gh, args, token=""):
+        gh_fake.enforce(list(args))
+        if args[0] == "api":
+            return git(repo, "log", "--no-merges", "--format=%B%x00", "main..feature")
+        return ""
+
+    monkeypatch.setattr(am, "_gh", fake_gh)
+    reason = am.commit_checkbox_hold("gh", "o/r", 1)
+    assert reason and "commit-tick-draft-stub" in reason

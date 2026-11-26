@@ -345,6 +345,43 @@ def test_a_tick_with_only_a_sha_but_no_rc_is_RED():
     assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
 
 
+def test_a_blob_sha_and_rc_with_the_draft_stub_is_RED():
+    """The measured `#3035` residue (issue #3075): `main@53a56da90` carries `(proven: gh api
+    repos/…/git/blobs/<40-hex> rc=0 PLACEHOLDER)` ×2 — the blob sha satisfied GIT_SHA, `rc=0`
+    satisfied RC_SHA, and the un-replaced draft stub rode the squash onto `main`."""
+    issue = _ticked("criterion  (proven: gh api repos/asimov-agent/llgenie/git/blobs/"
+                    "fe0022448ccf022359c20805f02d58ad10fbb130 rc=0 PLACEHOLDER)")
+    findings = g.acceptance_verdict(issue, _pr("closes #1000"), 1000)
+    assert any(f["key"] == "tick-unprovable" for f in findings), [f["key"] for f in findings]
+
+    # the engine-build variant of the same residue: a run-at-head clause stamped with the stub
+    issue = _ticked("criterion  (proven: rc=0, engine-build run at head PLACEHOLDER)")
+    assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
+
+
+def test_the_draft_stub_refuses_even_a_named_run_tick():
+    """`run=` alone is normally sufficient — but `(proven: run=… PLACEHOLDER)` is still an
+    unfinished stamp. The stub outranks whatever run token or sha sits beside it (#3075), or a
+    lane that stamps drafts and forgets to replace them keeps passing on the token it drafted."""
+    issue = _ticked("criterion  (proven: run=45750923126 PLACEHOLDER)")
+    findings = g.acceptance_verdict(issue, _pr("closes #1000"), 1000)
+    assert any(f["key"] == "tick-unprovable" for f in findings), [f["key"] for f in findings]
+
+    # HEADSHA / MAINSHA are the same draft-stub class (the bot-stamp-body draft placeholders)
+    for stub in ("HEADSHA", "MAINSHA"):
+        issue = _ticked(f"criterion  (proven: make lane-preflight rc=0 at head {stub})")
+        assert any(f["key"] == "tick-unprovable"
+                   for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000)), stub
+
+
+def test_the_same_blob_clause_without_the_stub_stays_provable():
+    """The refusal is stub-specific: the identical blob-sha clause with a real tree sha is proof."""
+    issue = _ticked("criterion  (proven: gh api repos/asimov-agent/llgenie/git/blobs/"
+                    "fe0022448ccf022359c20805f02d58ad10fbb130 rc=0 at head 53a56da9)")
+    findings = g.acceptance_verdict(issue, _pr("closes #1000"), 1000)
+    assert not any(f["key"] == "tick-unprovable" for f in findings), [f["key"] for f in findings]
+
+
 def test_a_named_ci_run_id_tick_is_GREEN():
     # `run=<id>` names a live workflow run — the reviewer write-back form (#1644) — reprovable at a glance.
     issue = _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
