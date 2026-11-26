@@ -143,6 +143,13 @@ class Fetch:
                 if str(j.get("conclusion")) in MAIN_RED_CONCLUSIONS]
 
 
+def _utcnow() -> datetime:
+    """The module's ONE wall-clock read (issue #3081): snapshot age and triage age come from here,
+    and the test suite freezes this seam so a hardcoded fixture payload never ages out on the date
+    the suite happens to run on. Production age semantics stay live-time based."""
+    return datetime.now(timezone.utc)
+
+
 def _aged_out(run: Mapping[str, Any], now: datetime | None, max_age_hours: int | None) -> bool:
     """True when the run's `updatedAt` stamp is older than the age window. A payload without an
     `updatedAt` (recorded probe data) is never age-filtered, so replayed snapshots stay byte-stable."""
@@ -459,7 +466,7 @@ def build_snapshot(
         return MONITOR_ERROR
     lines = snapshot_lines(
         main_runs, open_prs, checks_by_pr,
-        now=datetime.now(timezone.utc), max_age_hours=max_age_hours,
+        now=_utcnow(), max_age_hours=max_age_hours,
         include_superseded=include_superseded,
     )
     return "\n".join(lines) if lines else MONITOR_OK
@@ -505,7 +512,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as exc:
         print(f"{MONITOR_ERROR}: {exc}", file=sys.stderr)
         return 0
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     lines = snapshot_lines(
         main_runs, open_prs, checks_by_pr, now=now, max_age_hours=args.max_age_hours,
         include_superseded=args.include_superseded,

@@ -181,6 +181,14 @@ HEAD_JOBS = {
     45019000002: ["lane A / step"],
 }
 
+# Frozen clocks for the triage tests (issue #3081). The fixture's red stamps sit on
+# 2026-11-23/24; the routing test pins the seam INSIDE the 72h window (4h after the representative
+# run) so the dedupe assertions hold on ANY future run date, and the aged test pins it PAST the
+# window to prove production ageing stays live-time based. Never let a fixture age out on the date
+# the suite happens to run on.
+TRIAGE_NOW = datetime(2026, 11, 24, 14, 0, 0, tzinfo=timezone.utc)
+TRIAGE_NOW_PAST_WINDOW = datetime(2026, 12, 1, 0, 0, 0, tzinfo=timezone.utc)
+
 
 def _fake_route(routed):
     def fake_route(repo, run_id, check="make ci-unit", dry=False, file_only=False):
@@ -197,6 +205,8 @@ def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
         lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS,
                                jobs_by_run=HEAD_JOBS),
     )
+    # the fixture stays inside the age window no matter when the suite runs (issue #3081)
+    monkeypatch.setattr(ci_monitor, "_utcnow", lambda: TRIAGE_NOW)
     rc = ci_monitor.main(["--triage"])
     out = capsys.readouterr().out
     assert rc == 0
@@ -217,6 +227,36 @@ def test_triage_routes_main_red_and_pr_check_incidents(capsys, monkeypatch):
     assert routed and all(call[3] is True for call in routed), routed
     assert all(call[2] is False for call in routed), routed
     assert {c[1] for c in routed} == {45010151478, 45010200005, 45019000001}
+
+
+def test_triage_ages_every_red_when_the_clock_runs_past_the_window(capsys, monkeypatch):
+    """Production ageing stays live-time based: the same payload, frozen PAST the 72h window,
+    routes nothing for the PR head — the aged count is printed instead (issue #3081)."""
+    routed = []
+    monkeypatch.setattr(ci_monitor.run_failure_reactor, "route", _fake_route(routed))
+    monkeypatch.setattr(
+        ci_monitor, "Fetch",
+        lambda **kw: FakeFetch(MAIN_RUNS, OPEN_PRS, CHECKS_BY_PR, head_runs=HEAD_RUNS,
+                               jobs_by_run=HEAD_JOBS),
+    )
+    monkeypatch.setattr(ci_monitor, "_utcnow", lambda: TRIAGE_NOW_PAST_WINDOW)
+    rc = ci_monitor.main(["--triage"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    # the head's reds aged out: the PR routes nothing and the verdict names the aged count
+    assert ("TRIAGE-PR pr=3012 head=8c1def4f8 no-completed-failed-run found aged=2") in out
+    assert "run=45019000001" not in out  # the once-representative is aged, never routed
+    assert "PR-ROUTE" not in out  # no routing summary without a plan
+    # only the unstamped MAIN-RED runs (recorded probe data) still route
+    assert {c[1] for c in routed} == {45010151478, 45010200005}
+
+
+def test_incident_flow_reads_the_wall_clock_through_one_seam():
+    """(issue #3081) The monitor's ONLY `datetime.now(` is the `_utcnow` seam itself: the snapshot
+    leg and the --triage leg age from one frozen-in-tests clock, not from inline wall-clock reads."""
+    src = pathlib.Path(ci_monitor.__file__).read_text(encoding="utf-8")
+    assert src.count("datetime.now(") == 1
+    assert "now=_utcnow()" in src and "now = _utcnow()" in src
 
 
 def test_triage_dry_previews_and_files_nothing(capsys, monkeypatch):
