@@ -100,8 +100,12 @@ idle, and what should it be doing right now?* Measured quiescence — not an ass
 5. **Report the dispatch, then the outcome.** State what you sent to which bot and what evidence proves it landed
    (branch, run id, PR number). A queued message is not a landed task.
 
-**Never merge, never push to `main`.** Every merge needs the owner's approval; stop at the reviewable PR. If a bot
-or a workflow merges on its own, say so immediately — an unapproved merge is an incident, not a convenience.
+**Never hand-merge, never push to `main`.** CI merges a green, conflict-free PR by itself: the `auto-merge` job in
+`.github/workflows/ci.yml` squash-merges when every PR-relevant job passed and `mergeStateStatus == CLEAN`, with no
+human click (AGENTS.md rule 7 and "An approval is no longer a precondition for landing"). An approval is neither a
+precondition for landing nor a licence to merge — `REVIEW_REQUIRED` is not a human gate to wait on. Drive each PR
+green, arm it, and move on. While a CI run is in flight, do not idle or poll: take the next un-PR'd board issue
+end-to-end (issue → OpenSpec change → worktree → gates → PR), one lane at a time.
 
 **Verify every merge, after the merge.** Every pass re-verifies PRs merged since the last pass: read `baseRefName`
 (a stacked PR did not land on `main`), confirm `main` is green at the merge tip, and measure each acceptance
