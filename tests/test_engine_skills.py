@@ -756,7 +756,7 @@ def test_image_tag_changes_only_when_the_frozen_variant_changes(skills):
     # Then only the changed variant gets a new tag, and the tag names the backend
     assert tag == again
     assert es.image_spec(changed, "cuda")["tag"] != tag
-    assert tag.startswith("llgenie/llama-cpp-prism:6447906b-") and tag.endswith("-cuda")
+    assert tag.startswith("llgenie/llama-cpp-prism:d12ca13b-") and tag.endswith("-cuda")
 
 
 def test_runner_serves_from_a_frozen_plan(tmp_path):
