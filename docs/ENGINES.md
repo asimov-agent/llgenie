@@ -349,7 +349,7 @@ presets in ollama's own tree — the CPU one in every image, `cuda_v13` / `rocm_
 backend, #936).
 Still prebuilt today, each with its own linked issue: `vllm` ×3 (build cost unmeasured), and
 `tensorrt-llm` cuda which now carries a dated decision in its skill (#939): a time-boxed source
-build at pin `376f7e1b` in the devel:1.2.5 base
+build at pin `c66df86d` in the devel:1.2.5 base
 (`scripts/build_wheel.py --trt_root /opt/tensorrt --cuda_architectures 89-real -j 16`) projected to
 >90 min of object compile at -j16 on a 32-core host before wheel/link (a full Git-LFS clone is
 5.2 GB and the tree ~11 GB), which on the 4-vCPU `ubuntu-latest` the engine-build job runs on is

@@ -1,0 +1,1 @@
+| 2026-11-23 | engine bump: tensorrt-llm re-pinned `376f7e1b` -> `c66df86d` (`v1.3.0`) — frozen per-arch Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only tensorrt-llm's images) | [2026-11-23-tensorrt-llm-bump.md](agent-wiki/2026-11-23-tensorrt-llm-bump.md) | #107 |
