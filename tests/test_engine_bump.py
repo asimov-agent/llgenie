@@ -37,6 +37,18 @@ from conftest import makefiles_text  # noqa: E402  (the include-resolving Makefi
 PROMOTED_ENGINE = "tensorfold"
 
 
+@pytest.fixture(autouse=True)
+def _bump_fixture_final_generation_gate(monkeypatch, request):
+    """Hermeticity default: a bump's FINAL generation gate re-runs `make
+    check-engine-params`, which a tmp_path fixture tree cannot answer (no Makefile
+    rule). Tests that exercise bump() end-to-end need it inert; tests whose NAME
+    is about the gate re-patch _run in their body (applied after this fixture, so
+    they win) and get the real gate. (issue #3065)"""
+    if "final_generation_gate" in request.node.name:
+        return
+    monkeypatch.setattr(eb, "_final_generation_gate", lambda sid: [])
+
+
 def _pinned_ref(engine: str = PROMOTED_ENGINE, root: Path | None = None) -> str:
     """The engine's pinned release tag, read from the params the bump writes.
 
@@ -316,11 +328,13 @@ def test_bump_still_pins_on_hard_fail(tmp_path):
     es.load_skills = lambda: {"testengine": skill}
     es.SKILLS_DIR = tmp_path / "skills" / "engines"
     orig_regen = eb._regen_guard
+    orig_gate = eb._final_generation_gate
     # the companion pair (agent-wiki note + changes.d row, issue #2865) writes
     # under eb.REPO_ROOT: point it at the fixture tree so the run stays hermetic
     orig_root = eb.REPO_ROOT
     eb.REPO_ROOT = tmp_path
     eb._regen_guard = lambda sid: []
+    eb._final_generation_gate = lambda sid: []
     try:
         rows = eb.bump("testengine")
     finally:
@@ -328,6 +342,8 @@ def test_bump_still_pins_on_hard_fail(tmp_path):
         es.SKILLS_DIR = orig_skills_dir
         eb.REPO_ROOT = orig_root
         eb._regen_guard = orig_regen
+        eb._final_generation_gate = orig_gate
+
     assert len(rows) == 1
     assert rows[0]["hard_fail"]  # recorded, not fatal
     # the pin moved in the skill file
@@ -368,6 +384,7 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     monkeypatch.setattr(es, "load_skills", lambda: {"testengine": skill})
     monkeypatch.setattr(es, "SKILLS_DIR", tmp_path / "skills" / "engines")
     monkeypatch.setattr(eb, "_regen_guard", lambda sid: [])
+    monkeypatch.setattr(eb, "_final_generation_gate", lambda sid: [])
     monkeypatch.setattr(eb, "plan", lambda eid: [{
         "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.40.15",
         "new_ref": "v0.41.0", "status": "moved"}])
@@ -562,6 +579,74 @@ def test_regen_guard_accepts_the_aggregate_binaries_manifest(tmp_path, monkeypat
 
     # Then the manifest is accepted and reported as a change
     assert "containers/engines/binaries.json" in changed
+
+
+def test_final_generation_gate_verifies_before_it_regenerates(tmp_path, monkeypatch):
+    """The end-of-bump gate is a CHECK first: a tree whose generated
+    companions already match the skills issues no regen at all (issue #3065)."""
+
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    changed = eb._final_generation_gate("testengine")
+
+    assert changed == []
+    assert seen == [["make", "check-engine-params"]]
+
+
+def test_final_generation_gate_regenerates_once_when_the_manifest_lags(tmp_path, monkeypatch):
+    """A bump whose last writes left containers/engines/binaries.json behind the
+    skill (the #3065 shape: probe read 0.40.16 from a 0.40.17 image) is caught
+    by the gate, re-regenerated once, and the fix is reported (issue #3065)."""
+
+    seen = []
+    check_rcs = iter([2, 0])  # first verdict stale, second green
+    status = iter(["", " M containers/engines/binaries.json\n"])
+
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        if cmd[:2] == ["git", "status"]:
+            return type("P", (), {"returncode": 0, "stdout": next(status), "stderr": ""})()
+        if cmd[:2] == ["make", "check-engine-params"]:
+            return type("P", (), {"returncode": next(check_rcs),
+                                  "stdout": "stale: containers/engines/binaries.json\n",
+                                  "stderr": ""})()
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    changed = eb._final_generation_gate("testengine")
+
+    assert changed == ["containers/engines/binaries.json"]
+    assert seen == [["make", "check-engine-params"],
+                    ["git", "status", "--porcelain"],
+                    ["make", "generate-engine-params", "ENGINE=testengine"],
+                    ["git", "status", "--porcelain"],
+                    ["make", "check-engine-params"]]
+
+
+def test_final_generation_gate_fails_a_bump_it_cannot_converge(tmp_path, monkeypatch):
+    """Nag-at-most-once: a second stale verdict hard-fails the bump with the
+    checker quoted, instead of committing a manifest that lags its own skill."""
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ["git", "status"]:
+            return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        if cmd[:2] == ["make", "generate-engine-params"]:
+            return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return type("P", (), {"returncode": 2,
+                              "stdout": "stale: containers/engines/binaries.json\n",
+                              "stderr": ""})()
+
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    with pytest.raises(SystemExit, match="still stale after the final regen"):
+        eb._final_generation_gate("testengine")
 
 
 def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
@@ -786,6 +871,8 @@ def test_full_bump_lands_new_flag_in_params(tmp_path):
         captured["params"] = params
         return []
     eb._regen_guard = fake_regen
+    orig_gate = eb._final_generation_gate
+    eb._final_generation_gate = lambda sid: []
     # the companion pair (issue #2865) writes under eb.REPO_ROOT: keep it in the
     # fixture tree
     orig_root = eb.REPO_ROOT
@@ -797,6 +884,7 @@ def test_full_bump_lands_new_flag_in_params(tmp_path):
         es.SKILLS_DIR = orig_skills_dir
         eb.REPO_ROOT = orig_root
         eb._regen_guard = orig_regen
+        eb._final_generation_gate = orig_gate
     assert len(rows) == 1
     assert rows[0]["hard_fail"] is None
     # the skill file now carries the mirrored flag
