@@ -1,0 +1,166 @@
+name: fleet-architecture-review — weekly Hermes review of the documented bot fleet (files one issue, never edits code)
+
+# FLEET ARCHITECTURE REVIEW (issue #3106) — a Monday clock at minute :43 (measured
+# collision-free at main 412b84f02: minutes in use are 1,3,5,7,9,13,17,19,21,25,27,
+# 31,35,39,41,49,53,59) plus a manual dispatch for the owner/collaborator.
+# Trigger surface: `schedule` (Monday 03:43 UTC, minute :43) and `workflow_dispatch` (owner or
+#                  collaborator; `dry` previews the issue body and files nothing).
+# Flow: guard (owner/collaborator BEFORE any secret is read) -> make fleet-architecture-brief
+# (deterministic: docs/ARCHITECTURE.md + agents/manifest.json + every lane SOUL.md; CI has no
+# live profiles, #928) -> make fleet-architecture-suggest (ONE Hermes leg inside the agent image,
+# writes ONLY the suggestions file) -> make fleet-architecture-publish (ONE deduped refined issue,
+# nothing when there is no new suggestion or an open issue already carries the marker).
+# Never: never edits code, a workflow, a gate, a SOUL.md or AGENTS.md; never pushes a branch;
+#        never merges; never files a second issue while its own issue is open.
+# Modelled on .github/workflows/architecture-bot.yml (guard, agent-leg preflight, redacted
+# transcript, deterministic publish, one bounded agent leg).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Preview the issue body this run would file, filing nothing"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "43 3 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+# One static key: stacking is intentional. A queued run re-reads the tree when it starts;
+# cancelling a run mid-review would lose its already-spent agent leg (issue #917).
+concurrency:
+  group: fleet-architecture-review
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  review:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      FLEET_BRIEF: fleet-architecture-brief.md
+      FLEET_SUGGEST: fleet-architecture-suggestions.md
+    steps:
+      - name: Checkout main (read-only; this lane never pushes)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve the agent image (GHCR :latest)
+        id: agent
+        run: |
+          set -euo pipefail
+          image=$(make agent-image-ref)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "agent image: $image"
+
+      - name: Run the reusable agent-leg preflight (issue #798)
+        uses: ./.github/actions/agent-leg
+        with:
+          phase: preflight
+          shell_keys: "NOUS_API_KEY TYPESAFE_API_KEY GH_TOKEN"
+          routing_smoke: "true"
+
+      - name: Derive the fleet brief from the tree (no model)
+        run: make fleet-architecture-brief FLEET_BRIEF="$FLEET_BRIEF"
+
+      - name: File the one deduped suggestion issue (nothing when empty)
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_INPUT: ${{ inputs.dry }}
+          AGENT_IMAGE: ${{ steps.agent.outputs.image }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_INPUT:-false}" = "true" ]; then
+            make fleet-architecture-suggest FLEET_BRIEF="$FLEET_BRIEF" FLEET_SUGGEST="$FLEET_SUGGEST" AGENT_IMAGE="$AGENT_IMAGE"
+            make fleet-architecture-publish REPO="$REPO" FLEET_SUGGEST="$FLEET_SUGGEST" STAMP="$(git rev-parse --short HEAD)" DRY=1
+            exit 0
+          fi
+          make fleet-architecture-suggest FLEET_BRIEF="$FLEET_BRIEF" FLEET_SUGGEST="$FLEET_SUGGEST" AGENT_IMAGE="$AGENT_IMAGE"
+          out=$(make fleet-architecture-publish REPO="$REPO" FLEET_SUGGEST="$FLEET_SUGGEST" STAMP="$(git rev-parse --short HEAD)")
+          printf '%s\n' "$out"
+          action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
+          issue=$(printf '%s\n' "$out" | sed -n 's/^issue_url=//p' | tail -1)
+          {
+            echo "action=${action:-unknown}"
+            echo "issue_url=$issue"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload the REDACTED agent transcript (issue #359)
+        if: always()
+        uses: ./.github/actions/agent-leg
+        with:
+          phase: upload
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### fleet-architecture-review"
+            echo ""
+            echo "- clock: Monday 03:43Z (minute 43, collision-free at 412b84f02)"
+            echo "- inputs: docs/ARCHITECTURE.md + agents/manifest.json + agents/*/SOUL.md"
+            echo "- filed: ${{ steps.publish.outputs.action || 'not reached' }}"
+            echo ""
+            echo "A run with no new suggestion files nothing. This lane never edits code and never merges."
+          } >> "$GITHUB_STEP_SUMMARY"

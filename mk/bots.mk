@@ -196,6 +196,29 @@ architecture-bot: ## Run the architecture bot locally end to end: brief -> doc -
 	@$(MAKE) architecture-bot-doc DOC="$(DOC)"
 	@$(MAKE) architecture-bot-publish REPO="$(REPO)" DOC="$(DOC)" $(if $(DRY),DRY=1,)
 
+fleet-architecture-brief: ## Read docs/ARCHITECTURE.md, agents/manifest.json and every lane SOUL.md into ONE brief (FLEET_BRIEF=; deterministic, no model, #3106)
+	python3 scripts/fleet_architecture.py brief --out "$(FLEET_BRIEF)"
+
+fleet-architecture-suggest: ## Hermes inside the agent image: read the brief and write ONLY the suggestions file (FLEET_BRIEF=/FLEET_SUGGEST=; never edits code — #3106)
+	@python3 scripts/require_env.py NOUS_API_KEY
+	@test -f "$(FLEET_BRIEF)" || { echo "Run 'make fleet-architecture-brief' first: $(FLEET_BRIEF) is missing"; exit 1; }
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  -e NOUS_API_KEY -e HERMES_REASONING \
+	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) \
+	  $(AGENT_IMAGE) bash -lc 'make _fleet-architecture-suggest FLEET_BRIEF="$(FLEET_BRIEF)" FLEET_SUGGEST="$(FLEET_SUGGEST)"')
+
+_fleet-architecture-suggest: # (internal) host recipe the agent image runs; ONLY the suggestions file is writable
+	$(MAKE) _agent-jev-preflight
+	leg_start=$$(date +%s); hermes -z "Read $(FLEET_BRIEF). Write architecture-improvement suggestions to $(FLEET_SUGGEST) only. Do not edit any other file: no code, no workflow, no gate, no SOUL.md. If there is no new suggestion, write an empty file." -s bot-unattended -p llgenie-architect --reasoning $(HERMES_REASONING) --yolo; rc=$$?; python3 scripts/hermes_model_route.py --lane llgenie-architect --since $$leg_start; exit $$rc
+
+fleet-architecture-publish: ## File ONE deduped refined issue from the suggestions file, nothing when empty or an open issue already exists (REPO=; FLEET_SUGGEST=; STAMP=; DRY=1 previews; never merges — #3106)
+	@test -n "$(REPO)" || { echo "Usage: make fleet-architecture-publish REPO=<owner/repo> [DRY=1]"; exit 1; }
+	python3 scripts/fleet_architecture.py publish --suggestions "$(FLEET_SUGGEST)" --repo "$(GH_REPO)" --stamp "$(STAMP)" $(if $(DRY),--dry,)
+
+.PHONY: fleet-architecture-brief fleet-architecture-suggest _fleet-architecture-suggest fleet-architecture-publish
+
 audit-ticks: ## Re-measure the acceptance-tick corpus over all closed issues; exit 0 only when zero unsuperseded stale ticks remain (issue #2631)
 	python3 scripts/audit_acceptance_ticks.py audit --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json"
 
