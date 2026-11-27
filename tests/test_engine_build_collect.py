@@ -4,7 +4,7 @@
 A params edit that changes an install line (but not the `pinned` field) retags every backend cell of
 an engine. If the producer aborts on the first cell failure, the later cells keep their NEW hash with
 NO image built — a committed tag that 404s on GHCR while cpu carries the new tag (measured: vllm cpu
-`3a4d82f5-13c5a9c8` published, cuda `…-9be509b4` / rocm `…-5772a26a` absent for five days, #1682/#1684).
+`0c57b419-13c5a9c8` published, cuda `…-9be509b4` / rocm `…-5772a26a` absent for five days, #1682/#1684).
 The rocm tag is a *generated* pin: PR #2274 (rocm cell → `prebuilt: true` over AMD's base) regenerates
 it to the published `…-16c7ff10-rocm`, so the historical `…-5772a26a` is superseded and no longer
 generated.)
@@ -89,9 +89,9 @@ def test_pinned_unchanged_but_install_changed_still_repins(monkeypatch, tmp_path
     root = tmp_path / "repo"
     params_dir = root / "containers" / "engines" / "params"
     params_dir.mkdir(parents=True)
-    base = {"id": "vllm", "pinned": "3a4d82f569a9f57054ba81633e9b6c73b34b51fe",
+    base = {"id": "vllm", "pinned": "0c57b4195da4a6b69a7725908e428053e51e51b8",
             "variants": {"cpu": {"install": ["a"]}, "cuda": {"install": ["torch==2.13.0"]}}}
-    head = {"id": "vllm", "pinned": "3a4d82f569a9f57054ba81633e9b6c73b34b51fe",
+    head = {"id": "vllm", "pinned": "0c57b4195da4a6b69a7725908e428053e51e51b8",
             "variants": {"cpu": {"install": ["a"]}, "cuda": {"install": ["torch==2.14.0"]}}}
     import json, subprocess
     (params_dir / "vllm.json").write_text(json.dumps(base))

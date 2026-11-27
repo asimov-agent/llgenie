@@ -11,7 +11,7 @@ for want of companions the lane never produced:
 3. the unit gate: the regen rewrote the *previous* bump's frozen
    `docs/changes.d/` row (#2857 rewrote 2026-11-15-llama.cpp-bump.md), never
    touched the engine's own SKILL.md pin lines (vllm's `base:` stayed at
-   v0.33.0 while its Dockerfiles moved to v0.34.0), and left the frozen
+   v0.34.0 while its Dockerfiles moved to v0.34.0), and left the frozen
    `_image_hash` asserts at the old hashes.
 
 These tests pin the fixed behaviour hermetically: they point the module's
