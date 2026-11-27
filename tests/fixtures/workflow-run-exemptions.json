@@ -71,6 +71,9 @@
     "architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)": {
       "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
     },
+    "fleet-architecture-review — weekly Hermes review of the documented bot fleet (files one issue, never edits code)": {
+      "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. This lane's own red is already its named output (the weekly review did not file its one issue), so auto-routing it would duplicate the report. Decision recorded 2026-11-27 for issue #3106; the exemption is lifted when the owner re-allows auto-routing."
+    },
     "arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)": {
       "reason": "Manual-only owner directive 2026-11-08 (#2293): the run-failure-reactor no longer runs on workflow_run[completed] — a red run is surfaced to a human, who dispatches the reactor for ONE run by hand. So this workflow's red is deliberately NOT auto-routed while the reactor's auto trigger is off; the exemption is lifted when the owner re-allows auto-routing."
     },

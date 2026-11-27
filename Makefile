@@ -349,6 +349,8 @@ AGENT_SHELL_CHECK_KEYS ?= $(AGENT_SHELL_KEYS)
 # and ONE linked PR. A run with no drift files nothing, and no run ever merges.
 DOC ?= docs/ARCHITECTURE.md
 ARCH_BRIEF ?= architecture-brief.md
+FLEET_BRIEF ?= fleet-architecture-brief.md
+FLEET_SUGGEST ?= fleet-architecture-suggestions.md
 STAMP ?= $(shell date -u +%Y%m%dT%H%M)
 
 

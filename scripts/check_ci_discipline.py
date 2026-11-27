@@ -74,6 +74,7 @@ SCHEDULE_ALLOW: dict[str, str] = {
     "security-bot.yml": "picks security findings into issues (deterministic producers; no agent-leg use)",
     "semgrep-rules-refresh.yml": "refreshes semgrep rules monthly",
     "code-review-bot.yml": "deterministic PR scanner (no agent-leg/agent-image job in it)",
+    "fleet-architecture-review.yml": "the owner's Monday 03:43Z Hermes review of the documented bot fleet: one deduped suggestion issue, no code edit, no branch, no merge (issue #3106)",
 }
 
 #: Lanes that may use the Hermes agent leg or the agent image at all.

@@ -81,6 +81,12 @@ check-docs: ## CI: fail when a user-facing (## help) make target is undocumented
 	python3 scripts/changes_index.py check
 	python3 scripts/check_docs.py check
 	python3 scripts/check_architecture_census.py check
+	$(MAKE) --no-print-directory check-fleet-roster
+
+check-fleet-roster: ## CI: fail when a profile in agents/manifest.json is absent from docs/ARCHITECTURE.md's `## Host lane fleet` roster (SUBSET check, no live profiles in CI — issue #3106)
+	python3 scripts/check_fleet_roster.py check
+
+.PHONY: check-fleet-roster
 
 check-empty-files: ## CI: fail when a tracked or diff-added path is a zero-byte non-sentinel file (issue #1509) — a `.wt-probe.txt`-class empty diagnostic must never ride a squash to main again; `.gitkeep`-style sentinels are the only allowed empty case. Uses the added-paths gate against `origin/main` when the base resolves (the PR and main-push case — scope.yml fetches it), else the present-empties scan (a bare local checkout)
 	@if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then \
