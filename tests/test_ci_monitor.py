@@ -185,7 +185,12 @@ HEAD_JOBS = {
 
 
 def _freeze_monitor_clock(monkeypatch, now: datetime) -> None:
-    """Pin the clock ci_monitor.main reads; production ageing stays wall-clock (#3081)."""
+    """Pin the clock `ci_monitor.main` reads (line 508: `datetime.now(timezone.utc)`).
+
+    Production ageing is untouched: only `ci_monitor`'s own module namespace is patched, so a
+    real monitor tick still ages runs against the wall clock (issue #3081). `fromisoformat`
+    is inherited, so `_aged_out` keeps parsing stamps normally.
+    """
     class FrozenDatetime(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -195,7 +200,12 @@ def _freeze_monitor_clock(monkeypatch, now: datetime) -> None:
 
 
 def _head_runs_at(now: datetime) -> dict:
-    """Recorded head runs re-stamped relative to the frozen clock, ages intact (#3081)."""
+    """The recorded head runs re-stamped relative to the frozen clock, ages intact.
+
+    Representative 24h old, same-bucket history 48h old, green run 22h old -- all inside the
+    72h window. The fixture's *relative* ages are what the assertion describes, never the
+    real wall clock (issue #3081).
+    """
     head = OPEN_PRS[0]["headRefOid"]
     stamp = lambda hours: (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     return {head: [dict(run, updatedAt=stamp(hours))
