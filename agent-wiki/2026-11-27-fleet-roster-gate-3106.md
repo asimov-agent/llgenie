@@ -58,4 +58,8 @@ generated row in `docs/BOTS.md` (`check-dispatch-forms`), the canonical byte-ide
 (`test_workflow_guards`), the new modules in `scripts/package-layers.json`
 (`test_package_layers`), and an extensible subset assertion in the Hermes-leg model-route test
 instead of a hardcoded call-site count. All six were re-run green before the full suite was
-repeated; no gate was weakened.
+repeated; no gate was weakened. A later `check-proc-gate` red in CI named the one bare
+`subprocess.run` left in `fleet_architecture.py`; that call now goes through the repository's
+`proc.run_checked` seam, with the matching cross-group edge recorded in
+`scripts/package-layers.json`. The full suite then passed `4562 passed` locally at head
+`9734bf972`, before this proc-seam correction; it is re-run again at the final head.

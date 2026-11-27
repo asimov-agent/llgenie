@@ -632,6 +632,11 @@
       "from": "trend_staleness_issue",
       "to": "trend_list_matrix",
       "reason": "the refresh producer files the cells the staleness read computed: one matrix-diff implementation, never a second one (issue #2901)."
+    },
+    {
+      "from": "fleet_architecture",
+      "to": "proc",
+      "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); the weekly fleet reviewer's gh calls go through it by design."
     }
   ]
 }

@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 import issue_body  # noqa: E402
+import proc  # noqa: E402
 
 MARKER_PREFIX = "<!-- fleet-architecture-review:"
 DOC = "docs/ARCHITECTURE.md"
@@ -58,10 +58,7 @@ def brief(out: Path, doc: Path = ROOT / DOC, manifest: Path = ROOT / MANIFEST) -
 
 def _gh(gh: str, *args: str, stdin: str = "", token: str = "") -> str:
     env = {**os.environ, "GH_TOKEN": token} if token else None
-    proc = subprocess.run([gh, *args], input=stdin, text=True, capture_output=True, env=env, check=False)
-    if proc.returncode != 0:
-        raise RuntimeError(f"gh {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}")
-    return proc.stdout.strip()
+    return proc.run_checked([gh, *args], env=env, input=stdin).strip()
 
 
 def _existing_issue(gh: str, repo: str) -> str:
