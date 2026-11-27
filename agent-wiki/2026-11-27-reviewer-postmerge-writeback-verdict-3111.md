@@ -37,3 +37,7 @@ session-observable to the Nerve guard. Without a tree home, all of that would va
   behavioural change; the `CHANGES.md` index row is regenerated with `make changes-index`.
 - No self-tick (#1644), no hand-merge or arm (#1088), no second vehicle. Sync tree -> live is run
   by this lane after the tree change; the merge decision stays with the owner.
+- Closing keyword: this PR is one row of the three-lane issue #3111, so it says `Refs #3111` and
+  does not claim `Closes #3111` — the issue's three criteria cover all three lanes' files and are
+  not this PR's to satisfy (the sibling rows land under their own lane PRs). The title and commit
+  subjects likewise avoid a trailing `(#3111)` claim, so no adjacent close is owed.
