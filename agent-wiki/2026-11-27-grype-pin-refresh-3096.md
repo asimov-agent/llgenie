@@ -27,5 +27,9 @@ PR #3105 on branch `agent/issue-3096-grype-pin`, cut from `origin/main@412b84f02
 
 ## Status
 
-- Ready for review; CI at head `04b01ec97b76`: guard red only on #3096's unticked issue boxes
-  (verdict-gated write-back), scope/docs red before this note landed. Never merged or armed.
+- Ready for review at head `4577eb998d712ffe808b0220bcad25224034486e`: `make -s check-docs` rc=0
+  (992 fragments indexed; census referent `d43b1df8` is an ancestor of that head), and this note's
+  `CHANGES.md` index row is canonical — `make changes-index` produces no diff. The earlier
+  `04b01ec97b76` measurement is history, not the branch's current state.
+- `guard` is red only on #3096's unticked acceptance boxes (verdict-gated write-back, #1644), owned
+  by the reviewer lane; the note-and-index half is complete. Never merged or armed.
