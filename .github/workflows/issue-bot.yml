@@ -168,6 +168,10 @@ jobs:
             echo "::error::the issue-bot's decision failed (make issue-bot-dispatch rc=$rc); refusing to treat a crashed decision as 'nothing to pick'"
             exit 1
           fi
+          # Issue #3116: contract (b) — the cap still wins. A forced call at 3/3 makes the decision
+          # step exit nonzero with an `::error::` naming the forced issue and the cap, so this job
+          # fails loudly (rc branch above) and the run can never go green with no vehicle. The
+          # automatic `cap`/`none` branches still mean "nothing automatic to do" and stay green.
           if [ "$action" = "cap" ] || [ "$action" = "none" ]; then echo "dispatch=false" >> "$GITHUB_OUTPUT"; else echo "dispatch=true" >> "$GITHUB_OUTPUT"; fi
           exit 0
 
