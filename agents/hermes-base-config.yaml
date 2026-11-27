@@ -117,3 +117,35 @@ fallback_providers:
     model: deepseek/deepseek-v4-flash-0731
     base_url: https://inference-api.nousresearch.com/v1
     key_env: NOUS_API_KEY
+
+# The goal judge is a separate pin. Hermes does not walk top-level
+# fallback_providers for an explicit auxiliary provider, so the Nous hops
+# are repeated as fallback_chain. The local server (GET /v1/models on
+# 2026-11-27) serves qwen3.8-flash-next-iq3_xxs and nothing else. The judge
+# route is credential-less. model.default stays LongCat (issue #3089).
+auxiliary:
+  goal_judge:
+    provider: custom
+    model: qwen3.8-flash-next-iq3_xxs
+    base_url: http://127.0.0.1:8080/v1
+    fallback_chain:
+      - provider: custom
+        model: tencent/hy4-flash:free
+        base_url: https://inference-api.nousresearch.com/v1
+        key_env: NOUS_API_KEY
+      - provider: custom
+        model: stepfun/step-3.7-flash:free
+        base_url: https://inference-api.nousresearch.com/v1
+        key_env: NOUS_API_KEY
+      - provider: custom
+        model: qwen/qwen4-max:free
+        base_url: https://inference-api.nousresearch.com/v1
+        key_env: NOUS_API_KEY
+      - provider: custom
+        model: upstage/solar-mini4:free
+        base_url: https://inference-api.nousresearch.com/v1
+        key_env: NOUS_API_KEY
+      - provider: custom
+        model: deepseek/deepseek-v4-flash-0731
+        base_url: https://inference-api.nousresearch.com/v1
+        key_env: NOUS_API_KEY
