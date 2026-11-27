@@ -4,10 +4,11 @@
 The model chain gets ONE home in this repo — `agents/hermes-base-config.yaml` —
 and this script is the only writer of its keys into any Hermes config. It merges
 the OWNED keys — the `model:` route (`default`, `provider`, `base_url`,
-`key_env`, `max_tokens`, `context_window`), `model.aliases`, and
-`fallback_providers` — into the target `config.yaml`, keeping every other key
-the home already has (a profile may add its own tool settings; only the keys
-below are owned).
+`key_env`, `max_tokens`, `context_window`), `model.aliases`,
+`fallback_providers`, and `auxiliary.goal_judge` — into the target
+`config.yaml`, keeping every other key the home already has (a profile may
+add its own tool settings; only the keys below are owned). Other
+`auxiliary` tasks on the profile are left in place.
 
 OWNED-key semantics (issue #2929, shape measured against Hermes 0.23.2):
   * `model.default` / `provider` / `base_url` / `key_env` / `max_tokens` /
@@ -45,6 +46,8 @@ ROUTE_KEYS = ("default", "provider", "base_url", "key_env", "max_tokens",
               "context_window")  # inside `model:` (issue #2929: the route travels)
 OWNED_KEYS = ROUTE_KEYS + ("aliases",)  # inside `model:`
 FALLBACK_KEY = "fallback_providers"  # top level
+AUX_KEY = "auxiliary"  # top level; only goal_judge is owned (issue #3089)
+JUDGE_KEY = "goal_judge"
 
 
 def _yaml():
@@ -77,6 +80,14 @@ def load_base(root: Path = REPO) -> dict:
                              "declares its own route (a profile run has no other)")
     if not isinstance(data[FALLBACK_KEY], list) or not data[FALLBACK_KEY]:
         raise SystemExit(f"[base-config] {path}: `{FALLBACK_KEY}` must be a non-empty list")
+    aux = data.get(AUX_KEY)
+    judge = aux.get(JUDGE_KEY) if isinstance(aux, dict) else None
+    if not isinstance(judge, dict) or not judge.get("model") or not judge.get("base_url"):
+        raise SystemExit(f"[base-config] {path}: `auxiliary.goal_judge` must name model and base_url")
+    chain = judge.get("fallback_chain")
+    if not isinstance(chain, list) or not chain:
+        raise SystemExit(f"[base-config] {path}: `auxiliary.goal_judge.fallback_chain` must be a "
+                         "non-empty list — an explicit judge does not walk fallback_providers")
     return data
 
 
@@ -101,6 +112,8 @@ def _owned_view(data: dict) -> dict:
     view = {key: model.get(key) for key in ROUTE_KEYS}
     view["aliases"] = model.get("aliases") or {}
     view[FALLBACK_KEY] = data.get(FALLBACK_KEY)
+    aux = data.get(AUX_KEY)
+    view[JUDGE_KEY] = aux.get(JUDGE_KEY) if isinstance(aux, dict) else None
     return view
 
 
@@ -128,6 +141,10 @@ def drift(home: Path, base: dict) -> list[str]:
     if fallback != want_fallback:
         out.append(f"{config_path(home)}: {FALLBACK_KEY} is {fallback!r} "
                    f"(expected the base order ending {want_fallback[-1].get('model')!r})")
+    want_judge = base[AUX_KEY][JUDGE_KEY]
+    if view[JUDGE_KEY] != want_judge:
+        out.append(f"{config_path(home)}: auxiliary.goal_judge is {view[JUDGE_KEY]!r} "
+                   f"(expected model {want_judge.get('model')!r})")
     return out
 
 
@@ -151,6 +168,12 @@ def apply(home: Path, base: dict) -> None:
     for name, value in base["model"]["aliases"].items():
         aliases[name] = copy.deepcopy(value)
     data[FALLBACK_KEY] = copy.deepcopy(base[FALLBACK_KEY])
+    aux = data.get(AUX_KEY)
+    if aux is None:
+        aux = data[AUX_KEY] = {}
+    if not isinstance(aux, dict):
+        raise SystemExit(f"[base-config] {path}: `auxiliary` is not a mapping")
+    aux[JUDGE_KEY] = copy.deepcopy(base[AUX_KEY][JUDGE_KEY])
     home.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False),
                     encoding="utf-8")

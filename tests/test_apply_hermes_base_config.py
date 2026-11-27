@@ -2,7 +2,7 @@
 
 `agents/hermes-base-config.yaml` is the single home of the bots' model chain;
 `scripts/apply_hermes_base_config.py` merges its OWNED keys (`model.default`,
-`model.aliases`, `fallback_providers`) into the Hermes global home config.yaml and into every
+`model.aliases`, `fallback_providers`, `auxiliary.goal_judge`) into the Hermes global home config.yaml and into every
 llgenie lane profile's config.yaml — host (`make apply-hermes-base-config`) and image
 (`install_hermes_ci.sh` + `provision_agent_profiles.py`) run this same code, which is the whole
 point: a lane and the image resolve the identical chain.
@@ -87,6 +87,7 @@ def test_apply_writes_the_owned_keys_into_an_empty_home(tmp_path):
     assert data["model"]["default"] == "meituan/longcat-2.5:free"
     assert set(data["model"]["aliases"]) >= set(_base()["model"]["aliases"])
     assert data["fallback_providers"] == _base()["fallback_providers"]
+    assert data["auxiliary"]["goal_judge"] == _base()["auxiliary"]["goal_judge"]
 
 
 def test_apply_keeps_foreign_config_and_foreign_aliases(tmp_path):
@@ -97,6 +98,8 @@ def test_apply_keeps_foreign_config_and_foreign_aliases(tmp_path):
         "model": {"default": "old-model", "aliases": {"openai-gpt": {"model": "gpt-4o"}}},
         "fallback_providers": [{"provider": "openrouter", "model": "x"}],
         "terminal": {"backend": "local"},
+        "auxiliary": {"other_task": {"provider": "custom", "model": "keep-me"},
+                      "goal_judge": {"model": "inkling-2-mini-sq-20"}},
     }))
     seam.apply(home, _base())
     data = yaml.safe_load((home / "config.yaml").read_text())
@@ -105,6 +108,8 @@ def test_apply_keeps_foreign_config_and_foreign_aliases(tmp_path):
     assert data["model"]["aliases"]["openai-gpt"]["model"] == "gpt-4o", "foreign aliases SURVIVE"
     assert data["model"]["aliases"]["nous-longcat"]["max_tokens"] == 16000
     assert data["terminal"]["backend"] == "local", "unrelated config survives untouched"
+    assert data["auxiliary"]["other_task"]["model"] == "keep-me", "foreign auxiliary tasks survive"
+    assert data["auxiliary"]["goal_judge"]["model"] == "qwen3.8-flash-next-iq3_xxs"
 
 
 def test_apply_is_idempotent(tmp_path):
@@ -127,6 +132,7 @@ def test_drift_is_empty_after_apply_and_names_every_absence(tmp_path):
     assert any("model.default" in f for f in findings), findings
     assert any("nous-longcat" in f for f in findings), findings
     assert any("fallback_providers" in f for f in findings), findings
+    assert any("goal_judge" in f for f in findings), findings
 
 
 def test_a_reordered_alias_is_drift_not_a_prefix_match(tmp_path):
@@ -212,3 +218,8 @@ def test_the_base_config_is_the_committed_chain(tmp_path):
     order = [e["model"] for e in base["fallback_providers"]]
     assert order[-1] == "deepseek/deepseek-v4-flash-0731"
     assert all(m.endswith(":free") for m in order[:-1]), order
+    judge = base["auxiliary"]["goal_judge"]
+    assert judge["model"] == "qwen3.8-flash-next-iq3_xxs"
+    assert judge["base_url"] == "http://127.0.0.1:8080/v1"
+    assert judge["fallback_chain"] == base["fallback_providers"]
+    assert "key_env" not in judge
