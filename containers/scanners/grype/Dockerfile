@@ -15,7 +15,7 @@ FROM cgr.dev/chainguard/wolfi-base@sha256:0feab531471d2edfcca55f18883441cb7df598
 # against the SBOM of a different Syft version is a different result, so the pair is pinned and
 # shipped together — the scan pipeline never installs either.
 ARG SYFT_VERSION=1.57.1-r2
-ARG GRYPE_VERSION=0.121.3-r2
+ARG GRYPE_VERSION=0.122.1-r0
 RUN apk add --no-cache ca-certificates "syft=${SYFT_VERSION}" "grype=${GRYPE_VERSION}"
 
 USER 65532:65532
