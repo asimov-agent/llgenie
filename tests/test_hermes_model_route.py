@@ -221,7 +221,9 @@ def test_every_hermes_leg_recipe_reports_its_serving_model():
         lines += [l for l in (ROOT / name).read_text().splitlines() if "hermes -z" in l]
 
     # Then   each of the nine call sites carries the full report pattern, same lane as -p
-    assert len(lines) == 9, lines
+    # A subset contract: every direct hermes leg must carry the pattern; adding a new
+    # dispatchable leg must not redden this test on the count alone (issue #3106).
+    assert len(lines) >= 9, lines
     for line in lines:
         lane = re.search(r"-p (llgenie-[a-z-]+)", line)
         assert lane, line

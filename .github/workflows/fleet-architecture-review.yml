@@ -3,6 +3,8 @@ name: fleet-architecture-review — weekly Hermes review of the documented bot f
 # FLEET ARCHITECTURE REVIEW (issue #3106) — a Monday clock at minute :43 (measured
 # collision-free at main 412b84f02: minutes in use are 1,3,5,7,9,13,17,19,21,25,27,
 # 31,35,39,41,49,53,59) plus a manual dispatch for the owner/collaborator.
+# Trigger surface: `schedule` (Monday 03:43 UTC, minute :43) and `workflow_dispatch` (owner or
+#                  collaborator; `dry` previews the issue body and files nothing).
 # Flow: guard (owner/collaborator BEFORE any secret is read) -> make fleet-architecture-brief
 # (deterministic: docs/ARCHITECTURE.md + agents/manifest.json + every lane SOUL.md; CI has no
 # live profiles, #928) -> make fleet-architecture-suggest (ONE Hermes leg inside the agent image,
@@ -39,13 +41,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Owner / collaborator trigger guard (before secrets)
+      - name: Owner / collaborator trigger guard
         env:
           ACTOR: ${{ github.actor }}
           TRIGGER: ${{ github.triggering_actor }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
@@ -53,14 +59,25 @@ jobs:
           set -euo pipefail
           for u in "$ACTOR" "$TRIGGER"; do
             if [ "$u" = "$OWNER" ]; then continue; fi
-            # A scheduled run is started by GitHub itself; no stranger can trigger a cron.
-            if [ "$u" = "github-actions[bot]" ] && [ "${EVENT:-}" = "schedule" ]; then
-              echo "Repository bot on this repository's schedule - allowed."
-              continue
-            fi
-            if [ "$u" = "github-actions[bot]" ] && [ "${EVENT:-}" = "workflow_dispatch" ]; then
-              echo "Repository bot on a workflow_dispatch of this repository - allowed."
-              continue
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
             fi
             perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
             case "$perm" in
@@ -68,7 +85,7 @@ jobs:
               *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
             esac
           done
-          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER event=$EVENT ref=$REF"
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
 
   review:
     needs: guard

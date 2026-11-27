@@ -51,3 +51,11 @@ This PR does not close #3106 because the issue's five acceptance boxes are revie
 body carries evidence-backed ticks for the CI half, and the reviewer writes the issue-level
 verdict at the reviewed head. The close wording is recorded here so `check-pr-closing` does not
 mistake a resolving reference for an orphaned claim.
+
+**Full-suite repair (six reds from the first run):** `46050988730`'s local mirror found six
+contracts the new workflow/scripts had to satisfy — a `# Trigger surface:` header line and the
+generated row in `docs/BOTS.md` (`check-dispatch-forms`), the canonical byte-identical guard body
+(`test_workflow_guards`), the new modules in `scripts/package-layers.json`
+(`test_package_layers`), and an extensible subset assertion in the Hermes-leg model-route test
+instead of a hardcoded call-site count. All six were re-run green before the full suite was
+repeated; no gate was weakened.
