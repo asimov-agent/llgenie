@@ -40,6 +40,18 @@ import model_engine_pick as mp  # noqa: E402
 
 FIXTURE = REPO / "tests" / "fixtures" / "trend-list-matrix.json"
 SNAPSHOT = REPO / "tests" / "fixtures" / "hub-snapshot.json"
+# #3057 handoff: the cells a drift read already named, handed to the filing path
+# (`make trend-staleness-issue`) so it never re-reads the live trending. Transient, not committed.
+DRIFT_REPORT = REPO / "build" / "trend-staleness-drift.json"
+
+
+def shown_path(path: Path) -> str:
+    """Repo-relative display for log lines, full path when outside the repo (a test hands the
+    handoff in tmp_path) — a log line must never crash on path shape."""
+    try:
+        return str(path.relative_to(REPO))
+    except ValueError:
+        return str(path)
 #: The fixture records the engine-variant signature the matrix was rendered
 #: against, so a change to `containers/engines/params/*.json` (an engine added,
 #: an arch/variant gained or lost) RE-PINS the fixture by showing up as a
@@ -186,6 +198,10 @@ def staleness_read() -> tuple[int, list[dict]]:
         return 2, []
     cells = staleness_cells(fixture, live)
     if not cells:
+        # A fresh read retires the handoff: a stale named drift must never be filed later (#3057).
+        if DRIFT_REPORT.exists():
+            DRIFT_REPORT.unlink()
+            print(f"[trend-staleness] cleared the stale named drift {shown_path(DRIFT_REPORT)}.")
         print(f"[trend-staleness] fresh: the fixture agrees with the live trending in all "
               f"{len(_case_rows(live))} cells (fingerprint {fixture.get(FINGERPRINT_KEY)}, "
               f"registry {fixture.get('generated_utc')}).")
@@ -201,6 +217,17 @@ def staleness_read() -> tuple[int, list[dict]]:
             bits.append("changed " + ch["model"] + " ("
                         + "; ".join(f"{k}: {v}" for k, v in sorted(ch["fields"].items())) + ")")
         print(f"[trend-staleness]   {c['case']}: " + "; ".join(bits), file=sys.stderr)
+    # Name the drift where the filing path can pick it up WITHOUT a second live read (#3057):
+    # a Hub blip in a re-read returned exit 2 and erased the ticket (run 45366360390).
+    DRIFT_REPORT.parent.mkdir(parents=True, exist_ok=True)
+    DRIFT_REPORT.write_text(
+        json.dumps({"written_by": "make check-trend-list-fresh",
+                    "fixture_fingerprint": fixture.get(FINGERPRINT_KEY),
+                    "cells": cells}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[trend-staleness] named drift written to {shown_path(DRIFT_REPORT)} "
+          "for make trend-staleness-issue", file=sys.stderr)
     print(f"[trend-staleness] re-render with: make render-trend-list-matrix", file=sys.stderr)
     return 1, cells
 
