@@ -46,3 +46,8 @@ manifest profiles with role, artifact, exclusions and reporting edge, the one-wa
 a short change-flow edge list. Existing `## Bots` rows are untouched. This is what turns
 `make check-fleet-roster` (and therefore `make check-docs`) green; the note trio is this file,
 `docs/changes.d/2026-11-27-fleet-roster-gate-3106.md` and the regenerated `CHANGES.md` row.
+
+This PR does not close #3106 because the issue's five acceptance boxes are reviewer-owned: the
+body carries evidence-backed ticks for the CI half, and the reviewer writes the issue-level
+verdict at the reviewed head. The close wording is recorded here so `check-pr-closing` does not
+mistake a resolving reference for an orphaned claim.
