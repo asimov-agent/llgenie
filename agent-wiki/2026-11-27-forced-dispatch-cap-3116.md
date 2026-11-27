@@ -35,6 +35,17 @@ comment `7228976499`.
 - Workflow text at `.github/workflows/issue-bot.yml` documents the chosen contract beside the
   `cap`/`none` → `dispatch=false` decision, so the gate's own text states what it enforces.
 
+**Measured gap and repair:** the first acceptance run, `46074612197` at head `c6ef26ac9`,
+completed `success` even though its log line 235 read `[issue-implementer] cap reached: 3/3`
+and line 236 `action=cap` with `FORCE_ISSUE=3116` in the step env. Cause: the workflow's
+checkout step pins `ref: main` (line 133), so a `workflow_dispatch` of an unmerged branch
+executes the branch's workflow text but main's Python — the branch-only `dispatch()` fix was
+never reached. The workflow step now carries the loud check itself: `action=cap` with a
+non-empty `FORCE_ISSUE` prints an `::error::` naming the issue and the cap and exits 1, while
+the automatic `cap`/`none` branches still set `dispatch=false` and stay green. This is the
+layer that makes acceptance 4 observable before merge; the Python fix remains the defence in
+depth after merge.
+
 Related: #3044 (the blocked issue that exposed the silent success), #312 (a crashed decision
 must not be treated as nothing-to-do — the same "success with no action" class).
 

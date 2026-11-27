@@ -172,7 +172,17 @@ jobs:
           # step exit nonzero with an `::error::` naming the forced issue and the cap, so this job
           # fails loudly (rc branch above) and the run can never go green with no vehicle. The
           # automatic `cap`/`none` branches still mean "nothing automatic to do" and stay green.
-          if [ "$action" = "cap" ] || [ "$action" = "none" ]; then echo "dispatch=false" >> "$GITHUB_OUTPUT"; else echo "dispatch=true" >> "$GITHUB_OUTPUT"; fi
+          # The workflow checks out `main` (see the checkout step), so this check must live HERE too:
+          # a branch-only Python fix cannot be observed by a workflow_dispatch of an unmerged branch.
+          if [ "$action" = "cap" ] || [ "$action" = "none" ]; then
+            if [ "$action" = "cap" ] && [ -n "${FORCE_ISSUE:-}" ]; then
+              echo "::error::forced issue #$FORCE_ISSUE was dropped by the daily cap (action=cap, 3/3); refusing a green run with no vehicle (#3116)"
+              exit 1
+            fi
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          fi
           exit 0
 
       # The ordered agent-leg preflight — JEV active (#238), the agent's shell can see this job's
