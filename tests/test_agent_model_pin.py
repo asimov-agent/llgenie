@@ -81,6 +81,18 @@ def test_the_committed_chain_is_green_and_declared_once():
     assert base["model"]["default"] == _PIN.PRIMARY_MODEL
 
 
+def test_an_undocumented_repeat_stays_a_finding(tmp_path):
+    """#3026: the repeat allowance is keyed to the deciding issue, not to the id alone."""
+    # Given the decided chain with its documented-duplicate declaration removed
+    text = _chain_text().replace("documented_duplicate_issue: 3026",
+                                 "documented_duplicate_issue: 0")
+    root = _tree(tmp_path, **{"agents/hermes-base-config.yaml": text})
+
+    # Then  the same repeat becomes the silent-retry finding again
+    bad = _PIN.chain_findings(root)
+    assert any("repeats a model" in f for f in bad), bad
+
+
 def test_the_paid_fallback_stays_last(tmp_path):
     """A different last entry is drift, and it is named with the value the file actually says."""
     # Given a chain whose last fallback is some other model

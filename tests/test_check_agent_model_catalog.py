@@ -91,8 +91,9 @@ def test_the_real_config_chain_is_read_completely():
     ids = set(members)
     assert "meituan/longcat-2.5:free" in ids          # primary (issue #2929)
     assert "deepseek/deepseek-v4-flash-0731" in ids   # the paid last resort
+    # #3026 retired the qwen hop; the duplicate tencent slot is documented in the config.
     assert {"tencent/hy4-flash:free", "stepfun/step-3.7-flash:free",
-            "qwen/qwen4-max:free", "upstage/solar-mini4:free"} <= ids
+            "upstage/solar-mini4:free"} <= ids
     for mid, info in members.items():
         assert info["budgets"], f"{mid} carries no context_window budget"
 
@@ -115,6 +116,20 @@ def test_a_full_catalog_is_green(capsys):
     out = capsys.readouterr().out
     assert out.count("member ") == len(members)
     assert "matches published context_length" in out
+
+
+def test_a_tracked_absence_is_informational_but_an_untracked_one_still_reds(capsys):
+    """#3087: an absence is silenced only by its exact id and issue, never by guesswork."""
+    members = _members_from_config(REAL_CONFIG)
+    models = _catalog_for(members, drop=("meituan/longcat-2.5:free",))
+
+    assert CAM.compare(members, models, {"meituan/longcat-2.5:free": 3087}) == []
+    assert "tracked as #3087" in capsys.readouterr().out
+
+    # An absent id that is not declared still reds, even if some other id is.
+    for declaration in ({}, {"stepfun/step-3.7-flash:free": 3087}):
+        findings = CAM.compare(members, models, declaration)
+        assert any("meituan/longcat-2.5:free" in f for f in findings), declaration
 
 
 def test_a_missing_member_is_named_with_candidates(capsys):
@@ -160,7 +175,7 @@ def test_main_green_exit_zero_with_a_saved_catalog(capsys, tmp_path):
 def test_main_dry_run_prints_the_body_and_calls_no_gh(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(CAM, "run_gh", _no_gh)
     members = _members_from_config(REAL_CONFIG)
-    cat = _catalog(_catalog_for(members, drop=("qwen/qwen4-max:free",)))
+    cat = _catalog(_catalog_for(members, drop=("stepfun/step-3.7-flash:free",)))
     rc = CAM.main(["--catalog", str(cat), "--dry-run"])
     assert rc == 1
     out = capsys.readouterr().out
@@ -168,7 +183,7 @@ def test_main_dry_run_prints_the_body_and_calls_no_gh(monkeypatch, capsys, tmp_p
     headings = issue_body.headings(body)
     assert headings == list(issue_body.SECTIONS), headings
     assert body.startswith(CAM.MARKER)
-    assert "qwen/qwen4-max:free" in body and "agent-model-catalog-check" in body
+    assert "stepfun/step-3.7-flash:free" in body and "agent-model-catalog-check" in body
 
 
 def _no_gh(args: list[str]) -> str:
@@ -333,16 +348,16 @@ def test_the_drift_body_carries_the_four_step_decision_path():
 
 def test_dropin_candidates_respect_the_committed_budget():
     members = _members_from_config(REAL_CONFIG)
-    budget = members["qwen/qwen4-max:free"]["budgets"][0][1]
+    budget = members["tencent/hy4-flash:free"]["budgets"][0][1]
     body, findings = _drift_body(
-        members, drop=("qwen/qwen4-max:free",),
+        members, drop=("tencent/hy4-flash:free",),
         extra=(("newco/bigmodel:free", budget),            # drop-in: equal budget
                ("tiny/tiny:free", budget - 1)),            # too small: excluded
     )
-    assert findings and findings[0].startswith("FINDING: qwen/qwen4-max:free")
+    assert findings and findings[0].startswith("FINDING: tencent/hy4-flash:free")
     technical = _section(body, "Technical")
     line = next(l for l in technical.splitlines()
-                if "drop-in candidates for qwen/qwen4-max:free" in l)
+                if "drop-in candidates for tencent/hy4-flash:free" in l)
     assert "newco/bigmodel:free" in line
     assert "tiny/tiny:free" not in line
 

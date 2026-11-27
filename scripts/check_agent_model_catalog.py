@@ -114,7 +114,8 @@ def fetch_catalog(url: str) -> list[dict]:
     return data
 
 
-def compare(members: dict[str, dict], catalog_models: list[dict]) -> list[str]:
+def compare(members: dict[str, dict], catalog_models: list[dict],
+            known_absent: dict | None = None) -> list[str]:
     """Return finding lines (empty == green), printing one line per member."""
     catalog = {str(m["id"]): m for m in catalog_models
                if isinstance(m, dict) and m.get("id")}
@@ -128,6 +129,13 @@ def compare(members: dict[str, dict], catalog_models: list[dict]) -> list[str]:
         budget = budgets[0] if budgets else None
         entry = catalog.get(mid)
         if entry is None:
+            tracked = (known_absent or {}).get(mid)
+            if isinstance(tracked, int) and tracked > 0:
+                # A declared, separately-tracked absence is informational, not a new
+                # finding. The id and the issue must both match — any other absent
+                # chain member still reds and gets filed.
+                print(f"member {mid}: absent from the catalog, tracked as #{tracked}")
+                continue
             findings.append(f"FINDING: {mid} ({', '.join(info['sources'])}) is not in the "
                             f"catalog; current :free candidates: {', '.join(free_candidates)}")
             continue
@@ -302,7 +310,10 @@ def main(argv: list[str] | None = None) -> int:
         models = fetch_catalog_from_file(args.catalog)
     else:
         models = fetch_catalog(args.url)
-    findings = compare(members, models)
+    import yaml  # noqa: PLC0415  (same lazy import as chain_members)
+    config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+    known_absent = ((config.get("model") or {}).get("catalog_known_absent") or {})
+    findings = compare(members, models, known_absent)
     if not findings:
         print("[agent-model-catalog] catalog check: OK — every chain member is listed "
               "with a matching budget")

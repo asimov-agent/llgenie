@@ -139,7 +139,14 @@ def chain_findings(root: Path = REPO) -> list[str]:
     if LAST_MODEL in [str(m) for m in order[:-1]]:
         out.append(f"{BASE_CONFIG}: {LAST_MODEL} appears before the last position — the paid "
                    "fallback is LAST or nowhere")
-    if len(set(order)) != len(order):
+    repeated = sorted({str(m) for m in order if order.count(m) > 1})
+    # Issue #3026: the retired qwen hop and nous-hy4 deliberately share one live id.
+    # The repeat is allowed ONLY when the config names the deciding issue AND the
+    # repeat is that exact pair — an undocumented repeat is still a silent-retry bug.
+    documented_repeat = (repeated == ["tencent/hy4-flash:free"]
+                         and order.count("tencent/hy4-flash:free") == 2
+                         and model.get("documented_duplicate_issue") == 3026)
+    if repeated and not documented_repeat:
         out.append(f"{BASE_CONFIG}: fallback_providers repeats a model (order: {order})")
     chain_models = {str(m) for m in order}
     declared = {m for m in alias_models if m}
