@@ -1160,6 +1160,43 @@ declared phony, `make <name>` prints `Nothing to be done` and exits 0, where the
 declaration fails `No rule to make target` — so `scripts/check_wiring.py` names every offender in
 one pass and `make wiring-report` prints the can-run / no-target / runs-nothing counts.
 
+## Host lane fleet
+
+This is the **host agent lane** roster, not the CI-workflow roster in `## Bots` below. It is derived
+from the measured tree copy of `agents/manifest.json` at `412b84f0228df048d997115aaab2bb02c52094dd`
+(13 profiles; CI cannot see live profiles — #928). `make check-fleet-roster` checks that every
+manifest profile appears as a standalone token in this subsection; the check is a **subset**
+(`manifest <= documented`), so an extra future lane is fine and only a missing profile reddens it.
+
+| Profile | Role | Artifact it lands | What it does NOT do | Reports to |
+|---|---|---|---|---|
+| `llgenie-planner` | Inbox triage: refines, routes and dispatches llgenie work | Refined issues and lane dispatches | Does not implement, approve or merge | Owner's inbox; each lane's result returns here |
+| `llgenie-issse-implementer` | Implements ONE dispatched issue | One ready-for-review PR closing that issue | Does not merge, arm or take a second issue at once | `llgenie-planner` |
+| `llgenie-architect` | Files refactor issues for the other llgenie bots | Refactor/design issues | Does not implement or merge | `llgenie-planner` |
+| `llgenie-security` | Keeps vulnerability scanning and its routing honest | Tagged finding issues | Does not implement fixes or weaken a scan gate | `llgenie-planner` |
+| `llgenie-documentation-maintainer` | Keeps the llgenie docs aligned with the tree | Doc edits plus note/index rows | Does not change scripts, tests or workflows | `llgenie-planner` |
+| `llgenie-ci-pipelines-maintainer` | Measures CI pipelines against their docs and gates; fixes pipeline-file defects | Red-finding comments, pipeline fix PRs | Does not merge, rebase another lane's branch, or weaken a gate | `llgenie-planner` |
+| `llgenie-pr-reviever` | Reviews a llgenie PR against a run id and a sha | Review comments with evidence | Does not implement, approve or merge | `llgenie-planner` |
+| `llgenie-tester` | Tests a PR against the issue's acceptance criteria | Test-evidence comments | Does not take another lane's fix or merge | `llgenie-planner` |
+| `llgenie-engine-improver` | Verifies trending-engine sync and serving parameters on this host | Verification reports | Does not merge | `llgenie-planner` |
+| `llgenie-pr-merge-conflict` | Rebases conflicting llgenie PRs onto `main` | Rebased PR heads | Does not review product scope or merge | `llgenie-planner` |
+| `llgenie-business-analyst` | Frames owner-intent issues into requirements | Framed requirements issues | Does not implement, prioritize or merge | `llgenie-planner` |
+| `llgenie-product-manager` | Sets priority, scope and acceptance on framed issues | Prioritized issues with acceptance criteria | Does not implement or merge | `llgenie-planner` |
+| `llgenie-status-keeper` | Records lane claims, TTLs and idle-capable lanes as a GitHub comment | Board-status comments | Does not dispatch or merge | `llgenie-planner` |
+
+**Sync direction (one-way):** `agents/<profile>/` in the tree is canonical; the live
+`$HOME/.hermes/profiles/<profile>/` copy is a one-way projection of it, never the source of a
+repo edit. The seam is `make sync-agent-profile` / `make check-agent-profiles` and
+`scripts/provision_agent_profiles.py --resolve` (see `agents/README.md`). Host-measured live-profile
+provenance is recorded as a dated note here; CI reads only the tree copy (#2135, #928).
+
+**How a change flows (collaboration edges):** planner inbox → business analyst (frame) → product
+manager (scope/acceptance) → architect (design) → implementer / documentation-maintainer /
+ci-pipelines-maintainer / engine-improver / security / tester / reviewer / status-keeper /
+pr-merge-conflict (each lands its own artifact) → back to the planner inbox for routing and to the
+reviewer for a run-id-and-sha verdict. No lane merges; `.github/workflows/auto-merge.yml` lands a
+green, conflict-free PR, and a `do-not-merge` label is the only hold.
+
 ## Bots
 
 Bots run under one of two trigger classes: a scheduled `schedule:` cron on a minute the

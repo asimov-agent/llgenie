@@ -36,4 +36,13 @@ scheduled workflows were 1,3,5,7,9,13,17,19,21,25,27,31,35,39,41,49,53,59 — mi
 
 The single atomic commit is authored and committed as `Asimov Agent <support@docondee.com>` — the
 `check-pr-authors` allow-list identity — so the CI author gate keeps its meaning. No `SOUL.md`,
-`AGENTS.md`, `docs/ARCHITECTURE.md` or `agents/manifest.json` content was changed by this lane.
+`AGENTS.md`, `agents/manifest.json` or other lane's behaviour file was changed by this lane.
+
+## Docs prose landed on the same vehicle
+
+`docs/ARCHITECTURE.md` gains an additive `## Host lane fleet` section beside `## Bots`: all 13
+manifest profiles with role, artifact, exclusions and reporting edge, the one-way
+`agents/<profile>/` → `$HOME/.hermes/profiles/<profile>/` sync direction and its seam targets, and
+a short change-flow edge list. Existing `## Bots` rows are untouched. This is what turns
+`make check-fleet-roster` (and therefore `make check-docs`) green; the note trio is this file,
+`docs/changes.d/2026-11-27-fleet-roster-gate-3106.md` and the regenerated `CHANGES.md` row.
