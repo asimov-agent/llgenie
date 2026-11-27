@@ -246,6 +246,13 @@ jobs:
           author="$(make -s git-identity-line)"
           make engine-bump-pr-body ENGINE="$ID" REF="$REF" OLD="$OLD" NEW="$NEW" RUN="${{ github.run_id }}" AUTHOR="$author" REPO_SLUG="${{ github.repository }}" REVIEW_FILE=params-review-section.md HARD_FAIL="$HARD_FAIL" DEPS="$DEPS" OUT=/tmp/pr-body.md COMMIT_OUT=/tmp/commit-acceptance.md
           git commit -m "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" -m "$msg" -m "$(cat /tmp/commit-acceptance.md)" || { echo "nothing to commit"; exit 0; }
+          # Issue #3076: restamp the COMMIT acceptance block before the push, through the SAME
+          # composer the body used, so no wave pushes a stub-carrying (proven: ...) clause. The
+          # proof names the run id (a self-amending commit cannot name its own final sha); the
+          # subject and every non-acceptance paragraph survive byte-for-byte.
+          git log -1 --format=%B > /tmp/commit-message.md
+          make -s engine-bump-commit-restamp ENGINE="$ID" RUN="${{ github.run_id }}" COMMIT_FILE=/tmp/commit-message.md COMMIT_OUT=/tmp/commit-message-restamped.md
+          if ! cmp -s /tmp/commit-message.md /tmp/commit-message-restamped.md; then git commit --amend -F /tmp/commit-message-restamped.md --cleanup=verbatim; fi
           git push --force origin "$branch"
           # The body above came from `make engine-bump-pr-body` (issue #3050), not from inline
           # composition. The composer this replaces built the facts block with

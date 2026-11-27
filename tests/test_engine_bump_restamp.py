@@ -613,3 +613,63 @@ class TestHeadEvidence:
         draft = eb.render_for(bump, items=items, not_covered=tuple(not_covered))
         assert body_preserve_findings(live, draft) == [], body_preserve_findings(live, draft)
 
+
+
+class TestCommitTextRestamp:
+    """Issue #3076: the producer side restamps its COMMIT acceptance block before push."""
+
+    @staticmethod
+    def _message(stub: str = "PLACEHOLDER") -> str:
+        return (
+            "chore(engine): bump ollama to vX@01234567\n\n"
+            "Automated engine pin bump (closes no issue).\n\n"
+            "## Acceptance:\n"
+            f"- [x] the engine's pin moved (proven: gh api .../blobs/abc {stub})\n"
+            f"- [x] the frozen params were regenerated (proven: rc=0, engine-build run at head {stub})\n"
+            "- [x] the images build and run tests (proven: rc=0)\n\n"
+            "## Not covered\n"
+            "- a side issue stays outside the acceptance block\n"
+        )
+
+    def test_stub_block_is_replaced_and_every_other_paragraph_survives(self):
+        out, replaced = eb.restamp_commit_text(self._message(), engine="ollama", run_id="12345")
+        assert replaced == 2, out
+        assert out.startswith("chore(engine): bump ollama to vX@01234567\n\n"
+                              "Automated engine pin bump (closes no issue).\n\n")
+        assert "PLACEHOLDER" not in out and "HEADSHA" not in out
+        assert out.rstrip().endswith("## Not covered\n- a side issue stays outside the acceptance block")
+        assert out.count("- [x] ") == 3
+        assert "run=12345" in out and "make engine-bump ENGINE=ollama rc=0" in out
+        assert "## Acceptance:" in out
+
+    def test_no_acceptance_heading_appends_a_measured_block(self):
+        out, replaced = eb.restamp_commit_text("chore(engine): bump x\n\nbody\n",
+                                               engine="ollama", run_id="99")
+        assert replaced == 0
+        assert out.startswith("chore(engine): bump x\n\nbody\n\n## Acceptance:\n")
+        assert "run=99" in out
+
+    def test_image_runs_ride_into_the_third_clause(self):
+        out, _ = eb.restamp_commit_text(self._message(), engine="ollama", run_id="12345",
+                                        image_runs=("111", "222"))
+        assert "run=111 run=222" in out, out
+
+    def test_cli_refuses_a_stub_that_survives_outside_the_block(self, tmp_path):
+        source = tmp_path / "commit.md"
+        target = tmp_path / "restamped.md"
+        source.write_text(self._message() + "\nPLACEHOLDER in a non-acceptance paragraph\n")
+        try:
+            eb.restamp_commit_file(str(source), str(target), "ollama", "12345", ())
+        except SystemExit as exc:
+            assert "draft stub" in str(exc)
+            assert not target.exists()
+        else:
+            raise AssertionError("the CLI accepted a commit with a surviving draft stub")
+
+    def test_cli_writes_a_clean_file_through_the_seam(self, tmp_path):
+        source = tmp_path / "commit.md"
+        target = tmp_path / "restamped.md"
+        source.write_text(self._message())
+        assert eb.restamp_commit_file(str(source), str(target), "ollama", "12345", ()) == 0
+        text = target.read_text()
+        assert "PLACEHOLDER" not in text and "run=12345" in text

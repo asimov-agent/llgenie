@@ -335,6 +335,13 @@ DRY and writes nothing until `APPLY=1`; closes additionally need `CLOSE_SUPERSED
 `OUT_DIR`. It carries no CI clock on purpose: rewriting an open PR body on a schedule is the host's act,
 and the #3050 composer already covers every future wave at render time (`tests/test_engine_bump_restamp.py`).
 
+`make engine-bump-commit-restamp` is the producer-side twin (issue #3076): the engine-bump lane calls
+it between `git commit` and `git push` so the COMMIT acceptance block carries the same measured
+`rc=0 run=<id>` proof as the PR body. It replaces only the `## Acceptance:` block, byte-preserves the
+subject and every other paragraph, and refuses to write when a draft stub survives. A self-amending
+commit cannot name its own final sha, so the commit mirror cites the run id while the PR body keeps
+the head-stamped clauses the composer writes there.
+
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
 `git show <sha>:<path>` and keeps the names the new pin added (issue #186).
@@ -415,6 +422,7 @@ generator function (`scripts/check_docs.py::bots_table`).
 | `make dispatch-forms-report` | Print the dispatch table in docs/BOTS.md (generated from the workflow files; paste it between the dispatch-forms markers) |
 | `make docs-report` | Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ note's issue references + its docs/changes.d/ index row |
 | `make engine-bump` | Issue #107: pin ENGINE to its latest upstream commit + derive + apply + regen (no push) |
+| `make engine-bump-commit-restamp` | Issue #3076: restamp a bump lane's COMMIT acceptance block from the measured run proof BEFORE push, using the same composer that renders the PR body (stub tokens are refused); subject and non-acceptance paragraphs are byte-preserved [ENGINE=<id> RUN=<run id> COMMIT_FILE=<path> COMMIT_OUT=<path> IMAGE_RUNS="<id> ..."] |
 | `make engine-bump-restamp` | Issue #3054: re-render every OPEN `chore/engine-bump-*` PR body through the #3050 composer, stamp it with make bot-stamp-body and write it through the guarded make bot-body-write seam — never a raw `gh pr edit`; classifies each bump against the pin main actually carries (pending/landed/superseded) and closes an overtaken bump with that pin as the evidence instead of re-stamping it. DRY unless APPLY=1; closes nothing unless CLOSE_SUPERSEDED=1 [REPO=<owner/name> APPLY=1 CLOSE_SUPERSEDED=1 OUT_DIR= DEFERRED="<engine>=<issue> ..."] |
 | `make engine-skill-gap` | Show the unskilled-engine gap: shipped / known-unsupported / new-and-unresolved, the models that can never be offered, and the per-engine list |
 | `make fix-loop-image` | Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359) |

@@ -45,7 +45,17 @@ if str(REPO_ROOT) not in sys.path:
 import proc  # the ONE subprocess policy (issue #797)
 from check_pr_hygiene import OPENSPEC_REF  # the gate this leg must satisfy (issue #3050)
 from engine_bump_pr_body import (ACCEPTANCE_CLAIMS, ACCEPTANCE_HEADING, DEFAULT_OPENSPEC,
-                                 render_body)
+                                 acceptance_items, render_body)
+
+#: Issue #3076: the producer side also has to restamp the COMMIT text. The reader gates already
+#: refuse draft stubs in a commit's `(proven: ...)` clauses (`check_pr_acceptance.DRAFT_STUB` and
+#: `check_pr_hygiene._COMMIT_PROVEN_STUB`, issue #3075), but the bump lane used to push its commit
+#: with the composer's assumptions instead of the measured proof. The commit mirror is rendered
+#: by the SAME composer (`acceptance_items`) the body uses; only the BLOCK is replaced, so a
+#: lane's subject and its non-acceptance paragraphs are byte-preserved.
+COMMIT_ACCEPTANCE_HEADING = "## Acceptance:"
+DRAFT_STUB = re.compile(r"\b(?:PLACEHOLDER|HEADSHA|MAINSHA)\b")
+ANY_HEADING = re.compile(r"^#{1,6}\s")
 
 DEFAULT_REPO = "asimov-agent/llgenie"
 BUMP_BRANCH_PREFIX = "chore/engine-bump-"
@@ -498,6 +508,48 @@ def process(repo: str, apply: bool, close_superseded: bool, out_dir: Path,
     return tally
 
 
+def restamp_commit_text(message: str, *, engine: str, run_id: str,
+                        image_runs: tuple[str, ...] = ()) -> tuple[str, int]:
+    """Replace the commit's acceptance block with the composer's MEASURED clauses (issue #3076).
+
+    The proof names the workflow run id (`rc=0 run=<id>`), never a head sha: a self-amending commit
+    cannot name its own final sha, and a sha stamped before the amend would be stale at the live
+    head (issue #2288). The PR body carries the head-stamped clauses; the commit mirror carries the
+    run-stamped ones. Returns the new message and the number of draft-stub tokens it replaced.
+    """
+    block = "\n".join([COMMIT_ACCEPTANCE_HEADING,
+                       *acceptance_items(engine, run_id, image_runs=image_runs)])
+    lines = message.rstrip("\n").splitlines()
+    idx = next((i for i, line in enumerate(lines) if line.strip() == COMMIT_ACCEPTANCE_HEADING), None)
+    if idx is None:
+        return "\n".join([*lines, "", block]).rstrip() + "\n", len(DRAFT_STUB.findall(message))
+    end = len(lines)
+    for j in range(idx + 1, len(lines)):
+        if ANY_HEADING.match(lines[j]):
+            end = j
+            break
+    replaced = len(DRAFT_STUB.findall("\n".join(lines[idx:end])))
+    out = [*lines[:idx], *block.splitlines(), *lines[end:]]
+    return "\n".join(out).rstrip() + "\n", replaced
+
+
+def restamp_commit_file(commit_in: str, commit_out: str, engine: str, run_id: str,
+                        image_runs: tuple[str, ...]) -> int:
+    """CLI seam: read a commit message file, restamp it, refuse any surviving draft stub."""
+    source = Path(commit_in)
+    if not source.is_file():
+        raise SystemExit(f"--commit-in names no file: {commit_in}")
+    updated, replaced = restamp_commit_text(source.read_text(encoding="utf-8"),
+                                            engine=engine, run_id=run_id, image_runs=image_runs)
+    if DRAFT_STUB.search(updated):
+        raise SystemExit("[restamp] commit text still carries a draft stub — refusing to write")
+    target = Path(commit_out) if commit_out else source
+    target.write_text(updated, encoding="utf-8")
+    print(f"[restamp] commit text: {replaced} draft stub token(s) -> measured proof "
+          f"(engine={engine} run={run_id}) -> {target}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Re-render the open engine-bump PR bodies through the composer + guarded write seam (issue #3054).")
@@ -510,7 +562,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--deferred", action="append", default=[], metavar="ENGINE=ISSUE",
                     help="map an engine whose image builds are red/unreported to the issue that owns that "
                          "gap; the body then carries it as `## Not covered` instead of a tick it cannot back")
+    ap.add_argument("--commit-in", default="", help="issue #3076: a commit MESSAGE file whose "
+                    "acceptance block is restamped from the measured run proof before push")
+    ap.add_argument("--commit-out", default="", help="where the restamped commit message is written "
+                    "(default: overwrite --commit-in)")
+    ap.add_argument("--engine", default="", help="engine id for --commit-in (the bump lane's ENGINE)")
+    ap.add_argument("--run", default="", help="workflow run id for --commit-in")
+    ap.add_argument("--image-run", action="append", default=[], metavar="RUN_ID",
+                    help="per-variant engine-build run id for --commit-in")
     a = ap.parse_args(argv)
+    if a.commit_in:
+        if not a.engine or not a.run:
+            raise SystemExit("--commit-in requires --engine and --run")
+        return restamp_commit_file(a.commit_in, a.commit_out, a.engine, a.run,
+                                   tuple(a.image_run))
     deferred: dict[str, str] = {}
     for item in a.deferred:
         if "=" not in item:

@@ -427,6 +427,10 @@ engine-bump-pr-body: ## Issue #3050: render the engine-bump lane's PR body AND i
 engine-bump-restamp: ## Issue #3054: re-render every OPEN `chore/engine-bump-*` PR body through the #3050 composer, stamp it with make bot-stamp-body and write it through the guarded make bot-body-write seam — never a raw `gh pr edit`; classifies each bump against the pin main actually carries (pending/landed/superseded) and closes an overtaken bump with that pin as the evidence instead of re-stamping it. DRY unless APPLY=1; closes nothing unless CLOSE_SUPERSEDED=1 [REPO=<owner/name> APPLY=1 CLOSE_SUPERSEDED=1 OUT_DIR= DEFERRED="<engine>=<issue> ..."]
 	@$(PY) scripts/engine_bump_restamp.py --repo "$(GH_REPO)" $(if $(filter 1,$(APPLY)),--apply,) $(if $(filter 1,$(CLOSE_SUPERSEDED)),--close-superseded,) --out-dir "$(if $(OUT_DIR),$(OUT_DIR),/tmp/engine-bump-restamp)" $(foreach d,$(DEFERRED),--deferred "$(d)")
 
+engine-bump-commit-restamp: ## Issue #3076: restamp a bump lane's COMMIT acceptance block from the measured run proof BEFORE push, using the same composer that renders the PR body (stub tokens are refused); subject and non-acceptance paragraphs are byte-preserved [ENGINE=<id> RUN=<run id> COMMIT_FILE=<path> COMMIT_OUT=<path> IMAGE_RUNS="<id> ..."]
+	@test -n "$(ENGINE)" -a -n "$(RUN)" -a -n "$(COMMIT_FILE)" || { echo "Usage: make engine-bump-commit-restamp ENGINE=<id> RUN=<gh run id> COMMIT_FILE=<path> [COMMIT_OUT=<path>] [IMAGE_RUNS=\"<id> ...\"]"; exit 1; }
+	@$(PY) scripts/engine_bump_restamp.py --commit-in "$(COMMIT_FILE)" --commit-out "$(if $(COMMIT_OUT),$(COMMIT_OUT),$(COMMIT_FILE))" --engine "$(ENGINE)" --run "$(RUN)" $(foreach r,$(IMAGE_RUNS),--image-run "$(r)")
+
 list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON; CHANGED=<ref> keeps only images whose tag differs from it)
 	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
 
