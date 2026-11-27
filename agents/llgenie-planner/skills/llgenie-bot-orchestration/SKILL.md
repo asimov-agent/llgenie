@@ -97,8 +97,17 @@ work with no PR. It ends in a dispatch with evidence, never in an implementation
 The planner never implements. This is the loop that keeps the fleet working: measure quiescence, measure the
 backlog, dispatch, report the evidence.
 
-**Idleness is the defect.** Every pass ends in a dispatch, a close with evidence, or a written reason nothing could
-move — never in "waiting".
+**Idleness is the defect. "Waiting" is a report, never an outcome.** Every pass ends in a
+dispatch, a close with evidence, or a written reason nothing could move — never in "waiting", and never in a status note
+that says "I'll act when gate X clears". That sentence, repeated pass after pass while a lane is inert, is the
+exact failure this fixes: the owner reads it as refusing to work. When a blocking lane is inert (no answer across
+DMs, no branch, no PR) and its DM channel is exhausted, you do NOT keep posting status — you either (a) re-dispatch
+the *responsive* lane that already owns the one vehicle for that issue to finish it on its own branch, or (b) take
+the issue end-to-end under the monitor contract (OpenSpec change first → worktree off `origin/main` → `make`
+gates → PR). Never open a second PR/branch for an issue that already has one — that is the #824 "separate
+branches instead of fixing the existing PR" failure the owner called out; finish or extend the existing vehicle.
+A DM that bounces `max_hops` or "never answered within the wait ... do not resend" is a routing signal to use the
+durable on-issue channel or a different responsive lane, not a reason to stop.
 
 **Check the tick itself FIRST.** Lanes are turn-based: they act on a dispatch then exit, so a disabled tick or an
 overdue `next_run` on a live scheduler means the whole fleet is silent and looks identical to laziness. Probe it
