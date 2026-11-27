@@ -213,6 +213,40 @@ def _sha_matches_any(candidates: set[str], sha: str) -> bool:
     return any(c == sha or sha.startswith(c) or c.startswith(sha) for c in candidates if c)
 
 
+def _is_ancestor_sha(candidate: str, rev_sha: str, cwd: Path) -> bool:
+    """True when `candidate` is a commit in `rev_sha`'s ancestry (issue #3108).
+
+    A proof measured at an ancestor remains valid after a legitimate rebase/push; a sibling,
+    a descendant or an unresolvable/non-commit token does NOT pass. `merge-base --is-ancestor`
+    exits 1 for unrelated commits and fails for missing objects — both are "not proven" here,
+    never an exception that skips the stale-head check.
+    """
+    if not candidate or not rev_sha:
+        return False
+    try:
+        r = proc.run_ok(["git", "merge-base", "--is-ancestor",
+                         f"{candidate}^{{commit}}", f"{rev_sha}^{{commit}}"],
+                        cwd=str(cwd))
+    except (proc.ProcError, OSError):
+        return False
+    return r.returncode == 0
+
+
+def _proven_head_current(named: set[str], rev_sha: str,
+                         is_ancestor: "Callable[[str, str], bool]") -> bool:
+    """True when a `(proven: …)` head is the measured head or an ancestor of it (#3108).
+
+    Exact/abbreviated equality keeps working. Ancestor acceptance uses the injected seam so
+    unit tests can measure a temporary history; the production seam is `_is_ancestor_sha`.
+    No named heads means there is nothing to compare, never a stale-head finding.
+    """
+    if not rev_sha or not named:
+        return True
+    if _sha_matches_any(named, rev_sha):
+        return True
+    return any(is_ancestor(c, rev_sha) for c in named if c)
+
+
 
 def _requires_own_gate_verdict(criterion: str) -> bool:
     """True when `criterion` demands the acceptance gate's OWN job verdict be green (issue #2094).
@@ -341,7 +375,8 @@ def verdict_evidence(gh: str, repo: str, pr: "int | str", head: str) -> "dict | 
 def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                        verdict: "dict | None" = None,
                        run_lookup: "Callable[[int], tuple[str, str, str] | None] | None" = None,
-                       rev_sha: str = "") -> list[dict]:
+                       rev_sha: str = "",
+                       ancestor_lookup: "Callable[[str, str], bool] | None" = None) -> list[dict]:
     """The findings a merged PR closing `issue_body_text` carries.
 
     Three states a close can be in (issue #2187's gate half), plus a fourth for the gate's own loop:
@@ -365,6 +400,8 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
     criteria are structurally invisible to the exact-match read, so the found-headings canary reds
     instead of verifying nothing.
     """
+    is_ancestor = ancestor_lookup or (
+        lambda candidate, head: _is_ancestor_sha(candidate, head, REPO_ROOT))
     items = _acceptance_items(issue_body_text)
     if not items:
         # canary: an issue whose checkboxes sit under a non-canonical heading must refuse, never pass,
@@ -573,8 +610,8 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                     })
                     continue
                 if green_heads:
-                    if rev_sha and not _sha_matches_any(named, rev_sha) \
-                            and not _sha_matches_any(green_heads, rev_sha):
+                    if rev_sha and not _proven_head_current(named, rev_sha, is_ancestor) \
+                            and not _proven_head_current(green_heads, rev_sha, is_ancestor):
                         stale = sorted(green_heads | named)
                         out.append({
                             "key": "tick-stale-head-unflagged",
@@ -584,10 +621,10 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                                 f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]`, and its "
                                 f"`(proven: …)` pins the proof to "
                                 f"{', '.join(h[:12] for h in stale[:4]) or 'the cited green runs'} — "
-                                f"none of the named shas equals the current head {rev_sha[:12]}. A proof "
-                                f"measured at an older head does not survive a push (issue #2288): "
-                                f"re-measure at {rev_sha[:12]}, or record the live head alongside the old "
-                                f"one inside the marker."
+                                f"none of the named shas equals the current head {rev_sha[:12]} "
+                                f"or an ancestor of it (#2288/#3108). A proof measured at an unrelated "
+                                f"head does not survive a push: re-measure at {rev_sha[:12]}, or record "
+                                f"the live head alongside the old one inside the marker."
                             ),
                             "where": f"#{issue}",
                         })
@@ -610,7 +647,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
             if rev_sha:
                 # No run cited (a command+rc+sha tick): the head-token drift rule stays local.
                 named = {mm.group(1) for mm in GIT_SHA.finditer(ref)}
-                if named and not _sha_matches_any(named, rev_sha):
+                if named and not _proven_head_current(named, rev_sha, is_ancestor):
                     out.append({
                         "key": "tick-stale-head-unflagged",
                         "blocking": True,
@@ -618,8 +655,8 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
                         "evidence": (
                             f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` and its "
                             f"`(proven: …)` names head(s) {', '.join(sorted(named))[:4]}, none equal to "
-                            f"the current head {rev_sha[:12]} (issue #2288). Re-measure at the live head "
-                            f"or flag it in the marker."
+                            f"the current head {rev_sha[:12]} or an ancestor of it "
+                            f"(#2288/#3108). Re-measure at the live head or flag it in the marker."
                         ),
                         "where": f"#{issue}",
                     })

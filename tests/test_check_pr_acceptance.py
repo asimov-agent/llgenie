@@ -1043,6 +1043,76 @@ def test_tick_without_a_run_citing_a_head_that_moved_is_red():
     assert any(f["key"] == "tick-stale-head-unflagged" for f in findings)
 
 
+def _git_history(tmp_path):
+    """A real tiny history: base -> head, plus an unrelated sibling off base (issue #3108)."""
+    hist = tmp_path / "history"
+    hist.mkdir()
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=hist, check=True,
+                              capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "test@example.invalid")
+    git("config", "user.name", "Test")
+    (hist / "file.txt").write_text("base\n")
+    git("add", "file.txt")
+    git("commit", "-qm", "base")
+    branch = git("rev-parse", "--abbrev-ref", "HEAD")
+    base = git("rev-parse", "HEAD")
+    (hist / "file.txt").write_text("child\n")
+    git("commit", "-qam", "child")
+    head = git("rev-parse", "HEAD")
+    git("checkout", "-qb", "sibling", base)
+    (hist / "file.txt").write_text("sibling\n")
+    git("commit", "-qam", "sibling")
+    sibling = git("rev-parse", "HEAD")
+    git("checkout", "-q", branch)
+    return hist, base, head, sibling
+
+
+def test_ancestor_proven_head_is_clean_after_a_push(tmp_path):
+    """A reviewer tick proven at an ancestor is not stale at the descendant head (#3108)."""
+    hist, base, head, _sibling = _git_history(tmp_path)
+    body = _issue(ticked=[1], total=1).replace("head=abc1234", f"head={base}")
+    findings = g.acceptance_verdict(
+        body, _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "success", base), rev_sha=head,
+        ancestor_lookup=lambda c, h: g._is_ancestor_sha(c, h, hist))
+    assert findings == [], [f["key"] for f in findings]
+
+
+def test_unrelated_proven_head_still_reds(tmp_path):
+    """The sibling commit is not an ancestor: the stale-head finding must survive (#3108)."""
+    hist, _base, head, sibling = _git_history(tmp_path)
+    body = _issue(ticked=[1], total=1).replace("head=abc1234", f"head={sibling}")
+    findings = g.acceptance_verdict(
+        body, _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "success", sibling), rev_sha=head,
+        ancestor_lookup=lambda c, h: g._is_ancestor_sha(c, h, hist))
+    assert any(f["key"] == "tick-stale-head-unflagged" and f["blocking"] for f in findings)
+
+
+def test_unresolvable_proven_head_still_reds(tmp_path):
+    """A missing object is never treated as an ancestor; an unreadable proof stays red (#3108)."""
+    hist, _base, head, _sibling = _git_history(tmp_path)
+    body = _issue(ticked=[1], total=1).replace("head=abc1234", "head=" + "f" * 40)
+    body = body.replace("run=42191377162", "rc=0")
+    findings = g.acceptance_verdict(
+        body, _pr("closes #1000"), 1000, rev_sha=head,
+        ancestor_lookup=lambda c, h: g._is_ancestor_sha(c, h, hist))
+    assert any(f["key"] == "tick-stale-head-unflagged" and f["blocking"] for f in findings)
+
+
+def test_ancestor_proof_citing_a_red_run_still_reds(tmp_path):
+    """Ancestry never launders a failed run: the live-conclusion check stays intact (#3108)."""
+    hist, base, head, _sibling = _git_history(tmp_path)
+    body = _issue(ticked=[1], total=1).replace("head=abc1234", f"head={base}")
+    findings = g.acceptance_verdict(
+        body, _pr("closes #1000"), 1000,
+        run_lookup=lambda rid: ("completed", "failure", base), rev_sha=head,
+        ancestor_lookup=lambda c, h: g._is_ancestor_sha(c, h, hist))
+    assert any(f["key"] == "tick-cites-red-run" and f["blocking"] for f in findings)
+
+
 def test_tick_at_the_measured_head_without_lookup_stays_clean():
     """Pure callers that pass no live lookup keep the old shape (unit-fixture compatibility)."""
     findings = g.acceptance_verdict(_issue(ticked=[1], total=1), _pr("closes #1000"), 1000)
