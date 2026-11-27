@@ -35,7 +35,10 @@ comment `7228976499`.
 - Workflow text at `.github/workflows/issue-bot.yml` documents the chosen contract beside the
   `cap`/`none` → `dispatch=false` decision, so the gate's own text states what it enforces.
 
-**Measured gap and repair:** the first acceptance run, `46074612197` at head `c6ef26ac9`,
+**Measured gap and repair:** the second acceptance run, `46074821179` at head `c0be1a885`,
+completed `failure` with log line `##[error]forced issue #3116 was dropped by the daily cap
+(action=cap, 3/3); refusing a green run with no vehicle (#3116)`; zero `agent/issue-3116`
+branches or PRs were created. The first acceptance run, `46074612197` at head `c6ef26ac9`, had
 completed `success` even though its log line 235 read `[issue-implementer] cap reached: 3/3`
 and line 236 `action=cap` with `FORCE_ISSUE=3116` in the step env. Cause: the workflow's
 checkout step pins `ref: main` (line 133), so a `workflow_dispatch` of an unmerged branch
