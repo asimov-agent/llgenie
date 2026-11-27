@@ -456,6 +456,13 @@ list is non-empty and `.github/workflows/engine-bump.yml` carries it into the PR
 dependency hard-fail does not abort the bump: the pin still moves, the PR still opens, and CI
 goes red until a person fixes the skill.
 
+Before the lane pushes, `.github/workflows/engine-bump.yml` restamps the bump commit's own
+acceptance block through the same composer the PR body used (`make engine-bump-commit-restamp`,
+`scripts/engine_bump_restamp.py`): the subject and every non-acceptance paragraph survive
+byte-for-byte, and the commit is amended in place only when the text changed. The commit proof
+cites the run id rather than a sha, because a self-amending commit cannot name its own final
+sha (issue #3076).
+
 The derive proves the params **build**; it cannot prove they are **right** for this engine
 version and this arch, because the extractors are structural (CMake options, renames,
 recipe `-D` flags, toolchain pins). That gap is closed by a documentation review leg that
@@ -844,6 +851,12 @@ tuple byte-equal to the 51-line recipe it replaced (issue #2675, #800 criterion 
 `ci-unit` is a one-line wrapper, `--dry-run` prints the plan, and
 `tests/test_ci_unit_stage.py` pins the order.
 
+`.github/workflows/ci-hf-live.yml` files a named trend drift from its own handoff:
+`build/trend-staleness-drift.json` names the cells, `make trend-staleness-issue` files the
+refresh issue from those names rather than re-reading live trending, and a filing failure is
+re-raised as exit 3 instead of the unreadable exit 2 that had already named the drift
+(issues #3057, #3079).
+
 The unit gate no longer races its own pipeline (issue #672). `tests/test_ci_publish_order.py`
 resolves the install plan and asks GHCR whether each cpu tag exists, which is true on `main`
 but false by construction on an engine-bump PR — the tag it resolves is published by the
@@ -1156,7 +1169,10 @@ The de-clocked bots were moved to dispatch-only by #2701 and classified as such 
 group, an owner/collaborator guard before any secret is read, and a transcript redacted by
 `scripts/scrub_log.py` before any of it prints. No bot merges: the bots move branches,
 comment and open PRs, and `.github/workflows/auto-merge.yml` is what lands a green,
-conflict-free one (a reviewer holds a PR with the `do-not-merge` label). A bot's run inputs
+conflict-free one (a reviewer holds a PR with the `do-not-merge` label). Since #3084/#3085
+an approval is no longer a precondition for landing (AGENTS.md rule 7): the planner never
+hand-merges and never pushes to `main`, and `REVIEW_REQUIRED` is not a human gate to wait on.
+A bot's run inputs
 written at the repo root — `issue.md`, `triage.md`, `refine-in.md`, `refine.md`,
 `comment.md`, `pr-body.md`, the engine-bump review's `params-review-in.md` /
 `params-review.md` / `params-review-section.md` (plus the captured `hermes-run.log`) — are
@@ -1179,7 +1195,7 @@ in the git-ignored `security-reports/`.
 | `security-bot.yml` | `9 5 * * *` | turns ONE `auto-fixable` vulnerability issue into a green PR (`make security-bot`), on a labelled issue or the daily schedule: the pin is parsed out of the issue body, the edit lands on the one file that owns it, `make lint check-wiring check-docs check-security-scan` must pass before the push, and a finding it cannot place (a container advisory, a package pinned nowhere) becomes a comment instead of a guessed PR (issue #717) |
 | `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, its README and its model contract (`data/model_contract.json` + `MODEL_CONTRACT.md`), validates every engine skill with `ALLOW_NEW_ENGINES=1` so a store that first names an engine llgenie does not ship is CARRIED rather than fatal (issue #683), opens one tracking issue per new engine (`make spawn-engine-skill-issues`), states what the store changed in ONE issue even when a gate reds (`make sync-change-issue`, `scripts/registry_change_issue.py`, issue #704), regenerates the derived tables and opens a PR; `ci-unit`'s `make check-engine-skill-gap` keeps that PR red until each engine ships a skill or gets a dated decision. The spawn step runs with `always() && steps.diff.outputs.changed` and re-checks the store diff inside its own recipe before `make`, because the store that names a new unskilled engine is exactly the store whose check step reds and a `success()`-gated spawn suppressed the one work item that explains how to un-red it (issue #758); the PR step keeps its change-only condition, so a file whose checks did not pass is never pushed |
 | `registry-sync-review.yml` | `—` | Dispatch-only (`workflow_dispatch` only; clock off, #2701): reviews a **green** sync PR into ONE work item (issue #709): `make registry-review-brief` checks out the sync PR's head and, offline, decides `action=review|skip` from the PR's own check buckets and renders the VRAM selection table — per `(arch, vram, ram)`, the models the trend list shows and the server `rank_engines()` puts first with its t/s, with `slower-than-class` / `no-engine` / `unmeasured` / `empty-tier` findings. Only on `review` does it build the agent image, prove the shell keys and run the `registry-sync-review` leg (`make registry-sync-review` -> `registry-review.md`), then `make registry-review-publish` files ONE issue labelled `agent:implement` keyed by the store's `generated_utc`; a manual run with no green PR costs nothing |
-| `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release (carrying the dependency delta's `DEPS` line and any hard-fail into the PR body), then reviews the derived build params against that engine's own documentation at the new pin (`make engine-params-review-brief` -> `make engine-params-review` -> `make engine-params-review-apply`) and appends the review section to the PR body; the review is `continue-on-error`, so a failed or empty review still opens the PR and says so (issues #583, #186) |
+| `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release (carrying the dependency delta's `DEPS` line and any hard-fail into the PR body), then reviews the derived build params against that engine's own documentation at the new pin (`make engine-params-review-brief` -> `make engine-params-review` -> `make engine-params-review-apply`) and appends the review section to the PR body; the review is `continue-on-error`, so a failed or empty review still opens the PR and says so (issues #583, #186); before the push it restamps the COMMIT acceptance block through the same composer (`make engine-bump-commit-restamp`, issue #3076) |
 | `engine-bump-rebase.yml` | `41 5 * * *` | keeps the engine-bump PRs current |
 | `semgrep-rules-refresh.yml` | `17 6 15 * *` | re-resolves the committed semgrep rules pack from upstream `p/default` through the pinned scanner image, rewrites `containers/scanners/semgrep/rules/default.yml` + re-stamps `digests.json`, and opens a `chore/semgrep-rules-refresh` re-pin PR only when the pack changed (`make semgrep-rules-refresh`, `scripts/semgrep_rules.py`; issue #2283 criterion 2) — never merges, never touched by a PR or push (issue #738) |
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` AND classifies the run-level ghost-queue squat once per episode — orphan-queued runs with no open PR and a deleted head branch, and `in_progress` runs whose job records have all concluded (read as job expiry, #1889) — into ONE deduped issue keyed on the sorted run-id set (`scripts/queued_run_alarm.py`, issue #2656); the alarm reports the squat, it never cancels a run it names (cancellation is the owner's explicit word) |
@@ -1192,10 +1208,14 @@ The on-demand engine sweep (`.github/workflows/engine-build.yml`) sits outside t
 is a maintainer dispatch, not a bot, and it never merges, never runs on a schedule and never
 publishes an image it has not verified.
 
-Bots run inside the pinned agent image (`containers/agent`), call the model pinned once in
-`scripts/agent_model_pin.py` (alias `nous-deepseek`,
-`deepseek/deepseek-v4-flash-0731`) and are covered by
-`tests/test_bot_pipeline_isolation.py` (no shared cron slot, no shared concurrency group).
+Bots run inside the pinned agent image (`containers/agent`), call the model chain whose one
+home is `agents/hermes-base-config.yaml` and which `scripts/agent_model_pin.py` referees
+(Nous free models first — `meituan/longcat-2.5:free` default — with the paid
+`deepseek/deepseek-v4-flash-0731` last). A repeated chain id is admitted only when
+`model.documented_duplicate_issue` names it (#3026), and a catalog-absent member is
+informational only when `model.catalog_known_absent` carries a tracked issue; every other
+repeat or absence reds. Bots are covered by `tests/test_bot_pipeline_isolation.py` (no
+shared cron slot, no shared concurrency group).
 
 Each leg's contract is a Hermes **project skill** (issue #577), not an inline rulebook:
 `.hermes/skills/<name>/SKILL.md` — `issue-triage`, `issue-implement`, `issue-refiner`,
