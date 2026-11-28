@@ -412,6 +412,16 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
         if (detail.get("state") or "").strip().lower() != "open":
             print(f"[issue-implementer] forced issue #{force_issue} is '{detail.get('state')}', not open")
             return {"action": "none", "count": n, "issue": None}
+        # Issue #3121: a `blocked` issue is not dispatchable even by an owner force. Refuse it
+        # BEFORE the claim/branch is written, and name the signal in the workflow's `action=` line
+        # so the run reports `action=blocked` instead of spending a cap slot on a no-op.
+        labels = detail.get("labels") or []
+        names = {(lab.get("name") or "").strip().lower() for lab in labels if isinstance(lab, dict)}
+        if "blocked" in names:
+            msg = (f"forced issue #{force_issue} carries the `blocked` label: refusing dispatch "
+                   "before claiming it (issue #3121)")
+            print(f"[issue-implementer] {msg}")
+            return {"action": "blocked", "count": n, "issue": None, "reason": "blocked-label"}
         # Issue #2671: even a pin lands on a collision. A lane already owns this issue's
         # `agent/issue-<n>…` branch; refusing here costs the run nothing, while a pinned pick
         # burns the full implement leg and dies at push like the #744 dispatches did.

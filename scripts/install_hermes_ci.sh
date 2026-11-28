@@ -103,3 +103,15 @@ HERMES_SKILLS_DIR="${HERMES_SKILLS_DIR:-/repo/.hermes/skills}"
 HERMES_SKILLS_HOME="${HERMES_HOME:-$HOME/.hermes}"
 python3 /usr/local/bin/hermes_skills_register.py --home "$HERMES_SKILLS_HOME" --dir "$HERMES_SKILLS_DIR"
 python3 /usr/local/bin/hermes_skills_register.py --home "$HERMES_SKILLS_HOME" --dir "$HERMES_SKILLS_DIR" --check
+
+# A lane leg runs as `hermes -p <lane> ...`, which resolves skills from that PROFILE's config, not
+# the global home: the global registration above is invisible to it (issue #3121 — issue-bot's
+# `-s issue-triage,bot-unattended -p llgenie-planner` died with `unknown_skill` while the global
+# config listed /repo/.hermes/skills). Register the checkout once in EVERY installed lane profile
+# and read each one back, so a missing profile registration fails the BUILD, not a bot run.
+for profile_config in "$HERMES_SKILLS_HOME"/profiles/*/config.yaml; do
+  [ -f "$profile_config" ] || continue
+  profile_home="$(dirname "$profile_config")"
+  python3 /usr/local/bin/hermes_skills_register.py --home "$profile_home" --dir "$HERMES_SKILLS_DIR"
+  python3 /usr/local/bin/hermes_skills_register.py --home "$profile_home" --dir "$HERMES_SKILLS_DIR" --check
+done
