@@ -1,0 +1,1 @@
+| 2026-11-27 | audit dispatches must name the exact command beside every count and quote no number that command did not produce at that sha in that moment; cached counts from an earlier sha are labelled stale or re-measured (#3120, tightening fleet rule 15 #873) | [2026-11-27-unmeasured-dispatch-counts-3120.md](agent-wiki/2026-11-27-unmeasured-dispatch-counts-3120.md) | #3120 |
