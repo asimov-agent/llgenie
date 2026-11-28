@@ -98,6 +98,57 @@ def test_every_test_file_in_the_real_tree_is_in_the_suite_or_recorded():
     assert ut.load_roster(REPO)["decided_utc"]
 
 
+def test_heartbeat_cadence_is_bounded_and_overridable_for_replay(monkeypatch):
+    """#3128: 5 minutes by default; short, valid overrides for a replay; junk never disables it."""
+    monkeypatch.delenv(ut.HEARTBEAT_ENV, raising=False)
+    assert ut.heartbeat_interval() == 300
+    monkeypatch.setenv(ut.HEARTBEAT_ENV, "1")
+    assert ut.heartbeat_interval() == 1
+    monkeypatch.setenv(ut.HEARTBEAT_ENV, "0")
+    assert ut.heartbeat_interval() == 1  # bounded below: a zero interval cannot spin
+    monkeypatch.setenv(ut.HEARTBEAT_ENV, "not-a-number")
+    assert ut.heartbeat_interval() == 300  # fail safe to the documented cadence
+
+
+def test_long_pytest_heartbeats_with_inherited_stdio_and_keeps_its_exit_code(monkeypatch, capsys):
+    """#3128: a 24-minute pytest phase shows dated progress lines, not a frozen run."""
+    class FakeProc:
+        pid = 4242
+        waits = 0
+
+        def wait(self, timeout=None):
+            self.waits += 1
+            if self.waits <= 3:
+                raise ut.subprocess.TimeoutExpired(cmd=["python", "-m", "pytest"],
+                                                   timeout=timeout or 1)
+            return 7
+
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_popen(args, **kwargs):
+        calls.append((list(args), kwargs))
+        return FakeProc()
+
+    monkeypatch.setattr(ut.subprocess, "Popen", fake_popen)
+    rc = ut.run_with_heartbeat(["python", "-m", "pytest"], interval=1)
+    out = capsys.readouterr().out.splitlines()
+    heartbeats = [line for line in out if "heartbeat" in line]
+    assert rc == 7  # child's own exit code survives the polling loop
+    assert calls == [(["python", "-m", "pytest"], {})]  # stdio inherited, not captured
+    assert len(heartbeats) == 3
+    assert all(line.startswith("[unit-suite] heartbeat +") and
+               "pytest still running (pid 4242)" in line and
+               "progressing, not wedged" in line for line in heartbeats)
+    assert "[unit-suite] heartbeat +0s (0:00:00)" in heartbeats[0]
+
+
+def test_the_job_ceiling_is_untouched_by_the_progress_signal():
+    """#3128: a heartbeat is a signal, not a change to the 120-minute hang ceiling."""
+    src = (REPO / ".github" / "workflows" / "pipeline.yml").read_text()
+    assert src.count("timeout-minutes: 120") >= 2  # linux/unit and macos/unit keep their ceiling
+    assert "UNIT_HEARTBEAT_SECONDS" not in src  # no workflow-level switch to weaken it there
+
+
 def test_the_cli_lists_the_selection_and_the_exclusions():
     """`make test-unit` prints this before pytest runs, so the gate is readable."""
 
