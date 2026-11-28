@@ -6,12 +6,12 @@ Branch `agent/issue-3124-bot-outcome-backstop`, cut from freshly fetched `origin
 
 - `scripts/check_bot_outcome.py verify-changed-path` exits non-zero when there is no durable changed artifact: the post-head equals the pre-head, no `agent/issue-<n>-*` branch on origin matches the issue, and no PR names it. An unrelated issue branch is not evidence.
 - An empty PR/issue body and a session that was never created are vacuous and count as no changed path, even when a head moved.
-- `make verify-bot-outcome` is the shared seam; every bot outcome step that writes a `bot-done … fixed` marker calls it BEFORE that step (subset assertion in tests, so a new bot inherits the guard). The helper only adds a failure mode; no existing gate was weakened.
+- `make verify-bot-outcome` is the shared seam; every bot outcome step that can write a `bot-done … fixed` marker passes through the guard (subset assertion in tests, so a new bot inherits it). The guard feeds the helper a **measured** signal — diff output, pre/post head, rebase count or routed PR/issue — never a hard-coded `true`. `security-bot` measures the head around the step that opens its PR; every other bot runs the guard before the marker. The helper only adds a failure mode; no existing gate was weakened.
 - Root causes #3121, #3123 and #3120 stay with their owners; this is the shared backstop they will call.
 
 ## Verification
 
-`pytest tests/test_check_bot_outcome.py -q` (8 passed), `make check-workflows`, `make openspec-validate NAME=bot-outcome-changed-path-3124`, `make -s check-docs`.
+`pytest tests/test_check_bot_outcome.py -q` (9 passed), `make check-workflows`, `make openspec-validate NAME=bot-outcome-changed-path-3124`, `make -s check-docs`.
 
 ## Not covered
 
