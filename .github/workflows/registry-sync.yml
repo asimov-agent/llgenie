@@ -188,6 +188,18 @@ jobs:
             exit 0
           fi
           make spawn-engine-skill-issues REPO="${{ github.repository }}"
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          BOT_OUTCOME_BOT: registry-sync
+          BOT_OUTCOME_ISSUE: '105'
+          BOT_OUTCOME_BRANCH: chore/registry-sync
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
+
       - name: Open / update the sync PR
         if: steps.diff.outputs.changed
         env:

@@ -346,6 +346,20 @@ jobs:
           make bot-stamp-body BODY=/tmp/pr-body.md
           make bot-body-write PR="$NUM" REPO="${{ github.repository }}" NEW=/tmp/pr-body.md
 
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        if: steps.pr.outputs.number != '' && steps.push.outputs.pushed == 'true'
+        env:
+          BOT_OUTCOME_BOT: fix-bot
+          BOT_OUTCOME_ISSUE: ${{ steps.pr.outputs.number }}
+          BOT_OUTCOME_PR: ${{ steps.pr.outputs.number }}
+          BOT_OUTCOME_PRE_HEAD: ${{ steps.prehead.outputs.head }}
+          BOT_OUTCOME_POST_HEAD: ${{ steps.posthead.outputs.head }}
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
+
       - name: Comment the outcome on the PR
         if: always() && steps.pr.outputs.number != ''
         env:

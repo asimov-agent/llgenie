@@ -310,6 +310,19 @@ jobs:
           git push -u origin "$BRANCH"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        if: steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
+        env:
+          BOT_OUTCOME_BOT: issue-bot
+          BOT_OUTCOME_ISSUE: ${{ steps.dispatch.outputs.issue }}
+          BOT_OUTCOME_BRANCH: ${{ steps.dispatch.outputs.branch }}
+          BOT_OUTCOME_PR_BODY_FILE: pr-body.md
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
+
       - name: Open the PR (never merged; closes the issue)
         id: pr
         if: steps.push.outputs.pushed == 'true'

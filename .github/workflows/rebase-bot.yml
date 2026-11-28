@@ -260,6 +260,18 @@ jobs:
         uses: ./.github/actions/agent-leg
         with:
           phase: upload
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        if: steps.drain.outputs.rebased != '' && steps.drain.outputs.rebased != '0'
+        env:
+          BOT_OUTCOME_BOT: rebase-bot
+          BOT_OUTCOME_ISSUE: ${{ steps.drain.outputs.picked }}
+          BOT_OUTCOME_PR: ${{ steps.drain.outputs.pr }}
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
+
       - name: Report
         if: always()
         run: |

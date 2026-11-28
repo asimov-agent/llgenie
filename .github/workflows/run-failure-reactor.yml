@@ -111,6 +111,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Route the failed run to a fix or a deduped issue
+        id: react
         env:
           # One credential for every written (issue #412): `github.token`, the repository-scoped
           # token this job's own `permissions:` block already grants the writes for. It posts the
@@ -125,6 +126,18 @@ jobs:
         run: |
           set -euo pipefail
           make run-failure-reactor REPO="$REPO" RUN_ID="$RUN_ID"
+
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        if: steps.react.outcome == 'success'
+        env:
+          BOT_OUTCOME_BOT: run-failure-reactor
+          BOT_OUTCOME_ISSUE: ${{ steps.react.outputs.issue }}
+          BOT_OUTCOME_PR: ${{ steps.react.outputs.pr }}
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
 
       - name: Report
         if: always()

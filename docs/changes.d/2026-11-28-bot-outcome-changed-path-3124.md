@@ -1,0 +1,1 @@
+| 2026-11-28 | bot outcomes need a durable changed path (#3124): `verify-bot-outcome` fails when the head did not move, no matching `agent/issue-<n>-*` branch exists and no PR names the issue; an empty body or a session that never ran is vacuous | [2026-11-28-bot-outcome-changed-path-3124.md](agent-wiki/2026-11-28-bot-outcome-changed-path-3124.md) | #3124 |

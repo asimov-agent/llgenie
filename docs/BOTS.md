@@ -361,6 +361,10 @@ prints the table without touching the page. Membership is decided by
 what the PROSE of this page names, never by the table itself; the render and the check call one
 generator function (`scripts/check_docs.py::bots_table`).
 
+`make verify-bot-outcome` is the shared bot-outcome backstop (issue #3124): every outcome step
+that would write a success/fixed marker calls it first, and a run with no durable changed path
+ends non-success instead of reporting a fix.
+
 <!-- bots-targets:begin -->
 | target | what it does (the Makefile's `##` help line) |
 |---|---|
@@ -496,6 +500,7 @@ generator function (`scripts/check_docs.py::bots_table`).
 | `make test-unit` | Hermetic unit tests (containerized) — the suite is DISCOVERED, not enumerated: scripts/unit_tests.py selects every tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json (issue #393) |
 | `make uninstall` | Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-* start scripts + llama-server shim; stop engine containers (PURGE_IMAGES=1 also removes the engine images). Keeps venv, models, repo, source trees. |
 | `make verdict-roster` | Print every workflow that can post a check-run at a PR head, the set `ci-verdict` judges, the difference, and the roster findings — a SUBSET check (`judged <= posters`), never equality (issue #2116) |
+| `make verify-bot-outcome` | Shared bot-outcome backstop (#3124): fail a success/fixed marker when there is no durable changed path (moved head, agent/issue-<n>-* branch on origin, or PR naming the issue); an empty PR/issue body or a session that was never created is vacuous. Env: BOT_OUTCOME_BOT/ISSUE/PR/PRE_HEAD/POST_HEAD/BRANCH/HEAD/PR_BODY_FILE/ISSUE_BODY_FILE/SESSION_CREATED/CHANGED/REPO |
 | `make verify-closure` | Prove a merged PR closed what its body claims: prints every closing reference and its state, and fails naming an issue that is still OPEN (PR= REPO=) |
 | `make web-coverage` | Which URLs a bot run depends on, and do they resolve (a fixture list, or ISSUE_FILE=); non-zero on a dead one — no model call, no key |
 | `make wiring-report` | Show how every test/script is wired (which make target, and whether CI runs it) and the recorded host-only exceptions |

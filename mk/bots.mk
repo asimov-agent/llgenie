@@ -19,6 +19,9 @@ bot-body-write: ## Write NEW=<pr body file> onto PR=<n> ONLY if it preserves eve
 	@test -n "$(PR)" -a -n "$(NEW)" || { echo "Usage: make bot-body-write PR=<n> NEW=<body file> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/pr_body_write.py --repo "$(if $(REPO),$(REPO),$(GH_REPO))" --pr "$(PR)" --new "$(NEW)"
 
+verify-bot-outcome: ## Shared bot-outcome backstop (#3124): fail a success/fixed marker when there is no durable changed path (moved head, agent/issue-<n>-* branch on origin, or PR naming the issue); an empty PR/issue body or a session that was never created is vacuous. Env: BOT_OUTCOME_BOT/ISSUE/PR/PRE_HEAD/POST_HEAD/BRANCH/HEAD/PR_BODY_FILE/ISSUE_BODY_FILE/SESSION_CREATED/CHANGED/REPO
+	python3 scripts/check_bot_outcome.py verify-changed-path
+
 check-tick-prompt: ## Fail when the live orchestrator cron prompt diverges from the versioned copy under agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md (issue #2159) — host-only: a CI runner has no live jobs.json; exit 0 identical, 1 diverged, 2 a read/missing failure (LIVE=; VERSIONED=), HOST-ONLY
 	@python3 scripts/check_tick_prompt.py $(if $(LIVE),--live "$(LIVE)",) $(if $(VERSIONED),--versioned "$(VERSIONED)",)
 

@@ -218,6 +218,18 @@ jobs:
       - name: make test-engine-bump-live (pinned TensorFold release archive, after the new params)
         if: matrix.id == 'tensorfold'
         run: make test-engine-bump-live
+      - name: Verify a durable changed path before any success marker (issue #3124)
+        id: verify-changed-path
+        env:
+          BOT_OUTCOME_BOT: engine-bump
+          BOT_OUTCOME_ISSUE: ${{ matrix.id }}
+          BOT_OUTCOME_BRANCH: chore/engine-bump-${{ matrix.id }}
+          BOT_OUTCOME_HEAD: ${{ matrix.new_sha }}
+          BOT_OUTCOME_SESSION_CREATED: 'true'
+          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_REPO: ${{ github.repository }}
+        run: make verify-bot-outcome
+
       - name: Open / update the bump PR
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
