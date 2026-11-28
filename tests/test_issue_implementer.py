@@ -380,6 +380,28 @@ def test_force_issue_that_is_closed_does_not_dispatch(tmp_path):
     assert not [c for c in _calls(log) if c[:2] == ["issue", "comment"]]
 
 
+def test_forced_issue_at_the_cap_fails_loudly_naming_issue_and_cap(tmp_path, capsys):
+    """Issue #3116 contract (b): at 3/3 a forced call must NOT return action=cap/issue=None
+    with a green run. It exits nonzero with an error naming BOTH the forced issue and the cap,
+    and creates no vehicle; the automatic branch's `action=cap` (separate test) is unchanged."""
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [1, 2, 3],
+        "labeled": [{"number": 11, "title": "Fix the thing", "createdAt": "2026-10-14T00:00:00Z"}],
+        "view": {"number": 99, "title": "The forced issue", "body": "state=open", "state": "OPEN"}})
+    with pytest.raises(SystemExit) as exc:
+        ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    today="2026-10-14", out_path=tmp_path / "issue.md", force_issue=99)
+    assert exc.value.code != 0
+    out = capsys.readouterr().out
+    assert "::error::forced issue #99 was NOT dispatched" in out
+    assert "daily cap is reached (3/3)" in out
+    # Loud failure, no silent green and no vehicle: no issue read, no claim, no issue.md.
+    assert not [c for c in _calls(log) if c[:2] in (["issue", "view"], ["issue", "list"],
+                                                   ["issue", "comment"], ["pr", "create"])]
+    assert not (tmp_path / "issue.md").exists()
+    assert not hasattr(ii, "forced_cap_bypass")
+
+
 def test_the_dispatcher_and_tests_are_wired():
     """A new script/test must be reachable from make, never dead (AGENTS.md wiring rule)."""
     mk = makefiles_text()

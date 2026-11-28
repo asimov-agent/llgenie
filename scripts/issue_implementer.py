@@ -386,10 +386,20 @@ def engine_scaffold_line(title: str, out_dir: Path | None = None) -> str:
 
 def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None = None,
              out_path: Path = Path("issue.md"), force_issue: int | None = None) -> dict:
-    """Apply the cap, pick ONE issue, claim it, and emit the branch + issue.md."""
+    """Pick ONE issue, claim it, and emit the branch + issue.md.
+
+    The 3/day cap applies to automatic picking. An explicit `force_issue` that arrives at the
+    cap is NOT silently dropped: it exits nonzero with an error naming the forced issue and the
+    cap, so the workflow fails loudly instead of reporting success with no vehicle (issue #3116).
+    """
     d = today or _today()
     n = count(gh, repo, bot, d)
     if n >= MAX_PER_DAY:
+        if force_issue is not None:
+            msg = (f"forced issue #{force_issue} was NOT dispatched: the daily cap is reached "
+                   f"({n}/{MAX_PER_DAY}); an explicit owner dispatch must not be silently dropped")
+            print(f"::error::{msg}")
+            raise SystemExit(msg)
         print(f"[issue-implementer] cap reached: {n}/{MAX_PER_DAY} today, next issue tomorrow")
         return {"action": "cap", "count": n, "issue": None}
 
