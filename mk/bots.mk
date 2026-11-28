@@ -221,6 +221,7 @@ fleet-architecture-publish: ## File ONE deduped refined issue from the suggestio
 	python3 scripts/fleet_architecture.py publish --suggestions "$(FLEET_SUGGEST)" --repo "$(GH_REPO)" --stamp "$(STAMP)" $(if $(DRY),--dry,)
 
 .PHONY: fleet-architecture-brief fleet-architecture-suggest _fleet-architecture-suggest fleet-architecture-publish
+.PHONY: verify-bot-outcome
 
 audit-ticks: ## Re-measure the acceptance-tick corpus over all closed issues; exit 0 only when zero unsuperseded stale ticks remain (issue #2631)
 	python3 scripts/audit_acceptance_ticks.py audit --repo "$(GH_REPO)" --roster "$(AUDIT_OUT)/roster.json"
