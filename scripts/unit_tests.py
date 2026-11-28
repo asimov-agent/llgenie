@@ -41,9 +41,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import time
+from datetime import timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -52,6 +55,13 @@ REPO = Path(__file__).resolve().parent.parent
 ROSTER = "tests/fixtures/unit-suite.json"
 #: What discovery covers: every tracked test module, by name, in the tree.
 TEST_GLOB = "tests/test_*.py"
+#: The `pytest` phase can legitimately run ~24 minutes in one step (issue #3128, run
+#: 46142262014/job 140970673262). A monitor reads that silence as a hang: emit a timestamped
+#: line every 5 minutes so progress is visible in the job log WITHOUT waiting for a step
+#: boundary. This is a progress signal only — it does not add, shorten or weaken the job's
+#: 120-minute timeout in `.github/workflows/pipeline.yml`.
+HEARTBEAT_SECONDS = 300
+HEARTBEAT_ENV = "UNIT_HEARTBEAT_SECONDS"
 #: The file the roster's `target` entries are resolved against (`<target>:` + its recipe).
 MAKEFILE = "Makefile"
 
@@ -316,6 +326,37 @@ def report(root: str | Path | None = None) -> str:
     return "\n".join(lines)
 
 
+def heartbeat_interval() -> int:
+    """The bounded cadence for progress lines; tests shorten it via the env override."""
+    raw = os.environ.get(HEARTBEAT_ENV)
+    try:
+        value = HEARTBEAT_SECONDS if raw is None else int(raw)
+    except (TypeError, ValueError):
+        value = HEARTBEAT_SECONDS
+    return max(1, value)
+
+
+def run_with_heartbeat(args: list[str], interval: int | None = None) -> int:
+    """Run pytest with inherited stdio, emitting a timestamped progress line each interval.
+
+    The child owns the terminal, so its own output is untouched; the parent only polls
+    `Popen.wait(timeout=...)`, which cannot lose the child's exit code. A hung pytest keeps
+    producing heartbeat lines with a growing elapsed time, so a monitor can tell a slow-but-
+    progressing job from a wedged one from the job log alone (issue #3128).
+    """
+    seconds = heartbeat_interval() if interval is None else max(1, interval)
+    started = time.monotonic()
+    proc = subprocess.Popen(args)  # proc-allow: inherited-stdio child with polled heartbeat; exit code returned by wait() (#3128, proc seam tracked under #797)
+    while True:
+        try:
+            return proc.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            elapsed = int(time.monotonic() - started)
+            print(f"[unit-suite] heartbeat +{elapsed}s ({timedelta(seconds=elapsed)}) "
+                  f"pytest still running (pid {proc.pid}) — progressing, not wedged",
+                  flush=True)
+
+
 def run(root: str | Path | None = None, python: str | None = None,
         group: str | None = None, marker: str | None = None) -> int:
     """Check the roster, then exec pytest on the discovered suite (or, with `group`, on exactly
@@ -336,7 +377,7 @@ def run(root: str | Path | None = None, python: str | None = None,
     if group:
         print(f"[unit-suite] group {group}: {' '.join(select_group(root, group))}")
     print(f"[unit-suite] {' '.join(args)}", flush=True)
-    return subprocess.call(args)
+    return run_with_heartbeat(args)
 
 
 def main(argv_: list[str] | None = None) -> int:
