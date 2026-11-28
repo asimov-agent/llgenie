@@ -13,7 +13,7 @@ the shared bases were the one seam that did not.
 
 - New `scripts/engine_skills.py::base_cache_ref(backend)` derives the buildx layer-cache ref from
   the **same content hash** `base_tag` already carries —
-  `llgenie/base-<backend>:buildcache-<sha256(rendered base Dockerfile)[:10]>` — and `build_base`
+  `llgenie/base-<backend>:<sha256(rendered base Dockerfile)[:10]>-buildcache` — and `build_base`
   passes that ref to `_buildx` instead of the fixed `:buildcache`.
 - Because the read and write share one ref, a base Dockerfile change starts a fresh cache namespace
   automatically (fresh key → buildx seeds it); an unchanged base keeps it warm for the next replay.

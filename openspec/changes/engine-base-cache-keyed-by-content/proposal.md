@@ -18,7 +18,7 @@ The engine cells themselves already key their cache by variant (`buildcache-<var
 ## What changes
 
 `scripts/engine_skills.py::base_cache_ref(backend)` derives the buildx layer-cache ref from the
-**same content hash** `base_tag` already carries — `llgenie/base-<backend>:buildcache-<sha256 of
+**same content hash** `base_tag` already carries, as `<tag>-buildcache` — `llgenie/base-<backend>:<sha256 of
 the rendered Dockerfile>[:10]` — and `build_base` passes that ref to `_buildx` instead of the fixed
 `:buildcache`. Because the ref is shared by the cache READ and WRITE, a base dockerfile change
 starts a new cache namespace automatically (fresh key → buildx seeds it), while an unchanged base
