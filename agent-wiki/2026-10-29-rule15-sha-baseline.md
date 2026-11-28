@@ -1,8 +1,10 @@
 # Every number is a statement about one sha (fleet rule 15, #873)
 
 The automation fetches `upstream/main` and notes the sha it branched from *before* it measures anything, and
-every line that carries a count — a baseline, a merge decision, a deferral — names the sha it was measured at.
-A number without its sha reads like a fact about time, not about one tree.
+every line that carries a count — a baseline, a merge decision, a deferral — names the sha it was measured at
+**and the exact command that produced it**. Quote no count unless that command produced it at that sha in that
+moment; a cached number from an earlier sha is either re-measured or labelled stale, never quoted as current.
+A number without its sha and its predicate reads like a fact about time, not about one tree.
 
 Why it is recorded NOW, in the merge gate's own doc: `#953`'s ratchet recorded `34/14` at the cut, and by the
 time the rebase arrived `main` measured `107/151` — a guard asserting a board its own repo had already
@@ -19,6 +21,9 @@ Operative rules for this lane:
   stale by the time you read it.
 - **Write the sha you branched from into your first comment** — a baseline or a measurement without its sha is
   accepted, quoted, and wrong about the tree by the time it is quoted.
+- **Name the command beside every count** — a dispatch that quotes `980 fragments / 980 rows` must also name
+  the command that produced them, and those numbers must have come from that command at that sha in that
+  moment. A cached count from an earlier sha is labelled stale or re-measured; never presented as current.
 - **Bookend every act**: one comment when work starts (issue id, branch, the main sha, what "done" means) and
   one when it finishes (head sha, the command or run id that proves it, and anything left open). A start
   comment with no finish comment is an abandoned claim; a finish comment with no start comment has no baseline
