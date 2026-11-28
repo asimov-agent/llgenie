@@ -362,6 +362,38 @@ jobs:
           } > comment.md
           gh issue comment "$ISSUE" --body-file comment.md
 
+      # Issue #3121: the triage leg used to swallow its rc and the job went green with no verdict,
+      # no branch and no PR. Refuse that outcome here, AFTER the durable comment above has been
+      # written, so a no-vehicle run can never be reported as a successful hand-off.
+      - name: Refuse a green run when the triage/agent leg reached no vehicle
+        if: always() && steps.dispatch.outputs.dispatch == 'true'
+        env:
+          TRIAGE_RC: ${{ steps.triage.outputs.rc }}
+          IMPL_RC: ${{ steps.impl.outputs.rc }}
+          VERDICT: ${{ steps.verdict.outputs.verdict }}
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          PUSHED: ${{ steps.push.outputs.pushed }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          verdict="${VERDICT:-none}"
+          if [ "${TRIAGE_RC:-?}" != "0" ]; then
+            echo "::error::triage leg failed (rc=${TRIAGE_RC}) — refusing a green run with no verdict (issue #3121)"
+            exit 1
+          fi
+          case "$verdict" in
+            refine|close|hold) exit 0 ;;
+            implement) ;;
+            *) echo "::error::no triage verdict reached (verdict=${verdict}) — refusing a green run with no vehicle (issue #3121)"; exit 1 ;;
+          esac
+          if [ "${IMPL_RC:-?}" != "0" ]; then
+            echo "::error::implementer leg failed (rc=${IMPL_RC}) — refusing a green run with no vehicle (issue #3121)"
+            exit 1
+          fi
+          if [ "${CHANGED:-unknown}" != "true" ] || [ "${PUSHED:-false}" != "true" ] || [ -z "${PR_URL:-}" ]; then
+            echo "::error::verdict=implement but no vehicle was opened (changed=${CHANGED:-unknown} pushed=${PUSHED:-false} pr=${PR_URL:-none}) — refusing a green run (issue #3121)"
+            exit 1
+          fi
+
       - name: Name the budget when the implementation ran out or failed
         if: always() && (steps.impl.outcome == 'failure' || steps.impl.outcome == 'cancelled')
         env:

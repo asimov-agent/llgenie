@@ -402,6 +402,32 @@ def test_forced_issue_at_the_cap_fails_loudly_naming_issue_and_cap(tmp_path, cap
     assert not hasattr(ii, "forced_cap_bypass")
 
 
+def test_forced_issue_carrying_blocked_label_is_refused_before_a_vehicle(tmp_path, capsys):
+    """#3121: a `blocked` issue is not dispatchable even by an owner force. The refusal is
+    `action=blocked` with a reason, before any claim comment or issue.md is written."""
+    gh, log = _fake_gh(tmp_path, {
+        "prs": [],
+        "view": {"number": 2158, "title": "Blocked", "body": "", "state": "OPEN",
+                 "labels": [{"name": "agent:implement"}, {"name": "blocked"}]}})
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
+                    today="2026-10-14", out_path=tmp_path / "issue.md", force_issue=2158)
+    assert r["action"] == "blocked" and r["reason"] == "blocked-label" and r["issue"] is None
+    assert "carries the `blocked` label" in capsys.readouterr().out
+    assert not [c for c in _calls(log) if c[:2] in (["issue", "comment"], ["pr", "create"])]
+    assert not (tmp_path / "issue.md").exists()
+
+
+def test_workflow_refuses_a_no_vehicle_triage_leg():
+    """#3121 regression at the layer that actually failed: `unknown_skill` killed the triage
+    leg, its rc was swallowed, and the workflow still reported success. The guard must read the
+    triage rc and fail the job before a no-vehicle run can be called green."""
+    wf = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
+    assert "steps.triage.outputs.rc" in wf
+    guard = wf.split("Refuse a green run when the triage/agent leg reached no vehicle", 1)[1]
+    assert "triage leg failed" in guard and "no triage verdict reached" in guard
+    assert "no vehicle was opened" in guard and "exit 1" in guard
+
+
 def test_the_dispatcher_and_tests_are_wired():
     """A new script/test must be reachable from make, never dead (AGENTS.md wiring rule)."""
     mk = makefiles_text()
