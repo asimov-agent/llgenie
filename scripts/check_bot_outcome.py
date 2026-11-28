@@ -62,7 +62,7 @@ def _gh(*args: str, repo: str) -> str:
     env = dict(os.environ)
     env.setdefault("GH_NO_UPDATE_NOTIFIER", "1")
     try:
-        r = subprocess.run(
+        r = subprocess.run(  # proc-allow: read-only gh query for live bot-outcome changed-path signals
             [gh, *args, "--repo", repo],
             capture_output=True, text=True, env=env, timeout=30, check=False,
         )
