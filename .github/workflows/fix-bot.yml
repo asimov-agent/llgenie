@@ -249,18 +249,58 @@ jobs:
           echo "head=$(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT"
           echo "pre head: $(gh pr view "$NUM" --repo "${{ github.repository }}" --json headRefOid -q .headRefOid)"
 
+      # Issue #3123: the guard job fetches the LIVE body, but the check loop only set PR_BODY
+      # from the stale outcome step AFTER the verdict — body-dependent gates passed vacuously
+      # against an unset path and the bot posted "fixed" with the head unchanged. Fetch the
+      # body once here, BEFORE fix-loop-image, and carry the real head/base with it.
+      - name: Fetch the LIVE PR body for the check loop (#3123)
+        id: livebody
+        if: steps.pr.outputs.number != ''
+        env:
+          NUM: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          body="$(gh pr view "$NUM" --repo "$REPO" --json body -q .body 2>/dev/null || true)"
+          head="$(gh pr view "$NUM" --repo "$REPO" --json headRefOid -q .headRefOid 2>/dev/null || true)"
+          base="$(gh pr view "$NUM" --repo "$REPO" --json baseRefOid -q .baseRefOid 2>/dev/null || true)"
+          printf '%s\n' "$body" > "$GITHUB_WORKSPACE/fix-bot-pr-body.md"
+          if [ -z "$body" ] || [ -z "$head" ] || [ -z "$base" ]; then
+            echo "::error::live PR body/head/base is empty for #$NUM — body-dependent checks must not pass vacuously (issue #3123)"
+          fi
+          {
+            echo "path=$GITHUB_WORKSPACE/fix-bot-pr-body.md"
+            echo "head=$head"
+            echo "base=$base"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Run the fix loop INSIDE the agent image (check -> repair -> re-check)
         id: loop
         if: steps.pr.outputs.branch != ''
         continue-on-error: true
         env:
           AGENT_IMAGE: ${{ steps.agent.outputs.image }}
+          PR_BODY: /repo/fix-bot-pr-body.md
+          PR_HEAD: ${{ steps.livebody.outputs.head }}
+          PR_BASE: ${{ steps.livebody.outputs.base }}
         run: |
           set -o pipefail
+          # A body-dependent gate reading an empty/missing file is a vacuous pass, not a green
+          # (issue #3123). Refuse it here, before fix-loop-image can produce a "fixed" marker.
+          case "${FIX_CHECK:-}" in
+            *check-pr-commit-checkboxes*|*check-pr-acceptance*|*check-pr-hygiene*|*check-pr-closing*|*openspec-change*|*agents-line*|*sync-line*)
+              if [ ! -s "$PR_BODY" ] || [ -z "${PR_HEAD:-}" ] || [ -z "${PR_BASE:-}" ]; then
+                echo "::error::body-dependent check '$FIX_CHECK' has no live PR body/head/base — refusing a vacuous green (issue #3123)"
+                echo "exit=2" >> "$GITHUB_OUTPUT"
+                exit 2
+              fi
+              ;;
+          esac
           # The bot runs in the agent image (Hermes + git + gh + docker CLI), never on the
           # runner's whatever-is-installed. make agent-image-ref prints GHCR :latest, the
           # tag publish points at the current content hash.
-          make fix-loop-image AGENT_IMAGE="$AGENT_IMAGE" LOG=/tmp/fix-loop.log
+          make fix-loop-image AGENT_IMAGE="$AGENT_IMAGE" LOG=/tmp/fix-loop.log \
+            PR_BODY="$PR_BODY" PR_HEAD="$PR_HEAD" PR_BASE="$PR_BASE"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------- publish

@@ -75,6 +75,8 @@ issue.md
 triage.md
 refine-in.md
 refine.md
+# fix-bot's LIVE PR body, fetched before the check loop (#3123)
+fix-bot-pr-body.md
 # the engine-bump documentation review (issue #583): the brief the agent reads, its proposals,
 # and the PR-body section the apply step writes
 params-review-in.md

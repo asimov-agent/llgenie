@@ -1,0 +1,1 @@
+| 2026-11-28 | fix-bot now fetches the LIVE PR body/head/base before its check loop and refuses an empty body with `exit=2` instead of posting a false `fixed` (#3123; false greens on PR #3122 runs 46132980221 and 46133842812) | [2026-11-28-fix-bot-live-pr-body-3123.md](agent-wiki/2026-11-28-fix-bot-live-pr-body-3123.md) | #3123 |

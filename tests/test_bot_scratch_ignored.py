@@ -38,6 +38,7 @@ RUN_INPUTS = {
     "triage.md": "the triage leg's verdict (implement | refine | close)",
     "refine-in.md": "the refiner's input (issue + thread + instruction)",
     "refine.md": "the refiner's verdict",
+    "fix-bot-pr-body.md": "fix-bot's LIVE PR body, read by the check loop before fix-loop-image (#3123)",
     "comment.md": "the outcome comment posted on the issue",
     "params-review-in.md": "the engine-bump documentation review's brief (issue #583)",
     "params-review.md": "the documentation review's proposals",
