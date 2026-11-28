@@ -103,17 +103,23 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: make check-security-bot (the bot's contract with the issue roster)
         run: make check-security-bot
+      - name: Capture pre-head for the changed-path guard (issue #3124)
+        id: prehead
+        run: echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: make security-bot (one issue -> one green PR, or a comment instead)
+        id: security
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — repo constant, quoted, make-routed (issue #1595)
+        run: make security-bot SLUG="${{ github.repository }}" ${{ github.event.inputs.dry == 'true' && 'DRY=1' || '' }}
+      - name: Capture post-head for the changed-path guard (issue #3124)
+        id: posthead
+        run: echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Verify a durable changed path before any success marker (issue #3124)
         id: verify-changed-path
-        if: github.event.issue.number != ''
         env:
           BOT_OUTCOME_BOT: security-bot
           BOT_OUTCOME_ISSUE: ${{ github.event.issue.number }}
+          BOT_OUTCOME_PRE_HEAD: ${{ steps.prehead.outputs.head }}
+          BOT_OUTCOME_POST_HEAD: ${{ steps.posthead.outputs.head }}
           BOT_OUTCOME_SESSION_CREATED: 'true'
-          BOT_OUTCOME_CHANGED: 'true'
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome
-
-      - name: make security-bot (one issue -> one green PR, or a comment instead)
-        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — repo constant, quoted, make-routed (issue #1595)
-        run: make security-bot SLUG="${{ github.repository }}" ${{ github.event.inputs.dry == 'true' && 'DRY=1' || '' }}

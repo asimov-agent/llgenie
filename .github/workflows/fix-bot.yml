@@ -348,7 +348,7 @@ jobs:
 
       - name: Verify a durable changed path before any success marker (issue #3124)
         id: verify-changed-path
-        if: steps.pr.outputs.number != '' && steps.push.outputs.pushed == 'true'
+        if: steps.loop.outcome == 'success' && steps.pr.outputs.number != ''
         env:
           BOT_OUTCOME_BOT: fix-bot
           BOT_OUTCOME_ISSUE: ${{ steps.pr.outputs.number }}
@@ -356,7 +356,6 @@ jobs:
           BOT_OUTCOME_PRE_HEAD: ${{ steps.prehead.outputs.head }}
           BOT_OUTCOME_POST_HEAD: ${{ steps.posthead.outputs.head }}
           BOT_OUTCOME_SESSION_CREATED: 'true'
-          BOT_OUTCOME_CHANGED: 'true'
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome
 
@@ -369,6 +368,7 @@ jobs:
           PRE: ${{ steps.prehead.outputs.head }}
           POST: ${{ steps.posthead.outputs.head }}
           REPORT: /tmp/fix-report.txt
+          FIXED: ${{ steps.verify-changed-path.outcome == 'success' && 'yes' || 'no' }}
         run: |
           set -uo pipefail
           {
@@ -392,7 +392,7 @@ jobs:
             # RELEASE the claim (scripts/bot_claims.py, issues #279/#285): a repair that ends - green
             # or exhausted - has to say so, or the PR stays claimed for the whole TTL and the
             # rebase-bot never touches it. The claim is what the other bots read; this is its end.
-            PYTHONPATH=scripts python3 -c "import datetime as dt, bot_claims; print(bot_claims.done_comment(bot_claims.FIXER, dt.datetime.now(dt.timezone.utc), 'fixed' if '${OUTCOME}' == 'success' else 'gave-up'))"
+            PYTHONPATH=scripts python3 -c "import datetime as dt, bot_claims; print(bot_claims.done_comment(bot_claims.FIXER, dt.datetime.now(dt.timezone.utc), 'fixed' if '${FIXED:-no}' == 'yes' else 'gave-up'))"
           } > /tmp/fix-comment.md
           gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/fix-comment.md
 

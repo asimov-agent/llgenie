@@ -196,7 +196,7 @@ jobs:
           BOT_OUTCOME_ISSUE: '105'
           BOT_OUTCOME_BRANCH: chore/registry-sync
           BOT_OUTCOME_SESSION_CREATED: 'true'
-          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_CHANGED: ${{ steps.diff.outputs.changed }}
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome
 

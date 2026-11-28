@@ -134,7 +134,6 @@ jobs:
           BOT_OUTCOME_BOT: run-failure-reactor
           BOT_OUTCOME_ISSUE: ${{ steps.react.outputs.issue }}
           BOT_OUTCOME_PR: ${{ steps.react.outputs.pr }}
-          BOT_OUTCOME_CHANGED: 'true'
           BOT_OUTCOME_SESSION_CREATED: 'true'
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome

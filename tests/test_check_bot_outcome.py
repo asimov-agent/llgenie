@@ -89,15 +89,31 @@ def test_all_bot_outcome_steps_carry_the_guard_before_the_marker() -> None:
     for name in expected:
         lines = (WORKFLOWS / name).read_text(encoding="utf-8").splitlines()
         guard = next(i for i, l in enumerate(lines) if "Verify a durable changed path" in l)
-        # The guard must come before the outcome/marker step, never after it.
+        # security-bot writes its artifact (a PR) inside `make security-bot`; the guard
+        # therefore measures the head before and after that step and runs immediately
+        # after it, before any success report. Every other bot runs the guard first.
         marker = next(
             i for i, l in enumerate(lines)
             if "Open the PR" in l or "Comment the outcome" in l
             or "Open / update the" in l or "- name: Report" in l
             or "Record the sweep summary" in l
-            or l.strip() == "- name: make security-bot (one issue -> one green PR, or a comment instead)"
+            or "make security-bot (one issue -> one green PR" in l
         )
-        assert guard < marker, f"{name}: guard is after the marker step"
+        if name == "security-bot.yml":
+            assert guard > marker, f"{name}: guard must measure the head after the artifact step"
+        else:
+            assert guard < marker, f"{name}: guard is after the marker step"
+
+
+# AC3/AC4: a guard with a hard-coded changed signal can never fail on a no-op.
+# Every workflow must feed the helper a real measured signal (diff, pre/post head,
+# rebase count, routed PR/issue) instead of asserting 'true' in the YAML.
+def test_no_workflow_hardcodes_a_changed_path() -> None:
+    offenders = [
+        p.name for p in WORKFLOWS.glob("*.yml")
+        if "BOT_OUTCOME_CHANGED: 'true'" in p.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"vacuous guard signal in: {sorted(offenders)}"
 
 
 # AC4: an unrelated issue's branch is not this issue's changed path.

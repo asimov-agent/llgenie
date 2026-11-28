@@ -312,20 +312,20 @@ jobs:
 
       - name: Verify a durable changed path before any success marker (issue #3124)
         id: verify-changed-path
-        if: steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
+        if: steps.verdict.outputs.verdict == 'implement'
         env:
           BOT_OUTCOME_BOT: issue-bot
           BOT_OUTCOME_ISSUE: ${{ steps.dispatch.outputs.issue }}
           BOT_OUTCOME_BRANCH: ${{ steps.dispatch.outputs.branch }}
           BOT_OUTCOME_PR_BODY_FILE: pr-body.md
           BOT_OUTCOME_SESSION_CREATED: 'true'
-          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_CHANGED: ${{ steps.diff.outputs.changed }}
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome
 
       - name: Open the PR (never merged; closes the issue)
         id: pr
-        if: steps.push.outputs.pushed == 'true'
+        if: steps.push.outputs.pushed == 'true' && steps.verify-changed-path.outcome == 'success'
         env:
           # Two writes, two tokens (issue #430). The comments need `issues: write`, which the job's
           # own token has and `secrets.BUMP_TOKEN` does not — the earlier revision died here with

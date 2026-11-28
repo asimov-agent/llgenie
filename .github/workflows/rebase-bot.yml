@@ -267,7 +267,7 @@ jobs:
           BOT_OUTCOME_BOT: rebase-bot
           BOT_OUTCOME_ISSUE: ${{ steps.drain.outputs.picked }}
           BOT_OUTCOME_PR: ${{ steps.drain.outputs.pr }}
-          BOT_OUTCOME_CHANGED: 'true'
+          BOT_OUTCOME_CHANGED: ${{ steps.drain.outputs.rebased != '' && steps.drain.outputs.rebased != '0' }}
           BOT_OUTCOME_SESSION_CREATED: 'true'
           BOT_OUTCOME_REPO: ${{ github.repository }}
         run: make verify-bot-outcome
