@@ -159,6 +159,7 @@
       "bot_verdict",
       "bots_restore_health",
       "check_agent_model_catalog",
+      "check_bot_outcome",
       "ci_frozen_reaper",
       "ci_monitor",
       "code_review",
